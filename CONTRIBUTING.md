@@ -1,6 +1,6 @@
-# Contributing to Sterna
+# Contributing to Gridlink
 
-Thanks for your interest. Sterna is in early development; expect rapid change.
+Thanks for your interest. Gridlink is in early development; expect rapid change.
 
 ## Requirements
 
@@ -51,8 +51,9 @@ See [ARCHITECTURE.md](ARCHITECTURE.md). In short:
 - **FOSS dependencies only.** Every library must be free/open-source
   (OSI/FSF-approved, GPLv3-compatible). No proprietary or closed-source libraries,
   no Google Play Services / Firebase / GMS, no analytics or tracking SDKs, and
-  nothing that requires a non-free service to function. This keeps Sterna
-  F-Droid-eligible (build-from-source, no anti-features) and Google-free.
+  nothing that requires a non-free service to function. This keeps Gridlink
+  Google-free, and F-Droid-eligible (build-from-source, no anti-features) if it
+  is ever published there.
 - No telemetry, ever. Don't add tracking or analytics.
 
 ## License

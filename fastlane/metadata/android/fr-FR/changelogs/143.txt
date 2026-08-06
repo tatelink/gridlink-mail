@@ -1,1 +1,0 @@
-Corrige un plantage sur Android 11 et antérieur : choisir le mode de livraison « Économie de batterie » pouvait faire planter l'application à chaque démarrage jusqu'à ce que ses données soient effacées. L'économie de batterie fonctionne désormais sur ces appareils.

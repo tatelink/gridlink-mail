@@ -1,14 +1,14 @@
 # CI — self-hosted Forgejo runner
 
 Codeberg's *hosted* Actions runners are alpha and only for lightweight jobs, so
-Sterna's CI (an Android build) runs on a **self-hosted Forgejo runner**. The
+Gridlink's CI (an Android build) runs on a **self-hosted Forgejo runner**. The
 workflow is [`.forgejo/workflows/ci.yml`](../.forgejo/workflows/ci.yml): it runs
 the `:core:jmap` unit tests and assembles the debug APK on every push to `main`
 and on pull requests.
 
 ## One-time setup (on an always-on server with Docker)
 
-1. **Get a runner token.** On Codeberg: the `sterna-mail` repo → **Settings → Actions →
+1. **Get a runner token.** On Codeberg: the `gridlink-mail` repo → **Settings → Actions →
    Runners → "Create new runner"** → copy the **registration token**.
 
 2. **Start the runner** (from this `ci/` folder, copied to the server):

@@ -1,1 +1,0 @@
-Correction : le balayage « archiver » depuis le dossier Archive — ou « Tous les messages » de Gmail — désarchive désormais le message vers la boîte de réception, et le geste affiche un libellé « Désarchiver ». L'archivage des comptes de type Gmail passe par « Tous les messages » sans laisser de dossier parasite.

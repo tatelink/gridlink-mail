@@ -1,1 +1,0 @@
-Technical release: builds are now byte-for-byte reproducible (required for F-Droid verification). No functional changes.

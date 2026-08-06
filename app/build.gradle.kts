@@ -6,7 +6,7 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
-// Side-by-side test app: build any variant with -PtestApp to get `app.sterna.test`, a separate
+// Side-by-side test app: build any variant with -PtestApp to get `app.gridlink.test`, a separate
 // package that installs NEXT TO the production app instead of overwriting it (own data, own
 // launcher entry). On-device checks go through it, so production stays the Obtainium-tracked
 // install and version codes are never inflated just to reinstall.
@@ -17,11 +17,11 @@ plugins {
 val testApp = providers.gradleProperty("testApp").isPresent
 
 android {
-    namespace = "app.sterna"
+    namespace = "app.gridlink"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "app.sterna"
+        applicationId = "app.gridlink"
         minSdk = 26
         targetSdk = 36
         versionCode = 166
@@ -36,7 +36,7 @@ android {
         manifestPlaceholders["appLabel"] = "@string/app_name"
         if (testApp) {
             applicationIdSuffix = ".test"
-            manifestPlaceholders["appLabel"] = "Sterna (test)"
+            manifestPlaceholders["appLabel"] = "Gridlink (test)"
             // About row reads e.g. "1.3.13-test": tells the two apart from the inside.
             // A suffix only — versionName/versionCode themselves are never bumped for a test.
             versionNameSuffix = "-test"
@@ -74,9 +74,9 @@ android {
     // Release signing. If a git-ignored keystore.properties is present (real release
     // key), the release build is signed with it; otherwise it falls back to the local
     // debug keystore so debug builds and CI still work. keystore.properties holds:
-    //   storeFile=/absolute/path/to/sterna-release.jks
+    //   storeFile=/absolute/path/to/gridlink-release.jks
     //   storePassword=...
-    //   keyAlias=sterna
+    //   keyAlias=gridlink
     //   keyPassword=...
     val keystorePropsFile = rootProject.file("keystore.properties")
     val keystoreProps = Properties().apply {

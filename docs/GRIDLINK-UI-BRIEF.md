@@ -2,7 +2,7 @@
 
 ## What this is
 
-A native Android email client for a self-hosted Stalwart mail server over JMAP. Kotlin, Jetpack Compose, Material 3. This is a UI layer being built on top of an existing, working mail engine (a fork of Sterna Mail), so nothing here depends on inventing protocol behavior. Design the interface only.
+A native Android email client for a self-hosted Stalwart mail server over JMAP. Kotlin, Jetpack Compose, Material 3. This is a UI layer being built on top of an existing, working mail engine (a fork of Gridlink Mail), so nothing here depends on inventing protocol behavior. Design the interface only.
 
 **Single user. Single job.** A multi-unit restaurant operations director processing 80 to 150 messages a day, most of them automated reports, on a Galaxy Z Fold 7. The app's one job is to let him find the four messages that need a human response and dispatch the rest in under a minute, one-handed, often while walking.
 

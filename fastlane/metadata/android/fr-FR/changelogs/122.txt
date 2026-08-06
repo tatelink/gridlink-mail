@@ -1,1 +1,0 @@
-Corrigé : le panneau des dossiers défile désormais, pour atteindre les longues listes de dossiers et l'entrée Paramètres en dessous.

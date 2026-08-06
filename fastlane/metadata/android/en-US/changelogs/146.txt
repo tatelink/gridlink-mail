@@ -1,1 +1,0 @@
-Sterna now shows up in Android's Share sheet. Share a link or text from any app and it opens a new message with that content; share a photo or file and it comes in as an attachment.

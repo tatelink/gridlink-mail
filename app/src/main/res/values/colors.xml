@@ -1,12 +1,10 @@
 <resources>
     <!-- Pre-Compose window background, matching the Arctic (light) surface so launch
          shows the brand colour instead of a white flash. Compose drives all in-app colour. -->
-    <color name="sterna_window_background">#F7F8FA</color>
-    <!-- Splash background. Follows day/night (Codeberg #9: an always-light splash is a
-         flashbang on a dark-themed device); the night variant matches the dark window
-         background so the splash hands off seamlessly. -->
-    <color name="sterna_splash_background">#F4F6F8</color>
-    <!-- Splash tern silhouette: dark teal on the light field, soft teal (the dark-mode
-         primary) on the dark one. -->
-    <color name="sterna_splash_tern">#17414C</color>
+    <color name="gridlink_window_background">#F7F8FA</color>
+    <!-- Splash field. This is the Gridlink icon's own tile colour, not a near-match: the
+         cold start draws the launcher mark on it, so an exact match reads as the icon
+         growing into the app rather than as a second screen. Follows day/night (an
+         always-light splash is a flashbang on a dark-themed device). -->
+    <color name="gridlink_splash_background">#E9EFF7</color>
 </resources>

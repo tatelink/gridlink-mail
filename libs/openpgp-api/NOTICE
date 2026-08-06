@@ -9,9 +9,9 @@ Original project: https://github.com/open-keychain/openpgp-api
 Copyright the OpenKeychain / openpgp-api authors.
 Licensed under the Apache License, Version 2.0 (see LICENSE).
 
-Local modifications for Sterna Mail:
+Local modifications for Gridlink Mail:
   - Replaced the Thunderbird logging shim (net.thunderbird.core.logging.legacy.Log)
     with android.util.Log in OpenPgpApi.java and ParcelFileDescriptorUtil.java.
-  - Dropped UI/lifecycle helpers not used by Sterna: OpenPgpApiManager.java,
+  - Dropped UI/lifecycle helpers not used by Gridlink: OpenPgpApiManager.java,
     OpenPgpKeyPreference.java, OpenPgpIntentStarter.kt, the res/ tree, and the
-    unused IOpenPgpService.aidl (v1 interface; Sterna binds IOpenPgpService2).
+    unused IOpenPgpService.aidl (v1 interface; Gridlink binds IOpenPgpService2).

@@ -1,1 +1,0 @@
-À la lecture d'un message, le sujet complet s'affiche désormais en haut, sur autant de lignes que nécessaire, au lieu d'une seule ligne tronquée dans la barre. La barre gagne aussi un bouton Suivre (étoile), sorti du menu à trois points.

@@ -1,3 +1,0 @@
-New: a visual polish pass for a more consistent, easier-to-read look.
-
-Also: clearer icons for the Spam folder and the combined inbox, an icon next to every action in the reader's menu, gently rounded menus, and tidier button styles and wording.

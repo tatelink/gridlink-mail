@@ -1,1 +1,0 @@
-Client email privato per JMAP e IMAP/SMTP. Senza Google, senza tracciamento.

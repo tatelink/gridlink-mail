@@ -18,7 +18,7 @@
           logs a warning to say why.
 
           Set per-activity rather than on <application>, deliberately. This is a fork, the flag is
-          an app-wide behaviour change, and upstream Sterna's MainActivity has not been audited for
+          an app-wide behaviour change, and upstream Gridlink's MainActivity has not been audited for
           it. Scoped here it cannot affect anything but the gallery, and it cannot ship at all.
         -->
         <!--
@@ -30,11 +30,11 @@
           inset, which is what every field on these screens is written to consume.
         -->
         <activity
-            android:name="app.sterna.gridlink.GridlinkGalleryActivity"
+            android:name="app.gridlink.gallery.GridlinkGalleryActivity"
             android:enableOnBackInvokedCallback="true"
             android:exported="true"
             android:label="Gridlink UI"
-            android:theme="@style/Theme.Sterna"
+            android:theme="@style/Theme.Gridlink"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

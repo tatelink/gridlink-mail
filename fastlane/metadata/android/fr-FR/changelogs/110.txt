@@ -1,1 +1,0 @@
-Correction : la connexion aux serveurs JMAP derrière un reverse-proxy TLS fonctionne désormais. Lorsque le serveur est joint en https mais annonce des liens en http dans sa session (une mauvaise configuration de reverse-proxy courante), Sterna les bascule en https au lieu d'échouer avec une erreur de « communication en clair non autorisée ».

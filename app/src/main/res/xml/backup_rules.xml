@@ -6,9 +6,9 @@
   settings DataStore are never copied off the device. See PRIVACY.md.
 -->
 <full-backup-content>
-    <exclude domain="sharedpref" path="sterna_account.xml" />
-    <exclude domain="database" path="sterna.db" />
-    <exclude domain="database" path="sterna.db-wal" />
-    <exclude domain="database" path="sterna.db-shm" />
+    <exclude domain="sharedpref" path="gridlink_account.xml" />
+    <exclude domain="database" path="gridlink.db" />
+    <exclude domain="database" path="gridlink.db-wal" />
+    <exclude domain="database" path="gridlink.db-shm" />
     <exclude domain="file" path="datastore/" />
 </full-backup-content>

@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Sterna Mail</string>
+    <string name="app_name">Gridlink Mail</string>
 
     <!-- Compose -->
     <string name="compose_title_new">Nowa wiadomość</string>
@@ -58,7 +58,7 @@
     <string name="inbox_delete">Usuń</string>
     <string name="inbox_delete_forever">Usuń trwale</string>
     <string name="inbox_undo">Cofnij</string>
-    <string name="inbox_app_name">Sterna Mail</string>
+    <string name="inbox_app_name">Gridlink Mail</string>
     <string name="inbox_switch_account">Zmień konto</string>
     <string name="inbox_all_inboxes">Wszystkie skrzynki odbiorcze</string>
     <string name="inbox_all_inboxes_unread">Wszystkie skrzynki odbiorcze  (%1$d)</string>
@@ -323,7 +323,7 @@
     <string name="settings_filters_add">Dodaj regułę</string>
     <string name="settings_filters_saved">Filtry zapisane</string>
     <string name="settings_filters_untitled">Reguła bez nazwy</string>
-    <string name="settings_filters_foreign_warning">Na serwerze jest aktywny inny skrypt filtrujący; zapisanie sprawi, że aktywny stanie się skrypt Sterna Mail.</string>
+    <string name="settings_filters_foreign_warning">Na serwerze jest aktywny inny skrypt filtrujący; zapisanie sprawi, że aktywny stanie się skrypt Gridlink Mail.</string>
     <string name="settings_filters_edit_title">Edytuj regułę</string>
     <string name="settings_filter_name">Nazwa reguły</string>
     <string name="settings_filter_if">Jeżeli</string>
@@ -346,7 +346,7 @@
     <string name="settings_privacy_screen_title">Prywatność i bezpieczeństwo</string>
     <string name="settings_security_section">Bezpieczeństwo</string>
     <string name="settings_app_lock_title">Blokada aplikacji</string>
-    <string name="settings_app_lock_subtitle">Wymagaj odcisku palca, twarzy lub kodu PIN ekranu, aby otworzyć Sterna Mail.</string>
+    <string name="settings_app_lock_subtitle">Wymagaj odcisku palca, twarzy lub kodu PIN ekranu, aby otworzyć Gridlink Mail.</string>
     <string name="settings_app_lock_unavailable">Najpierw skonfiguruj odcisk palca, rozpoznawanie twarzy lub blokadę ekranu w ustawieniach urządzenia.</string>
     <string name="settings_links_section">Linki</string>
     <string name="settings_image_allowlist_section">Obrazy zdalne</string>
@@ -357,7 +357,7 @@
     <string name="settings_confirm_links_subtitle">Pokaż adres docelowy i zapytaj przed otwarciem linku z wiadomości.</string>
     <string name="settings_recipient_suggestions_section">Sugestie odbiorców</string>
     <string name="settings_suggest_contacts_title">Sugeruj z kontaktów</string>
-    <string name="settings_suggest_contacts_subtitle">Automatycznie uzupełniaj odbiorców z kontaktów tego urządzenia podczas pisania. Sterna Mail odczytuje je tylko na urządzeniu i nigdy ich nie przesyła. Po wyłączeniu nadal sugeruje osoby, do których ostatnio pisałeś.</string>
+    <string name="settings_suggest_contacts_subtitle">Automatycznie uzupełniaj odbiorców z kontaktów tego urządzenia podczas pisania. Gridlink Mail odczytuje je tylko na urządzeniu i nigdy ich nie przesyła. Po wyłączeniu nadal sugeruje osoby, do których ostatnio pisałeś.</string>
     <string name="settings_storage_screen_title">Pamięć</string>
     <string name="settings_on_device_usage_section">Użycie na urządzeniu</string>
     <string name="settings_storage_total">Łącznie</string>
@@ -446,7 +446,7 @@
     <string name="settings_pgp_choose_key">Wybierz klucz</string>
     <string name="settings_pgp_encrypt_default_title">Szyfruj domyślnie</string>
     <string name="settings_pgp_encrypt_default_subtitle">Nowe wiadomości zaczynają się zaszyfrowane, gdy każdy odbiorca ma klucz, i niezaszyfrowane, gdy któregoś brakuje</string>
-    <string name="settings_pgp_missing_help">Sterna używa aplikacji OpenKeychain do zarządzania kluczami i szyfrowania wiadomości. Zainstaluj ją, aby włączyć OpenPGP.</string>
+    <string name="settings_pgp_missing_help">Gridlink używa aplikacji OpenKeychain do zarządzania kluczami i szyfrowania wiadomości. Zainstaluj ją, aby włączyć OpenPGP.</string>
     <string name="settings_pgp_provider_required">Bez efektu: wymagany OpenKeychain</string>
     <string name="settings_pgp_install">Zainstaluj OpenKeychain</string>
     <string name="settings_pgp_error">Błąd dostawcy OpenPGP</string>
@@ -494,7 +494,7 @@
     <string name="connect_imap_smtp">IMAP / SMTP</string>
     <string name="connect_jmap_server">Serwer JMAP</string>
     <string name="connect_jmap_server_placeholder">mail.example.com</string>
-    <string name="connect_jmap_autodiscover_hint">Wystarczy, że podasz adres e-mail i hasło — Sterna Mail automatycznie znajdzie Twój serwer.</string>
+    <string name="connect_jmap_autodiscover_hint">Wystarczy, że podasz adres e-mail i hasło — Gridlink Mail automatycznie znajdzie Twój serwer.</string>
     <string name="connect_auth_method">Zaloguj się przez</string>
     <string name="connect_auth_api_token">Token API</string>
     <string name="connect_api_token_hint">Wklej token API wygenerowany przez Twojego dostawcę (np. Fastmail) zamiast hasła. Pole serwera możesz zostawić puste lub wkleić adres URL jego sesji.</string>
@@ -528,7 +528,7 @@
     <string name="connect_oauth_cancel">Anuluj</string>
     <string name="connect_import_signin_microsoft">Zaloguj się przez Microsoft</string>
     <string name="connect_import_oauth_explainer">To konto loguje się przez Microsoft. Zaloguj się raz, aby je aktywować. Twoje hasło nigdy nie jest zapisywane w pliku.</string>
-    <string name="connect_import_oauth_unsupported">To konto używa logowania OAuth dla serwera, do którego Sterna nie może zalogować się automatycznie. Użyj zamiast tego hasła aplikacji lub pomiń je.</string>
+    <string name="connect_import_oauth_unsupported">To konto używa logowania OAuth dla serwera, do którego Gridlink nie może zalogować się automatycznie. Użyj zamiast tego hasła aplikacji lub pomiń je.</string>
     <string name="connect_import_use_app_password">Użyj zamiast tego hasła aplikacji</string>
     <string name="connect_import_app_password_note">Niektóre konta Microsoft zezwalają na hasło aplikacji; wiele kont służbowych lub szkolnych je wyłącza.</string>
     <string name="connect_oauth_declined">Odrzucono logowanie. Spróbuj ponownie.</string>
@@ -582,10 +582,10 @@
     <string name="search_button">Szukaj</string>
 
     <!-- App lock -->
-    <string name="lock_title">Sterna Mail jest zablokowany</string>
+    <string name="lock_title">Gridlink Mail jest zablokowany</string>
     <string name="lock_subtitle">Odblokuj, aby czytać wiadomości.</string>
     <string name="lock_unlock">Odblokuj</string>
-    <string name="lock_prompt_title">Odblokuj Sterna Mail</string>
+    <string name="lock_prompt_title">Odblokuj Gridlink Mail</string>
     <string name="lock_prompt_subtitle">Potwierdź swoją tożsamość</string>
 
     <!-- ViewModel status / errors -->
@@ -676,7 +676,7 @@
     <string name="settings_image_allowlist_remove">Usuń nadawcę</string>
     <string name="settings_image_allowlist_hint">sender@example.com</string>
     <string name="settings_sign_out_title">Wylogować się z tego konta?</string>
-    <string name="settings_sign_out_message">To konto zostanie usunięte z Sterna Mail, a pobrane wiadomości zostaną wyczyszczone z tego urządzenia.</string>
+    <string name="settings_sign_out_message">To konto zostanie usunięte z Gridlink Mail, a pobrane wiadomości zostaną wyczyszczone z tego urządzenia.</string>
     <string name="connect_welcome_title">Twoja poczta, wreszcie naprawdę Twoja.</string>
     <string name="connect_welcome_subtitle">Żadnych reklam, żadnego śledzenia. Na serwerze, który wybierzesz sam.</string>
     <string name="connect_import_header">Masz już konta gdzie indziej?</string>
@@ -685,8 +685,8 @@
     <string name="connect_import_signin_progress">Konto %1$d z %2$d</string>
     <string name="connect_import_signin_button">Zaloguj się</string>
     <string name="connect_import_signin_skip">Pomiń na razie</string>
-    <string name="connect_import_invalid">Ten plik nie jest prawidłową kopią zapasową Sterna.</string>
-    <string name="connect_import_settings">Przywróć z kopii zapasowej Sterna</string>
+    <string name="connect_import_invalid">Ten plik nie jest prawidłową kopią zapasową Gridlink.</string>
+    <string name="connect_import_settings">Przywróć z kopii zapasowej Gridlink</string>
     <string name="connect_import_no_accounts">Ustawienia zaimportowane. Kopia nie zawierała kont – dodaj je poniżej.</string>
     <string name="connect_import_k9">Importuj z K-9 lub Thunderbird</string>
     <string name="connect_import_k9_none">Nie znaleziono kont do zaimportowania w tym pliku.</string>
@@ -729,9 +729,9 @@
     <string name="a11y_conversation_expanded">Rozwinięto</string>
     <string name="a11y_conversation_collapsed">Zwinięto</string>
     <string name="a11y_flagged">Oznaczone</string>
-    <string name="settings_theme_sterna_caption">Paleta Sterna: Arctic (jasna) · Pelagic (ciemna).</string>
+    <string name="settings_theme_gridlink_caption">Paleta Gridlink: Arctic (jasna) · Pelagic (ciemna).</string>
     <string name="settings_dynamic_color_title">Kolory Material You</string>
-    <string name="settings_dynamic_color_subtitle">Używaj kolorów z tapety zamiast palety Sterna (Android 12+).</string>
+    <string name="settings_dynamic_color_subtitle">Używaj kolorów z tapety zamiast palety Gridlink (Android 12+).</string>
     <string name="empty_inbox_title">Wszystko ogarnięte</string>
     <string name="empty_inbox_body">Nic w drodze. Nowe wiadomości wylądują tutaj.</string>
     <string name="empty_folder_title">Jeszcze nic tu nie ma</string>
@@ -750,12 +750,12 @@
     <!-- Onboarding: privacy welcome + contacts priming -->
     <string name="welcome_body">Żadnych reklam, żadnego śledzenia, żadnych usług Google. Na serwerze, który wybierzesz.</string>
     <string name="welcome_screen2_title">Twoje zostaje Twoje.</string>
-    <string name="welcome_screen2_body">Sterna Mail nie zbiera telemetrii. Twoje kontakty pozostają na tym urządzeniu i są odczytywane tylko za Twoją zgodą.</string>
+    <string name="welcome_screen2_body">Gridlink Mail nie zbiera telemetrii. Twoje kontakty pozostają na tym urządzeniu i są odczytywane tylko za Twoją zgodą.</string>
     <string name="welcome_next">Dalej</string>
     <string name="welcome_get_started">Zaczynamy</string>
     <string name="welcome_skip">Pomiń</string>
     <string name="compose_contacts_priming_title">Sugerować z Twoich kontaktów?</string>
-    <string name="compose_contacts_priming_body">Uzupełniaj odbiorców z kontaktów tego urządzenia. Sterna Mail odczytuje je tylko na urządzeniu i nigdy ich nie przesyła.</string>
+    <string name="compose_contacts_priming_body">Uzupełniaj odbiorców z kontaktów tego urządzenia. Gridlink Mail odczytuje je tylko na urządzeniu i nigdy ich nie przesyła.</string>
     <string name="compose_contacts_priming_enable">Włącz</string>
     <string name="compose_contacts_priming_not_now">Nie teraz</string>
     <string name="settings_mark_read_title">Oznacz jako przeczytane przy</string>

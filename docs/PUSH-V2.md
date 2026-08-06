@@ -13,19 +13,19 @@ shippable and device-testable; `main` stays releasable throughout.
 
 ## New mail delivery: Instant vs Battery saver (user-facing behavior)
 
-Sterna picks the best delivery mechanism for each account automatically. The
+Gridlink picks the best delivery mechanism for each account automatically. The
 setting only chooses the outcome you want; you never have to configure a transport.
 
 **Instant (default).** Mail is announced the moment the server receives it.
 
 - JMAP account with a UnifiedPush app installed (ntfy, NextPush): your mail server
-  pushes notifications through your UnifiedPush app. Sterna itself keeps no network
+  pushes notifications through your UnifiedPush app. Gridlink itself keeps no network
   connection open and shows no permanent notification; mail arrives instantly even
-  when Sterna is closed.
-- JMAP account without a UnifiedPush app: Sterna keeps its own connection to the
+  when Gridlink is closed.
+- JMAP account without a UnifiedPush app: Gridlink keeps its own connection to the
   server open (a foreground service with a permanent notification), and mail
   arrives instantly.
-- IMAP account: Sterna keeps an IMAP IDLE connection open for the Inbox (same
+- IMAP account: Gridlink keeps an IMAP IDLE connection open for the Inbox (same
   foreground service). Inbox mail is instant. Watched folders other than the Inbox
   are covered by the periodic check below, because IMAP IDLE can only watch a
   single folder.
@@ -34,11 +34,11 @@ In every case, a background check runs about every 30 minutes as a safety net, s
 if the live channel dies silently (battery managers, network changes, a push
 server outage), mail is at most half an hour late instead of never arriving.
 
-**Battery saver.** Sterna never keeps a connection open: no foreground service, no
+**Battery saver.** Gridlink never keeps a connection open: no foreground service, no
 permanent notification.
 
 - JMAP account with UnifiedPush: nothing changes, mail is still instant.
-  UnifiedPush costs Sterna nothing, since your UnifiedPush app holds the one shared
+  UnifiedPush costs Gridlink nothing, since your UnifiedPush app holds the one shared
   connection anyway.
 - JMAP account without UnifiedPush, and IMAP accounts: new mail is picked up by the
   periodic background check, so notifications can arrive up to about 30 minutes
@@ -69,8 +69,8 @@ transports**.
    configuration matrix.
 6. Decided during design review:
    - In Battery saver, **UnifiedPush subscriptions stay active and renewed** —
-     they cost Sterna zero battery (the distributor owns the single shared
-     connection and runs regardless). "Battery saver" means *Sterna holds no
+     they cost Gridlink zero battery (the distributor owns the single shared
+     connection and runs regardless). "Battery saver" means *Gridlink holds no
      persistent connection*; the status line makes the actual behavior visible.
    - The watch switch is **hidden for sent/drafts/trash/junk** (visible for
      archive and role-less folders). The Inbox is always watched and shows no
@@ -80,7 +80,7 @@ transports**.
 
 ## Current pipeline (shipped 1.1.8) — what I build on
 
-All in `app/src/main/kotlin/app/sterna/push/`:
+All in `app/src/main/kotlin/app/gridlink/push/`:
 
 - **`PushService`** — `specialUse` foreground service. One connection per
   account (`ConcurrentHashMap<accountId, Closeable>`), a `generation` counter
@@ -324,7 +324,7 @@ present. **Without a distributor, behavior is byte-identical to Phase A.**
 - The connector does all the WebPush cryptography: it generates the P-256
   keypair + auth secret per registration (`PushEndpoint.pubKeySet` →
   `p256dh` / `auth`) and **decrypts** incoming RFC 8188/8291 payloads —
-  `onMessage` delivers cleartext JSON. Sterna implements **no crypto**.
+  `onMessage` delivers cleartext JSON. Gridlink implements **no crypto**.
 - Manifest:
 
 ```xml
@@ -337,12 +337,12 @@ present. **Without a distributor, behavior is byte-identical to Phase A.**
 
 `UnifiedPushReceiver` subclasses the connector's abstract
 `org.unifiedpush.android.connector.PushService` (imported by FQN — it collides
-by name with Sterna's own `PushService`).
+by name with Gridlink's own `PushService`).
 
 ## B2. core/jmap additions (pure JVM)
 
 `PushSubscription` is **session-level** (RFC 8620 §7.2): no `accountId`, and
-`using = [urn:ietf:params:jmap:core]` only. One subscription per Sterna account
+`using = [urn:ietf:params:jmap:core]` only. One subscription per Gridlink account
 (each account = its own credentials/session).
 
 New models (`model/PushSubscription.kt`, `model/PushMessagePayload.kt`):
@@ -518,7 +518,7 @@ Create: `core/jmap/.../model/PushSubscription.kt`, `model/PushMessagePayload.kt`
 Modify: `gradle/libs.versions.toml`, `app/build.gradle.kts`,
 `AndroidManifest.xml`, `JmapClient.kt`, `JmapSession.kt`, `MailRepository.kt`
 (write-through), `PushService.kt`, `MailFetchWorker.kt`,
-`SternaApplication.kt` (wiring), `SternaApp.kt`, `SettingsViewModel.kt`,
+`GridlinkApplication.kt` (wiring), `AppNavHost.kt`, `SettingsViewModel.kt`,
 `AccountsViewModel.kt` (teardown on sign-out), `SettingsScreen.kt` (status
 line), strings.
 
@@ -580,7 +580,7 @@ Nothing else. No transport vocabulary. Changing it persists then calls
   accounts (JMAP without distributor, all IMAP) are served solely by the 30-min
   worker — this *is* the designated IMAP periodic mode; it already exists as the
   fallback path, C makes it a first-class outcome. **UnifiedPush subscriptions
-  are kept and renewed** (decided): UP costs Sterna zero battery, dropping it
+  are kept and renewed** (decided): UP costs Gridlink zero battery, dropping it
   would degrade delivery for no gain. `Transport` gains `PERIODIC`; in battery
   saver `transportFor` returns `UNIFIED_PUSH` (if active) else `PERIODIC`.
 
@@ -617,14 +617,14 @@ Both worked around in `UnifiedPushManager`; both worth reporting upstream:
 
 1. **Keys decode requires canonical padding.** Stalwart parses `keys` with rust
    base64's `URL_SAFE` engine (`crates/jmap/src/push/set.rs`), which rejects the
-   unpadded RFC 7515-style base64url the WebPush ecosystem uses. Sterna re-encodes
+   unpadded RFC 7515-style base64url the WebPush ecosystem uses. Gridlink re-encodes
    the connector's keys as padded base64url before `PushSubscription/set`.
 2. **Push bodies are base64url text, not octets.** Stalwart ece-encrypts the
    payload, then base64url-encodes the whole aes128gcm blob and POSTs that string
    (`crates/services/src/state_manager/http.rs`), where RFC 8030 expects raw
    octets. The connector therefore never recognizes the body as encrypted and
    delivers it verbatim (`decrypted=false`). On parse failure of an undecrypted
-   delivery, Sterna base64url-decodes and decrypts through the connector's
+   delivery, Gridlink base64url-decodes and decrypts through the connector's
    `DefaultKeyManager`, then parses. This covers PushVerification and StateChange
    alike; a still-unreadable payload degrades to a bare wake-and-fetch.
 

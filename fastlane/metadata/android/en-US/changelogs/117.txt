@@ -1,3 +1,0 @@
-New: a real Outbox. Mail you send while offline now waits safely and goes out on its own when you are back online, instead of failing silently.
-
-A failed send stays in the Outbox so you can retry, edit or delete it, with a quiet badge when something is waiting. Reach it from the inbox menu.

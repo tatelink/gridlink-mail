@@ -26,10 +26,10 @@
 -keepclasseswithmembers class ** {
     kotlinx.serialization.KSerializer serializer(...);
 }
-# Sterna's own @Serializable models (JMAP wire types, settings) — keep wholesale
+# Gridlink's own @Serializable models (JMAP wire types, settings) — keep wholesale
 # so no protocol field is ever dropped by shrinking.
--keep,includedescriptorclasses class app.sterna.**$$serializer { *; }
--keepclassmembers class app.sterna.** {
+-keep,includedescriptorclasses class app.gridlink.**$$serializer { *; }
+-keepclassmembers class app.gridlink.** {
     *** Companion;
     kotlinx.serialization.KSerializer serializer(...);
 }
@@ -60,5 +60,5 @@
 # recipient-suggestion menu, the message list or the reader. Keeping them whole stops the inline
 # and restores the avatar. Same failure family as #14: an optimization that is correct for
 # ordinary code but wrong for a compiler-managed calling convention.
--keep class app.sterna.ui.components.MonogramKt { *; }
--keep class app.sterna.ui.components.ContactAvatarKt { *; }
+-keep class app.gridlink.ui.components.MonogramKt { *; }
+-keep class app.gridlink.ui.components.ContactAvatarKt { *; }

@@ -1,1 +1,0 @@
-Fixed a crash that closed the app the moment you opened a message on some devices (seen on certain older phones and custom ROMs). Message bodies now render reliably there, with very tall messages scrolling inside their card.

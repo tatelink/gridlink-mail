@@ -1,9 +1,7 @@
 <resources>
     <!-- Pre-Compose window background, matching the Pelagic (dark) surface. -->
-    <color name="sterna_window_background">#0E1A1F</color>
-    <!-- Dark splash (Codeberg #9): same deep navy-teal as the window background, so the
-         cold start stays dark end-to-end on a dark-themed device. -->
-    <color name="sterna_splash_background">#0E1A1F</color>
-    <!-- The tern flips to the Pelagic primary (soft teal) to stay visible on the dark field. -->
-    <color name="sterna_splash_tern">#6FB1AB</color>
+    <color name="gridlink_window_background">#0E1A1F</color>
+    <!-- Splash field, dark: the Gridlink icon's own dark tile, so the mark sits on the
+         same near-black it does in the launcher and the hand-off is seamless. -->
+    <color name="gridlink_splash_background">#05070C</color>
 </resources>

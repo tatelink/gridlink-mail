@@ -1,1 +1,0 @@
-Privé-e-mailclient voor JMAP en IMAP/SMTP. Geen Google, geen tracking.

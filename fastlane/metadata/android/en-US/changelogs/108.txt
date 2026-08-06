@@ -1,5 +1,0 @@
-Switch accounts with a swipe: the inbox now works like a carousel, so you can swipe between your accounts.
-
-* Empty mailboxes offer pull-to-refresh and tap-to-reload.
-* The undo bar (archive / delete) now times out instead of lingering.
-* Fix: Archive reliably resolves the right Archive folder per account, and creates one when it is missing.

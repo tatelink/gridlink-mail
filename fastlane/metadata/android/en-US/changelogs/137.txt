@@ -1,3 +1,0 @@
-Fixes bulk actions on JMAP: archiving, moving or deleting a large selection could fail with "action failed" when it coincided with push activity, and moving a whole loaded page of a very large folder could leave it looking empty until reopened. Both are fixed.
-
-Improves notifications: tapping a new-mail notification now opens that message, not just the inbox. And when two UnifiedPush apps share the same name, the chooser now tells them apart.

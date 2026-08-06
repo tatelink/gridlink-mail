@@ -1,3 +1,0 @@
-Vous pouvez maintenant importer vos comptes depuis K-9 Mail ou Thunderbird pour Android. Exportez vos réglages là-bas dans un fichier .k9s, puis importez-le dans Sterna au moment d'ajouter un compte pour récupérer d'un coup les serveurs, ports, sécurité et identités de chaque compte, au lieu de tout retaper.
-
-Les mots de passe ne sont jamais dans cet export, donc vous vous connectez une fois par compte après l'import (mot de passe, ou connexion Microsoft pour Outlook). Les comptes POP sont ignorés, Sterna ne gérant que l'IMAP et le JMAP.

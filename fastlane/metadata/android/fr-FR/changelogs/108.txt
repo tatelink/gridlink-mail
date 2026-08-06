@@ -1,5 +1,0 @@
-Changez de compte d'un glissement : la boîte de réception fonctionne comme un carrousel, glissez pour passer d'un compte à l'autre.
-
-* Les boîtes vides proposent le tirer-pour-rafraîchir et le tap pour recharger.
-* La barre d'annulation (archiver / supprimer) expire maintenant au lieu de s'éterniser.
-* Correction : l'archivage retrouve le bon dossier Archive pour chaque compte, et le crée s'il manque.

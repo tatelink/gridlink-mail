@@ -1,1 +1,0 @@
-Correction technique d'empaquetage pour permettre la construction et la distribution via F-Droid. Aucun changement de fonctionnement.

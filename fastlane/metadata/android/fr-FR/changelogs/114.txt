@@ -1,3 +1,0 @@
-Nouveau : vue conversation. Un fil se regroupe désormais en une seule entrée que vous pouvez déplier pour lire tous ses messages.
-
-Aussi : démarrage plus rapide et téléchargement plus léger, les réponses conservent leurs retours à la ligne, navigation plus fluide entre les messages, Retour depuis un dossier ramène à la boîte de réception, et correction d'un plantage en marquant un message comme non indésirable.

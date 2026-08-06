@@ -1,5 +1,5 @@
 <resources>
-    <style name="Theme.Sterna" parent="Theme.AppCompat.NoActionBar">
-        <item name="android:windowBackground">@color/sterna_window_background</item>
+    <style name="Theme.Gridlink" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@color/gridlink_window_background</item>
     </style>
 </resources>

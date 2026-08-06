@@ -1,1 +1,0 @@
-Corrige un plantage à l'ouverture des messages PGP signés ou chiffrés avec OpenKeychain : l'optimiseur de code des builds de release cassait la communication avec le fournisseur, faisant planter la vérification de signature. Toute la chaîne de vérification affiche désormais une carte d'erreur au lieu de planter.

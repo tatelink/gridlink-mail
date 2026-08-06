@@ -1,6 +1,0 @@
-Maintenance release.
-
-* Cleaner FOSS packaging — no Google dependency-metadata block in the APK.
-* Fix: archiving works even when the server sets no special-use role on the folder.
-* IMAP sign-in: clearer hint when a provider requires an app password.
-* Removed the Outlook quick-setup preset (its basic-auth IMAP is gone; OAuth is coming).

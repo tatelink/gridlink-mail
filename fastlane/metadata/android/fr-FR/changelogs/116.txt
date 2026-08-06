@@ -1,3 +1,0 @@
-Nouveau : les invitations s'affichent en carte d'événement. Ajoutez l'événement à votre agenda en un tap, ou répondez Accepter, Refuser ou Peut-être directement depuis le mail.
-
-Aussi : une aide pour créer un mot de passe d'application Gmail, un accueil plus clair au premier lancement, et dans un long message les boutons Répondre et Transférer s'effacent jusqu'à la fin de la lecture.
