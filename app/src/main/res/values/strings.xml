@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Sterna Mail</string>
+    <string name="app_name">Gridlink Mail</string>
 
     <!-- Compose -->
     <string name="compose_title_new">New mail</string>
@@ -71,7 +71,7 @@
     <string name="inbox_delete">Delete</string>
     <string name="inbox_delete_forever">Delete permanently</string>
     <string name="inbox_undo">Undo</string>
-    <string name="inbox_app_name">Sterna Mail</string>
+    <string name="inbox_app_name">Gridlink Mail</string>
     <string name="inbox_switch_account">Switch account</string>
     <string name="inbox_all_inboxes">All inboxes</string>
     <string name="inbox_all_inboxes_unread">All inboxes  (%1$d)</string>
@@ -331,9 +331,9 @@
     <string name="settings_language_polish">Polski</string>
     <string name="settings_theme_section">Theme</string>
     <string name="settings_theme_title">Theme</string>
-    <string name="settings_theme_sterna_caption">Sterna palette: Arctic (light) · Pelagic (dark).</string>
+    <string name="settings_theme_gridlink_caption">Gridlink palette: Arctic (light) · Pelagic (dark).</string>
     <string name="settings_dynamic_color_title">Material You colours</string>
-    <string name="settings_dynamic_color_subtitle">Use colours from your wallpaper instead of Sterna\'s palette (Android 12+).</string>
+    <string name="settings_dynamic_color_subtitle">Use colours from your wallpaper instead of Gridlink\'s palette (Android 12+).</string>
     <string name="settings_message_list_section">Message list</string>
     <string name="settings_density_title">Density</string>
     <string name="settings_preview_title">Preview</string>
@@ -421,7 +421,7 @@
     <string name="settings_filters_add">Add rule</string>
     <string name="settings_filters_saved">Filters saved</string>
     <string name="settings_filters_untitled">Untitled rule</string>
-    <string name="settings_filters_foreign_warning">Another filter script is active on the server; saving will make Sterna Mail\'s the active one.</string>
+    <string name="settings_filters_foreign_warning">Another filter script is active on the server; saving will make Gridlink Mail\'s the active one.</string>
     <string name="settings_filters_edit_title">Edit rule</string>
     <string name="settings_filter_name">Rule name</string>
     <string name="settings_filter_if">If</string>
@@ -444,7 +444,7 @@
     <string name="settings_privacy_screen_title">Privacy &amp; security</string>
     <string name="settings_security_section">Security</string>
     <string name="settings_app_lock_title">App lock</string>
-    <string name="settings_app_lock_subtitle">Require your fingerprint, face, or screen PIN to open Sterna Mail.</string>
+    <string name="settings_app_lock_subtitle">Require your fingerprint, face, or screen PIN to open Gridlink Mail.</string>
     <string name="settings_app_lock_unavailable">Set up a fingerprint, face unlock, or screen lock in your device settings first.</string>
     <string name="settings_image_allowlist_section">Remote images</string>
     <string name="settings_image_allowlist_clear">Clear all</string>
@@ -459,7 +459,7 @@
     <string name="settings_confirm_links_subtitle">Show the destination and ask before opening a link from a message.</string>
     <string name="settings_recipient_suggestions_section">Recipient suggestions</string>
     <string name="settings_suggest_contacts_title">Suggest from contacts</string>
-    <string name="settings_suggest_contacts_subtitle">Autocomplete recipients from this device\'s contacts while you type. Sterna Mail reads them on-device only, never uploads them. When off, it still suggests people you\'ve recently emailed.</string>
+    <string name="settings_suggest_contacts_subtitle">Autocomplete recipients from this device\'s contacts while you type. Gridlink Mail reads them on-device only, never uploads them. When off, it still suggests people you\'ve recently emailed.</string>
     <string name="settings_storage_screen_title">Storage</string>
     <string name="settings_on_device_usage_section">On-device usage</string>
     <string name="settings_storage_total">Total</string>
@@ -551,7 +551,7 @@
     <string name="settings_pgp_choose_key">Choose key</string>
     <string name="settings_pgp_encrypt_default_title">Encrypt by default</string>
     <string name="settings_pgp_encrypt_default_subtitle">New messages start encrypted when every recipient has a key, and unencrypted when one is missing</string>
-    <string name="settings_pgp_missing_help">Sterna uses the OpenKeychain app to manage keys and encrypt messages. Install it to enable OpenPGP.</string>
+    <string name="settings_pgp_missing_help">Gridlink uses the OpenKeychain app to manage keys and encrypt messages. Install it to enable OpenPGP.</string>
     <string name="settings_pgp_provider_required">Not in effect: OpenKeychain required</string>
     <string name="settings_pgp_install">Get OpenKeychain</string>
     <string name="settings_pgp_error">OpenPGP provider error</string>
@@ -592,7 +592,7 @@
     <string name="settings_test_failed">Couldn\'t connect: %1$s</string>
     <string name="settings_sign_out">Sign out</string>
     <string name="settings_sign_out_title">Sign out of this account?</string>
-    <string name="settings_sign_out_message">This account will be removed from Sterna Mail and its downloaded mail cleared from this device.</string>
+    <string name="settings_sign_out_message">This account will be removed from Gridlink Mail and its downloaded mail cleared from this device.</string>
     <string name="settings_security_tls">SSL/TLS</string>
     <string name="settings_security_starttls">STARTTLS</string>
     <string name="settings_security_none">None</string>
@@ -608,8 +608,8 @@
     <string name="connect_import_signin_progress">Account %1$d of %2$d</string>
     <string name="connect_import_signin_button">Sign in</string>
     <string name="connect_import_signin_skip">Skip for now</string>
-    <string name="connect_import_invalid">That file isn\'t a valid Sterna backup.</string>
-    <string name="connect_import_settings">Restore from a Sterna backup</string>
+    <string name="connect_import_invalid">That file isn\'t a valid Gridlink backup.</string>
+    <string name="connect_import_settings">Restore from a Gridlink backup</string>
     <string name="connect_import_no_accounts">Settings imported. The backup had no accounts, so add one below.</string>
     <string name="connect_import_k9">Import from K-9 or Thunderbird</string>
     <string name="connect_import_k9_none">No importable accounts were found in that file.</string>
@@ -629,7 +629,7 @@
     <string name="connect_imap_smtp">IMAP / SMTP</string>
     <string name="connect_jmap_server">JMAP server</string>
     <string name="connect_jmap_server_placeholder">mail.example.com</string>
-    <string name="connect_jmap_autodiscover_hint">Just enter your email and password — Sterna Mail will find your server automatically.</string>
+    <string name="connect_jmap_autodiscover_hint">Just enter your email and password — Gridlink Mail will find your server automatically.</string>
     <string name="connect_auth_method">Sign in with</string>
     <string name="connect_auth_api_token">API token</string>
     <string name="connect_api_token_hint">Paste an API token generated by your provider (e.g. Fastmail) instead of a password. You can leave the server empty or paste its session URL.</string>
@@ -663,11 +663,11 @@
     <string name="connect_oauth_cancel">Cancel</string>
     <string name="connect_import_signin_microsoft">Sign in with Microsoft</string>
     <string name="connect_import_oauth_explainer">This account signs in with Microsoft. Sign in once to activate it. Your password is never stored in the file.</string>
-    <string name="connect_import_oauth_unsupported">This account uses OAuth sign-in for a server Sterna can\'t sign into automatically. Use an app password instead, or skip it.</string>
+    <string name="connect_import_oauth_unsupported">This account uses OAuth sign-in for a server Gridlink can\'t sign into automatically. Use an app password instead, or skip it.</string>
     <string name="connect_import_use_app_password">Use an app password instead</string>
     <string name="connect_import_app_password_note">Some Microsoft accounts allow an app password; many work or school accounts disable it.</string>
     <string name="connect_oauth_declined">You declined the sign-in. Try again.</string>
-    <string name="connect_oauth_admin_consent">Your organisation\'s admin must approve Sterna for Microsoft sign-in, or you can sign in with an app password instead.</string>
+    <string name="connect_oauth_admin_consent">Your organisation\'s admin must approve Gridlink for Microsoft sign-in, or you can sign in with an app password instead.</string>
     <string name="connect_oauth_error_code">Microsoft refused the sign-in (%1$s). Try again, or use an app password instead.</string>
     <string name="connect_incoming_imap">Incoming (IMAP)</string>
     <string name="connect_outgoing_smtp">Outgoing (SMTP)</string>
@@ -713,10 +713,10 @@
     <string name="search_button">Search</string>
 
     <!-- App lock -->
-    <string name="lock_title">Sterna Mail is locked</string>
+    <string name="lock_title">Gridlink Mail is locked</string>
     <string name="lock_subtitle">Unlock to read your mail.</string>
     <string name="lock_unlock">Unlock</string>
-    <string name="lock_prompt_title">Unlock Sterna Mail</string>
+    <string name="lock_prompt_title">Unlock Gridlink Mail</string>
     <string name="lock_prompt_subtitle">Verify it\'s you</string>
 
     <!-- ViewModel status / errors -->
@@ -770,12 +770,12 @@
     <!-- Onboarding: privacy welcome + contacts priming -->
     <string name="welcome_body">No ads, no tracking, no Google services. On the server you choose.</string>
     <string name="welcome_screen2_title">Yours stays yours.</string>
-    <string name="welcome_screen2_body">Sterna Mail collects no telemetry. Your contacts stay on this device, read only if you allow it.</string>
+    <string name="welcome_screen2_body">Gridlink Mail collects no telemetry. Your contacts stay on this device, read only if you allow it.</string>
     <string name="welcome_next">Next</string>
     <string name="welcome_get_started">Get started</string>
     <string name="welcome_skip">Skip</string>
     <string name="compose_contacts_priming_title">Suggest from your contacts?</string>
-    <string name="compose_contacts_priming_body">Autocomplete recipients from this device\'s contacts. Sterna Mail reads them on-device only, never uploads them.</string>
+    <string name="compose_contacts_priming_body">Autocomplete recipients from this device\'s contacts. Gridlink Mail reads them on-device only, never uploads them.</string>
     <string name="compose_contacts_priming_enable">Enable</string>
     <string name="compose_contacts_priming_not_now">Not now</string>
     <string name="settings_mark_read_title">Mark as read when</string>

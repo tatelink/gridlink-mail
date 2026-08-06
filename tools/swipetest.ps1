@@ -81,8 +81,8 @@ function RowDiff($a, $b) {
 }
 
 function Launch {
-    adb shell am force-stop app.sterna.test | Out-Null
-    adb shell am start -n app.sterna.test/app.sterna.gridlink.GridlinkGalleryActivity `
+    adb shell am force-stop app.gridlink.test | Out-Null
+    adb shell am start -n app.gridlink.test/app.gridlink.gallery.GridlinkGalleryActivity `
         --es mode day --ez recycle false | Out-Null
     for ($i = 0; $i -lt 40; $i++) {
         Start-Sleep -Milliseconds 400

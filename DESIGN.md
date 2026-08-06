@@ -1,6 +1,6 @@
 # Design
 
-This document defines Sterna's visual and motion language. It is the reference
+This document defines Gridlink's visual and motion language. It is the reference
 for building the Compose UI so screens stay consistent. It complements
 [ARCHITECTURE.md](ARCHITECTURE.md) (technical) and [FEATURES.md](FEATURES.md)
 (scope).
@@ -147,9 +147,9 @@ are documented here as structure; build the ✅ ones first.
 - **Notifications:** push for all accounts ✅ · new-mail master + system-channels link · quiet hours 💡
 - **Reading:** configurable swipe actions 💡 · conversation threading toggle (threading ✅) · mark-as-read on open · remote images (see Privacy)
 - **Writing:** default signature 💡 · undo send Off/5/10/30s 💡 · read receipts Never/Ask/Always 💡 · quote-on-reply · "forgot attachment?" reminder 💡
-- **Privacy & Security:** remote image policy Never *(default)* / Ask / Always ✅ · per-sender allowlist 💡 · app lock ✅ (biometric + PIN/pattern/password fallback) · confirm external links 💡 · "Sterna collects no data" → [PRIVACY.md](PRIVACY.md)
+- **Privacy & Security:** remote image policy Never *(default)* / Ask / Always ✅ · per-sender allowlist 💡 · app lock ✅ (biometric + PIN/pattern/password fallback) · confirm external links 💡 · "Gridlink collects no data" → [PRIVACY.md](PRIVACY.md)
 - **Storage & Sync:** sync / push on-off ✅ · sync window (count or age) 💡 · keep messages offline 💡 · storage used + Clear cache 💡 · download attachments on Wi-Fi only 💡 · settings export / import 💡
-- **About:** version · source (Codeberg) · GPLv3 licence · privacy policy ([PRIVACY.md](PRIVACY.md)) · OSS licences · report issue / security
+- **About:** version · source (upstream, on Codeberg) · GPLv3 licence · privacy policy ([PRIVACY.md](PRIVACY.md)) · OSS licences · report issue / security
 
 ### Storage & Sync menu
 

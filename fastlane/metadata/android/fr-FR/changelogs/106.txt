@@ -1,4 +1,0 @@
-La lecture d'un message est plus claire : un bouton Répondre dans la barre (il répond au dernier message du fil), des boutons Répondre / Transférer en bas des mails seuls, et un menu « … » allégé.
-
-* Correction : « Afficher les images » charge désormais réellement les images distantes bloquées.
-* Thème sombre : les mails HTML s'affichent en sombre au lieu d'un bloc blanc éblouissant, en accord avec le fond de l'application.

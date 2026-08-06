@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "app.sterna.core.data"
+    namespace = "app.gridlink.core.data"
     compileSdk = 36
 
     defaultConfig {

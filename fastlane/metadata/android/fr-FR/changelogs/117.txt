@@ -1,3 +1,0 @@
-Nouveau : une vraie boîte d'envoi. Un mail envoyé hors ligne patiente désormais en sécurité et part tout seul dès que la connexion revient, au lieu d'échouer en silence.
-
-Un envoi en échec reste dans la boîte d'envoi pour le renvoyer, le modifier ou le supprimer, avec une pastille discrète quand un message attend. Accès depuis le menu de la boîte de réception.

@@ -1,3 +1,0 @@
-Nouveau : une passe d'harmonisation visuelle pour un rendu plus cohérent et lisible.
-
-Aussi : icônes plus claires pour le dossier Spam et la boîte unifiée, une icône devant chaque action du menu du lecteur, des menus aux coins arrondis, et des styles de boutons et un vocabulaire uniformisés.

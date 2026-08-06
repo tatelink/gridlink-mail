@@ -1,1 +1,0 @@
-Email view: much smoother scrolling (fixes the stutter some devices had on long or rich emails, which came from an incorrect fallback to a slower rendering path), and swiping left/right between messages now works on the email body too.

@@ -1,4 +1,4 @@
-# Self-hosted Forgejo Actions runner for Sterna CI.
+# Self-hosted Forgejo Actions runner for Gridlink CI.
 # Run this on an always-on server with Docker. See README.md in this folder.
 #
 #   1. Codeberg -> repo Settings -> Actions -> Runners -> "Create new runner",
@@ -44,7 +44,7 @@ services:
           forgejo-runner register --no-interactive \
             --instance https://codeberg.org \
             --token "$${RUNNER_TOKEN}" \
-            --name "sterna-ci" \
+            --name "gridlink-ci" \
             --labels "docker:docker://catthehacker/ubuntu:act-22.04"
         fi
         exec forgejo-runner daemon --config /data/config.yml

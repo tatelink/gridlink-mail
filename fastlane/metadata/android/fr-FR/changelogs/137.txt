@@ -1,3 +1,0 @@
-Corrige les actions groupées en JMAP : archiver, déplacer ou supprimer une grande sélection pouvait échouer avec « impossible d'effectuer l'action » quand cela coïncidait avec l'activité push, et déplacer une page entière d'un très gros dossier pouvait le laisser paraître vide jusqu'à sa réouverture. Les deux sont corrigés.
-
-Améliore les notifications : taper une notification de nouveau message ouvre désormais ce message, pas seulement la boîte de réception. Et quand deux applis UnifiedPush portent le même nom, le sélecteur les distingue.

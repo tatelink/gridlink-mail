@@ -7,17 +7,17 @@
 -->
 <data-extraction-rules>
     <cloud-backup>
-        <exclude domain="sharedpref" path="sterna_account.xml" />
-        <exclude domain="database" path="sterna.db" />
-        <exclude domain="database" path="sterna.db-wal" />
-        <exclude domain="database" path="sterna.db-shm" />
+        <exclude domain="sharedpref" path="gridlink_account.xml" />
+        <exclude domain="database" path="gridlink.db" />
+        <exclude domain="database" path="gridlink.db-wal" />
+        <exclude domain="database" path="gridlink.db-shm" />
         <exclude domain="file" path="datastore/" />
     </cloud-backup>
     <device-transfer>
-        <exclude domain="sharedpref" path="sterna_account.xml" />
-        <exclude domain="database" path="sterna.db" />
-        <exclude domain="database" path="sterna.db-wal" />
-        <exclude domain="database" path="sterna.db-shm" />
+        <exclude domain="sharedpref" path="gridlink_account.xml" />
+        <exclude domain="database" path="gridlink.db" />
+        <exclude domain="database" path="gridlink.db-wal" />
+        <exclude domain="database" path="gridlink.db-shm" />
         <exclude domain="file" path="datastore/" />
     </device-transfer>
 </data-extraction-rules>

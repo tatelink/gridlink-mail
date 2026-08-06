@@ -1,1 +1,0 @@
-Le transfert conserve désormais la mise en forme d'origine. Quand vous transférez un e-mail HTML, le destinataire le voit comme vous, avec ses images intégrées et ses pièces jointes, au lieu d'un texte brut aplati.

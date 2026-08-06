@@ -1,1 +1,0 @@
-Fixes a crash when opening PGP-signed or encrypted mail with OpenKeychain: the release build's code optimizer broke the communication with the provider, crashing signature verification on every optimized build. The whole verification path now degrades to an error card instead of crashing.

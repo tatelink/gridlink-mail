@@ -1,1 +1,0 @@
-Version technique : retire du fichier APK des métadonnées dépendantes de l'environnement de build, pour des builds totalement reproductibles (vérification F-Droid). Aucun changement fonctionnel.

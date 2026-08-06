@@ -1,6 +1,6 @@
 # Encrypted email with OpenPGP
 
-Sterna can read and send **OpenPGP** mail: messages that are signed (so the
+Gridlink can read and send **OpenPGP** mail: messages that are signed (so the
 reader can prove they really came from you) and/or encrypted (so only the
 intended recipient can read them). This works on both JMAP and IMAP/SMTP
 accounts.
@@ -35,28 +35,28 @@ Two limits worth knowing up front:
 
 - **The subject line is not encrypted.** OpenPGP protects the body and
   attachments, not the envelope. Keep sensitive details out of the subject.
-- **Sterna never stores decrypted content.** A decrypted message lives only in
+- **Gridlink never stores decrypted content.** A decrypted message lives only in
   memory while you read it. It is not written to disk, not cached, and not
   search-indexed. Close and reopen the message and it is decrypted again.
 
 ## What you need: two apps
 
-Sterna does not handle your secret keys itself. Instead it talks to
+Gridlink does not handle your secret keys itself. Instead it talks to
 **[OpenKeychain](https://f-droid.org/packages/org.sufficientlysecure.keychain/)**,
 a dedicated, open-source key-manager app, over Android's OpenPGP interface (the
 same one K-9 Mail / Thunderbird for Android uses). Your private key and its
-passphrase stay inside OpenKeychain and never enter Sterna's process. Sterna
+passphrase stay inside OpenKeychain and never enter Gridlink's process. Gridlink
 only ever asks OpenKeychain to sign, encrypt, or decrypt on its behalf, and
 OpenKeychain prompts you when it needs your passphrase.
 
 So the setup is two apps:
 
-1. **Sterna** — your mail client (this app).
+1. **Gridlink** — your mail client (this app).
 2. **OpenKeychain** — your keyring.
 
 Install OpenKeychain from
 [F-Droid](https://f-droid.org/packages/org.sufficientlysecure.keychain/) (or
-from inside Sterna: **Settings → your account → OpenPGP encryption → Get
+from inside Gridlink: **Settings → your account → OpenPGP encryption → Get
 OpenKeychain**).
 
 ## Step 1 — Create your key in OpenKeychain
@@ -67,7 +67,7 @@ Open OpenKeychain and either create a new key or import one you already have.
 
 1. Tap **Create my key**.
 2. Enter your name and the email address of the account you will use it with.
-   The address matters: Sterna matches keys to recipients by email.
+   The address matters: Gridlink matches keys to recipients by email.
 3. Set a strong passphrase. This protects your private key; OpenKeychain will
    ask for it (and can remember it for a while) whenever a message needs your
    private key.
@@ -77,12 +77,12 @@ Open OpenKeychain and either create a new key or import one you already have.
 key server), use OpenKeychain's **import** option instead and point it at the
 file or key.
 
-## Step 2 — Connect the key to your account in Sterna
+## Step 2 — Connect the key to your account in Gridlink
 
-1. In Sterna, go to **Settings → your account → OpenPGP encryption**.
+1. In Gridlink, go to **Settings → your account → OpenPGP encryption**.
 2. Turn on **Use OpenPGP**.
-3. Tap **Your signing key → Choose key**. Sterna asks OpenKeychain to show your
-   keys; pick the one for this account. (This does not copy the key into Sterna,
+3. Tap **Your signing key → Choose key**. Gridlink asks OpenKeychain to show your
+   keys; pick the one for this account. (This does not copy the key into Gridlink,
    it just records which key to use.)
 4. Optionally turn on **Encrypt by default** so new messages start with
    encryption on whenever every recipient's public key is available.
@@ -100,7 +100,7 @@ and a short banner explains each as you switch:
 | pen / seal | **Sign** | Readable by everyone, but proves it comes from you. |
 | closed padlock | **Encrypt** | Encrypted **and** signed. Only the recipient can read it. |
 
-To **encrypt**, Sterna needs a public key for every recipient. A recipient
+To **encrypt**, Gridlink needs a public key for every recipient. A recipient
 without a known key is flagged, and you will not be able to send encrypted until
 their key is imported into OpenKeychain (ask them for it, or fetch it from a key
 server). **Signing** has no such requirement: you can sign to anyone.
@@ -110,11 +110,11 @@ saved as a plaintext draft, and scheduled send is unavailable (both would put
 readable content on the server). Closing the composer therefore offers only
 Discard or Cancel, and says why: there is nowhere the message could be kept
 without handing your text to the server in the clear. Your own **Sent** copy
-stays readable, because Sterna also encrypts it to your own key.
+stays readable, because Gridlink also encrypts it to your own key.
 
 ## Step 4 — Read encrypted / signed mail
 
-When you open an OpenPGP message, Sterna asks OpenKeychain to decrypt and verify
+When you open an OpenPGP message, Gridlink asks OpenKeychain to decrypt and verify
 it (OpenKeychain may prompt for your passphrase the first time). Above the body
 you will see the result:
 
@@ -128,7 +128,7 @@ you will see the result:
   - ⚪ **grey** — the signer's public key is not in OpenKeychain, so the
     signature cannot be checked. Import their key to verify it.
 
-Sterna also reads legacy **inline PGP** messages, not just modern PGP/MIME.
+Gridlink also reads legacy **inline PGP** messages, not just modern PGP/MIME.
 
 ## Troubleshooting
 

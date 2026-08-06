@@ -1,3 +1,0 @@
-Notification content is now up to you: a new per-account setting lets a new-mail notification show the sender and subject (as before), the sender only, or neither.
-
-Also fixes the folder unread counts in the drawer not updating when you read or unread a message inside the app.

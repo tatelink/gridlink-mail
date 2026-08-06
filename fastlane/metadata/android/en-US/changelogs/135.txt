@@ -1,1 +1,0 @@
-Fixes new mail silently not arriving on Android 15 and newer: the system was killing Sterna's push connection after a daily quota. Push now runs the way the platform intends, and a fallback check every 30 minutes catches new mail even if push ever dies.

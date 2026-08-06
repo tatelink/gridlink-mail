@@ -14,7 +14,7 @@
          about a finished boot so the push connection comes back without opening the app (#98). -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- Package visibility (Android 11+): let Sterna see and bind the OpenKeychain
+    <!-- Package visibility (Android 11+): let Gridlink see and bind the OpenKeychain
          OpenPGP provider for message encryption/signing. -->
     <queries>
         <package android:name="org.sufficientlysecure.keychain" />
@@ -25,7 +25,7 @@
     </queries>
 
     <application
-        android:name=".SternaApplication"
+        android:name=".GridlinkApplication"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -35,7 +35,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:localeConfig="@xml/locales_config"
-        android:theme="@style/Theme.Sterna">
+        android:theme="@style/Theme.Gridlink">
 
         <!-- singleTask: a mailto: tap while the app runs re-enters the existing instance via
              onNewIntent instead of stacking a second MainActivity (and a second inbox). -->
@@ -45,13 +45,13 @@
             android:launchMode="singleTask"
             android:label="${appLabel}"
             android:windowSoftInputMode="adjustResize"
-            android:theme="@style/Theme.Sterna.Splash">
+            android:theme="@style/Theme.Gridlink.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
             <!-- mailto: links (Codeberg #15) — from browsers/webviews (VIEW+BROWSABLE) and from
-                 apps dispatching a compose action (SENDTO). Registers Sterna as an email app in
+                 apps dispatching a compose action (SENDTO). Registers Gridlink as an email app in
                  the system's open-with choices. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

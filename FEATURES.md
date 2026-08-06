@@ -1,6 +1,6 @@
 # Features
 
-This document tracks Sterna Mail's feature set: what's built, what's planned on the
+This document tracks Gridlink Mail's feature set: what's built, what's planned on the
 roadmap, and proposed additions drawn from K-9 Mail / Thunderbird for Android
 and from what users expect of a modern, complete email client.
 
@@ -43,7 +43,7 @@ The categories further down list the full feature set; this is the order of work
 
 **Tier 4 — polish**
 - ✅ Richer search filters (from/subject/has-attachment/date, AND-combined); 💡 `SearchSnippet` highlights
-- ✅ Sterna brand identity — Arctic (light) / Pelagic (dark) palette, a calm sea-teal action colour with a coral accent (the tern's beak); Material You is an opt-in toggle; coastal line-art empty states; calmer microcopy
+- ✅ Gridlink brand identity — Arctic (light) / Pelagic (dark) palette, a calm sea-teal action colour with a coral accent (the tern's beak); Material You is an opt-in toggle; coastal line-art empty states; calmer microcopy
 - ✅ Per-account colour (avatar + unified-inbox chip); ✅ accessibility pass v1 (screen-reader labels, font scaling, system-bar contrast); 💡 home-screen widget(s), fuller TalkBack audit
 - ✅ Bundled/grouped notifications (per-account summary) + quiet hours (silent nightly window)
 - ✅ Settings export/import (app preferences → JSON file via SAF; excludes accounts/credentials); ✅ `/.well-known/jmap` autodiscovery (email → server); ✅ OAuth2 device-flow sign-in (RFC 8628)
@@ -134,7 +134,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ JMAP **and** IMAP/SMTP account setup (protocol picker; host/port/security) — IMAP setup has quick-setup presets (Gmail, Yahoo, iCloud, Fastmail, Proton Bridge) that prefill host/port/security, with a reminder that most providers need an app-specific password (not the normal one); a rejected IMAP login repeats that hint. Password fields have a show/hide toggle. (Outlook/Microsoft uses OAuth instead of a password — see the XOAUTH2 item below.)
 - ✅ Account management panel — per-account editable server settings (protocol-aware: JMAP URL, or IMAP/SMTP host/port/security; username, password), with a "Test connection" button that validates the (edited) settings before saving
 - ✅ Optional account display name (falls back to the address when unset)
-- ✅ Onboarding via `/.well-known/jmap` autodiscovery — enter just email + password; Sterna probes the email domain's well-known endpoint (and mail./jmap. subdomains, following redirects) to find the JMAP server, with a manual-server fallback; 💡 DNS SRV (`_jmap._tcp`)
+- ✅ Onboarding via `/.well-known/jmap` autodiscovery — enter just email + password; Gridlink probes the email domain's well-known endpoint (and mail./jmap. subdomains, following redirects) to find the JMAP server, with a manual-server fallback; 💡 DNS SRV (`_jmap._tcp`)
 - ✅ OAuth2 / Bearer auth — "Sign in with OAuth" uses the OAuth 2.0 Device Authorization Grant (RFC 8628): discovers the server's `/.well-known/oauth-authorization-server`, shows a user code to enter in the browser, polls for tokens, and stores an encrypted refresh token (auto-refreshed). No password handled by the app. Verified against Stalwart.
 - ✅ **Outlook / Microsoft OAuth2 + XOAUTH2** — "Sign in with Microsoft" via the OAuth 2.0 Device Authorization Grant (a code typed into the browser), against a registered public Azure client; the access token is presented to the IMAP **and** SMTP servers with the **XOAUTH2** SASL mechanism (no password handled or stored; refresh token encrypted and auto-refreshed). Outlook is a provider chip in Add account, with server fields hidden. **Personal Outlook/Hotmail works.** Two limits, both gatekeeping rather than code: **work/school (org) accounts** need the organisation's admin to consent, or a Microsoft "verified publisher" badge I cannot obtain from a personal Microsoft account (investigated, paused); and a brand-new, not-yet-provisioned Outlook mailbox can fail (K-9 fails on it too — it's the account, not the client).
 - 🔜 **Gmail / Google OAuth2 + XOAUTH2** *(planned)* — the XOAUTH2 plumbing above (IMAP + SMTP) is provider-agnostic and reusable; what is missing is a Google OAuth provider (Google client id + endpoints + the `https://mail.google.com/` scope). The real blocker is **Google's verification for restricted Gmail scopes** (a recurring third-party security assessment), not the code. Until then Gmail works with an **app-specific password**, like Yahoo/iCloud/Fastmail.
@@ -172,7 +172,7 @@ The categories further down list the full feature set; this is the order of work
 
 ## UX & accessibility
 
-- ✅ Material 3 with Sterna's own brand palette (Arctic light / Pelagic deep-teal dark) by default; Material You wallpaper colour is an opt-in toggle (Settings → Appearance); the system status/navigation-bar icons follow the in-app theme so they stay legible
+- ✅ Material 3 with Gridlink's own brand palette (Arctic light / Pelagic deep-teal dark) by default; Material You wallpaper colour is an opt-in toggle (Settings → Appearance); the system status/navigation-bar icons follow the in-app theme so they stay legible
 - ✅ Contact avatars / sender initials (monograms)
 - ✅ Settings hub (Appearance / Notifications / Privacy & Security / Storage), DataStore-backed; grouped into Accounts · App · "This account · <name>" so app-wide vs per-account (server-side) settings are clear at a glance
 - ✅ Storage screen — on-device cache usage (DB + attachments, per-account breakdown) + Clear cache

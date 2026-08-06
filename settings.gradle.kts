@@ -20,7 +20,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Sterna"
+rootProject.name = "Gridlink"
 
 include(":app")
 include(":core:jmap")

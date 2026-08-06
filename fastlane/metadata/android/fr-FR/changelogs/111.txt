@@ -1,3 +1,0 @@
-Nouveau : balayez vers la gauche ou la droite dans un message ouvert pour passer au message précédent ou suivant de la liste, comme dans la plupart des applications de messagerie. Le contexte de la liste (dossier ou boîte unifiée, tri, filtre « non lus » et recherche en cours) est conservé, et les anciens messages continuent de se charger quand vous arrivez en fin de liste.
-
-Aussi : lorsque le filtre « non lus » est actif et que tout est déjà lu, la boîte de réception l'indique clairement au lieu de paraître vide, avec un bouton pour afficher tout le courrier.

@@ -1,1 +1,0 @@
-The composer's From menu now offers the send-as addresses configured on your JMAP server (aliases and identities), refreshed on connect, so they show up without re-entering them by hand. Any identities you added manually are kept alongside.

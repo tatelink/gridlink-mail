@@ -1,9 +1,9 @@
 # Security
 
-This document describes Sterna's security posture, threat model, and how to report
+This document describes Gridlink's security posture, threat model, and how to report
 vulnerabilities. It is aimed at security researchers and contributors.
 
-Sterna is an email client: it renders untrusted content (email is attacker-authored
+Gridlink is an email client: it renders untrusted content (email is attacker-authored
 by definition) and talks to remote mail servers over the network. The two highest-risk
 surfaces are therefore **message rendering** and **transport/credentials**, and most of
 the hardening below concentrates there.
@@ -33,11 +33,11 @@ In scope:
   active man-in-the-middle on the network path, feeding crafted protocol responses or
   attempting to downgrade/intercept the connection.
 - **Local attacker with brief physical access** — recents/screenshots, device backups,
-  and another app on the device attempting IPC against Sterna's components.
+  and another app on the device attempting IPC against Gridlink's components.
 
 Out of scope:
 
-- The security of the mail server you choose (Sterna cannot make a hostile provider
+- The security of the mail server you choose (Gridlink cannot make a hostile provider
   private — see [PRIVACY.md](PRIVACY.md)).
 - A fully compromised device / OS, root malware, or hardware attacks.
 - Physical attacks with unlimited time against a powered-off device beyond what the
@@ -59,9 +59,9 @@ Out of scope:
   one, so a certificate chaining to an authority you installed yourself in Android's settings
   is accepted (Codeberg #93). Nothing else moves: the chain and the hostname are still
   verified on every handshake, and there is still no "trust this certificate anyway" prompt
-  anywhere in Sterna. The other side of that choice, plainly: a CA pushed by an employer on a
+  anywhere in Gridlink. The other side of that choice, plainly: a CA pushed by an employer on a
   managed profile, or one slipped onto the device by someone else, now also validates for
-  Sterna, and whoever controls it can intercept the connection. K-9 Mail and FairEmail decide
+  Gridlink, and whoever controls it can intercept the connection. K-9 Mail and FairEmail decide
   the same way; banking apps decide the opposite way. For a client whose users largely run
   their own servers, trusting the store the user controls is the coherent trade, and the
   decision stays where Android already manages it, with its own permanent warning and a place
@@ -138,7 +138,7 @@ Out of scope:
 
 - OpenPGP is delegated to the **OpenKeychain** app over the standard `openpgp-api`
   bound-service interface: private keys and passphrases live in OpenKeychain and never
-  enter Sterna's process. Reading decrypts + verifies; composing signs and/or encrypts
+  enter Gridlink's process. Reading decrypts + verifies; composing signs and/or encrypts
   as PGP/MIME (RFC 3156), on both JMAP and IMAP/SMTP.
 - **Decrypted content is never persisted**: plaintext of an encrypted message is held in
   an in-memory cache only, never written to the Room body cache and never added to the
@@ -156,7 +156,7 @@ Out of scope:
   `mailto:` is parsed with the platform `MailTo` parser inside a `runCatching`, so a
   malformed or hostile URI opens nothing at all; the text extras only fill the subject and
   body fields; and of the shared URIs, **only `content:` ones are accepted**, so no app can
-  hand over a `file:` path and have Sterna read its own private storage on the sender's
+  hand over a `file:` path and have Gridlink read its own private storage on the sender's
   behalf. No filesystem path is derived from a shared URI, and the display name is
   CR/LF-filtered before it can reach a MIME header. No intent extra selects an account,
   grants a permission, or sends anything, an address carrying a line break is refused before
@@ -171,6 +171,9 @@ Out of scope:
 ## Coordinated disclosure
 
 I prefer coordinated disclosure: give me a reasonable window to ship a fix before any
-public write-up. Because Sterna is distributed through F-Droid and Obtainium (with the
-Codeberg releases as the source of truth), users may take time to update, so please
-factor that into disclosure timing.
+public write-up.
+
+Gridlink itself has no public distribution channel, so a finding here reaches almost
+nobody. A finding in code inherited from upstream is a different matter: **[Sterna
+Mail](https://codeberg.org/emon/sterna-mail)** is published on F-Droid and has real
+users, so please report anything in `core/` or the upstream screens to emon first.

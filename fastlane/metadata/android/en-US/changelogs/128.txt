@@ -1,1 +1,0 @@
-Fixed: with the unread filter active, opening a message chained through all unread messages and marked them read. Now only the message you open is marked read.

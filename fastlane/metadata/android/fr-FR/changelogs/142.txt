@@ -1,1 +1,0 @@
-Deux petits correctifs. Dans un nouveau message, taper n'importe où dans la zone vide sous l'en-tête place désormais le curseur dans le corps, plus seulement dans sa partie haute. Et ouvrir un compte depuis le menu latéral, puis appuyer sur Retour, ramène maintenant à la boîte de réception au lieu de l'écran Réglages.

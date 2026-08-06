@@ -1,1 +1,0 @@
-Reading a message now shows the full subject at the top, wrapping over as many lines as needed, instead of a single truncated line in the bar. The bar also gains a Follow (star) toggle, moved out of the overflow menu.

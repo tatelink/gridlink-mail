@@ -1,1 +1,0 @@
-"Encrypt by default" now does what it says. It starts a new message set to encrypt, and if a recipient turns out to have no public key it falls back to sending normally instead of blocking you, showing which address is missing a key. The lock icon always reflects what will actually happen. Turning the lock on yourself still stays strict.

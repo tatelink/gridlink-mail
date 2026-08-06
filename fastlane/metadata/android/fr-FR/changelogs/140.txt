@@ -1,3 +1,0 @@
-Les notifications de nouveau courrier se retirent maintenant toutes seules quand le message est lu, que vous le lisiez dans Sterna ou sur un autre appareil (client de bureau ou webmail). Fini les notifications périmées à balayer.
-
-Dans l'écran de composition, taper le libellé d'un champ d'en-tête ou n'importe où sur sa ligne place désormais le curseur dans ce champ, au lieu du seul input fin.

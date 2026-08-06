@@ -1,1 +1,0 @@
-Fixed: messages inside an unfolded conversation kept their unread dot after being read. Multi-select now works with conversations: unfolded messages can be selected, and selecting a conversation selects all its messages.

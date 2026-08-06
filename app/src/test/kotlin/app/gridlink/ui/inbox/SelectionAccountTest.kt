@@ -1,0 +1,40 @@
+package app.gridlink.ui.inbox
+
+import app.gridlink.core.data.mail.EmailKey
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Test
+
+/**
+ * The move-to-folder picker offers the SELECTION's account folders, so a secondary-account message
+ * moved from the unified inbox lands in its own folders (#73). [selectionAccount] is that resolution:
+ * one account, or null when the picker cannot commit to one (empty, mixed, or an unknown account).
+ */
+class SelectionAccountTest {
+    private fun key(account: String?, id: String) = EmailKey(account, id)
+
+    @Test
+    fun `empty selection has no account`() {
+        assertNull(selectionAccount(emptySet()))
+    }
+
+    @Test
+    fun `a single-account selection resolves to that account`() {
+        assertEquals("acct-A", selectionAccount(setOf(key("acct-A", "1"), key("acct-A", "2"))))
+    }
+
+    @Test
+    fun `a selection spanning two accounts resolves to null`() {
+        assertNull(selectionAccount(setOf(key("acct-A", "1"), key("acct-B", "2"))))
+    }
+
+    @Test
+    fun `an unknown (null) account among known ones resolves to null`() {
+        assertNull(selectionAccount(setOf(key("acct-A", "1"), key(null, "2"))))
+    }
+
+    @Test
+    fun `an all-unknown selection resolves to null`() {
+        assertNull(selectionAccount(setOf(key(null, "1"), key(null, "2"))))
+    }
+}

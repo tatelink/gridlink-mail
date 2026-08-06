@@ -1,10 +1,11 @@
 <resources>
-    <!-- Android 12+ system splash: the tern flaps once over a light-grey field, then
-         the window hands off to the app. Uses the platform attributes directly (no
-         androidx.core:core-splashscreen needed). -->
-    <style name="Theme.Sterna.Splash" parent="Theme.Sterna">
-        <item name="android:windowSplashScreenBackground">@color/sterna_splash_background</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_tern_anim</item>
-        <item name="android:windowSplashScreenAnimationDuration">600</item>
+    <!-- Android 12+ system splash: the Gridlink mark on the icon's own tile colour, so the
+         cold start looks like the launcher icon opening rather than a separate screen. The
+         icon is the adaptive foreground itself, which already sits inside the 2/3 safe zone
+         the splash spec asks for, so there is one piece of artwork and it cannot drift.
+         Uses the platform attributes directly (no androidx.core:core-splashscreen needed). -->
+    <style name="Theme.Gridlink.Splash" parent="Theme.Gridlink">
+        <item name="android:windowSplashScreenBackground">@color/gridlink_splash_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
     </style>
 </resources>

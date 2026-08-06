@@ -1,1 +1,0 @@
-Corrige les nouveaux mails qui n'arrivaient plus sur Android 15 et plus récent : le système tuait la connexion push de Sterna après un quota quotidien. Le push tourne désormais comme la plateforme le prévoit, et une vérification de secours toutes les 30 minutes rattrape les nouveaux mails même si le push meurt.

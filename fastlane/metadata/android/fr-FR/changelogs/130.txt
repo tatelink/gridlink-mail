@@ -1,1 +1,0 @@
-Version technique : les builds sont désormais reproductibles octet par octet (requis pour la vérification F-Droid). Aucun changement fonctionnel.

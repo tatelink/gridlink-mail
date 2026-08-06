@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes how Sterna is built. It is aimed at developers.
+This document describes how Gridlink is built. It is aimed at developers.
 
 ## Goals
 
@@ -19,7 +19,7 @@ This document describes how Sterna is built. It is aimed at developers.
 - **Async:** Kotlin Coroutines + Flow.
 - **Networking:** OkHttp + kotlinx.serialization (JMAP is batched JSON, so a thin
   typed client rather than Retrofit).
-- **Persistence:** Room (`sterna.db`, the offline cache + outbox) with Paging 3,
+- **Persistence:** Room (`gridlink.db`, the offline cache + outbox) with Paging 3,
   DataStore for settings, AndroidKeyStore-encrypted credentials.
 - **Background:** WorkManager for everything that must survive the process
   (destroys, outbox, scheduled send, snooze, the push fallback poll).
@@ -120,7 +120,7 @@ connection; IMAP → IDLE. Direct connections live in a foreground service
 declared `specialUse` (not `dataSync`, which Android 15+ budgets and kills).
 With UnifiedPush the server posts a WebPush-encrypted `StateChange` to the
 distributor's endpoint; the connector library generates and holds the P-256
-keys on-device and hands Sterna decrypted payloads, which enqueue an expedited
+keys on-device and hands Gridlink decrypted payloads, which enqueue an expedited
 fetch worker — the process can be dead between pushes. A periodic ~30-minute
 `MailFetchWorker` is the safety net for every transport (push can die silently)
 and polls what IDLE cannot see.
@@ -137,7 +137,7 @@ Three schemes, resolved by a single `jmapAuth()`: **Basic** (username/password),
 IMAP/SMTP, access tokens refreshed on demand), and **API tokens** (e.g.
 Fastmail) sent as Bearer. Passwords, tokens and OAuth refresh tokens are
 encrypted with an AES-256-GCM key that never leaves the AndroidKeyStore
-(AAD-bound to the account). Sterna requires TLS; cleartext JMAP is rejected by
+(AAD-bound to the account). Gridlink requires TLS; cleartext JMAP is rejected by
 design.
 
 ## Storage & retention
@@ -184,7 +184,8 @@ outbox-bearing tables migrate additively.
 ## Build & releases
 
 Release builds are R8-minified and resource-shrunk (`-PnoR8` for faster test
-builds) and must be **reproducible** for F-Droid: built from a clean tree with
+builds) and are **reproducible**, a property inherited from upstream and worth
+keeping whether or not this fork is ever published: built from a clean tree with
 `--no-build-cache`, no VCS info or dependency-metadata blob embedded, and the
 ART baseline profile deliberately not packaged (`ArtProfile` tasks disabled) —
 it is not byte-stable across build environments. R8 mappings are archived per

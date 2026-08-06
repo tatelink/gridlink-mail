@@ -1,3 +1,0 @@
-Nouveau : Sterna ouvre les liens mailto: (et peut être choisi comme app e-mail du système), en pré-remplissant destinataires, sujet, corps, cc et cci.
-
-Amélioration : les balayages de la liste indiquent clairement le seuil de déclenchement (couleur, zoom et vibration), et re-balayer lu/non lu sur le même message fonctionne à tous les coups.

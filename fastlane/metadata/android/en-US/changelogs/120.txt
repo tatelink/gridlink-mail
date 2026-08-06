@@ -1,1 +1,0 @@
-Under-the-hood packaging fix so Sterna can be built and shipped through F-Droid. No changes to how the app works.

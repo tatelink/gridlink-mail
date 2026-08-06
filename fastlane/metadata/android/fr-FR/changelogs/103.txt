@@ -1,6 +1,0 @@
-Version de maintenance.
-
-* Paquet FOSS plus propre — plus de bloc de métadonnées de dépendances Google dans l'APK.
-* Correction : l'archivage fonctionne même si le serveur n'attribue aucun rôle au dossier.
-* Connexion IMAP : message plus clair quand un fournisseur exige un mot de passe d'application.
-* Retrait du préréglage Outlook (son IMAP basic-auth a disparu ; OAuth à venir).

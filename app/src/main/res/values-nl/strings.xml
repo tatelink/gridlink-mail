@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Sterna Mail</string>
+    <string name="app_name">Gridlink Mail</string>
 
     <!-- Compose -->
     <string name="compose_title_new">Nieuw bericht</string>
@@ -58,7 +58,7 @@
     <string name="inbox_delete">Verwijderen</string>
     <string name="inbox_delete_forever">Permanent verwijderen</string>
     <string name="inbox_undo">Ongedaan maken</string>
-    <string name="inbox_app_name">Sterna Mail</string>
+    <string name="inbox_app_name">Gridlink Mail</string>
     <string name="inbox_switch_account">Account wisselen</string>
     <string name="inbox_all_inboxes">Alle postvakken IN</string>
     <string name="inbox_all_inboxes_unread">Alle postvakken IN  (%1$d)</string>
@@ -323,7 +323,7 @@
     <string name="settings_filters_add">Regel toevoegen</string>
     <string name="settings_filters_saved">Filters opgeslagen</string>
     <string name="settings_filters_untitled">Naamloze regel</string>
-    <string name="settings_filters_foreign_warning">Er is al een ander filterscript actief op de server; door op te slaan wordt dat van Sterna Mail het actieve script.</string>
+    <string name="settings_filters_foreign_warning">Er is al een ander filterscript actief op de server; door op te slaan wordt dat van Gridlink Mail het actieve script.</string>
     <string name="settings_filters_edit_title">Regel bewerken</string>
     <string name="settings_filter_name">Regelnaam</string>
     <string name="settings_filter_if">Als</string>
@@ -346,7 +346,7 @@
     <string name="settings_privacy_screen_title">Privacy en beveiliging</string>
     <string name="settings_security_section">Beveiliging</string>
     <string name="settings_app_lock_title">App-vergrendeling</string>
-    <string name="settings_app_lock_subtitle">Vereis je vingerafdruk, gezicht of schermpincode om Sterna Mail te openen.</string>
+    <string name="settings_app_lock_subtitle">Vereis je vingerafdruk, gezicht of schermpincode om Gridlink Mail te openen.</string>
     <string name="settings_app_lock_unavailable">Stel eerst een vingerafdruk, gezichtsontgrendeling of schermvergrendeling in bij je apparaatinstellingen.</string>
     <string name="settings_links_section">Links</string>
     <string name="settings_image_allowlist_section">Externe afbeeldingen</string>
@@ -357,7 +357,7 @@
     <string name="settings_confirm_links_subtitle">Toon de bestemming en vraag om bevestiging voordat een link uit een bericht wordt geopend.</string>
     <string name="settings_recipient_suggestions_section">Ontvangersuggesties</string>
     <string name="settings_suggest_contacts_title">Suggesties uit contacten</string>
-    <string name="settings_suggest_contacts_subtitle">Vul ontvangers aan uit de contacten van dit apparaat terwijl je typt. Sterna Mail leest ze alleen op het apparaat en uploadt ze nooit. Uitgeschakeld stelt het nog steeds mensen voor die je onlangs hebt gemaild.</string>
+    <string name="settings_suggest_contacts_subtitle">Vul ontvangers aan uit de contacten van dit apparaat terwijl je typt. Gridlink Mail leest ze alleen op het apparaat en uploadt ze nooit. Uitgeschakeld stelt het nog steeds mensen voor die je onlangs hebt gemaild.</string>
     <string name="settings_storage_screen_title">Opslag</string>
     <string name="settings_on_device_usage_section">Gebruik op apparaat</string>
     <string name="settings_storage_total">Totaal</string>
@@ -446,7 +446,7 @@
     <string name="settings_pgp_choose_key">Sleutel kiezen</string>
     <string name="settings_pgp_encrypt_default_title">Standaard versleutelen</string>
     <string name="settings_pgp_encrypt_default_subtitle">Nieuwe berichten beginnen versleuteld als elke ontvanger een sleutel heeft, en onversleuteld als er een ontbreekt</string>
-    <string name="settings_pgp_missing_help">Sterna gebruikt de OpenKeychain-app om sleutels te beheren en berichten te versleutelen. Installeer deze om OpenPGP in te schakelen.</string>
+    <string name="settings_pgp_missing_help">Gridlink gebruikt de OpenKeychain-app om sleutels te beheren en berichten te versleutelen. Installeer deze om OpenPGP in te schakelen.</string>
     <string name="settings_pgp_provider_required">Niet actief: OpenKeychain vereist</string>
     <string name="settings_pgp_install">OpenKeychain installeren</string>
     <string name="settings_pgp_error">Fout van de OpenPGP-provider</string>
@@ -494,7 +494,7 @@
     <string name="connect_imap_smtp">IMAP / SMTP</string>
     <string name="connect_jmap_server">JMAP-server</string>
     <string name="connect_jmap_server_placeholder">mail.example.com</string>
-    <string name="connect_jmap_autodiscover_hint">Voer gewoon je e-mailadres en wachtwoord in — Sterna Mail vindt je server automatisch.</string>
+    <string name="connect_jmap_autodiscover_hint">Voer gewoon je e-mailadres en wachtwoord in — Gridlink Mail vindt je server automatisch.</string>
     <string name="connect_auth_method">Inloggen met</string>
     <string name="connect_auth_api_token">API-token</string>
     <string name="connect_api_token_hint">Plak een API-token dat je provider (bijv. Fastmail) heeft aangemaakt in plaats van een wachtwoord. Je kunt de server leeg laten of de sessie-URL plakken.</string>
@@ -528,11 +528,11 @@
     <string name="connect_oauth_cancel">Annuleren</string>
     <string name="connect_import_signin_microsoft">Aanmelden met Microsoft</string>
     <string name="connect_import_oauth_explainer">Dit account meldt zich aan met Microsoft. Meld je één keer aan om het te activeren. Je wachtwoord wordt nooit in het bestand opgeslagen.</string>
-    <string name="connect_import_oauth_unsupported">Dit account gebruikt OAuth-aanmelding voor een server waar Sterna niet automatisch bij kan aanmelden. Gebruik in plaats daarvan een app-wachtwoord, of sla het over.</string>
+    <string name="connect_import_oauth_unsupported">Dit account gebruikt OAuth-aanmelding voor een server waar Gridlink niet automatisch bij kan aanmelden. Gebruik in plaats daarvan een app-wachtwoord, of sla het over.</string>
     <string name="connect_import_use_app_password">Gebruik in plaats daarvan een app-wachtwoord</string>
     <string name="connect_import_app_password_note">Sommige Microsoft-accounts staan een app-wachtwoord toe; veel zakelijke of schoolaccounts schakelen het uit.</string>
     <string name="connect_oauth_declined">Je hebt de aanmelding geweigerd. Probeer het opnieuw.</string>
-    <string name="connect_oauth_admin_consent">De beheerder van je organisatie moet Sterna goedkeuren voor aanmelding met Microsoft, of je kunt je aanmelden met een app-wachtwoord.</string>
+    <string name="connect_oauth_admin_consent">De beheerder van je organisatie moet Gridlink goedkeuren voor aanmelding met Microsoft, of je kunt je aanmelden met een app-wachtwoord.</string>
     <string name="connect_oauth_error_code">Microsoft heeft de aanmelding geweigerd (%1$s). Probeer het opnieuw of gebruik een app-wachtwoord.</string>
     <string name="connect_incoming_imap">Inkomend (IMAP)</string>
     <string name="connect_outgoing_smtp">Uitgaand (SMTP)</string>
@@ -578,10 +578,10 @@
     <string name="search_button">Zoeken</string>
 
     <!-- App lock -->
-    <string name="lock_title">Sterna Mail is vergrendeld</string>
+    <string name="lock_title">Gridlink Mail is vergrendeld</string>
     <string name="lock_subtitle">Ontgrendel om je e-mail te lezen.</string>
     <string name="lock_unlock">Ontgrendelen</string>
-    <string name="lock_prompt_title">Sterna Mail ontgrendelen</string>
+    <string name="lock_prompt_title">Gridlink Mail ontgrendelen</string>
     <string name="lock_prompt_subtitle">Verifieer dat jij het bent</string>
 
     <!-- ViewModel status / errors -->
@@ -675,7 +675,7 @@
     <string name="settings_image_allowlist_remove">Afzender verwijderen</string>
     <string name="settings_image_allowlist_hint">sender@example.com</string>
     <string name="settings_sign_out_title">Afmelden bij dit account?</string>
-    <string name="settings_sign_out_message">Dit account wordt uit Sterna Mail verwijderd en de gedownloade e-mail wordt van dit apparaat gewist.</string>
+    <string name="settings_sign_out_message">Dit account wordt uit Gridlink Mail verwijderd en de gedownloade e-mail wordt van dit apparaat gewist.</string>
     <string name="connect_welcome_title">Je e-mail, eindelijk van jou.</string>
     <string name="connect_welcome_subtitle">Geen advertenties, geen tracking. Op de server die jij kiest.</string>
     <string name="connect_import_header">Heb je al accounts ergens anders?</string>
@@ -684,8 +684,8 @@
     <string name="connect_import_signin_progress">Account %1$d van %2$d</string>
     <string name="connect_import_signin_button">Aanmelden</string>
     <string name="connect_import_signin_skip">Nu overslaan</string>
-    <string name="connect_import_invalid">Dat bestand is geen geldige Sterna-back-up.</string>
-    <string name="connect_import_settings">Herstellen vanaf een Sterna-back-up</string>
+    <string name="connect_import_invalid">Dat bestand is geen geldige Gridlink-back-up.</string>
+    <string name="connect_import_settings">Herstellen vanaf een Gridlink-back-up</string>
     <string name="connect_import_no_accounts">Instellingen geïmporteerd. De back-up had geen accounts, voeg er hieronder een toe.</string>
     <string name="connect_import_k9">Importeren uit K-9 of Thunderbird</string>
     <string name="connect_import_k9_none">Er zijn geen importeerbare accounts in dat bestand gevonden.</string>
@@ -728,9 +728,9 @@
     <string name="a11y_conversation_expanded">Uitgevouwen</string>
     <string name="a11y_conversation_collapsed">Samengevouwen</string>
     <string name="a11y_flagged">Met ster</string>
-    <string name="settings_theme_sterna_caption">Sterna-palet: Arctic (licht) · Pelagic (donker).</string>
+    <string name="settings_theme_gridlink_caption">Gridlink-palet: Arctic (licht) · Pelagic (donker).</string>
     <string name="settings_dynamic_color_title">Material You-kleuren</string>
-    <string name="settings_dynamic_color_subtitle">Gebruik kleuren van je achtergrond in plaats van het palet van Sterna (Android 12+).</string>
+    <string name="settings_dynamic_color_subtitle">Gebruik kleuren van je achtergrond in plaats van het palet van Gridlink (Android 12+).</string>
     <string name="empty_inbox_title">Alles bijgewerkt</string>
     <string name="empty_inbox_body">Niets onderweg. Nieuwe post landt hier.</string>
     <string name="empty_folder_title">Hier nog niets</string>
@@ -749,12 +749,12 @@
     <!-- Onboarding: privacy welcome + contacts priming -->
     <string name="welcome_body">Geen advertenties, geen tracking, geen Google-diensten. Op de server die jij kiest.</string>
     <string name="welcome_screen2_title">Wat van jou is, blijft van jou.</string>
-    <string name="welcome_screen2_body">Sterna Mail verzamelt geen telemetrie. Je contacten blijven op dit apparaat en worden alleen gelezen als jij het toestaat.</string>
+    <string name="welcome_screen2_body">Gridlink Mail verzamelt geen telemetrie. Je contacten blijven op dit apparaat en worden alleen gelezen als jij het toestaat.</string>
     <string name="welcome_next">Volgende</string>
     <string name="welcome_get_started">Aan de slag</string>
     <string name="welcome_skip">Overslaan</string>
     <string name="compose_contacts_priming_title">Voorstellen uit je contacten?</string>
-    <string name="compose_contacts_priming_body">Ontvangers aanvullen uit de contacten van dit apparaat. Sterna Mail leest ze alleen op het apparaat en uploadt ze nooit.</string>
+    <string name="compose_contacts_priming_body">Ontvangers aanvullen uit de contacten van dit apparaat. Gridlink Mail leest ze alleen op het apparaat en uploadt ze nooit.</string>
     <string name="compose_contacts_priming_enable">Inschakelen</string>
     <string name="compose_contacts_priming_not_now">Niet nu</string>
     <string name="settings_mark_read_title">Als gelezen markeren bij</string>
