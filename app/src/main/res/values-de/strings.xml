@@ -499,6 +499,7 @@
     <string name="connect_auth_api_token">API-Token</string>
     <string name="connect_api_token_hint">Füge statt eines Passworts einen von deinem Anbieter (z. B. Fastmail) erzeugten API-Token ein. Den Server kannst du leer lassen oder seine Session-URL einfügen.</string>
     <string name="connect_token_rejected">Der Server hat den API-Token abgelehnt. Prüfe, ob er gültig ist und Zugriff auf die E-Mails erlaubt.</string>
+    <string name="connect_credentials_rejected">Der Server hat dieses Konto und Passwort abgelehnt. Prüfe beides, und ob dein Server stattdessen ein App-Passwort verlangt.</string>
     <string name="connect_fastmail_token_hint">Fastmail benötigt einen API-Token — wähle oben „API-Token“.</string>
     <string name="connect_advanced_show">Erweiterte Einstellungen</string>
     <string name="connect_advanced_hide">Erweiterte Einstellungen ausblenden</string>

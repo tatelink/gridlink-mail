@@ -499,6 +499,7 @@
     <string name="connect_auth_api_token">API-token</string>
     <string name="connect_api_token_hint">Plak een API-token dat je provider (bijv. Fastmail) heeft aangemaakt in plaats van een wachtwoord. Je kunt de server leeg laten of de sessie-URL plakken.</string>
     <string name="connect_token_rejected">De server heeft het API-token geweigerd. Controleer of het geldig is en toegang tot e-mail geeft.</string>
+    <string name="connect_credentials_rejected">De server heeft dat account en wachtwoord geweigerd. Controleer beide, en of je server in plaats daarvan een app-wachtwoord vereist.</string>
     <string name="connect_fastmail_token_hint">Fastmail vereist een API-token — kies hierboven \"API-token\".</string>
     <string name="connect_advanced_show">Geavanceerde instellingen</string>
     <string name="connect_advanced_hide">Geavanceerde instellingen verbergen</string>
