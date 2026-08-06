@@ -50,6 +50,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import okhttp3.HttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
@@ -81,14 +82,20 @@ class JmapClient internal constructor(
                     .get()
                     .build()
                 val session = httpClient.newCall(request).execute().use { response ->
-                    // OkHttp drops the Authorization header when a redirect crosses hosts, so
-                    // an autodiscovery redirect (RFC 8620 §2.2, e.g. fastmail.com/.well-known/jmap
-                    // → api.fastmail.com/jmap/session) lands unauthenticated and 401s. Retry the
-                    // redirect target once, re-authenticated. The scheme check forbids a cleartext
-                    // downgrade (followSslRedirects(false) already refuses scheme switches).
+                    // OkHttp drops the Authorization header when a redirect changes origin, so an
+                    // autodiscovery redirect (RFC 8620 §2.2, e.g. fastmail.com/.well-known/jmap →
+                    // api.fastmail.com/jmap/session) lands unauthenticated. Retry the redirect
+                    // target once, re-authenticated.
+                    //
+                    // ⛔ The trigger is the MECHANICAL fact that dropped the header — the origin
+                    // changed ([redirectDroppedAuthorization]) — never the answer we got back. A
+                    // 401 is only one of the ways a server refuses an anonymous session request:
+                    // Stalwart answers 200 with an empty session instead, which used to make the
+                    // account be rejected as "This user has no JMAP mail account." (issue #137).
+                    // `retried` keeps it to a single replay, whatever the redirect chain does.
                     val landedAt = response.request.url
-                    if (!retried && response.code == 401 && response.priorResponse != null &&
-                        landedAt.toString() != url && url.startsWith("${landedAt.scheme}://")
+                    if (!retried && response.priorResponse != null &&
+                        redirectDroppedAuthorization(request.url, landedAt)
                     ) {
                         retried = true
                         url = landedAt.toString()
@@ -2369,6 +2376,33 @@ class JmapClient internal constructor(
         /** Retries for the transient limit/429 error, with a linear backoff step. */
         private const val LIMIT_RETRY_MAX = 4
         private const val LIMIT_RETRY_BASE_MS = 120L
+
+        /**
+         * Whether the redirect that took [requested] to [landedAt] cost us the `Authorization`
+         * header — i.e. whether the request that actually reached the server was anonymous.
+         *
+         * The rule is OkHttp's own (`canReuseConnectionFor`, applied in `followUpRequest`): the
+         * header is stripped when the **origin** changes, and an origin is the triplet
+         * **scheme + host + port**. A different path on the same origin keeps it.
+         *
+         * ⛔ The port is part of the triplet, and not for the sake of completeness: `host:443` →
+         * `host:8443` is a real deployment, and without it two MockWebServers on `localhost`
+         * would count as the same origin and nothing here would be testable.
+         *
+         * ⛔ Different schemes answer **false**, so the replay can never resend credentials down
+         * to cleartext after an https→http hop (`followSslRedirects(false)` refuses that hop
+         * already; this keeps the decision from ever asking for it).
+         *
+         * ⛔ What this deliberately does NOT look at: the response's **status code**, and whether
+         * the session that came back has an account. A Stalwart behind a cross-origin redirect
+         * answers the anonymous request with **200 + an empty session** (`"username":""`,
+         * `"accounts":{}`) rather than 401 (issue #137) — and a user who genuinely has no
+         * mailbox answers exactly the same, so neither signal can decide anything.
+         */
+        internal fun redirectDroppedAuthorization(requested: HttpUrl, landedAt: HttpUrl): Boolean {
+            if (requested.scheme != landedAt.scheme) return false
+            return requested.host != landedAt.host || requested.port != landedAt.port
+        }
 
         /**
          * Defensively upgrade the session-advertised URLs from http:// to https:// when the

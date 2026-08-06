@@ -15,12 +15,14 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -108,6 +110,115 @@ class JmapClientTest {
         } finally {
             target.shutdown()
         }
+    }
+
+    @Test fun fetchSession_reAuthenticatesWhenACrossHostRedirectAnswersAnAnonymousSession() = runBlocking {
+        // Issue #137. Same shape as the test above — a redirect that crosses origins, so OkHttp
+        // dropped the Authorization header — except that the server does NOT answer 401: it
+        // answers 200 with an anonymous session ("username":"", "accounts":{}). Gating the replay
+        // on the status code leaves the caller with mailAccountId() == null and the account is
+        // rejected with "This user has no JMAP mail account.", which blames the user's mailbox.
+        val target = MockWebServer()
+        target.start()
+        try {
+            target.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse =
+                    if (request.getHeader("Authorization") == "Bearer fmu1-token") {
+                        MockResponse().setHeader("Content-Type", "application/json").setBody(SESSION_JSON)
+                    } else {
+                        MockResponse().setHeader("Content-Type", "application/json")
+                            .setBody(ANONYMOUS_SESSION_JSON)
+                    }
+            }
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(302)
+                    .setHeader("Location", target.url("/jmap/session").toString()),
+            )
+
+            val session = client.fetchSession(
+                server.url("/.well-known/jmap").toString(),
+                BearerAuth("fmu1-token"),
+            )
+
+            assertEquals("acc1", session.mailAccountId())
+            assertEquals("admin@masto.top", session.username)
+            // First hit arrives header-less and gets the anonymous session, the retry authenticates.
+            assertEquals(2, target.requestCount)
+        } finally {
+            target.shutdown()
+        }
+    }
+
+    @Test fun fetchSession_doesNotReplayWhenASameOriginRedirectOnlyChangesThePath() = runBlocking {
+        // The ordinary autodiscovery hop, /.well-known/jmap → /jmap/session on the SAME origin:
+        // OkHttp keeps the Authorization header across it, so there is nothing to re-authenticate
+        // and the credentials must not be sent a third time.
+        server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "/jmap/session"))
+        server.enqueue(
+            MockResponse().setHeader("Content-Type", "application/json").setBody(SESSION_JSON),
+        )
+
+        val session = client.fetchSession(
+            server.url("/.well-known/jmap").toString(),
+            BearerAuth("fmu1-token"),
+        )
+
+        assertEquals("acc1", session.mailAccountId())
+        // Exactly the redirect and the hop it points at — no replay of the target.
+        assertEquals(2, server.requestCount)
+        assertEquals("/.well-known/jmap", server.takeRequest().path)
+        val followed = server.takeRequest()
+        assertEquals("/jmap/session", followed.path)
+        assertEquals("Bearer fmu1-token", followed.getHeader("Authorization"))
+    }
+
+    // ---- the decision itself, run on its arguments (issue #137) ----
+    //
+    // What made the header fall off is the ORIGIN triplet (scheme + host + port) changing — that
+    // is OkHttp's own rule (canReuseConnectionFor). The response's status code says nothing about
+    // it, and a session with no account is not a symptom either: an account that genuinely has no
+    // mailbox answers exactly the same.
+
+    @Test fun redirectDroppedAuthorization_isTrueWhenTheHostChanged() {
+        assertTrue(
+            JmapClient.redirectDroppedAuthorization(
+                "https://example.com/.well-known/jmap".toHttpUrl(),
+                "https://api.example.com/jmap/session".toHttpUrl(),
+            ),
+        )
+    }
+
+    @Test fun redirectDroppedAuthorization_isTrueWhenOnlyThePortChanged() {
+        // ⛔ The port is part of the triplet: without it two MockWebServers on localhost are
+        // "the same origin" and none of this is reproducible — nor is a real host:8443 hop.
+        assertTrue(
+            JmapClient.redirectDroppedAuthorization(
+                "https://example.com/.well-known/jmap".toHttpUrl(),
+                "https://example.com:8443/jmap/session".toHttpUrl(),
+            ),
+        )
+    }
+
+    @Test fun redirectDroppedAuthorization_isFalseWhenTheSchemeChanged() {
+        // Never replay credentials down to cleartext (followSslRedirects(false) already refuses
+        // the hop; this keeps the decision itself from ever asking for one).
+        assertFalse(
+            JmapClient.redirectDroppedAuthorization(
+                "https://example.com/.well-known/jmap".toHttpUrl(),
+                "http://example.com/jmap/session".toHttpUrl(),
+            ),
+        )
+    }
+
+    @Test fun redirectDroppedAuthorization_isFalseWhenOnlyThePathChanged() {
+        // Same origin: OkHttp carried the header over, the request was authenticated.
+        assertFalse(
+            JmapClient.redirectDroppedAuthorization(
+                "https://example.com/.well-known/jmap".toHttpUrl(),
+                "https://example.com/jmap/session".toHttpUrl(),
+            ),
+        )
     }
 
     // The scheme-upgrade is exercised directly (a real https MockWebServer would need an
@@ -1339,6 +1450,21 @@ class JmapClientTest {
               "apiUrl": "https://mail.example.com/jmap/api/",
               "downloadUrl": "https://mail.example.com/jmap/download/",
               "state": "s1"
+            }
+        """
+
+        // What a Stalwart answers to an unauthenticated GET of its session resource: HTTP 200,
+        // no user, no account — not a 401 (issue #137).
+        const val ANONYMOUS_SESSION_JSON = """
+            {
+              "capabilities": {
+                "urn:ietf:params:jmap:core": {}
+              },
+              "accounts": {},
+              "primaryAccounts": {},
+              "username": "",
+              "apiUrl": "https://mail.example.com/jmap/api/",
+              "state": "s0"
             }
         """
 
