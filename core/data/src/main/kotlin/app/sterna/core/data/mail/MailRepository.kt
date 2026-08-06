@@ -66,6 +66,7 @@ import app.sterna.core.jmap.Jmap
 import app.sterna.core.jmap.JmapAuth
 import app.sterna.core.jmap.JmapClient
 import app.sterna.core.jmap.JmapException
+import app.sterna.core.jmap.WindowWalk
 import app.sterna.core.imap.CryptoEnvelope
 import app.sterna.core.imap.CryptoKind
 import app.sterna.core.imap.ImapUidValidityChanged
@@ -783,12 +784,19 @@ data class UnifiedRefreshResult(
     val isConnectivityFailure: Boolean get() = metas.isEmpty() && failures.isNotEmpty()
 }
 
-/** One watched folder refreshed during a push fan-out (multi-folder push, issue #16). */
+/**
+ * One watched folder refreshed during a push fan-out (multi-folder push, issue #16).
+ *
+ * [emails] and [baselineIds] are two different sets on purpose and must stay so — see [NotifyRead].
+ */
 data class FolderRefresh(
     val mailboxId: String,
     val name: String,
     val role: String?,
     val emails: List<Email>,
+    /** No default: a branch that forgot to say what it remembers would silently remember only
+     *  what it announced, which is the defect this field exists to close. */
+    val baselineIds: List<String>,
     /**
      * The ids the SERVER said LEFT this folder during the refresh — a delta eviction or an
      * existence sweep's `notFound`, and nothing else (see [MailboxSync]). The notification layer
@@ -803,6 +811,20 @@ data class FolderRefresh(
      */
     val departedIds: List<String>,
 )
+
+/**
+ * What one notification pass read from the cache for one folder.
+ *
+ * [emails] are the rows the diff walks and may announce — hydrated, and therefore capped
+ * ([NOTIFY_CANDIDATE_MAX]). [baselineIds] are the ids the pass writes into the folder's baseline —
+ * ids only, and bounded by the time floor ALONE.
+ *
+ * The asymmetry is the correction of a real defect, not tidiness: `NewMailNotifier.seed` replaces
+ * the baseline, so a capped baseline forgets whatever the cap shed, and a cap is a bound rows slide
+ * back into. A message beyond the cap is now merely not announced — the survivable direction — and
+ * it stays remembered, so it can never announce later either.
+ */
+data class NotifyRead(val emails: List<Email>, val baselineIds: List<String>)
 
 /** Outcome of loading an account's server-side filter rules. */
 sealed interface FilterRulesState {
@@ -864,6 +886,23 @@ sealed interface MessageCrypto {
  *  (for Microsoft) the AADSTS code, so the UI can map it to a specific, actionable message. */
 class OAuthDeniedException(val failure: DeviceTokenResult.Failed) :
     Exception(failure.description.ifBlank { failure.error })
+
+/**
+ * The window every message list pages in.
+ *
+ * Top-level rather than a member of [MailRepository] (which needs Room, a `Context` and a live
+ * session, so no JVM test can build one): the refresh key in `RefreshAnchor.kt` is only correct
+ * BECAUSE `enablePlaceholders` is false here, and that premise is worth executing in a test rather
+ * than asserting in a comment.
+ */
+internal fun pagingConfig() = PagingConfig(
+    pageSize = PAGE_SIZE,
+    // Load enough up front to fill the screen and a buffer, and start fetching
+    // the next page well before the edge so fast scrolling doesn't outrun paging.
+    initialLoadSize = PAGE_SIZE * 3,
+    prefetchDistance = PAGE_SIZE,
+    enablePlaceholders = false,
+)
 
 class MailRepository(
     private val client: JmapClient,
@@ -946,25 +985,17 @@ class MailRepository(
      * Per-mailbox JMAP state for incremental sync. In-memory map with write-through to
      * [syncStateStore] (when wired) so cursors survive process death — vital once pushes
      * wake a dead process (issue #17); a cold start then still runs a cheap delta.
+     *
+     * The bookkeeping lives in [SyncCursors] rather than here so that "both halves fall, or
+     * neither" is a rule a JVM test can execute: this class cannot be built off a device.
      */
-    private data class SyncState(val queryState: String, val emailState: String)
-    private val syncStates = java.util.concurrent.ConcurrentHashMap<String, SyncState>()
+    private val syncStates = SyncCursors(syncStateStore)
 
-    private fun putSyncState(key: String, state: SyncState) {
-        syncStates[key] = state
-        syncStateStore?.save(key, state.queryState, state.emailState)
-    }
+    private fun putSyncState(key: String, state: SyncState) = syncStates.put(key, state)
 
-    private fun dropSyncState(key: String) {
-        syncStates.remove(key)
-        syncStateStore?.remove(key)
-    }
+    private fun dropSyncState(key: String) = syncStates.drop(key)
 
-    private fun loadSyncState(key: String): SyncState? =
-        syncStates[key]
-            ?: syncStateStore?.load(key)
-                ?.let { (queryState, emailState) -> SyncState(queryState, emailState) }
-                ?.also { syncStates[key] = it }
+    private fun loadSyncState(key: String): SyncState? = syncStates.load(key)
 
     /**
      * After a local mutation (flag/move/delete) the server returns the new `Email/set`
@@ -1072,9 +1103,10 @@ class MailRepository(
      * it, and never mixed with it, the ids the SERVER said LEFT this mailbox — see [MailboxSync].
      *
      * "The full query's whole page" means EVERY request of the walk, not the last one: a window
-     * larger than the server's per-request limit is fetched in several requests and accumulated
-     * into one page ([JmapClient.queryEmailsWindow]). Returning only the last request's ids would
-     * put Codeberg #110 straight back on requests 2..n — the prune would delete, in the same
+     * larger than the server's per-request limit is fetched in several requests, each written to
+     * the cache as it lands, and what comes back is the ids of ALL of them
+     * ([JmapClient.queryEmailsWindow] → `WindowWalk.ids`). Returning only the last request's ids
+     * would put Codeberg #110 straight back on requests 2..n — the prune would delete, in the same
      * refresh, mail the server had just handed over.
      *
      * The two branches must both answer, which is the correction of a first version of the
@@ -1099,6 +1131,14 @@ class MailRepository(
         require(localAccountId.isNotBlank()) {
             "syncMailbox() needs a real account id: caching mail under a blank one strands it (#121)."
         }
+        // And the same belt one notch further: an id that WAS an account and is not one any more.
+        // Nothing cancels a sync when its account is signed out — the walk lives in the list
+        // screen's scope, the sign-out in the settings screen's — so this is what stops it.
+        //
+        // ⚠ THIS LINE ONLY REFUSES TO START. It covers nothing that happens after it: every branch
+        // below asks again, immediately before each of its writes, because a network round-trip
+        // (or a whole paginated walk) separates them from here.
+        checkAccountStillConfigured(localAccountId, accountStore.accounts().map { it.id })
         val key = syncKey(localAccountId, mailboxId)
         val stored = loadSyncState(key)
         if (stored != null) {
@@ -1107,6 +1147,13 @@ class MailRepository(
             val canApply = queryChanges.calculated && changes.calculated &&
                 !changes.hasMoreChanges && queryChanges.newQueryState != null && changes.newState != null
             if (canApply) {
+                // ⛔ Asked AGAIN here, and the entry check above is not enough: two network
+                // round-trips have been and gone since it ran (`emailQueryChanges`,
+                // `emailChanges`), which is seconds, and everything below this line writes — an
+                // eviction, an upsert, and a CURSOR persisted under the id. A sign-out landing in
+                // that gap left all three behind, after `signOut`'s synchronous `resetSyncState()`
+                // had already cleared the cursors.
+                checkAccountStillConfigured(localAccountId, accountStore.accounts().map { it.id })
                 // A row that merely changed position shows up in both removed and added
                 // (a reorder, e.g. favouriting pins to the top). Don't delete+re-add it —
                 // the cache already holds the new data and the query re-sorts it, so the
@@ -1146,6 +1193,10 @@ class MailRepository(
                 val toFetch = deltaFetches(added, cachedIds, changes.updated)
                 if (toFetch.isNotEmpty()) {
                     val fetched = client.getEmailsByIds(session, accountId, toFetch, auth)
+                    // The third round-trip of this branch sits between the check above and this
+                    // write, and this write is the reported symptom: rows appearing under a
+                    // deleted account. Asked once more, immediately before it.
+                    checkAccountStillConfigured(localAccountId, accountStore.accounts().map { it.id })
                     emailDao.upsertAll(fetched.map { it.toEntity(localAccountId, mailboxId) })
                 }
                 putSyncState(key, SyncState(queryChanges.newQueryState!!, changes.newState!!))
@@ -1202,29 +1253,61 @@ class MailRepository(
         }
         // Cold cache, or the server can't compute changes — full query.
         //
-        // ⛔ ONE call, ONE page, ONE write, however many requests the window costs. The walk
-        // ([JmapClient.queryEmailsWindow]) accumulates every request's messages and hands back a
-        // single page precisely because the line below is `replaceMailbox`, which DELETES what is
-        // not in the list it is given: writing per network page would empty the folder down to
-        // the last page on every refresh. Nothing here may become a loop.
-        val page = client.queryEmailsWindow(session, accountId, mailboxId, sizing.windowTarget, sizing.pageSize, auth)
-        emailDao.replaceMailbox(localAccountId, mailboxId, page.emails.map { it.toEntity(localAccountId, mailboxId) }, recentlyMutatedIds(localAccountId))
+        // ⛔ ONE call, MANY writes, ONE delete. The walk ([JmapClient.queryEmailsWindow]) hands
+        // each network page over as it lands and keeps only ids; the rows are upserted page by
+        // page, and the DELETE half of what `replaceMailbox` used to do runs ONCE at the end,
+        // against every id the walk accumulated (`EmailDao.reconcileMailbox`). It used to be one
+        // write of the whole window precisely because `replaceMailbox` DELETES what it is not
+        // given — which made the window bounded by what one heap could hold. Separating the two
+        // in time is what removes that bound, and [fullQueryWriteThrough] is where the order is
+        // written down and enforced: nothing is deleted unless the walk RAN TO COMPLETION and
+        // [reconcilableWindowIds] says it saw the folder. Nothing here may become a loop.
+        //
+        // ⚠ ONE thing IS observable, and it is wanted. Each page's `upsertAll` invalidates the
+        // list's PagingSource, where there used to be a single atomic invalidation at the end: a
+        // cold folder now fills in steps while the walk runs, with stale rows sitting next to fresh
+        // ones until the reconcile at the end. That is the progress surface the lot decided not to
+        // build, arriving for free — do not "fix" it by buffering the pages, which is exactly the
+        // accumulation this branch was rewritten to get rid of.
+        //
+        // ⛔ And this branch is sized on the ACCOUNT, not by its caller — BOTH numbers. It is the
+        // branch that REPLACES the folder, so a background pass carrying its own 50 would truncate
+        // the cache of an account set to 500 and re-arm the cursor on the truncation; and with the
+        // target alone read off the account, that same 50 became the size of every REQUEST, so an
+        // unbounded window walked a deep folder fifty messages at a time. See [fullQuerySizing] —
+        // the page is still `min(window, what the server admits)`, never the window itself.
+        val full = fullQuerySizing(
+            accountStore.account(localAccountId)?.syncWindow?.limit,
+            sizing.windowTarget,
+            session.getBatchSize(),
+        )
+        val walked = fullQueryWriteThrough<List<Email>, WindowWalk>(
+            walk = { onPage -> client.queryEmailsWindow(session, accountId, mailboxId, full.windowTarget, full.pageSize, auth, onPage) },
+            writePage = { fresh ->
+                checkAccountStillConfigured(localAccountId, accountStore.accounts().map { it.id })
+                emailDao.upsertAll(fresh.map { it.toEntity(localAccountId, mailboxId) })
+            },
+            keepIds = { reconcilableWindowIds(it) },
+            spareIds = { recentlyMutatedIds(localAccountId) },
+            reconcile = { _, keepIds, spare -> emailDao.reconcileMailbox(localAccountId, mailboxId, keepIds, spare) },
+        )
         android.util.Log.i(
             "MailSync",
-            "full query $mailboxId: ${page.emails.size} emails " +
-                "(window ${sizing.windowTarget} in pages of ${sizing.pageSize})",
+            "full query $mailboxId: ${walked.ids.size} emails " +
+                "(window ${full.windowTarget} in pages of ${full.pageSize}, " +
+                "asked for ${sizing.windowTarget} in pages of ${sizing.pageSize})",
         )
-        val queryState = page.queryState
-        val emailState = page.emailState
+        val queryState = walked.queryState
+        val emailState = walked.emailState
         if (queryState != null && emailState != null) {
             putSyncState(key, SyncState(queryState, emailState))
         } else {
             dropSyncState(key)
         }
         // NO departures from a full query, deliberately: this branch knows what the folder HOLDS,
-        // not what left it. A cached row that is not in the page can be a message outside the
-        // window we just asked for, and cancelling its banner would bury unread mail (#134).
-        return MailboxSync(fetchedIds = page.emails.map { it.id }, departedIds = emptyList())
+        // not what left it. A cached row the walk did not list can be a message outside the window
+        // we just asked for, and cancelling its banner would bury unread mail (#134).
+        return MailboxSync(fetchedIds = walked.ids, departedIds = emptyList())
     }
 
     /**
@@ -1513,12 +1596,12 @@ class MailRepository(
         return if (conversationView) {
             Pager(
                 config = pagingConfig(),
-                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(scopes, sort, unreadOnly, accountId = null, sentMailboxes = sentMailboxes)) },
+                pagingSourceFactory = { AnchoredRefreshPagingSource(emailDao.conversationPagingSource(conversationQuery(scopes, sort, unreadOnly, accountId = null, sentMailboxes = sentMailboxes))) },
             ).flow.map { data -> data.map { it.toInboxRow() } }
         } else {
             Pager(
                 config = pagingConfig(),
-                pagingSourceFactory = { emailDao.pagingSource(pagingQuery(scopes, sort, unreadOnly)) },
+                pagingSourceFactory = { AnchoredRefreshPagingSource(emailDao.pagingSource(pagingQuery(scopes, sort, unreadOnly))) },
             ).flow.map { data -> data.map { InboxRow(it.toEmail(), threadCount = 1, unread = !it.seen) } }
         }
     }
@@ -1547,13 +1630,13 @@ class MailRepository(
             Pager(
                 config = pagingConfig(),
                 remoteMediator = folderMediator(credentials, mailboxId, conversationView = true),
-                pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(scopes, sort, unreadOnly, credentials.id, sentMailboxes)) },
+                pagingSourceFactory = { AnchoredRefreshPagingSource(emailDao.conversationPagingSource(conversationQuery(scopes, sort, unreadOnly, credentials.id, sentMailboxes))) },
             ).flow.map { data -> data.map { it.toInboxRow() } }
         } else {
             Pager(
                 config = pagingConfig(),
                 remoteMediator = folderMediator(credentials, mailboxId, conversationView = false),
-                pagingSourceFactory = { emailDao.pagingSource(pagingQuery(scopes, sort, unreadOnly)) },
+                pagingSourceFactory = { AnchoredRefreshPagingSource(emailDao.pagingSource(pagingQuery(scopes, sort, unreadOnly))) },
             ).flow.map { data -> data.map { InboxRow(it.toEmail(), threadCount = 1, unread = !it.seen) } }
         }
     }
@@ -1682,14 +1765,10 @@ class MailRepository(
         }
     }
 
-    private fun pagingConfig() = PagingConfig(
-        pageSize = PAGE_SIZE,
-        // Load enough up front to fill the screen and a buffer, and start fetching
-        // the next page well before the edge so fast scrolling doesn't outrun paging.
-        initialLoadSize = PAGE_SIZE * 3,
-        prefetchDistance = PAGE_SIZE,
-        enablePlaceholders = false,
-    )
+    // The window this list pages in is now the top-level `pagingConfig()` of this file, and the
+    // refresh key that keeps a reader in place across the writes below is in `RefreshAnchor.kt`.
+    // They are one decision and are read together by a JVM test, which this class cannot be: it
+    // needs Room, a Context and a live session.
 
     // The bulk-read scopes are (accountId, mailboxId) PAIRS, not bare mailbox ids: servers
     // like Stalwart number mailboxes per-account, so two accounts' inboxes can share an id
@@ -1713,9 +1792,38 @@ class MailRepository(
         emailDao.keysForSelection(selectionIdsQuery(scopes, unreadOnly))
             .map { EmailKey(it.accountId, it.id) }
 
-    /** All cached emails for the given (account, mailbox) scopes (drives "mark all read"). */
-    suspend fun cachedEmailsForMailboxes(scopes: List<Pair<String, String>>): List<Email> =
-        scopes.flatMap { (accountId, mailboxId) -> emailDao.getByMailbox(accountId, mailboxId) }.map { it.toEmail() }
+    /**
+     * The keys of the unread messages this phone HOLDS in the given (account, mailbox) scopes —
+     * what "mark all read" patches on screen and clears notifications for, while [unreadIds]
+     * resolves the folder-wide set to actually mark.
+     *
+     * Keys, and `seen = 0` in the statement: the caller never looked at anything but the id and
+     * the account. It used to read every cached row of every scope and drop the read ones in
+     * Kotlin — in the unified view, once per account. Bounded by the same [UNREAD_RESOLVE_MAX] as
+     * the server-side resolution, because it answers the same question about the same folder.
+     */
+    suspend fun cachedUnreadKeys(scopes: List<Pair<String, String>>): List<EmailKey> {
+        return scopes.flatMap { (accountId, mailboxId) ->
+            emailDao.unreadKeys(accountId, mailboxId, UNREAD_RESOLVE_MAX)
+        }.map { EmailKey(it.accountId, it.id) }
+    }
+
+    /**
+     * What one new-mail notification pass over [mailboxId] reads: the rows it may announce, and
+     * the ids it must remember. See `NotifyCandidates.kt` for why those are two different bounds.
+     *
+     * ONE floor for both statements, computed once here: read at two instants, the id read could
+     * miss a row the hydrated read had just included, and that row is then announced on the next
+     * pass. The window is thirty days wide, so the gap would have to be freakish — which is
+     * exactly the kind of bug that surfaces once, on someone else's phone.
+     */
+    suspend fun notifyRead(accountId: String, mailboxId: String): NotifyRead {
+        val since = notifyCandidateFloor(System.currentTimeMillis())
+        return NotifyRead(
+            emails = emailDao.receivedSince(accountId, mailboxId, since, NOTIFY_CANDIDATE_MAX).map { it.toEmail() },
+            baselineIds = emailDao.idsReceivedSince(accountId, mailboxId, since),
+        )
+    }
 
     /** Cached emails for account-qualified keys (drives bulk actions on a selection). Each id is
      *  resolved ONLY inside its own account, so a colliding id can never drag a sibling account's
@@ -1761,8 +1869,12 @@ class MailRepository(
      * query, so it always uses the cache.
      */
     suspend fun unreadIds(credentials: AccountCredentials, mailboxId: String): List<String> {
+        // Bounded by the SAME [UNREAD_RESOLVE_MAX] as the server walk below, in the statement:
+        // this fallback is the NORMAL path on IMAP and the offline one on JMAP, so a folder-wide
+        // read here is not an edge case. The two branches answer one question and must not answer
+        // it at two different sizes.
         suspend fun cached() =
-            emailDao.getByMailbox(credentials.id, mailboxId).filter { !it.seen }.map { it.id }
+            emailDao.unreadKeys(credentials.id, mailboxId, UNREAD_RESOLVE_MAX).map { it.id }
         if (credentials.protocol == MailProtocol.IMAP) return cached()
         return runCatching {
             val ctx = connect(credentials)
@@ -1846,6 +1958,12 @@ class MailRepository(
             // the walk — otherwise the crawl abandons the oldest mail (indexed last).
             if (page.queryCount == 0) break
             if (page.emails.isNotEmpty()) {
+                // The twin of the two folder walks, and guarded for the same reason: this one runs
+                // up to HEADER_MAX/pageSize requests, and `EmailFtsDao.accountIds()` is one of the
+                // four tables the orphan sweep inventories (`StorageRepository`). Left unguarded,
+                // an account signed out mid-crawl keeps handing its subjects and senders to local
+                // search, under an id no account owns (#121).
+                checkAccountStillConfigured(credentials.id, accountStore.accounts().map { it.id })
                 emailFtsDao.upsert(page.emails.map { it.toFts(credentials.id) })
                 onPage?.invoke()
             }
@@ -1892,8 +2010,12 @@ class MailRepository(
         for (credentials in accounts) {
             try {
                 if (credentials.protocol == MailProtocol.IMAP) {
-                    val load = imap.loadFolder(credentials, requestedMailboxId = null, limit = limit)
-                    emailDao.replaceMailbox(credentials.id, load.targetMailboxId, load.messages, recentlyMutatedIds(credentials.id))
+                    // Through the same write-through as the single-account refresh: same walk, same
+                    // one reconcile at the end, same refusal to reconcile a folder that moved —
+                    // and, since this path ends in a DELETE, the same window as the account, not
+                    // the 50 passed here ([imapWriteThrough] reads it). That 50 means "how much new
+                    // mail to look at" and used to shrink the folder's cache to it.
+                    val load = imapWriteThrough(credentials, mailboxId = null, limit = limit)
                     mailboxDao.replaceAll(credentials.id, load.mailboxes)
                     results += AccountInboxMeta(
                         credentials.id, load.accountName, load.targetMailboxId, load.targetName, load.unread,
@@ -1916,6 +2038,20 @@ class MailRepository(
                 results += AccountInboxMeta(credentials.id, name, inbox.id, inbox.name, inbox.unreadEmails)
                 // Warm the body cache for the visible top of the inbox so opening is instant.
                 bgScope.launch { runCatching { prefetchInboxBodies(credentials, inbox.id) } }
+            } catch (gone: AccountGoneException) {
+                // ⛔ ABOVE the cancellation catch, and it must stay there. This account was signed
+                // out while this pass was walking it: not a failure (nothing is added to
+                // [failures], so the offline banner is not raised for a deliberate gesture), and
+                // not a reason to abandon the accounts AFTER it in the list.
+                //
+                // WYSIWYG is what makes it a catch rather than a re-throw: letting the cancellation
+                // out of `refreshAllInboxes` leaves `InboxViewModel.refresh` in its
+                // `catch (CancellationException) { throw c }` arm, which deliberately does not
+                // touch the status — so `refreshing = true` stays set and the spinner turns for
+                // ever. Nothing re-points the list either, unless the account signed out happened
+                // to be the current one. Skipping the account lets the pass finish normally, and
+                // the spinner falls with it.
+                android.util.Log.i("MailRepository", "unified refresh: ${credentials.id} signed out mid-walk, skipped", gone)
             } catch (c: CancellationException) {
                 // A superseding refresh (or the VM being cleared) cancelled us: propagate cleanly so
                 // the caller does NOT record a false success. runCatching used to swallow this too,
@@ -2278,6 +2414,15 @@ class MailRepository(
         // then rethrows; the prune stays success-only.
         val sync = runCatching { syncMailbox(session, accountId, auth, target.id, sizing, credentials.id) }
         val syncError = sync.exceptionOrNull()
+        // ⛔ …but a signed-out account is NOT a server hiccup, and this `runCatching` absorbs its
+        // refusal like any other failure. Carrying on would reach `mailboxDao.replaceAll(
+        // credentials.id, …)` below and write the WHOLE FOLDER LIST under an id no account owns
+        // any more — after the sign-out's orphan sweep has run. `MailboxDao` says of that table
+        // that it is where an orphan appears EARLIEST, so this is Codeberg #121's ghost by another
+        // door. Rethrown here, above every write this function has left; the deliberate "persist
+        // the folders even when the sync threw" rule keeps applying to the transport failures it
+        // was written for.
+        if (syncError is AccountGoneException) throw syncError
         // The prune spares whatever this very sync fetched — the full query's page, or the
         // delta's newly-written rows. `getOrNull()` is null only when the sync threw, which the
         // guard already excludes; passing it through unmapped keeps the second lock in place
@@ -2304,25 +2449,86 @@ class MailRepository(
         return MailboxMeta(accountName, target.id, target.name, target.unreadEmails)
     }
 
-    /** IMAP refresh: list folders + fetch the target folder's newest page into the cache. */
+    /**
+     * The IMAP full re-query of one folder: ⛔ MANY writes, and at most ONE delete — none at all
+     * when the walk cannot vouch for what it read.
+     *
+     * The same [fullQueryWriteThrough] the JMAP full query goes through, and deliberately so: the
+     * reconcile DELETES every cached row outside the ids it is given, and there must be exactly one
+     * place that decides when it may run. IMAP reaches it with a different walk (sequence-number
+     * pages, `ImapSession.walkFolder`) and one extra refusal of its own ([reconcilableIds] answering
+     * null on a folder that moved under the walk), and with nothing else different.
+     *
+     * ⚠ NOT "one walk", and the difference is worth stating: `ImapMailService.runWithRetry` catches
+     * a transport failure and replays the WHOLE block once, database writes included. So a walk can
+     * run twice, and a failure in the middle of WRITING re-runs the entire network read too. It
+     * stays safe — the second attempt re-SELECTs, re-reads `exists` and rebuilds its ids from
+     * scratch, so the reconcile that may follow is a reconcile of a complete second walk — but a
+     * reader counting requests should not be told there is only one.
+     *
+     * IMAP stores no sync cursor, so an interrupted walk costs nothing but a cache holding more
+     * than the window until the next refresh — which re-queries the folder whole, as every IMAP
+     * refresh does.
+     *
+     * ⛔ [limit] is what the CALLER wants, and it does not get to size this. The window is read off
+     * the account, exactly as the JMAP full query reads it ([fullQueryWindowTarget], the same
+     * function): this function ends in a reconcile, and `refreshAllInboxes` reaches it with a
+     * hard-coded 50 that means "how much new mail to look at", not "how much to keep". On an
+     * account set to "Everything" that was three gestures from an emptied folder — pull on the
+     * folder, tap "All inboxes", come back — because the walk brought fifty rows and the reconcile
+     * removed every other one. Unlike JMAP there is no cursor here to make the damage stick, but
+     * the cache is gone all the same, and with it offline reading and local search.
+     *
+     * ⚠ Only the WINDOW is read here. The page size of an IMAP walk is this module's own constant
+     * (`IMAP_FOLDER_PAGE`) and is negotiated with nothing, so there is no second number to derive —
+     * which is why this is [fullQueryWindowTarget] and not `fullQuerySizing`.
+     *
+     * ⛔ And every page is checked against the account list before it is written
+     * ([checkAccountStillConfigured]): signing the account out mid-walk cancels nothing by itself,
+     * and this walk would otherwise keep filing pages under an id no account owns any more.
+     */
+    private suspend fun imapWriteThrough(
+        credentials: AccountCredentials,
+        mailboxId: String?,
+        limit: Int,
+    ): ImapFolderLoad {
+        checkAccountStillConfigured(credentials.id, accountStore.accounts().map { it.id })
+        val window = fullQueryWindowTarget(accountStore.account(credentials.id)?.syncWindow?.limit, limit)
+        return fullQueryWriteThrough<List<EmailEntity>, ImapFolderLoad>(
+            walk = { onPage -> imap.loadFolder(credentials, mailboxId, window, onPage) },
+            writePage = { page ->
+                checkAccountStillConfigured(credentials.id, accountStore.accounts().map { it.id })
+                emailDao.upsertAll(page)
+            },
+            keepIds = { load -> reconcilableIds(load, credentials.id) },
+            spareIds = { recentlyMutatedIds(credentials.id) },
+            reconcile = { load, keepIds, spare -> emailDao.reconcileMailbox(credentials.id, load.targetMailboxId, keepIds, spare) },
+        )
+    }
+
+    /** IMAP refresh: list folders + walk the target folder's newest window into the cache. */
     private suspend fun refreshImap(
         credentials: AccountCredentials,
         mailboxId: String?,
         limit: Int,
         pruneBeforeMillis: Long?,
     ): MailboxMeta {
-        val load = imap.loadFolder(credentials, mailboxId, limit)
-        emailDao.replaceMailbox(credentials.id, load.targetMailboxId, load.messages, recentlyMutatedIds(credentials.id))
+        val load = imapWriteThrough(credentials, mailboxId, limit)
         mailboxDao.replaceAll(credentials.id, load.mailboxes)
-        // Spares the page just fetched: IMAP re-queries the folder on every refresh, so this set
-        // IS the folder's newest window as the server has it. Pruning it away is what made a
-        // ten-message folder flash all ten and settle on two (Codeberg #110).
+        // Spares the window just fetched — every page of it: IMAP re-queries the folder on every
+        // refresh, so this set IS the folder's newest window as the server has it. Pruning it away
+        // is what made a ten-message folder flash all ten and settle on two (Codeberg #110).
+        //
+        // ⛔ And it is the SAME decision the reconcile took, called again rather than restated: on a
+        // folder that moved under the walk it answers null, and `retentionEvictions` prunes nothing
+        // for a caller that cannot say what was fetched. The prune deletes on the strength of that
+        // set too, so it may not be more confident about it than the reconcile was.
         if (pruneBeforeMillis != null) {
             pruneRetention(
                 credentials.id,
                 load.targetMailboxId,
                 pruneBeforeMillis,
-                load.messages.mapTo(HashSet()) { it.id },
+                reconcilableIds(load, credentials.id),
                 limit,
             )
         }
@@ -2788,9 +2994,11 @@ class MailRepository(
     private suspend fun prefetchInboxBodies(credentials: AccountCredentials, mailboxId: String) {
         if (credentials.protocol == MailProtocol.IMAP) return
         runCatching {
-            val newest = emailDao.getByMailbox(credentials.id, mailboxId)
-                .take(PREFETCH_COUNT)
-                .map { it.id }
+            // Bounded in the statement, not with a `take` afterwards: this runs on EVERY inbox
+            // refresh, in [bgScope], and `runCatching` does not catch an OutOfMemoryError (an
+            // Error, not an Exception) — a folder read that outgrew the heap here would take the
+            // process down from a background coroutine, with no screen and no report.
+            val newest = emailDao.newestIds(credentials.id, mailboxId, PREFETCH_COUNT)
             if (newest.isEmpty()) return
             val already = emailBodyDao.cachedIds(credentials.id, newest).toSet()
             val missing = newest.filter { it !in already }
@@ -3746,7 +3954,9 @@ class MailRepository(
     /** Re-fetch the folder list into the cache (after a create/rename/delete). */
     private suspend fun refreshMailboxes(credentials: AccountCredentials) {
         if (credentials.protocol == MailProtocol.IMAP) {
-            val load = imap.loadFolder(credentials, requestedMailboxId = null, limit = 1)
+            // The folder list, and nothing else: an empty `onPage` is this caller saying out loud
+            // that it caches no message. It writes nothing, so it also reconciles nothing.
+            val load = imap.loadFolder(credentials, requestedMailboxId = null, limit = 1, onPage = {})
             mailboxDao.replaceAll(credentials.id, load.mailboxes)
             return
         }
@@ -4477,8 +4687,31 @@ class MailRepository(
      */
     fun resetSyncState() {
         syncStates.clear()
-        syncStateStore?.clear()
         context = null
+    }
+
+    /**
+     * Drop ONE account's sync cursors, in memory and on disk, so its next refresh of any folder
+     * takes the full-query branch of [syncMailbox] — the only branch that sends the account's sync
+     * window to the server. Nothing is fetched here: the next pull-to-refresh, push, folder change
+     * or cold start applies the new window.
+     *
+     * ⚠ Those four really are four, which is why that branch sizes itself on the ACCOUNT
+     * ([fullQueryWindowTarget]) and not on whoever calls it: two of them — the push/worker pass and
+     * the unified inbox — pass a hardcoded 50, and this drop is what makes them reach a branch that
+     * REPLACES the folder. Sized by the caller, the first background pass after a window change
+     * would truncate the cache to 50 and re-arm the cursor on it.
+     *
+     * Per account and not [resetSyncState]: a global reset would send every folder of every OTHER
+     * account into a full re-query too, for a setting the user changed on one of them.
+     *
+     * Inoffensive where there is nothing to drop — an IMAP account has no cursor at all
+     * (`refreshImap` re-queries the whole folder every time, so a new window applies on its own),
+     * and a blank id drops nothing rather than everything.
+     */
+    fun dropSyncCursors(accountId: String) {
+        if (accountId.isBlank()) return
+        syncStates.dropAccount(accountId, accountStore.accounts().map { it.id })
     }
 
     /** Close any pooled IMAP connection for an account (e.g. on sign-out). */
@@ -4612,7 +4845,12 @@ class MailRepository(
             // No departures on IMAP, and none can be invented here: re-reading a folder says what
             // it holds, never what left it (see [FolderRefresh.departedIds], #134).
             return loads.map { load ->
-                FolderRefresh(load.mailboxId, load.name, load.role, load.messages.map { it.toEmail() }, departedIds = emptyList())
+                // Unchanged: this branch has always handed the notifier its fetched page, and it
+                // remembers exactly what it handed over. Stated rather than defaulted, because
+                // "announced" and "remembered" being the same set is a property of THIS branch and
+                // not a rule of the type.
+                val page = load.messages.map { it.toEmail() }
+                FolderRefresh(load.mailboxId, load.name, load.role, page, page.map { it.id }, departedIds = emptyList())
             }
         }
         val resolved = resolve(credentials)
@@ -4635,13 +4873,23 @@ class MailRepository(
                 resolved.session, resolved.accountId, resolved.auth, mailbox.id,
                 folderSyncSizing(limit, resolved.session.getBatchSize()), credentials.id,
             )
+            // The notification read, not the folder: this is a push/worker pass, and it was the one
+            // place where a path that fetches `limit` (50) messages went on to materialise the
+            // WHOLE cache — in a background service, where an OutOfMemoryError is a crash loop
+            // rather than a report.
+            val read = notifyRead(credentials.id, mailbox.id)
             FolderRefresh(
                 mailboxId = mailbox.id,
                 name = mailbox.name,
                 role = mailbox.role,
-                // Read AFTER the sync, so a departed id is already out of this list: what the
-                // folder holds now, next to what the server said left it during this very pass.
-                emails = emailDao.getByMailbox(credentials.id, mailbox.id).map { it.toEmail() },
+                emails = read.emails,
+                baselineIds = read.baselineIds,
+                // Read AFTER the sync, so a departed id is already out of [emails]: what the folder
+                // holds now, next to what the server said left it during this very pass. [emails]
+                // being the BOUNDED read rather than the whole folder only ever widens the
+                // candidate list — the narrowing it does is a cheap first pass, and
+                // `confirmDepartures` asking the server is what actually protects a live banner
+                // (see `NewMailNotifier.notifyDiff`, #134).
                 departedIds = sync.departedIds,
             )
         }

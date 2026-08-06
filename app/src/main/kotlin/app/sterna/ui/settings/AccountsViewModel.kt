@@ -14,6 +14,7 @@ import app.sterna.core.data.account.MailProtocol
 import app.sterna.core.data.account.StoredAccount
 import app.sterna.core.data.account.StoredIdentity
 import app.sterna.core.data.account.SyncWindow
+import app.sterna.core.data.account.syncWindowChanged
 import app.sterna.core.data.mail.OAuthDeniedException
 import app.sterna.core.data.mail.OAuthProvider
 import app.sterna.core.data.pgp.PgpResult
@@ -147,8 +148,20 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
 
     fun syncWindow(id: String): SyncWindow = store.syncWindow(id)
 
+    /**
+     * Write the account's "Messages to sync" window, and — when it actually changed — drop that
+     * account's sync cursors, so the next refresh re-queries the folder in full and applies the
+     * new window. Without the drop the setting is inert on any folder already synced: the delta
+     * branch of a sync never sends the window and never fetches backwards, so the only way the
+     * user could apply a wider window was Storage → Clear account cache.
+     *
+     * Nothing is fetched here. Forcing a sync from the settings screen would need a cross-screen
+     * trigger to gain a few seconds; the next pull, push, folder change or cold start applies it.
+     */
     fun setSyncWindow(id: String, window: SyncWindow) {
+        val changed = syncWindowChanged(store.syncWindow(id), window)
         store.setSyncWindow(id, window)
+        if (changed) mail.dropSyncCursors(id)
         refresh()
     }
 
@@ -189,7 +202,37 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
         refresh()
     }
 
-    /** Persist edits. A blank [password] keeps the existing one. */
+    /**
+     * Persist edits. A blank [password] keeps the existing one.
+     *
+     * THIS PARAMETER LIST IS PUBLISHED TO THE USER. The account screen states, just above its Save
+     * button, what that button writes — `R.string.settings_save_scope`, in nine languages — and
+     * that sentence is answerable to the parameters below.
+     *
+     * It is NOT a one-to-one mapping of them, and must not be read as one. The caption speaks in
+     * the screen's vocabulary, the signature in the store's:
+     *  - "the account name" is the field labelled **Display name** (`settings_display_name_label`),
+     *    not a string called account name anywhere the user can see;
+     *  - "the server settings" covers [server] for JMAP and the eight [imapHost] … [smtpSecurity]
+     *    parameters for IMAP, which is why the caption says it in the plural;
+     *  - "the credentials" is [username] AND [password] (a password or an API token) — the two
+     *    whose silent loss breaks the account, so they are never dropped from the sentence;
+     *  - "the identities" covers [identities] and [defaultIdentityId], and ALSO [signature]:
+     *    the account-level signature is not edited anywhere of its own, it is derived from the
+     *    first identity's (`AccountEditorSave.kt:46`), and every field feeding it lives in the
+     *    Identities section of the screen. That is the one parameter the caption does not name,
+     *    deliberately — naming it would describe the store, not the screen.
+     *
+     * The same sentence also tells the user that everything else on this screen (colour,
+     * notifications, sync window, PGP) is saved the moment they change it.
+     *
+     * So adding a parameter here, or dropping one, can make a sentence false in nine languages at
+     * once, silently: no test reads a translated sentence for meaning. Before changing this
+     * signature, ask which of the four groups above the new field falls into, and if it falls into
+     * none, re-read `settings_save_scope` in all nine `strings.xml` under `app/src/main/res`.
+     * `SaveScopeCaptionTest` holds the caption's placement, its one forbidden claim and the words
+     * every translation must still contain, but it cannot notice that the enumeration went stale.
+     */
     fun save(
         id: String,
         accountName: String,
@@ -374,6 +417,13 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
         store.allCredentials().filter { it.id in toRemove }.forEach {
             app.container.unifiedPushManager.teardown(it)
         }
+        // ⛔ THIS LINE IS WHAT STOPS THE SYNC, and it must stay above the purge below. Nothing here
+        // cancels a sync in flight — it lives in the list screen's scope, not this one — so what
+        // ends it is the account leaving the store: every page a walk writes is checked against
+        // this list first (`checkAccountStillConfigured`), and the walk unwinds on the first page
+        // that follows the removal. Purging first and removing afterwards would leave that window
+        // wide open again, and the orphan sweep at the end of this coroutine would run BEFORE the
+        // pages it is meant to collect — which is exactly how #121's ghosts came back.
         val removed = store.removeCascading(id).ifEmpty { toRemove }
         removed.forEach { NewMailNotifier.clear(app, it) }
         refresh()

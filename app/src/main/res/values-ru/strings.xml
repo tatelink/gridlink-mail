@@ -463,6 +463,9 @@
     <string name="settings_sync_50_messages">50 писем</string>
     <string name="settings_sync_200_messages">200 писем</string>
     <string name="settings_sync_500_messages">500 писем</string>
+    <string name="settings_sync_100_messages">100 писем</string>
+    <string name="settings_sync_1000_messages">1000 писем</string>
+    <string name="settings_sync_10000_messages">10 000 писем</string>
     <string name="settings_sync_everything">Всё</string>
     <string name="settings_storage_section">Хранилище</string>
     <string name="settings_cached_messages">Письма в кеше</string>
@@ -510,6 +513,7 @@
     <string name="compose_pgp_snack_encrypt">Зашифровано и подписано: прочтёт только получатель.</string>
     <string name="settings_saved">Сохранено</string>
     <string name="settings_save">Сохранить</string>
+    <string name="settings_save_scope">Кнопка «Сохранить» записывает имя аккаунта, настройки сервера, учётные данные и личности. Остальные настройки на этом экране сохраняются, как только вы их измените.</string>
     <string name="settings_sign_out">Выйти</string>
     <string name="settings_security_tls">SSL/TLS</string>
     <string name="settings_security_starttls">STARTTLS</string>

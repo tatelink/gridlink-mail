@@ -221,7 +221,8 @@ internal fun retentionEvictions(
  *
  * ⛔ Why a complement and not a `NOT IN (:keepIds)`: SQLite binds at most 999 variables below
  * Android 12 ([MAX_CHANGES] is this file's bound for exactly that reason, Codeberg #29), and a
- * full sync window is up to 1 000 ids — so the reconcile of a big window bound MORE variables
+ * full sync window is up to 10 000 ids (it was 1 000 when this was written, and for a while it was
+ * a whole folder) — so the reconcile of a big window bound MORE variables
  * than the engine accepts and threw. The throw landed before the sync cursor was stored, so the
  * next refresh took the same full query again: the closed loop the paging fix had just opened,
  * one layer down. Unreachable before that fix (the request failed earlier), reachable after it.

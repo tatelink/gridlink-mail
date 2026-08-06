@@ -463,6 +463,9 @@
     <string name="settings_sync_50_messages">50 berichten</string>
     <string name="settings_sync_200_messages">200 berichten</string>
     <string name="settings_sync_500_messages">500 berichten</string>
+    <string name="settings_sync_100_messages">100 berichten</string>
+    <string name="settings_sync_1000_messages">1.000 berichten</string>
+    <string name="settings_sync_10000_messages">10.000 berichten</string>
     <string name="settings_sync_everything">Alles</string>
     <string name="settings_storage_section">Opslag</string>
     <string name="settings_cached_messages">Berichten in cache</string>
@@ -510,6 +513,7 @@
     <string name="compose_pgp_snack_encrypt">Versleuteld en ondertekend: alleen de ontvanger kan het lezen.</string>
     <string name="settings_saved">Opgeslagen</string>
     <string name="settings_save">Opslaan</string>
+    <string name="settings_save_scope">De knop ‘Opslaan’ slaat de accountnaam, de serverinstellingen, de inloggegevens en de identiteiten op. De overige instellingen op dit scherm worden opgeslagen zodra je ze wijzigt.</string>
     <string name="settings_sign_out">Afmelden</string>
     <string name="settings_security_tls">SSL/TLS</string>
     <string name="settings_security_starttls">STARTTLS</string>

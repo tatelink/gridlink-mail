@@ -463,6 +463,9 @@
     <string name="settings_sync_50_messages">50 wiadomości</string>
     <string name="settings_sync_200_messages">200 wiadomości</string>
     <string name="settings_sync_500_messages">500 wiadomości</string>
+    <string name="settings_sync_100_messages">100 wiadomości</string>
+    <string name="settings_sync_1000_messages">1000 wiadomości</string>
+    <string name="settings_sync_10000_messages">10 000 wiadomości</string>
     <string name="settings_sync_everything">Wszystko</string>
     <string name="settings_storage_section">Pamięć</string>
     <string name="settings_cached_messages">Wiadomości w pamięci podręcznej</string>
@@ -510,6 +513,7 @@
     <string name="compose_pgp_snack_encrypt">Zaszyfrowane i podpisane: przeczyta to tylko odbiorca.</string>
     <string name="settings_saved">Zapisano</string>
     <string name="settings_save">Zapisz</string>
+    <string name="settings_save_scope">Przycisk „Zapisz” zapisuje nazwę konta, ustawienia serwera, dane logowania i tożsamości. Pozostałe ustawienia na tym ekranie są zapisywane w chwili ich zmiany.</string>
     <string name="settings_sign_out">Wyloguj się</string>
     <string name="settings_security_tls">SSL/TLS</string>
     <string name="settings_security_starttls">STARTTLS</string>

@@ -87,7 +87,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Opening a folder starts at the top of its list
 - ✅ Snooze a message until later
 - ✅ Paged list (Jetpack Paging 3 + Room) — large folders load in pages while scrolling, constant memory; scroll-position indicator on the right
-- ✅ Scroll to load more — a Paging `RemoteMediator` fetches older mail from the server when you scroll past the cached window (JMAP anchor-based / IMAP UID paging), with a loading/retry footer
+- ✅ Scroll to load more on JMAP — a Paging `RemoteMediator` fetches older mail (anchor-based) from the server when you scroll past the cached window, with a loading/retry footer. On IMAP the list stops at the sync window
 - ✅ Star per row, tappable; "Starred first" is one of the sort orders, so starred mail pins
   to the top when you ask for it and sorts normally the rest of the time; "Starred only" is a
   criterion of the advanced search, which gathers them across the whole account
@@ -177,7 +177,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Settings hub (Appearance / Notifications / Privacy & Security / Storage), DataStore-backed; grouped into Accounts · App · "This account · <name>" so app-wide vs per-account (server-side) settings are clear at a glance
 - ✅ Storage screen — on-device cache usage (DB + attachments, per-account breakdown) + Clear cache
 - ✅ Attachment cache cap (LRU by size/age); sign-out purges that account's cached mail + attachments
-- ✅ Per-account sync window — messages to sync by age (30/90 days, 1 year) or count (50/200/500/all), default 90 days
+- ✅ Per-account sync window — messages to sync by age (30/90 days, 1 year) or count (100/1000/10000), default 90 days
 - ✅ Per-account "Clear this account's cache" + cached-message count (Settings → Accounts → detail)
 - ✅ Theme toggle (auto / light / dark)
 - ✅ Message-list density (compact / normal / spaced)

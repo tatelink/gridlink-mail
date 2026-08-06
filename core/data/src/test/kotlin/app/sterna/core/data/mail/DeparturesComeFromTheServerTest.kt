@@ -164,7 +164,7 @@ class DeparturesComeFromTheServerTest {
                 "outside a re-queried page is a live message, and cancelling its banner hides mail",
             listOf(
                 "return MailboxSync(fetchedIds = toFetch, departedIds = toRemove + swept)",
-                "return MailboxSync(fetchedIds = page.emails.map { it.id }, departedIds = emptyList())",
+                "return MailboxSync(fetchedIds = walked.ids, departedIds = emptyList())",
             ),
             codeLinesNaming(body, "return MailboxSync("),
         )
@@ -176,7 +176,7 @@ class DeparturesComeFromTheServerTest {
             "the JMAP branch must carry that mailbox's own departures out to the notifier; the " +
                 "IMAP branch must state that it has none (re-reading a folder never says what left)",
             listOf(
-                "FolderRefresh(load.mailboxId, load.name, load.role, load.messages.map { it.toEmail() }, departedIds = emptyList())",
+                "FolderRefresh(load.mailboxId, load.name, load.role, page, page.map { it.id }, departedIds = emptyList())",
                 "departedIds = sync.departedIds,",
             ),
             codeLinesNaming(body, "departedIds ="),
@@ -214,11 +214,15 @@ class DeparturesComeFromTheServerTest {
         val lines = DaoQuerySource.mailFunctionBody("MailRepository", "refreshAccountFolders")
             .lines().map { it.trim() }
         val sync = lines.indexOfFirst { it == "val sync = syncMailbox(" }
-        val read = lines.indexOfFirst {
-            it == "emails = emailDao.getByMailbox(credentials.id, mailbox.id).map { it.toEmail() },"
-        }
+        // The bounded notification read replaced the whole-folder one (see BoundedFolderReadsSqlTest);
+        // the ORDER is what this test owns, and it matters just as much: a bounded read taken before
+        // the sync still holds every departed row.
+        val read = lines.indexOfFirst { it == "val read = notifyRead(credentials.id, mailbox.id)" }
         assertTrue("the JMAP branch no longer calls syncMailbox as `val sync = syncMailbox(`", sync >= 0)
-        assertTrue("the folder's rows are no longer read with that exact statement", read >= 0)
+        assertTrue(
+            "the folder's rows are no longer read with `val read = notifyRead(credentials.id, mailbox.id)`",
+            read >= 0,
+        )
         assertTrue(
             "the cache read must stay AFTER the sync: read first and the departed rows are still " +
                 "in `emails`, which cancels nothing at all",

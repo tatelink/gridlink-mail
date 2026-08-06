@@ -134,11 +134,93 @@ interface EmailDao {
     @Query(SENDER_MESSAGE_IDS_SQL)
     suspend fun senderMessageIds(accountId: String, email: String): List<String>
 
-    // Scoped by accountId as well as mailboxId: servers (e.g. Stalwart) number
-    // mailboxes per-account, so two accounts' inboxes can share an id — without the
-    // accountId these per-mailbox reads/writes would bleed across same-server accounts.
-    @Query("SELECT * FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId ORDER BY sortKey DESC")
-    suspend fun getByMailbox(accountId: String, mailboxId: String): List<EmailEntity>
+    // The four per-folder reads below are scoped by accountId as well as mailboxId: servers
+    // (e.g. Stalwart) number mailboxes per-account, so two accounts' inboxes can share an id —
+    // without the accountId these per-mailbox reads would bleed across same-server accounts
+    // (#31 / #121).
+    //
+    // They replaced ONE statement, `getByMailbox`, which selected a whole folder with no LIMIT:
+    // four callers each threw most of it away in Kotlin (the newest 20, the unread ones, the
+    // recent ones). The only thing that ever bounded that read was the sync window's own cap on
+    // the cache — up to 10 000 rows now, and a folder the user has scrolled back through holds
+    // more. It is deliberately gone rather than left dead beside its replacements: a whole-folder `SELECT *`
+    // is exactly the shape a later reader would pick up again because it is the shortest.
+    //
+    // ⚠ Every one of the three that carries a LIMIT breaks its ties on `id`. `ORDER BY sortKey
+    // DESC` alone leaves the order among equal sortKeys unspecified, and SQLite answers it from
+    // the physical order — which this table rewrites at every sync. A row sitting on the LIMIT
+    // frontier would then leave the result and come back with no row having changed at all. The
+    // same lesson is already written down one file away, for the same data:
+    // `SyncEvictions.kt` sorts `compareByDescending { it.sortKey }.thenBy { it.id }` "so the
+    // floor is a function of the rows and not of the order SQLite handed them back".
+
+    /**
+     * The newest [limit] ids in one folder — the bound is the STATEMENT's, not the caller's.
+     *
+     * Ids, because the two callers that need "the newest few" ([app.sterna.core.data.mail
+     * .MailRepository] body prefetch) only ever look at ids: selecting the rows to drop all but
+     * a handful of their columns is the same waste one layer down.
+     */
+    @Query(
+        "SELECT id FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId " +
+            "ORDER BY sortKey DESC, id DESC LIMIT :limit",
+    )
+    suspend fun newestIds(accountId: String, mailboxId: String, limit: Int): List<String>
+
+    /**
+     * The account-qualified keys of the unread messages a folder holds, newest first, at most
+     * [limit] of them.
+     *
+     * `seen = 0` is the statement's, not a Kotlin `filter`: "mark all read" asks this on a folder
+     * whose read mail it will never touch, and reading the read rows only to discard them is the
+     * whole cache for a fraction of it. The key carries the accountId because the unified view
+     * asks over several accounts at once and a bare id is ambiguous between same-server siblings.
+     */
+    @Query(
+        "SELECT accountId, id FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId " +
+            "AND seen = 0 ORDER BY sortKey DESC, id DESC LIMIT :limit",
+    )
+    suspend fun unreadKeys(accountId: String, mailboxId: String, limit: Int): List<EmailKeyRow>
+
+    /**
+     * A folder's rows received at or after [since], newest first, at most [limit] of them — the
+     * candidates a new-mail notification pass hydrates and diffs.
+     *
+     * `sortKey = 0` is admitted alongside them on purpose: it is what a missing or unparseable
+     * `receivedAt` maps to, and the notifier's own age floor is lenient about exactly those
+     * ([app.sterna.core.data.mail.NOTIFY_HORIZON_MS] — "a missing timestamp never suppresses a
+     * real arrival"). They sort last, so [limit] sheds them before it sheds dated mail — and they
+     * are perfect ties with one another, which is the sharpest reason the `id` tie-break above is
+     * not decoration.
+     *
+     * ⛔ This is NOT what seeds the notifier's baseline — [idsReceivedSince] is. See there.
+     */
+    @Query(
+        "SELECT * FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId " +
+            "AND (sortKey >= :since OR sortKey = 0) ORDER BY sortKey DESC, id DESC LIMIT :limit",
+    )
+    suspend fun receivedSince(accountId: String, mailboxId: String, since: Long, limit: Int): List<EmailEntity>
+
+    /**
+     * The ids of the same rows [receivedSince] selects from, WITHOUT its row cap — what a
+     * notification pass writes into the folder's baseline.
+     *
+     * The cap may not reach this statement, and that is the whole point. `NewMailNotifier.seed`
+     * REPLACES a baseline, so a baseline covers exactly what the pass that wrote it was handed:
+     * a bound a row can fall out of and back INTO forgets that row and then announces it. A row
+     * count is such a bound — it slides down as rows above it leave the folder. The instant
+     * [since] is not: it only moves forward, so a row that has dropped out of this read can never
+     * re-enter it.
+     *
+     * Unbounded in rows, therefore, and affordable because it is: ids only, over the notification
+     * window. Deliberately unordered — with no LIMIT there is no frontier for an order to decide,
+     * and the caller turns it into a set.
+     */
+    @Query(
+        "SELECT id FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId " +
+            "AND (sortKey >= :since OR sortKey = 0)",
+    )
+    suspend fun idsReceivedSince(accountId: String, mailboxId: String, since: Long): List<String>
 
     // The id-keyed reads/writes below are scoped by accountId as well: with the composite
     // (accountId, id) key (issue #31) an email id is no longer unique across accounts, and
@@ -370,7 +452,7 @@ interface EmailDao {
     suspend fun representativeCountForMailbox(accountId: String, mailboxId: String): Int
 
     /** All cached ids in one account's mailbox (for cache eviction — account-scoped like
-     *  [getByMailbox], so a same-server sibling account's colliding mailbox id can't
+     *  [newestIds], so a same-server sibling account's colliding mailbox id can't
      *  leak its rows into a bulk operation). NOT what "Select all" reads: the list on screen
      *  is filtered, and an unfiltered read of the folder is Codeberg #126 — see [keysForSelection]. */
     @Query("SELECT id FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId")
@@ -493,11 +575,14 @@ interface EmailDao {
      * an optimistic Undo before the server catches up.
      *
      * ⛔ The eviction is decided in Kotlin and applied BY ID IN BATCHES, not by handing the whole
-     * page to a `NOT IN (:keepIds)`: SQLite accepts 999 bound variables below Android 12 and a
-     * full sync window is up to 1 000 ids, so that statement threw — and it threw before the sync
-     * cursor was stored, leaving the folder re-querying whole for ever. See [reconcileEvictions]
-     * for why the set is computed against the WHOLE page before it is cut up (cutting the
-     * `NOT IN` instead would delete the folder one batch at a time).
+     * page to a `NOT IN (:keepIds)`: SQLite accepts 999 bound variables below Android 12, and any
+     * folder page long enough to exceed that made the statement throw — before the sync cursor was
+     * stored, leaving the folder re-querying whole for ever (Codeberg #29). The bound that keeps
+     * that impossible is [app.sterna.core.data.mail.MAX_CHANGES] — the batch size — and NOT the
+     * size of the sync window: a window is a user setting and is free to grow, so no safety here
+     * may be argued from its value. See [reconcileEvictions] for why the set is computed against
+     * the WHOLE page before it
+     * is cut up (cutting the `NOT IN` instead would delete the folder one batch at a time).
      *
      * [evictFromCacheKeepingIndex], like the two statements it replaces here, deliberately leaves
      * the search-index rows alone: these messages are still in their folder on the server, they
@@ -511,9 +596,69 @@ interface EmailDao {
         spareIds: List<String> = emptyList(),
     ) {
         upsertAll(emails)
+        reconcileMailboxRows(accountId, mailboxId, emails.mapTo(HashSet()) { it.id }, spareIds)
+    }
+
+    /**
+     * The second half of [replaceMailbox] on its own: make this mailbox's cache hold nothing
+     * beyond [keepIds] (and [spareIds]), WITHOUT writing anything first.
+     *
+     * ⛔ It is split out for the full-query sync of a folder — JMAP's (`MailRepository.syncMailbox`)
+     * and IMAP's (`MailRepository.imapWriteThrough`), both through
+     * [app.sterna.core.data.mail.fullQueryWriteThrough] — which writes its pages as they land off
+     * the network and can therefore no longer name the whole snapshot at write time.
+     * Splitting the write from the DELETE is what let the sync window stop being bounded by what
+     * one heap can hold; it also means this function DELETES on its own, with nothing before it to
+     * make the deletion safe. Two obligations follow, and they are the caller's:
+     *
+     * - [keepIds] must be the ids of the WHOLE walk, not of its last page. Handing a page's worth
+     *   deletes everything else in the folder — that is the same failure as chunking the `NOT IN`,
+     *   one layer up;
+     * - it must not be called at all unless the walk that produced [keepIds] RAN TO COMPLETION. A
+     *   half-finished walk describes half a folder, and reconciling against it deletes the other
+     *   half. [app.sterna.core.data.mail.fullQueryWriteThrough] is where that is enforced (and
+     *   tested); nothing in this function can check it.
+     *
+     * [replaceMailbox] keeps its own behaviour by reaching the same rows through the same body
+     * ([reconcileMailboxRows]), so a caller that hands over a whole snapshot at once is unaffected.
+     */
+    @Transaction
+    suspend fun reconcileMailbox(
+        accountId: String,
+        mailboxId: String,
+        keepIds: Set<String>,
+        spareIds: List<String> = emptyList(),
+    ) {
+        reconcileMailboxRows(accountId, mailboxId, keepIds, spareIds)
+    }
+
+    /**
+     * The reconcile itself — read the folder, decide the complement ONCE against the whole
+     * [keepIds], evict by batches.
+     *
+     * ⛔ NOT annotated `@Transaction`, and that is the point of it existing. Both entry points above
+     * carry the annotation, and Room implements one by wrapping the interface body in
+     * `RoomDatabaseKt.withTransaction`; if [replaceMailbox] called [reconcileMailbox], the wrapper
+     * would call the wrapper and open a transaction inside a transaction. Room and SQLite both
+     * document that as supported, but it would be the only place in this DAO that relies on it, on
+     * a path whose failure mode is deleted mail, and on two protocols at once. A shared un-annotated
+     * body costs nothing and removes the question: whichever way in, exactly one transaction.
+     *
+     * ⛔ The argument names below are load-bearing and are not decoration: [keepIds] and [spareIds]
+     * are both id collections, so handing [reconcileEvictions] the wrong one COMPILES — and passing
+     * the spare set where the keep set belongs turns every full re-query into "delete the folder
+     * except the handful of rows mutated in the last 45 seconds". `ReconcileMailboxSqlTest` reads
+     * these very expressions out of this body and runs them against real SQLite for that reason.
+     */
+    suspend fun reconcileMailboxRows(
+        accountId: String,
+        mailboxId: String,
+        keepIds: Set<String>,
+        spareIds: List<String>,
+    ) {
         reconcileEvictions(
             cachedIds = idsForMailbox(accountId, mailboxId),
-            keepIds = emails.mapTo(HashSet()) { it.id },
+            keepIds = keepIds,
             spareIds = spareIds.toHashSet(),
         ).forEach { batch -> evictFromCacheKeepingIndex(accountId, batch) }
     }

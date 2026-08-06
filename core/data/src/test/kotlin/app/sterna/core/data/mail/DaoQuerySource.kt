@@ -112,11 +112,22 @@ internal object DaoQuerySource {
     fun emailDaoStatements(functionName: String): List<DaoStatement> =
         emailDaoPath(functionName).let { it.main + it.fallback }
 
+    /**
+     * Where `fun [functionName]`'s parameter list opens in [source], type parameters and all.
+     *
+     * The `<P>` of a generic function sits between the keyword and the name (`fun <P> walk(`), and
+     * a pattern that does not allow for it simply fails to find the declaration — which, in a
+     * lookup whose whole job is to hand a test the shipped source, means the test errors out
+     * instead of reading the function it names.
+     */
+    private fun declarationOf(source: String, functionName: String): MatchResult? =
+        Regex("""\bfun\s+(<[^>()]*>\s*)?$functionName\s*\(""").find(source)
+
     /** Whether [daoName] declares a `fun [functionName]` with a block body — a composed path a
      *  replay can follow, as opposed to an abstract `@Query` or a function that does not exist. */
     private fun hasBody(daoName: String, functionName: String): Boolean {
         val source = daoSource(daoName)
-        val fn = Regex("""\bfun\s+$functionName\s*\(""").find(source) ?: return false
+        val fn = declarationOf(source, functionName) ?: return false
         return bodyBrace(source, fn.range.last) >= 0
     }
 
@@ -130,7 +141,7 @@ internal object DaoQuerySource {
      */
     fun isTransactional(daoName: String, functionName: String): Boolean {
         val source = daoSource(daoName)
-        val fn = Regex("""\bfun\s+$functionName\s*\(""").find(source)
+        val fn = declarationOf(source, functionName)
             ?: error("$daoName has no function named '$functionName' — did it get renamed?")
         return source.substring(0, fn.range.first).lines().dropLast(1).asReversed()
             .map { it.trim() }
@@ -176,7 +187,7 @@ internal object DaoQuerySource {
         functionBody(daoSource(daoName), daoName, functionName)
 
     private fun functionBody(source: String, owner: String, functionName: String): String {
-        val fn = Regex("""\bfun\s+$functionName\s*\(""").find(source)
+        val fn = declarationOf(source, functionName)
             ?: error("$owner has no function named '$functionName' — did it get renamed?")
         // The brace must be this signature's own, right after its closing ')': an abstract DAO
         // function has none, and taking "the next '{' in the file" would silently hand back some
@@ -212,7 +223,7 @@ internal object DaoQuerySource {
      */
     fun queryOrNull(daoName: String, functionName: String): String? {
         val source = daoSource(daoName)
-        val fn = Regex("""\bfun\s+$functionName\s*\(""").find(source) ?: return null
+        val fn = declarationOf(source, functionName) ?: return null
         val head = source.substring(0, fn.range.first)
         val annotation = head.lastIndexOf("@Query(")
         if (annotation < 0 || head.substring(annotation).contains(DECLARATION)) return null

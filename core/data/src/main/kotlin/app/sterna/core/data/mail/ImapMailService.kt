@@ -6,7 +6,9 @@ import app.sterna.core.data.account.MailEndpoint
 import app.sterna.core.data.db.EmailEntity
 import app.sterna.core.data.db.EmailRecipients
 import app.sterna.core.data.db.MailboxEntity
+import app.sterna.core.imap.IMAP_FOLDER_PAGE
 import app.sterna.core.imap.ImapClient
+import app.sterna.core.imap.ImapFolderWalk
 import app.sterna.core.imap.ImapIdleConnection
 import app.sterna.core.imap.ImapMailboxStatus
 import app.sterna.core.imap.ImapMessage
@@ -34,15 +36,67 @@ import java.net.SocketTimeoutException
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 
-/** A folder's mailboxes + a fetched page, ready for the cache. */
+/**
+ * A folder's mailboxes + what the walk of the target folder saw.
+ *
+ * ⛔ There are no `messages` here any more. They were handed to the caller page by page while the
+ * walk ran ([ImapMailService.loadFolder]'s `onPage`) and are already in the cache by the time this
+ * value exists; what is left is [walk] — the UIDs, and whether the folder held still.
+ */
 data class ImapFolderLoad(
     val mailboxes: List<MailboxEntity>,
     val targetMailboxId: String,
     val targetName: String,
     val unread: Int,
     val accountName: String,
-    val messages: List<EmailEntity>,
+    val walk: ImapFolderWalk,
 )
+
+/**
+ * The cache ids a finished IMAP folder walk MAY be reconciled against — or NULL when the folder
+ * moved under the walk and there is no set the reconcile can safely be given.
+ *
+ * ⛔ A function of its own, and a pure one, because it is the whole IMAP half of the red line and a
+ * condition buried in the middle of a refresh is a condition nobody can execute in a test. Null is
+ * a refusal, never an empty set: `reconcileMailbox` given an empty keep set deletes the folder.
+ *
+ * Ids, not UIDs: the cache is keyed by `imap:account:folder:uid`, so the mapping needs the account
+ * and the folder the walk actually landed on (which is not always the one the caller asked for —
+ * `loadFolder` falls back to the inbox). And it is a mapping of the WHOLE walk, every page of it,
+ * never the last one.
+ */
+/**
+ * ⛔ Settle the folder's NUMBERING before a single row of it can be seen, then walk it.
+ *
+ * Two lines and an order, in a function of its own for the reason [fullQueryWriteThrough] is one: an
+ * order that exists only as the sequence of two statements in the middle of a long function is an
+ * order no test can execute.
+ *
+ * [settle] is `ImapMailService.reconcileNumbering` — on a folder whose UIDVALIDITY changed, it drops
+ * every cache keyed by the old UIDs (bodies, purge snapshots, the notification baseline). [walk]
+ * hands its pages to the caller AS THEY LAND, so the first of them is on screen long before the walk
+ * returns. Settling afterwards left a window the length of the walk during which a row of the NEW
+ * numbering was listed while the body cached for that same id under the OLD one was still there —
+ * and opening a message reads the body cache first. That is Codeberg #99's exact symptom, and
+ * writing pages as they land is what re-opened it; before that, nothing was visible until the read
+ * was over.
+ *
+ * ⛔ [settle] COMPARES AND RECORDS, it does not refuse: `loadFolder` selects folders it has just
+ * listed, and refusing there would fail a whole inbox refresh over one renumbered folder. Running it
+ * earlier must not turn it into a gate.
+ *
+ * ⚠ It now also runs when the walk goes on to fail, which it did not before. That is the safe
+ * direction — an invalidation seen and applied — and the caches it drops are re-fillable.
+ */
+internal suspend fun <R> withNumberingSettled(settle: suspend () -> Unit, walk: suspend () -> R): R {
+    settle()
+    return walk()
+}
+
+internal fun reconcilableIds(load: ImapFolderLoad, accountId: String): Set<String>? {
+    if (load.walk.moved) return null
+    return load.walk.uids.mapTo(HashSet()) { ImapMailService.emailId(accountId, load.targetMailboxId, it) }
+}
 
 /** One watched folder's fetched page (multi-folder push, issue #16). */
 data class ImapWatchedLoad(
@@ -119,7 +173,12 @@ class ImapMailService(
     private suspend fun <T> withSession(
         credentials: AccountCredentials,
         budgetMs: Int = 0,
-        block: (ImapSession) -> T,
+        // Suspending for ONE caller, [loadFolder], whose folder walk writes each page to the
+        // database between requests — that is what holds the walk's memory to one page. Every
+        // other block here suspends at nothing and behaves exactly as before. ⚠ What a suspending
+        // block costs is that the account's single connection is held across those suspensions:
+        // nothing slow belongs in one that is not the reason the connection is open.
+        block: suspend (ImapSession) -> T,
     ): T =
         withContext(Dispatchers.IO) {
             val config = config(credentials.imap ?: error("Account has no IMAP server configured."), credentials)
@@ -139,7 +198,7 @@ class ImapMailService(
         pooled: Pooled,
         config: MailServerConfig,
         budgetMs: Int,
-        block: (ImapSession) -> T,
+        block: suspend (ImapSession) -> T,
     ): T {
         val deadline = ImapBudget.deadline(budgetMs, System.currentTimeMillis())
         var attempt = 0
@@ -155,7 +214,7 @@ class ImapMailService(
             // close + reconnect on the way out.
             val forReads = ImapBudget.remaining(deadline, System.currentTimeMillis())
             try {
-                return session.withReadTimeout(forReads) { block(session) }
+                return session.withReadTimeoutSuspending(forReads) { block(session) }
             } catch (cancelled: CancellationException) {
                 // The caller gave up (an Undo, a closed screen): the session is mid-command and
                 // its stream state unknown, so drop it — but do NOT spend a reconnect + LOGIN
@@ -208,7 +267,7 @@ class ImapMailService(
         mailboxId: String,
         budgetMs: Int = 0,
         expectedUidValidity: Long? = null,
-        block: (ImapSession, ImapMailboxStatus) -> T,
+        block: suspend (ImapSession, ImapMailboxStatus) -> T,
     ): T {
         val recorded = uidValidity.recorded(credentials.id, mailboxId)
         var observed = 0L
@@ -336,21 +395,40 @@ class ImapMailService(
         }
 
     /**
-     * Connect, list folders, and fetch the newest [limit] of the target folder.
+     * Connect, list folders, and WALK the newest [limit] of the target folder, handing each page to
+     * [onPage] as it lands.
+     *
+     * ⛔ [onPage] is not a convenience: it is where the window's messages go. This function keeps
+     * none of them — see [ImapFolderLoad] — so a caller that passes an empty lambda is asking for
+     * the folder list and nothing else, which is what the folder-list refresh does. There is no
+     * default for it, deliberately: "where do these messages go" is a question every caller has to
+     * answer out loud.
+     *
+     * ⛔ And [ImapFolderLoad.walk] carries [ImapFolderWalk.moved], which a caller that DELETES on
+     * the strength of this walk must honour ([reconcilableIds]).
      *
      * Selects a folder it has just listed, so it cannot be refused on its numbering — but it is
      * usually the FIRST thing to see that numbering, and browsing a folder must be enough to
      * record it: an offline "Empty trash" afterwards has nothing else to go on, and the body
-     * cache has to be dropped before the user can open a message from the list this returns.
-     * Hence [reconcileNumbering] on the way out (Codeberg #99).
+     * cache has to be dropped BEFORE the user can open a message from the list this writes. Hence
+     * [reconcileNumbering] ahead of the walk and not after it ([withNumberingSettled], Codeberg
+     * #99): the pages become visible while the walk is still running.
+     *
+     * ⚠ What this costs while it runs, stated because it is not free: the account's ONE connection
+     * is held for the whole walk, database writes included, so every other IMAP operation on that
+     * account (opening a message, marking read, moving, emptying the trash) queues behind it. That
+     * was already true of the single FETCH this replaces, but the writes are new inside the lock.
+     * ⚠ And the walk is retried ONCE as a whole on a transport failure (`runWithRetry`), so a
+     * DATABASE failure in the middle of it re-runs the entire network read as well. Both are known
+     * and out of this change's scope; neither can delete anything.
      */
     suspend fun loadFolder(
         credentials: AccountCredentials,
         requestedMailboxId: String?,
         limit: Int,
+        onPage: suspend (List<EmailEntity>) -> Unit,
     ): ImapFolderLoad {
-        var numbering: Pair<String, Long>? = null
-        val load = withSession(credentials) { session ->
+        return withSession(credentials) { session ->
             val folders = session.listFolders()
             val mailboxes = folders.mapIndexed { index, folder ->
                 MailboxEntity(
@@ -369,10 +447,15 @@ class ImapMailService(
                 ?: folders.first()
 
             val status = session.select(target.path)
-            numbering = target.path to status.uidValidity
             val unread = session.unseenCount()
-            val messages = session.fetchPage(status.exists, offset = 0, limit = limit)
-                .map { it.toEntity(credentials.id, target.path) }
+            val walk = withNumberingSettled(
+                settle = { reconcileNumbering(credentials.id, target.path, status.uidValidity) },
+                walk = {
+                    session.walkFolder(status.exists, limit, IMAP_FOLDER_PAGE) { page ->
+                        onPage(page.map { it.toEntity(credentials.id, target.path) })
+                    }
+                },
+            )
 
             ImapFolderLoad(
                 mailboxes = mailboxes,
@@ -380,13 +463,9 @@ class ImapMailService(
                 targetName = target.name,
                 unread = unread,
                 accountName = credentials.username,
-                messages = messages,
+                walk = walk,
             )
         }
-        // Before returning: a renumbering seen here drops the caches keyed by the old UIDs, so the
-        // first message the user opens from this list cannot come back as a stale cached body.
-        numbering?.let { (path, observed) -> reconcileNumbering(credentials.id, path, observed) }
-        return load
     }
 
     /**

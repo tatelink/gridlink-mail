@@ -198,15 +198,59 @@ class ImapSession(private var socket: Socket) : Closeable {
      * up, minutes later" into "gives up on a silent peer in [millis]".
      */
     fun <T> withReadTimeout(millis: Int, block: () -> T): T {
-        val previous = socket.soTimeout
-        socket.soTimeout = millis.coerceAtLeast(0)
+        val previous = armReadTimeout(millis)
         try {
             return block()
         } finally {
-            // The field can have been swapped by a STARTTLS upgrade inside the block; restore
-            // on whatever socket is current.
-            runCatching { socket.soTimeout = previous }
+            disarmReadTimeout(previous)
         }
+    }
+
+    /**
+     * [withReadTimeout] for a block that SUSPENDS — the same wrapper, and the two must stay the
+     * same wrapper. It cannot simply call the other one: a plain function cannot take a suspending
+     * lambda, and making the other one suspend would drag `connect` — which runs before any
+     * coroutine exists — with it.
+     *
+     * ⛔ So what they share is not a comment but [armReadTimeout]/[disarmReadTimeout]: the thing
+     * that would be silently missing from a copy is the SETTING of the timeout, and there is now
+     * one of those, exercised by the budget tests through the other wrapper. `ImapBudgetSharedTest`
+     * additionally reads both bodies and refuses to let them differ.
+     *
+     * It exists for [walkFolder], whose block writes each page to the database between requests.
+     * The socket setting therefore stands across those suspensions, which is what it is for: the
+     * bound belongs to the reads of this operation, and the reads of this operation are exactly
+     * what happens in between.
+     */
+    suspend fun <T> withReadTimeoutSuspending(millis: Int, block: suspend () -> T): T {
+        val previous = armReadTimeout(millis)
+        try {
+            return block()
+        } finally {
+            disarmReadTimeout(previous)
+        }
+    }
+
+    /**
+     * Bound this socket's reads to [millis] and answer with what the bound was — the load-bearing
+     * half of both `withReadTimeout` wrappers, in ONE place.
+     *
+     * ⛔ It is one place on purpose. Written out in each wrapper, deleting the assignment from the
+     * copy the tests do not reach left every budget test green while `ENUMERATE_BUDGET_MS` — the
+     * bound that stops an "Empty trash" enumeration hanging on a mute server — stopped applying to
+     * everything the pooled session does.
+     */
+    private fun armReadTimeout(millis: Int): Int {
+        val previous = socket.soTimeout
+        socket.soTimeout = millis.coerceAtLeast(0)
+        return previous
+    }
+
+    /** Put back what [armReadTimeout] answered. The field can have been swapped by a STARTTLS
+     *  upgrade inside the block, so this restores on whatever socket is current — and never throws
+     *  on the way out of a block that is already failing. */
+    private fun disarmReadTimeout(previous: Int) {
+        runCatching { socket.soTimeout = previous }
     }
 
     /**
@@ -504,6 +548,77 @@ class ImapSession(private var socket: Socket) : Closeable {
         val lowest = (highest - limit + 1).coerceAtLeast(1)
         val result = command("FETCH $lowest:$highest (UID FLAGS INTERNALDATE ENVELOPE BODYSTRUCTURE)")
         return result.messages().sortedByDescending { it.uid }
+    }
+
+    /**
+     * Read the newest [limit] messages of the SELECTed folder (which the caller's SELECT said holds
+     * [exists] of them) in requests of [pageSize] sequence positions, handing each page to [onPage]
+     * AS IT LANDS and keeping only UIDs.
+     *
+     * ⛔ Why pages at all: [fetchPage] puts the whole window in one `FETCH`, and everything that
+     * command brings back is parsed and held before a single message is read out of it. At the
+     * window sizes this app offers that is a folder's worth of envelopes on one heap. Paginating is
+     * the only honest fix — capping what the parser keeps ([command]'s `maxTokensKept`) would
+     * TRUNCATE the answer silently, and the messages it dropped would then be missing from the
+     * walk's UIDs and deleted from the cache by the caller's reconcile.
+     *
+     * ⛔ What the caller owes back: [ImapFolderWalk.moved]. A folder that changed while this read it
+     * must not be reconciled against — [folderMoved] states exactly which messages are at risk, and
+     * it is NOT "one that fell between two pages": the sequence shift is downwards and this walk
+     * descends, so what a renumbering costs is the BOTTOM of the window, plus anything another path
+     * cached meanwhile.
+     *
+     * Movement is asked about in two places, and both are load-bearing:
+     * - a `NOOP` before every request but the first, because that is the only way a server may tell
+     *   us: RFC 3501 §7.4.1 forbids sending `EXPUNGE` while answering a `FETCH`, so it holds the
+     *   news until a command that may carry it — and until it has sent it, it may not renumber
+     *   anything either;
+     * - the untagged lines of every `FETCH` response, which is not belt-and-braces: a walk of ONE
+     *   page (a 50-message window, the unified refresh, a small folder) sends no `NOOP` at all, so
+     *   this is then the only detector there is.
+     *
+     * The walk does NOT stop when it notices movement: the remaining pages are still mail the user
+     * wants cached, writing them deletes nothing, and only the reconcile is unsafe. It carries the
+     * verdict to the end instead.
+     *
+     * [onPage] receives only messages the walk has not already handed over, so an overlapping page
+     * costs one wasted request and nothing else. ⚠ It runs inside the caller's session — that is
+     * what "write each page as it lands" means — so the account's ONE connection is held for the
+     * length of the walk INCLUDING the caller's writes, and every other IMAP operation on that
+     * account queues behind it. The single `FETCH` this replaces held the connection too, but not
+     * across a database write; on today's windows the difference is noise, on an unbounded one it
+     * would not be.
+     */
+    suspend fun walkFolder(
+        exists: Int,
+        limit: Int,
+        pageSize: Int,
+        onPage: suspend (List<ImapMessage>) -> Unit,
+    ): ImapFolderWalk {
+        val lowest = folderWindowLowest(exists, limit)
+        // De-duplicated BY UID: the walk's own pages can overlap after a renumbering, and a
+        // sequence number is not a name. Insertion-ordered so the result stays newest-first.
+        val seen = LinkedHashSet<Long>()
+        var moved = false
+        var previous: IntRange? = null
+        while (true) {
+            val page = nextFolderPage(lowest, exists, previous, pageSize) ?: break
+            // Every request but the first: give the server its chance to say the folder moved,
+            // BEFORE the numbering of the range below is used. `folderMoved(...) || moved` and not
+            // the other way round, so the NOOP goes out whatever the verdict so far.
+            if (previous != null) moved = folderMoved(command("NOOP").untagged, exists) || moved
+            val result = command("FETCH ${page.first}:${page.last} (UID FLAGS INTERNALDATE ENVELOPE BODYSTRUCTURE)")
+            // Not a second opinion: on a one-page walk no NOOP is ever sent, so this line is the
+            // only thing that can notice the folder moving.
+            moved = folderMoved(result.untagged, exists) || moved
+            // Through messages(), like every other fetch here: it is the one place a `\Deleted`
+            // message is dropped, and a walk that read the untagged lines itself would walk them
+            // straight back into the list (Codeberg #99).
+            val fresh = result.messages().sortedByDescending { it.uid }.filter { seen.add(it.uid) }
+            if (fresh.isNotEmpty()) onPage(fresh)
+            previous = page
+        }
+        return ImapFolderWalk(uids = seen.toList(), moved = moved)
     }
 
     /**

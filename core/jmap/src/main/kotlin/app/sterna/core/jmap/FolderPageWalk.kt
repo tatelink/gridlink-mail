@@ -20,6 +20,37 @@ data class WalkedPage(
 )
 
 /**
+ * What a windowed folder walk brings back — IDS and cursors, never messages.
+ *
+ * ⛔ There is no `emails` here, and that is the whole point of the shape. The walk hands each
+ * page's messages to its caller as the page lands and forgets them; what it keeps for the end is
+ * one string per message. Holding the window's `Email` objects instead — twenty fields, eight of
+ * them collections — is what made "Messages to sync = All" a memory problem rather than a network
+ * one, and it is the caller's ONE write at the end that required it.
+ *
+ * [ids] is in walk order, oldest request first, DE-DUPLICATED: the walk's pages can overlap (a
+ * recovery page restarts at a position the previous one already covered) and an id counted twice
+ * would be counted twice against the window.
+ *
+ * [queryState]/[emailState] are the FIRST response's, not the last's — see `queryEmailsWindow`.
+ * They are captured as two strings while that response is in hand; keeping the response itself to
+ * read them off at the end would pin a whole page of decoded messages alive for the walk, which is
+ * the cost this type exists to remove.
+ *
+ * [queryCount] is every id the walk's queries listed, across all of them. It is what says whether
+ * an EMPTY walk means "the folder is empty" or "the server listed messages and then sent none of
+ * them", and only the first of those may be reconciled against — see
+ * `MailRepository`'s `reconcilableWindowIds`. A caller also reads it to tell a short GET from an
+ * exhausted folder.
+ */
+data class WindowWalk(
+    val ids: List<String>,
+    val queryState: String?,
+    val emailState: String?,
+    val queryCount: Int,
+)
+
+/**
  * How big the NEXT `Email/query` of a windowed folder walk must be, or null when the walk is over.
  *
  * Two numbers, never one: [target] is how much of the folder the user asked to keep (the sync

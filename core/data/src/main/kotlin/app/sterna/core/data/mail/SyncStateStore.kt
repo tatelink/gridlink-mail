@@ -9,7 +9,7 @@ import android.content.Context
  * between pushes, so persisted cursors are what make each wakeup a cheap delta.
  * Value format: "queryState\nemailState".
  */
-class SyncStateStore(context: Context) {
+class SyncStateStore(context: Context) : SyncCursorStore {
     private val prefs = context.getSharedPreferences("sync_states", Context.MODE_PRIVATE)
 
     init {
@@ -20,24 +20,28 @@ class SyncStateStore(context: Context) {
         if (prefs.getInt(VERSION_KEY, 1) < CURSOR_VERSION) clear()
     }
 
-    fun save(key: String, queryState: String, emailState: String) {
+    override fun save(key: String, queryState: String, emailState: String) {
         prefs.edit().putString(key, "$queryState\n$emailState").apply()
     }
 
     /** The stored (queryState, emailState) pair, or null. */
-    fun load(key: String): Pair<String, String>? {
+    override fun load(key: String): Pair<String, String>? {
         val raw = prefs.getString(key, null) ?: return null
         val split = raw.split('\n', limit = 2)
         return if (split.size == 2) split[0] to split[1] else null
     }
 
-    fun remove(key: String) {
+    override fun remove(key: String) {
         prefs.edit().remove(key).apply()
     }
 
-    fun clear() {
+    override fun clear() {
         prefs.edit().clear().putInt(VERSION_KEY, CURSOR_VERSION).apply()
     }
+
+    /** The cursor keys held, without the schema marker — which is not one and must never be
+     *  handed to a per-account drop as if it were. */
+    override fun keys(): Set<String> = prefs.all.keys - VERSION_KEY
 }
 
 /** Store schema marker; sync keys are "<localAccountId><mailboxId>", which can't collide. */

@@ -6,11 +6,12 @@ import android.content.SharedPreferences
 import app.sterna.container
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.mail.EmailKey
+import app.sterna.core.data.mail.announceableAt
+import app.sterna.core.data.mail.notifyFloor
 import app.sterna.core.data.settings.NotificationContent
 import app.sterna.core.data.settings.SettingsRepository
 import app.sterna.core.jmap.model.Email
 import kotlinx.coroutines.flow.first
-import java.time.Instant
 import java.util.Calendar
 
 /**
@@ -27,8 +28,6 @@ object NewMailNotifier {
     // caches every thread member — mail that sat on the server all along but was never
     // in these baselines (they only ever saw representatives).
     private const val BASELINE_VERSION = 2
-    // Age floor slack under a baseline's last pass (see [notifyDiff]).
-    private const val NOTIFY_HORIZON_MS = 24L * 60 * 60 * 1000
 
     private fun prefs(context: Context): SharedPreferences {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -62,11 +61,19 @@ object NewMailNotifier {
             .apply()
     }
 
-    /** Reset a folder's baseline to [emails] without notifying (first sight of a folder,
-     *  or when the user is opening the app anyway — the list itself shows what arrived). */
-    fun seed(context: Context, accountId: String, mailboxId: String, emails: List<Email>) {
+    /**
+     * Reset a folder's baseline to [baselineIds] without notifying (first sight of a folder, or
+     * when the user is opening the app anyway — the list itself shows what arrived).
+     *
+     * ⚠ [baselineIds] is deliberately NOT "the ids of the messages that were diffed". It REPLACES
+     * the set, so it has to cover everything the caller read, including what the caller declined
+     * to hydrate: an id that leaves this set is forgotten, and a forgotten id that comes back into
+     * view announces as new mail — and, through `unarchiveThreadsOnReply`, moves mail out of the
+     * Archive server-side. See `MailRepository.notifyRead`.
+     */
+    fun seed(context: Context, accountId: String, mailboxId: String, baselineIds: Collection<String>) {
         prefs(context).edit()
-            .putStringSet(key(accountId, mailboxId), emails.map { it.id }.toSet())
+            .putStringSet(key(accountId, mailboxId), baselineIds.toSet())
             .putLong(tsKey(accountId, mailboxId), System.currentTimeMillis())
             .apply()
     }
@@ -122,7 +129,8 @@ object NewMailNotifier {
 
     /**
      * The subset of [emails] genuinely new to this folder: not in its baseline, and past
-     * the age floor — never announce mail received more than [NOTIFY_HORIZON_MS] before the
+     * the age floor — never announce mail received more than
+     * [app.sterna.core.data.mail.NOTIFY_HORIZON_MS] before the
      * folder's previous pass. The cache gains OLD rows without them ever having been new
      * mail — scrolling back pages weeks-old unread into the cache, expanding a thread
      * caches old members — and none of those are in the baseline, so each would otherwise
@@ -144,7 +152,11 @@ object NewMailNotifier {
     fun newSince(context: Context, accountId: String, mailboxId: String, emails: List<Email>): List<Email> {
         val known = prefs(context).getStringSet(key(accountId, mailboxId), null).orEmpty()
         val lastPass = prefs(context).getLong(tsKey(accountId, mailboxId), 0L)
-        val floor = if (lastPass > 0) lastPass - NOTIFY_HORIZON_MS else Long.MIN_VALUE
+        // The floor is a pure function shared with the read that produces [emails]
+        // ([app.sterna.core.data.mail.notifyFloor]): the row set handed here has to contain
+        // everything this predicate can still let through, or old cached mail turns into
+        // "new" mail — see `NotifyCandidates.kt`.
+        val floor = notifyFloor(lastPass)
         val selfMoved = (context.applicationContext as Application).container.mailRepository.recentLocalMoves
         return emails.filter {
             it.id !in known && receivedAfter(it, floor) && EmailKey(accountId, it.id) !in selfMoved
@@ -154,6 +166,9 @@ object NewMailNotifier {
     /**
      * Post notifications for a folder's messages not in its baseline, then advance it.
      * [folderName] is shown as notification sub-text; pass null for the inbox.
+     *
+     * [emails] is what may be announced; [baselineIds] is what the folder will remember. They are
+     * not the same set and the second must cover the first — see [seed].
      *
      * [departedIds] are the ids the SERVER reported as having LEFT this folder during the refresh
      * that produced [emails] (Codeberg #134): the banners of the ones the server CONFIRMS are gone
@@ -169,6 +184,7 @@ object NewMailNotifier {
         mailboxId: String,
         folderName: String?,
         emails: List<Email>,
+        baselineIds: Collection<String>,
         departedIds: List<String> = emptyList(),
     ) {
         // One notification per conversation: the uncollapsed folder sync hands us every new
@@ -236,15 +252,12 @@ object NewMailNotifier {
                 silent = silent || newMail.isEmpty(),
             )
         }
-        seed(context, credentials.id, mailboxId, emails)
+        seed(context, credentials.id, mailboxId, baselineIds)
     }
 
-    /** Whether [email] was received at or after [floorMs] (lenient: unknown dates pass). */
-    private fun receivedAfter(email: Email, floorMs: Long): Boolean {
-        if (floorMs == Long.MIN_VALUE) return true
-        val received = email.receivedAt ?: return true
-        return runCatching { Instant.parse(received).toEpochMilli() >= floorMs }.getOrDefault(true)
-    }
+    /** Whether [email] was received at or after [floorMs] (lenient: unknown dates pass). Shared
+     *  with the read that produces the candidates — see [app.sterna.core.data.mail.announceableAt]. */
+    private fun receivedAfter(email: Email, floorMs: Long): Boolean = announceableAt(email.receivedAt, floorMs)
 
     /**
      * The user settings every posted mail notification must obey: [silent] for the

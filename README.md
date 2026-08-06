@@ -108,8 +108,8 @@ Running your own server, with a free certificate or one you issued yourself? See
 
 **📥 Reading & organising**
 - Unified inbox across multiple accounts (JMAP and/or IMAP/SMTP), fully offline
-  (local cache); large folders page in as you scroll, fetching older mail from
-  the server
+  (local cache); on JMAP large folders page in as you scroll, fetching older
+  mail from the server (on IMAP the list stops at the sync window)
 - Conversation view — threads collapse into one row with a message count
 - Nested folders shown as a collapsible tree; create / rename / delete, plus
   subfolders

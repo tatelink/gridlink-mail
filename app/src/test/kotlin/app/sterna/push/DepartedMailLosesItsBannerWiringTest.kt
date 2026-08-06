@@ -82,13 +82,22 @@ class DepartedMailLosesItsBannerWiringTest {
     }
 
     @Test fun `each refreshed folder hands the notifier its own departures`() {
+        // Pinned as two whole lines rather than one: the call is multi-line since the bounded-read
+        // branch added `remembered` beside the announceable set (its own lint pins that argument —
+        // NotifyCandidatesWiringTest). `departedIds` is the LAST argument and defaulted, so
+        // dropping it compiles: only this assertion sees it go.
+        val run = bodyOf(FETCH_AND_NOTIFY, "run")
+        assertEquals(
+            "the diff must be fed this folder's messages AND the ids it will remember",
+            listOf(
+                "context, credentials, folder.mailboxId, folderName, folder.emails + returned, remembered,",
+            ),
+            codeLinesNaming(run, "folder.mailboxId, folderName"),
+        )
         assertEquals(
             "without this argument nothing the sync learned ever reaches a cancel, and #134 stands",
-            listOf(
-                "NewMailNotifier.notifyDiff(context, credentials, folder.mailboxId, folderName, " +
-                    "folder.emails + returned, folder.departedIds)",
-            ),
-            codeLinesNaming(bodyOf(FETCH_AND_NOTIFY, "run"), "NewMailNotifier.notifyDiff("),
+            listOf("folder.departedIds,"),
+            codeLinesNaming(run, "departedIds"),
         )
     }
 

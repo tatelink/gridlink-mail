@@ -1045,7 +1045,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             val credentials = credentialsFor(email) ?: return@launch
             runCatching { repo.setRead(credentials, email.id, targetSeen) }
                 .onFailure { reportActionFailed("setRead (swipe)", it) }
-            if (targetSeen) dismissReadNotifications(listOf(email))
+            if (targetSeen) dismissReadNotifications(listOf(email.emailKey()))
         }
     }
 
@@ -1201,7 +1201,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 runCatching { repo.setRead(credentials, m.id, targetSeen) }
                     .onFailure { reportActionFailed("setRead (thread)", it) }
             }
-            if (targetSeen) dismissReadNotifications(members)
+            if (targetSeen) dismissReadNotifications(members.map { it.emailKey() })
         }
     }
 
@@ -1511,17 +1511,22 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Route an action to the email's own account (unified inbox), else the current one. */
-    private fun credentialsFor(email: Email): AccountCredentials? =
-        email.accountId?.let { store.credentials(it) } ?: store.load()
+    private fun credentialsFor(email: Email): AccountCredentials? = credentialsFor(email.emailKey())
+
+    private fun credentialsFor(key: EmailKey): AccountCredentials? =
+        key.accountId?.let { store.credentials(it) } ?: store.load()
 
     /**
-     * Clear the new-mail notifications of [emails] just marked read locally, grouped by
-     * account so the group summary is refreshed once per account (Codeberg #19).
+     * Clear the new-mail notifications of the messages [keys] just marked read locally, grouped
+     * by account so the group summary is refreshed once per account (Codeberg #19).
+     *
+     * Keys and not messages: "mark all read" reaches this with a folder's worth of them, and the
+     * account and the id are all that is dismissed on.
      */
-    private fun dismissReadNotifications(emails: List<Email>) {
-        if (emails.isEmpty()) return
+    private fun dismissReadNotifications(keys: List<EmailKey>) {
+        if (keys.isEmpty()) return
         val app = getApplication<Application>()
-        emails.mapNotNull { e -> credentialsFor(e)?.let { it.id to it.username to e.id } }
+        keys.mapNotNull { e -> credentialsFor(e)?.let { it.id to it.username to e.emailId } }
             .groupBy({ it.first }, { it.second })
             .forEach { (account, ids) ->
                 val (accountId, label) = account
@@ -1561,8 +1566,11 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     fun markAllRead() {
         viewModelScope.launch {
             val scopes = currentScopes()
-            val cachedUnread = repo.cachedEmailsForMailboxes(scopes).filter { !it.isSeen }
-            patchThreadMembersSeen(cachedUnread.mapTo(mutableSetOf()) { it.emailKey() }, true)
+            // The unread keys, resolved by the statement: reading every cached row of every scope
+            // only to drop the read ones was a whole folder (times the number of accounts, in the
+            // unified view) for the fraction of it this actually patches and dismisses.
+            val cachedUnread = repo.cachedUnreadKeys(scopes)
+            patchThreadMembersSeen(cachedUnread.toSet(), true)
             var allMarked = true
             scopes.forEach { (accountId, mailboxId) ->
                 val credentials = store.credentials(accountId) ?: return@forEach
@@ -1962,7 +1970,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 runCatching { repo.setRead(credentials, email.id, targetSeen) }
                     .onFailure { reportActionFailed("setRead (selection)", it) }
             }
-            if (targetSeen) dismissReadNotifications(emails)
+            if (targetSeen) dismissReadNotifications(emails.map { it.emailKey() })
             // Reflect the new state immediately so the toggle icon flips without re-selecting.
             _selectionAllRead.value = targetSeen
         }

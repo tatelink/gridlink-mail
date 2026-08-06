@@ -78,15 +78,22 @@ object FetchAndNotify {
             } else {
                 emptyList()
             }
+            // What the folder REMEMBERS: everything the pass read (not only what it hydrated for
+            // the diff), plus the members it just re-filed. The two sets are different sizes on
+            // purpose — see MailRepository.notifyRead.
+            val remembered = folder.baselineIds + returned.map { it.id }
             if (seedsSilently(resetBaselines, isInbox, hasBaseline)) {
                 // First sight of a folder (or an explicit reset): seed silently instead of
                 // flooding notifications for its whole existing content.
-                NewMailNotifier.seed(context, credentials.id, folder.mailboxId, folder.emails + returned)
+                NewMailNotifier.seed(context, credentials.id, folder.mailboxId, remembered)
             } else {
                 // The folder's departures ride along: what the server said left it during THIS
                 // refresh, so a message deleted from another client loses its banner (#134).
                 // Empty on IMAP and on the seed path above, which has no banner to take down.
-                NewMailNotifier.notifyDiff(context, credentials, folder.mailboxId, folderName, folder.emails + returned, folder.departedIds)
+                NewMailNotifier.notifyDiff(
+                    context, credentials, folder.mailboxId, folderName, folder.emails + returned, remembered,
+                    folder.departedIds,
+                )
             }
         }
     }
@@ -113,9 +120,14 @@ object FetchAndNotify {
         val container = (context.applicationContext as Application).container
         if (!container.settingsRepository.unarchiveOnReply.first()) return
         NewMailNotifier.migrateLegacyBaseline(context, credentials.id, inboxMailboxId)
-        val emails = container.mailRepository.cachedEmailsForMailboxes(listOf(credentials.id to inboxMailboxId))
+        // The same bounded read the push/worker pass gets ([MailRepository.notifyRead]): this hook
+        // runs on EVERY foreground inbox refresh when unarchive-on-reply is on, and it writes the
+        // SAME baseline, so the two passes must read and remember the same way. Whatever this one
+        // announced-but-did-not-remember, the other would announce again.
+        val read = container.mailRepository.notifyRead(credentials.id, inboxMailboxId)
+        val emails = read.emails
         if (!NewMailNotifier.hasBaseline(context, credentials.id, inboxMailboxId)) {
-            NewMailNotifier.seed(context, credentials.id, inboxMailboxId, emails)
+            NewMailNotifier.seed(context, credentials.id, inboxMailboxId, read.baselineIds)
             return
         }
         val threads = NewMailNotifier.newSince(context, credentials.id, inboxMailboxId, emails)
@@ -123,10 +135,11 @@ object FetchAndNotify {
             .toSet()
         val returned = runCatching { container.mailRepository.unarchiveThreadsOnReply(credentials, threads) }
             .getOrDefault(emptyList())
+        val remembered = read.baselineIds + returned.map { it.id }
         if (container.accountStore.notificationsEnabled(credentials.id)) {
-            NewMailNotifier.notifyDiff(context, credentials, inboxMailboxId, null, emails + returned)
+            NewMailNotifier.notifyDiff(context, credentials, inboxMailboxId, null, emails + returned, remembered)
         } else {
-            NewMailNotifier.seed(context, credentials.id, inboxMailboxId, emails + returned)
+            NewMailNotifier.seed(context, credentials.id, inboxMailboxId, remembered)
         }
     }
 }

@@ -1,5 +1,6 @@
 package app.sterna.core.jmap
 
+import app.sterna.core.jmap.model.Email
 import app.sterna.core.jmap.model.EmailAddress
 import app.sterna.core.jmap.model.EmailBodyPart
 import app.sterna.core.jmap.model.JmapSession
@@ -1243,6 +1244,18 @@ class JmapClientTest {
         private val maxObjectsInGet: Int,
         private val failAt: Int? = null,
         private val anchorNotFoundAt: Int? = null,
+        /**
+         * Whether that `anchorNotFound` also SHORTENS the folder.
+         *
+         * True is the ordinary case: the anchor was destroyed, so everything past it shifted down
+         * by one and the recovery at `count - 1` lands exactly on the message that followed it.
+         *
+         * False is the case the recovery's deliberate under-shoot exists for: the anchor left the
+         * QUERY while a message arriving at the top kept the list the same length, so `count - 1`
+         * lands on a row the previous page already walked. The walk must then OVERLAP — which is
+         * free only because it de-duplicates.
+         */
+        private val anchorNotFoundShortensTheFolder: Boolean = true,
         /** Ids the query lists but the get does NOT return (destroyed between the two calls). */
         private val omittedByGet: Set<String> = emptySet(),
     ) : Dispatcher() {
@@ -1267,7 +1280,7 @@ class JmapClientTest {
             val anchor = args["anchor"]?.jsonPrimitive?.content
             val start = if (anchor != null) {
                 if (anchorNotFoundAt == n) {
-                    all.remove(anchor)
+                    if (anchorNotFoundShortensTheFolder) all.remove(anchor)
                     return methodError("anchorNotFound")
                 }
                 val at = all.indexOf(anchor)
@@ -1306,17 +1319,37 @@ class JmapClientTest {
     private fun FolderDispatcher.anchors(): List<String?> =
         queries.map { it["anchor"]?.jsonPrimitive?.content }
 
+    /**
+     * What a walk handed off, page by page, and WHEN — [requestsAtHandOff] is how many requests
+     * had gone out at the instant each page arrived.
+     *
+     * The instant is the half that cannot be got any other way: a walk that accumulated everything
+     * and called back once per page at the very end would produce the same [pages], and only "page
+     * 1 arrived while exactly one request had been sent" tells the two apart.
+     */
+    private class Handed {
+        val pages = mutableListOf<List<String>>()
+        val requestsAtHandOff = mutableListOf<Int>()
+        val ids: List<String> get() = pages.flatten()
+    }
+
+    private fun collect(into: Handed): suspend (List<Email>) -> Unit = { page ->
+        into.pages += page.map { it.id }
+        into.requestsAtHandOff += server.requestCount
+    }
+
     @Test fun queryEmailsWindow_splitsAWindowBiggerThanTheServerPageIntoTwoRequests() = runBlocking {
         // ⭐ The lot's central case: 700 messages, a server admitting 500 per get, the "All"
-        // window (1000). Two requests, and ONE page handed back — the caller reconciles the
-        // mailbox with what it returns, so a page per request would delete the folder down to
-        // the last one.
+        // window (1000). Two requests, and every message handed over exactly once — the caller
+        // reconciles the mailbox against the ids of the WHOLE walk, so a walk that forgot the
+        // first request's ids would delete the folder down to the last page.
         val dispatcher = FolderDispatcher(folderSize = 700, maxObjectsInGet = 500)
         server.dispatcher = dispatcher
+        val handed = Handed()
 
-        val page = client.queryEmailsWindow(
+        val walk = client.queryEmailsWindow(
             sessionAdvertisingGet(500), "acc1", "mbInbox",
-            target = 1000, pageSize = 500, auth = BasicAuth("u", "p"),
+            target = 1000, pageSize = 500, auth = BasicAuth("u", "p"), onPage = collect(handed),
         )
 
         assertEquals(2, server.requestCount)
@@ -1324,11 +1357,34 @@ class JmapClientTest {
         // Anchored on the previous page's last id, never on an absolute position: mail landing
         // at the top between the two requests would otherwise skip or duplicate a page.
         assertEquals(listOf(null, "e500"), dispatcher.anchors())
-        assertEquals(700, page.emails.size)
-        assertEquals((1..700).map { "e$it" }, page.emails.map { it.id })
+        assertEquals(700, walk.ids.size)
+        assertEquals((1..700).map { "e$it" }, walk.ids)
+        assertEquals((1..700).map { "e$it" }, handed.ids)
         // The FIRST response's cursors: a queryState only describes the query it came from.
-        assertEquals("q1", page.queryState)
-        assertEquals("e1", page.emailState)
+        assertEquals("q1", walk.queryState)
+        assertEquals("e1", walk.emailState)
+    }
+
+    @Test fun queryEmailsWindow_handsEachPageOffAsItLandsAndRetainsNoMessages() = runBlocking {
+        // ⭐ The shape this volet is FOR. The walk used to hold every `Email` of the window until
+        // the last request came back, because its caller wrote them all at once; twenty fields
+        // and eight collections per message is what made "All" a heap problem. It now hands each
+        // page over as it lands and keeps one string per message.
+        val dispatcher = FolderDispatcher(folderSize = 700, maxObjectsInGet = 500)
+        server.dispatcher = dispatcher
+        val handed = Handed()
+
+        val walk = client.queryEmailsWindow(
+            sessionAdvertisingGet(500), "acc1", "mbInbox",
+            target = 1000, pageSize = 500, auth = BasicAuth("u", "p"), onPage = collect(handed),
+        )
+
+        assertEquals("one hand-off per network page", listOf(500, 200), handed.pages.map { it.size })
+        // The load-bearing assertion: page 1 was handed over while only ONE request had been
+        // sent, i.e. BEFORE the walk knew what page 2 held. Accumulating and calling back at the
+        // end would read [2, 2] here and pass every other assertion in this test.
+        assertEquals(listOf(1, 2), handed.requestsAtHandOff)
+        assertEquals(700, walk.ids.size)
     }
 
     @Test fun queryEmailsWindow_asksTheSecondRequestOnlyForWhatTheWindowStillWants() = runBlocking {
@@ -1336,28 +1392,32 @@ class JmapClientTest {
         // not another 500 — the window is a promise about how much to keep, not a floor.
         val dispatcher = FolderDispatcher(folderSize = 5000, maxObjectsInGet = 500)
         server.dispatcher = dispatcher
+        val handed = Handed()
 
-        val page = client.queryEmailsWindow(
+        val walk = client.queryEmailsWindow(
             sessionAdvertisingGet(500), "acc1", "mbInbox",
-            target = 700, pageSize = 500, auth = BasicAuth("u", "p"),
+            target = 700, pageSize = 500, auth = BasicAuth("u", "p"), onPage = collect(handed),
         )
 
         assertEquals(listOf(500, 200), dispatcher.limits())
-        assertEquals(700, page.emails.size)
+        assertEquals(700, walk.ids.size)
+        assertEquals(700, handed.ids.size)
     }
 
     @Test fun queryEmailsWindow_isASingleRequestWhenTheWindowFitsInOnePage() = runBlocking {
         val dispatcher = FolderDispatcher(folderSize = 5000, maxObjectsInGet = 500)
         server.dispatcher = dispatcher
+        val handed = Handed()
 
-        val page = client.queryEmailsWindow(
+        val walk = client.queryEmailsWindow(
             sessionAdvertisingGet(500), "acc1", "mbInbox",
-            target = 50, pageSize = 50, auth = BasicAuth("u", "p"),
+            target = 50, pageSize = 50, auth = BasicAuth("u", "p"), onPage = collect(handed),
         )
 
         assertEquals(1, server.requestCount)
         assertEquals(listOf(50), dispatcher.limits())
-        assertEquals(50, page.emails.size)
+        assertEquals(50, walk.ids.size)
+        assertEquals(listOf(50), handed.pages.map { it.size })
     }
 
     @Test fun queryEmailsWindow_stopsWhenTheFolderIsSmallerThanTheWindow() = runBlocking {
@@ -1365,14 +1425,64 @@ class JmapClientTest {
         // for ever after.
         val dispatcher = FolderDispatcher(folderSize = 300, maxObjectsInGet = 500)
         server.dispatcher = dispatcher
+        val handed = Handed()
 
-        val page = client.queryEmailsWindow(
+        val walk = client.queryEmailsWindow(
             sessionAdvertisingGet(500), "acc1", "mbInbox",
-            target = 1000, pageSize = 500, auth = BasicAuth("u", "p"),
+            target = 1000, pageSize = 500, auth = BasicAuth("u", "p"), onPage = collect(handed),
         )
 
         assertEquals(1, server.requestCount)
-        assertEquals(300, page.emails.size)
+        assertEquals(300, walk.ids.size)
+        assertEquals(300, handed.ids.size)
+    }
+
+    @Test fun queryEmailsWindow_stopsOnTheFolderWhenTheWindowIsUnbounded() = runBlocking {
+        // ⭐ The same folder under a window bigger than itself. `Int.MAX_VALUE` is the extreme case
+        // of that, kept as the OVERFLOW GUARD on `minOf(target - fetched, pageSize)`; no shipped
+        // window carries it any more (the largest is 10 000 — `core:data`, `SyncWindowScaleTest`),
+        // and `core:jmap` cannot depend on that module to say so.
+        //
+        // What the wire has to show: the FOLDER ends the walk, not the window. One request, 300
+        // ids, and no second round trip per refresh for ever after.
+        val dispatcher = FolderDispatcher(folderSize = 300, maxObjectsInGet = 500)
+        server.dispatcher = dispatcher
+        val handed = Handed()
+
+        val walk = client.queryEmailsWindow(
+            sessionAdvertisingGet(500), "acc1", "mbInbox",
+            target = Int.MAX_VALUE, pageSize = 500, auth = BasicAuth("u", "p"), onPage = collect(handed),
+        )
+
+        assertEquals(1, server.requestCount)
+        assertEquals(listOf(500), dispatcher.limits())
+        assertEquals(300, walk.ids.size)
+        assertEquals(300, handed.ids.size)
+    }
+
+    @Test fun queryEmailsWindow_walksAWholeFolderWhenTheWindowIsUnbounded() = runBlocking {
+        // 1 200 messages past the cap this lot removed, on a server admitting 500 per get: three
+        // requests, every id handed over exactly once, and every request asking for a full page
+        // (`minOf(target - fetched, pageSize)` with target = Int.MAX_VALUE — the subtraction that
+        // must not overflow). The caller reconciles the folder against the ids of the WHOLE walk,
+        // so a walk that stopped at 1 000 here would DELETE the other 200 from the cache.
+        val dispatcher = FolderDispatcher(folderSize = 1200, maxObjectsInGet = 500)
+        server.dispatcher = dispatcher
+        val handed = Handed()
+
+        val walk = client.queryEmailsWindow(
+            sessionAdvertisingGet(500), "acc1", "mbInbox",
+            target = Int.MAX_VALUE, pageSize = 500, auth = BasicAuth("u", "p"), onPage = collect(handed),
+        )
+
+        assertEquals(3, server.requestCount)
+        assertEquals(listOf(500, 500, 500), dispatcher.limits())
+        assertEquals(listOf(null, "e500", "e1000"), dispatcher.anchors())
+        assertEquals((1..1200).map { "e$it" }, walk.ids)
+        assertEquals((1..1200).map { "e$it" }, handed.ids)
+        assertEquals("one hand-off per network page", listOf(500, 500, 200), handed.pages.map { it.size })
+        // The first response's cursors, as ever — a queryState describes the query it came from.
+        assertEquals("q1", walk.queryState)
     }
 
     @Test fun queryEmailsWindow_paginatesEvenWhenTheServerAdvertisesNothing() = runBlocking {
@@ -1380,14 +1490,16 @@ class JmapClientTest {
         // quietly shrink every window on such a server to 100 messages.
         val dispatcher = FolderDispatcher(folderSize = 5000, maxObjectsInGet = 100)
         server.dispatcher = dispatcher
+        val handed = Handed()
 
-        val page = client.queryEmailsWindow(
+        val walk = client.queryEmailsWindow(
             sessionAdvertisingGet(null), "acc1", "mbInbox",
-            target = 500, pageSize = 100, auth = BasicAuth("u", "p"),
+            target = 500, pageSize = 100, auth = BasicAuth("u", "p"), onPage = collect(handed),
         )
 
         assertEquals(5, server.requestCount)
-        assertEquals(500, page.emails.size)
+        assertEquals(500, walk.ids.size)
+        assertEquals(listOf(1, 2, 3, 4, 5), handed.requestsAtHandOff)
     }
 
     @Test fun queryEmailsWindow_keepsWalkingWhenTheGetReturnedFewerObjectsThanTheQueryListed() = runBlocking {
@@ -1396,37 +1508,51 @@ class JmapClientTest {
         // abandon the remaining 200 messages of the window, on every refresh.
         val dispatcher = FolderDispatcher(folderSize = 700, maxObjectsInGet = 500, omittedByGet = setOf("e250"))
         server.dispatcher = dispatcher
+        val handed = Handed()
 
-        val page = client.queryEmailsWindow(
+        val walk = client.queryEmailsWindow(
             sessionAdvertisingGet(500), "acc1", "mbInbox",
-            target = 1000, pageSize = 500, auth = BasicAuth("u", "p"),
+            target = 1000, pageSize = 500, auth = BasicAuth("u", "p"), onPage = collect(handed),
         )
 
         assertEquals(2, server.requestCount)
-        assertEquals(699, page.emails.size)
-        assertEquals("e700", page.emails.last().id)
+        assertEquals(699, walk.ids.size)
+        assertEquals("e700", walk.ids.last())
+        assertEquals(699, handed.ids.size)
     }
 
-    @Test fun queryEmailsWindow_throwsRatherThanHandingBackTheHalfItFetched() {
-        // ⛔ THE dangerous one: the caller reconciles the mailbox with what comes back, deleting
-        // whatever is missing from it. Half a window would be read as "the folder holds these
-        // 500" and delete the other 200; an empty one would erase the folder outright.
+    @Test fun queryEmailsWindow_throwsRatherThanFinishingTheWalkItCouldNotFinish() {
+        // ⛔ THE dangerous one, and the reason its name changed with this volet. It used to be
+        // "never hand back the half it fetched": the caller reconciled the mailbox with the
+        // return value, so half a window would have been read as "the folder holds these 500" and
+        // deleted the other 200.
+        //
+        // The pages are now written as they land, so the half IS in the cache — and the guard
+        // moved with it: the failure propagates UNCAUGHT, so the walk never returns, so the
+        // caller never reaches its reconcile and nothing is deleted (the write-through order is
+        // `MailRepository`'s `fullQueryWriteThrough`, executed by `FullQueryWriteThroughTest`).
+        // What this test still pins is the propagation, which is what the whole arrangement rests
+        // on: a `catch` added here that returned the accumulated ids would put the deletion back.
         val dispatcher = FolderDispatcher(folderSize = 700, maxObjectsInGet = 500, failAt = 2)
         server.dispatcher = dispatcher
+        val handed = Handed()
         try {
             runBlocking {
                 client.queryEmailsWindow(
                     sessionAdvertisingGet(500), "acc1", "mbInbox",
-                    target = 1000, pageSize = 500, auth = BasicAuth("u", "p"),
+                    target = 1000, pageSize = 500, auth = BasicAuth("u", "p"), onPage = collect(handed),
                 )
             }
-            throw AssertionError("expected JmapException — a partial window deletes mail")
+            throw AssertionError("expected JmapException — a walk that swallows a failure deletes mail")
         } catch (e: JmapException) {
             // queryEmailsPage reports the status in the message, not in httpCode (only postJmap
             // fills that in); what matters here is that the failure came out at all.
             assertTrue(e.message.orEmpty().contains("HTTP 500"))
         }
         assertEquals(2, server.requestCount)
+        // The first page WAS handed over and has been written; that is the new contract, and the
+        // reason nothing may delete on this path.
+        assertEquals(listOf(500), handed.pages.map { it.size })
     }
 
     @Test fun queryEmailsWindow_fallsBackToAPositionWhenTheAnchorHasGone() = runBlocking {
@@ -1438,23 +1564,55 @@ class JmapClientTest {
         // has lost a row, so every index past the anchor has shifted DOWN by one: asking at the
         // count we had accumulated lands on the message AFTER the one that followed the anchor,
         // and that skipped message is not just missed — the caller reconciles the mailbox with
-        // what comes back, so it is DELETED from the cache while the server still has it, and no
-        // later delta brings it back. Overlapping instead is free: the accumulation de-duplicates.
+        // the ids that come back, so it is DELETED from the cache while the server still has it,
+        // and no later delta brings it back. Overlapping instead is free: the walk de-duplicates.
         val dispatcher = FolderDispatcher(folderSize = 700, maxObjectsInGet = 500, anchorNotFoundAt = 2)
         server.dispatcher = dispatcher
+        val handed = Handed()
 
-        val page = client.queryEmailsWindow(
+        val walk = client.queryEmailsWindow(
             sessionAdvertisingGet(500), "acc1", "mbInbox",
-            target = 1000, pageSize = 500, auth = BasicAuth("u", "p"),
+            target = 1000, pageSize = 500, auth = BasicAuth("u", "p"), onPage = collect(handed),
         )
 
         assertEquals(3, server.requestCount)
         assertEquals(listOf(null, "e500", null), dispatcher.anchors())
         // 499, not 500: e500 (the anchor) is gone from the server's list, so e501 now sits at 499.
         assertEquals(499, dispatcher.queries[2]["position"]!!.jsonPrimitive.int)
-        // The message that followed the vanished anchor is IN the page, not deleted from the cache.
-        assertTrue("e501 was skipped by the recovery", page.emails.any { it.id == "e501" })
-        assertEquals(700, page.emails.size)
+        // The message that followed the vanished anchor came through, and was not deleted.
+        assertTrue("e501 was skipped by the recovery", "e501" in walk.ids)
+        assertEquals(700, walk.ids.size)
+    }
+
+    @Test fun queryEmailsWindow_handsTheOverlapOfARecoveryPageOverOnlyOnce() = runBlocking {
+        // The recovery restarts one position BEHIND on purpose, and when the folder did not
+        // actually shrink under it, that lands on a row the previous page already carried. The
+        // walk must hand that repeat over ONCE:
+        //  - twice written is only wasteful, but
+        //  - twice COUNTED means the walk stops one message short of the window on every refresh,
+        //    and the reconcile then deletes that message from the cache — the loss the
+        //    under-shoot was chosen to avoid, reintroduced by the accounting.
+        val dispatcher = FolderDispatcher(
+            folderSize = 700, maxObjectsInGet = 500,
+            anchorNotFoundAt = 2, anchorNotFoundShortensTheFolder = false,
+        )
+        server.dispatcher = dispatcher
+        val handed = Handed()
+
+        val walk = client.queryEmailsWindow(
+            sessionAdvertisingGet(500), "acc1", "mbInbox",
+            target = 1000, pageSize = 500, auth = BasicAuth("u", "p"), onPage = collect(handed),
+        )
+
+        // The recovery really did overlap, or this test proves nothing: it asked from position
+        // 499 of a folder still 700 long, so its 201 ids start at e500 — which page 1 ended on.
+        assertEquals(3, server.requestCount)
+        assertEquals(499, dispatcher.queries[2]["position"]!!.jsonPrimitive.int)
+        assertEquals(listOf(500, 200), handed.pages.map { it.size })
+        assertEquals("a message was handed over twice", handed.ids.distinct().size, handed.ids.size)
+        assertEquals("the ids the walk kept are not the ones it handed over", walk.ids, handed.ids)
+        assertEquals("the repeat was counted against the window", 700, walk.ids.size)
+        assertEquals((1..700).map { "e$it" }, walk.ids)
     }
 
     private companion object {

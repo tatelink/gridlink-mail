@@ -463,6 +463,9 @@
     <string name="settings_sync_50_messages">50 mensagens</string>
     <string name="settings_sync_200_messages">200 mensagens</string>
     <string name="settings_sync_500_messages">500 mensagens</string>
+    <string name="settings_sync_100_messages">100 mensagens</string>
+    <string name="settings_sync_1000_messages">1000 mensagens</string>
+    <string name="settings_sync_10000_messages">10 000 mensagens</string>
     <string name="settings_sync_everything">Tudo</string>
     <string name="settings_storage_section">Armazenamento</string>
     <string name="settings_cached_messages">Mensagens em cache</string>
@@ -510,6 +513,7 @@
     <string name="compose_pgp_snack_encrypt">Criptografado e assinado: só o destinatário poderá ler.</string>
     <string name="settings_saved">Salvo</string>
     <string name="settings_save">Salvar</string>
+    <string name="settings_save_scope">O botão «Salvar» grava o nome da conta, as configurações do servidor, as credenciais e as identidades. As outras configurações desta tela são salvas assim que você as altera.</string>
     <string name="settings_sign_out">Sair</string>
     <string name="settings_security_tls">SSL/TLS</string>
     <string name="settings_security_starttls">STARTTLS</string>

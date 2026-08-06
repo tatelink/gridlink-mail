@@ -250,23 +250,40 @@ class JmapClient internal constructor(
 
     /**
      * The newest [target] messages of a mailbox, in as many requests as the server's per-request
-     * object limit ([pageSize]) needs, handed back as ONE accumulated page.
+     * object limit ([pageSize]) needs, handed to [onPage] ONE REQUEST AT A TIME.
+     *
+     * Nothing outlives the loop iteration that decoded it: the peak is ONE server page of messages,
+     * not the window. Not "zero" — a page has to exist to be handed over — but the difference
+     * between O(page) and O(window) is the whole point, and it is what a window bigger than a heap
+     * needs.
      *
      * ⛔ Why this exists at all: [queryEmailsPage] sends `Email/query` and a back-referenced
      * `Email/get` in ONE request, so the get's id list is produced by the server and the query's
      * `limit` is the only lever on it. Past `maxObjectsInGet` the server rejects the whole get
-     * (RFC 8620 §5.1) and the call throws — which is exactly what "Messages to sync = All" (1000)
-     * did on a Stalwart advertising 500: the folder's full-query fallback failed, so no sync
+     * (RFC 8620 §5.1) and the call throws — which is exactly what "Messages to sync = All" (a
+     * window of 1000 at the time; the largest one offers 10 000 today) did on a Stalwart
+     * advertising 500: the folder's full-query fallback failed, so no sync
      * cursor was ever stored, so the next refresh took the same fallback again. A closed loop; the
      * folder never synced again.
      *
-     * ⛔ It returns ONE page for the whole window, not a page per request, because its caller
-     * reconciles the mailbox with `replaceMailbox`, which DELETES what is not in the list it is
-     * given. One write per network page would empty the folder down to the last page every time.
+     * ⛔ Why it streams rather than accumulating: it used to hand back ONE page holding every
+     * message of the window, because its caller then reconciled the mailbox in ONE
+     * `replaceMailbox`, which DELETES what it is not given — a write per network page would have
+     * emptied the folder down to the last page every time. That coupling is what capped the window
+     * at what a phone can hold. It is broken by moving the DELETE, not by moving the write: the
+     * caller now writes each page as it lands and reconciles ONCE at the end against
+     * [WindowWalk.ids] (`MailRepository.syncMailbox` → `fullQueryWriteThrough`). What this walk
+     * keeps to the end is therefore ids, not messages.
      *
-     * ⛔ And it never swallows a failure to hand back what it managed to fetch: a partial page
-     * would be reconciled as "these are the folder's contents" and delete the rest. Any failure
-     * propagates, exactly as the single-request version did.
+     * ⛔ The safety that used to live in "never hand back a partial page" now lives in the
+     * caller's control flow, and it must stay there: a failure mid-walk propagates from here
+     * UNCAUGHT, so the reconcile is never reached and nothing is deleted. Pages already handed to
+     * [onPage] have been written, and stay written. The worst case is a cache holding MORE than
+     * the window, never a cache that lost mail. ⛔ Do not add a `catch` here that returns what was
+     * fetched: that partial set would be reconciled as "these are the folder's contents".
+     *
+     * [onPage] receives ONLY the messages new to this walk — see the de-duplication below — and
+     * its own failure propagates for the same reason.
      *
      * Paging is by ANCHOR on the previous page's last id (RFC 8620 §5.5), never by absolute
      * position: mail arriving at the top between two requests shifts every position and would
@@ -284,17 +301,27 @@ class JmapClient internal constructor(
         target: Int,
         pageSize: Int,
         auth: JmapAuth,
-    ): EmailPage = withContext(Dispatchers.IO) {
-        // Insertion-ordered and keyed by id: the walk's pages can overlap (a recovery page starts
-        // at a position the previous one already covered), and a duplicate would be written twice
-        // and counted twice against the window.
-        val accumulated = LinkedHashMap<String, Email>()
-        var first: EmailPage? = null
+        onPage: suspend (List<Email>) -> Unit,
+    ): WindowWalk = withContext(Dispatchers.IO) {
+        // Ids in walk order, plus the set that de-duplicates them: the walk's pages can overlap (a
+        // recovery page starts at a position the previous one already covered), and a duplicate
+        // would be written twice and counted twice against the window. Ids and not messages —
+        // that difference is this function's reason to look like this.
+        val ids = ArrayList<String>()
+        val seen = HashSet<String>()
+        // The first response's two cursor STRINGS, not the first response. Keeping the page itself
+        // to read two strings off it at the end pinned up to `pageSize` decoded messages — 500 on
+        // Stalwart — alive for the whole walk, which is the very thing this function was rewritten
+        // to stop doing. `sawFirst` and not a null check on the strings: the first response is
+        // allowed to carry no cursors, and a later one must not then be promoted into its place.
+        var sawFirst = false
+        var firstQueryState: String? = null
+        var firstEmailState: String? = null
         var seenIds = 0
         var limit = nextWindowPageLimit(fetched = 0, target = target, pageSize = pageSize, last = null)
         while (limit != null) {
-            // The oldest message accumulated so far, i.e. where the previous request stopped.
-            val anchor = accumulated.values.lastOrNull()?.id
+            // The oldest id accumulated so far, i.e. where the previous request stopped.
+            val anchor = ids.lastOrNull()
             val page = try {
                 queryEmailsPage(
                     session, accountId, mailboxId, limit, auth,
@@ -321,31 +348,40 @@ class JmapClient internal constructor(
                 if (anchor == null || e.errorType != "anchorNotFound") throw e
                 queryEmailsPage(
                     session, accountId, mailboxId, limit, auth,
-                    position = (accumulated.size - 1).coerceAtLeast(0),
+                    position = (ids.size - 1).coerceAtLeast(0),
                 )
             }
-            if (first == null) first = page
-            val before = accumulated.size
-            page.emails.forEach { accumulated.putIfAbsent(it.id, it) }
+            if (!sawFirst) {
+                sawFirst = true
+                firstQueryState = page.queryState
+                firstEmailState = page.emailState
+            }
+            // `seen.add` is the de-duplication the accumulation used to get from `putIfAbsent`,
+            // and it has to happen HERE, before the hand-off: a message the recovery page repeats
+            // must not be written twice, and must not count twice against the window.
+            val fresh = page.emails.filter { seen.add(it.id) }
+            fresh.forEach { ids += it.id }
+            // Handed off NOW, while the next request has not been sent: this is the line that
+            // turns a window into a stream. Its failure propagates (see the KDoc).
+            if (fresh.isNotEmpty()) onPage(fresh)
             seenIds += page.queryCount
             limit = nextWindowPageLimit(
-                fetched = accumulated.size,
+                fetched = ids.size,
                 target = target,
                 pageSize = pageSize,
                 last = WalkedPage(
                     requested = limit,
                     queryCount = page.queryCount,
-                    added = accumulated.size - before,
+                    added = fresh.size,
                 ),
             )
         }
-        EmailPage(
-            emails = accumulated.values.toList(),
-            queryState = first?.queryState,
-            emailState = first?.emailState,
-            total = first?.total,
+        WindowWalk(
+            ids = ids,
+            queryState = firstQueryState,
+            emailState = firstEmailState,
             // Every id the walk's queries listed, so a caller can still tell a short GET from an
-            // exhausted folder. Not a single query's count — this page is not a single query.
+            // exhausted folder. Not a single query's count — this walk is not a single query.
             queryCount = seenIds,
         )
     }

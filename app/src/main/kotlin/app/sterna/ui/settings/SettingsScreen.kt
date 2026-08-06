@@ -123,6 +123,7 @@ import app.sterna.core.data.account.ConnectionSecurity
 import app.sterna.core.data.account.MailProtocol
 import app.sterna.core.data.account.StoredIdentity
 import app.sterna.core.data.account.SyncWindow
+import app.sterna.core.data.account.syncWindowChoices
 import app.sterna.core.data.filter.VacationFilterLine
 import app.sterna.core.data.filter.vacationFilterLine
 import app.sterna.core.data.settings.ListDensity
@@ -1161,14 +1162,26 @@ private fun StorageStatRow(label: String, value: String) {
     }
 }
 
+/**
+ * Every window has a label, including the ones the picker no longer offers: an account can still
+ * CARRY a retired window (nothing migrates it), and the row has to say which one.
+ */
 private fun syncWindowLabel(context: Context, window: SyncWindow): String = when (window) {
     SyncWindow.DAYS_30 -> context.getString(R.string.settings_sync_last_30_days)
     SyncWindow.DAYS_90 -> context.getString(R.string.settings_sync_last_90_days)
     SyncWindow.YEAR_1 -> context.getString(R.string.settings_sync_last_year)
+    SyncWindow.COUNT_100 -> context.getString(R.string.settings_sync_100_messages)
+    SyncWindow.COUNT_1000 -> context.getString(R.string.settings_sync_1000_messages)
+    SyncWindow.COUNT_10000 -> context.getString(R.string.settings_sync_10000_messages)
     SyncWindow.COUNT_50 -> context.getString(R.string.settings_sync_50_messages)
     SyncWindow.COUNT_200 -> context.getString(R.string.settings_sync_200_messages)
     SyncWindow.COUNT_500 -> context.getString(R.string.settings_sync_500_messages)
-    SyncWindow.ALL -> context.getString(R.string.settings_sync_everything)
+    // ⛔ WYSIWYG: "Everything" now caches 10 000 messages and no more, so it is shown as such.
+    // Between lowering the label and raising the code, the label goes down (CLAUDE.md's grid,
+    // rule 3) — otherwise an account left on this window promises a whole mailbox offline while
+    // the cache holds ten thousand. The member and the string are both untouched; only the arm
+    // moved. `settings_sync_everything` stays shipped and translated (SyncEverythingLabelTest).
+    SyncWindow.ALL -> context.getString(R.string.settings_sync_10000_messages)
 }
 
 /** Human-readable byte size (B / KB / MB / GB). */
@@ -1977,10 +1990,15 @@ private fun AccountDetailScreen(
             SettingsSection(stringResource(R.string.settings_sync_section)) {
                 SettingChoiceRow(
                     title = stringResource(R.string.settings_messages_to_sync_title),
-                    options = listOf(
-                        SyncWindow.DAYS_30, SyncWindow.DAYS_90, SyncWindow.YEAR_1,
-                        SyncWindow.COUNT_50, SyncWindow.COUNT_200, SyncWindow.COUNT_500, SyncWindow.ALL,
-                    ),
+                    // ⛔ The list comes from `syncWindowChoices()` and is not written out here: the
+                    // retired windows (50 / 200 / 500 / "Everything") still exist and still decode,
+                    // and a list spelled out on this screen is how one of them gets offered again.
+                    options = syncWindowChoices(),
+                    // ⛔ The window the account CARRIES, never one picked out of the offer. A
+                    // retired window is not in `options`, so the dialog shows no ticked circle for
+                    // it — that is the accepted cost. Substituting the nearest offered value here
+                    // would make the row state a number the cache does not hold, permanently and
+                    // without writing anything.
                     selected = syncWindow,
                     optionLabel = { syncWindowLabel(context, it) },
                     onSelect = {
@@ -2049,6 +2067,19 @@ private fun AccountDetailScreen(
                         modifier = Modifier.padding(vertical = 4.dp),
                     )
                 }
+                // Say out loud what this button owns. Four sections above (colour, notifications,
+                // sync window, PGP) write on tap and leave it nothing to do, so it stays grey after
+                // them — correct, but on a screen carrying a Save button a grey button reads as a
+                // refusal, and until now nothing said otherwise. Above the button, not below it:
+                // the gap down to "Sign out" is the same 8 dp and the sentence would read as
+                // qualifying the sign-out. No modifier — the enclosing Column gives the side
+                // padding and the spacing; bodySmall/onSurfaceVariant so a permanent caption does
+                // not shout over the conditional "Unsaved changes" cue just above.
+                Text(
+                    stringResource(R.string.settings_save_scope),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 // Live only when there is something to write: a Save that is offered while the form
                 // is untouched promises an effect it cannot have (#34). [dirty] is set by every
                 // field this button persists, so the button lights up on the first keystroke and

@@ -7,8 +7,8 @@ package app.sterna.core.data.mail
  * [deltaEvictions]: no Room, no context, so it really runs in the JVM.
  *
  * One `IN (...)` list must stay under SQLite's bound-variable limit — 999 below Android 12
- * (`minSdk` is 26), and a select-all of a full sync window (up to 1 000 rows per folder, more once
- * scrolling has written past it) exceeds it. The refusal surfaces as an exception thrown out of
+ * (`minSdk` is 26), and a select-all of a full sync window (a whole folder under the "Everything"
+ * window, and more still once scrolling has written past it) exceeds it. The refusal surfaces as an exception thrown out of
  * the read, OUTSIDE the `runCatching` the bulk paths wrap their server call in: the whole action
  * crashes instead of failing. The write paths have been chunked at [MAX_CHANGES] for that reason
  * since Codeberg #29; this is the same bound for the reads.
