@@ -499,6 +499,7 @@
     <string name="connect_auth_api_token">Token API</string>
     <string name="connect_api_token_hint">Wklej token API wygenerowany przez Twojego dostawcę (np. Fastmail) zamiast hasła. Pole serwera możesz zostawić puste lub wkleić adres URL jego sesji.</string>
     <string name="connect_token_rejected">Serwer odrzucił token API. Sprawdź, czy jest ważny i zezwala na dostęp do poczty.</string>
+    <string name="connect_credentials_rejected">Serwer odrzucił to konto i hasło. Sprawdź oba, oraz czy serwer wymaga zamiast tego hasła do aplikacji.</string>
     <string name="connect_fastmail_token_hint">Fastmail wymaga tokena API — wybierz powyżej „Token API”.</string>
     <string name="connect_advanced_show">Ustawienia zaawansowane</string>
     <string name="connect_advanced_hide">Ukryj ustawienia zaawansowane</string>

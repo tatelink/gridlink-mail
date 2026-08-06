@@ -695,10 +695,22 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
             // Fastmail's endpoint refuses password auth outright (API tokens only, #54):
             // a 401 from it gets the same steer as the inline hint, not just a bare error.
             val msg = t.message ?: t.javaClass.simpleName
-            val fastmail401 = (t as? JmapException)?.httpCode == 401 && isFastmailTarget(username, server)
-            _state.value = ConnectState.Error(
-                if (fastmail401) msg + " " + string(R.string.connect_fastmail_token_hint) else msg,
-            )
+            val code = (t as? JmapException)?.httpCode
+            if (code == 401 && isFastmailTarget(username, server)) {
+                _state.value = ConnectState.Error(msg + " " + string(R.string.connect_fastmail_token_hint))
+                return
+            }
+            // Any other 401/403 means the server was reached, spoke JMAP, and turned the
+            // credentials down. Left raw that reads "Session request failed: HTTP 401", which
+            // names the transport and hides the one thing the user can act on. It is deliberately
+            // vague about WHICH of the two fields is wrong, because the server does not say, and
+            // guessing "wrong password" sends someone re-typing a password when the account name
+            // is the part their server wants in a different form.
+            if (code == 401 || code == 403) {
+                _state.value = ConnectState.Error(string(R.string.connect_credentials_rejected))
+                return
+            }
+            _state.value = ConnectState.Error(msg)
         }
     }
 

@@ -499,6 +499,7 @@
     <string name="connect_auth_api_token">Токен API</string>
     <string name="connect_api_token_hint">Вставьте токен API, созданный вашим провайдером (например, Fastmail), вместо пароля. Поле сервера можно оставить пустым или вставить URL его сессии.</string>
     <string name="connect_token_rejected">Сервер отклонил токен API. Проверьте, что он действителен и разрешает доступ к почте.</string>
+    <string name="connect_credentials_rejected">Сервер отклонил эту учётную запись и пароль. Проверьте оба, а также не требует ли ваш сервер пароль приложения.</string>
     <string name="connect_fastmail_token_hint">Fastmail требует токен API — выберите выше «Токен API».</string>
     <string name="connect_advanced_show">Дополнительные настройки</string>
     <string name="connect_advanced_hide">Скрыть дополнительные настройки</string>
