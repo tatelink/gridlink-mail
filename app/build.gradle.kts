@@ -47,9 +47,22 @@ android {
     // background layer (the tern silhouette and monochrome layer are untouched). Registered on
     // the build-type source sets only under -PtestApp — build-type resources win over main —
     // so the production build never sees src/testApp/res at all.
+    // Test-only sources: src/testApp/kotlin (bench entry points driven over adb) and the
+    // manifest that declares them. Registered on the build-type source sets INSIDE this gate
+    // only: without -PtestApp neither directory is part of any variant, so the production
+    // build compiles no extra class and its merged manifest gains no component — which is what
+    // keeps F-Droid's rebuild byte-identical. Never move these lines out of the gate.
+    // ⚠ Second failure mode, latent: manifest.srcFile REPLACES the build type's manifest, it does
+    // not merge with it. There is no src/debug/AndroidManifest.xml today, so nothing is lost; the
+    // day someone adds one, every -PtestApp build would drop it without a word. Whoever adds it
+    // must merge the two by hand (or move the bench receiver's declaration into it).
     if (testApp) {
         sourceSets.getByName("debug").res.srcDir("src/testApp/res")
         sourceSets.getByName("release").res.srcDir("src/testApp/res")
+        sourceSets.getByName("debug").kotlin.srcDir("src/testApp/kotlin")
+        sourceSets.getByName("release").kotlin.srcDir("src/testApp/kotlin")
+        sourceSets.getByName("debug").manifest.srcFile("src/testApp/AndroidManifest.xml")
+        sourceSets.getByName("release").manifest.srcFile("src/testApp/AndroidManifest.xml")
     }
 
     // Reproducible builds: the compiled ART baseline profile (assets/dexopt/baseline.prof)
