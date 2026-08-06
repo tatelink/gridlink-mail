@@ -50,14 +50,28 @@ fun GridlinkFolderMailScreen(
     onOpenMessage: (GridlinkMessage) -> Unit,
     modifier: Modifier = Modifier,
     embedded: Boolean = false,
+    /**
+     * The real mail in this mailbox, or null to draw [GridlinkSampleFolders]'.
+     *
+     * 🔴 Null is "nobody is supplying mail", never "this folder is empty" — [GridlinkMailContent]'s
+     * rule, and the one that keeps the gallery drawing a full folder with no account behind it.
+     */
+    mail: GridlinkOpenFolder? = null,
 ) {
     val chrome = LocalGridlinkChrome.current
     val scope = rememberCoroutineScope()
 
+    // 🔴 Mail whose id does not match this folder is not this folder's mail. The query behind it is
+    // re-pointed when a different mailbox is tapped, and the flow can still be carrying the previous
+    // folder's rows for a frame; painting them under this title would be indistinguishable from the
+    // truth. Treated as not-yet-arrived, which is what it is.
+    val current = mail?.takeIf { it.id == folder.id }
+    val loading = mail != null && (current == null || current.loading)
+
     // Keyed on the id rather than the folder, so renaming the open mailbox retitles the panel without
     // rebuilding the list under it. The name is a label; the id is what has contents.
-    val sections = remember(folder.id) {
-        GridlinkSampleFolders.messagesIn(folder.id)
+    val sections = remember(folder.id, current) {
+        (current?.messages ?: GridlinkSampleFolders.messagesIn(folder.id))
             .groupBy { it.gridlinkFolderSection() }
     }
 
@@ -71,6 +85,15 @@ fun GridlinkFolderMailScreen(
         // rest (mark all read, empty this folder) would each be a write this fork cannot make.
         bottom = null,
     ) {
+        // 🔴 Before the empty state, not after it. A mailbox other than the Inbox is routinely in
+        // the folder table with nothing cached, because nothing has ever fetched it; saying
+        // "Nothing in Sent" while that fetch is still out is the app asserting something it has not
+        // checked. See [GridlinkOpenFolder.loading].
+        if (loading) {
+            GridlinkListSkeleton()
+            return@GridlinkDetailFrame
+        }
+
         if (sections.isEmpty()) {
             GridlinkEmptyInbox(
                 sync = chrome.sync,

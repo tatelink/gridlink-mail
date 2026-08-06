@@ -480,6 +480,26 @@ fun GridlinkRoot(
      * happens here.
      */
     onOpenMail: (String) -> Unit = {},
+    /**
+     * The account's mailboxes, or null to draw [GridlinkSampleTree]'s. See [GridlinkFolderContent].
+     */
+    folders: GridlinkFolderContent? = null,
+    /**
+     * Create, rename or destroy a mailbox on the server.
+     *
+     * Defaults to a no-op for [onMailAction]'s reason. With the sample, the tree still rewrites
+     * itself locally and nothing leaves the device.
+     */
+    onFolderEdit: (GridlinkFolderEdit) -> Unit = {},
+    /**
+     * Which mailbox the user has open, by id, or null when the panel is closed.
+     *
+     * 🔴 A report, not a request. The scaffold owns [openFolderId] because folding destroys the
+     * activity and the id has to be saved; this is how whoever supplies [folders] learns which
+     * mailbox to point its window at. Called on the tap AND on the close, because a folder list left
+     * observing after the panel shut is a Room query and a folder fetch nobody is looking at.
+     */
+    onOpenFolder: (String?) -> Unit = {},
 ) {
     var destination by rememberSaveable(initialDestination) { mutableStateOf(initialDestination) }
     // Not `rememberSaveable`: a request holds contacts and attachments, which is a parcelable
@@ -631,8 +651,35 @@ fun GridlinkRoot(
      * A plain `remember`, unlike the ids: this is the whole tree and it is a demo edit buffer, so it
      * is the one thing here that legitimately does not survive the activity being destroyed. Nothing
      * writes back to [GridlinkSampleTree], so leaving the app restores the sample either way.
+     *
+     * 🔴 The SAMPLE's buffer only. When [folders] supplies real mailboxes they win outright and this
+     * is never read. There is deliberately no optimistic overlay on a real tree: an edit that fails
+     * would leave a renamed row, or a folder that does not exist, sitting in the tree with nothing to
+     * correct it, and a mail client that shows you a mailbox the server does not have is worse than
+     * one that takes half a second to catch up. `Mailbox/set` re-reads the folder list as part of the
+     * write, so the real tree redraws by itself the moment the server has answered.
      */
-    var folderTree by remember { mutableStateOf(GridlinkSampleTree.mailboxes) }
+    var sampleFolderTree by remember { mutableStateOf(GridlinkSampleTree.mailboxes) }
+    val folderTree = folders?.tree ?: sampleFolderTree
+
+    /**
+     * Which branch the folder tree opens on: the real inbox when there is one, else the sample's.
+     *
+     * Derived rather than remembered, so it fills in the frame the folder list arrives on. The
+     * screen turns it into state keyed on the SET, so once the id is known this stops changing and
+     * the user's own expansions are theirs from then on.
+     */
+    val folderInitiallyExpanded = if (folders == null) {
+        setOf("inbox")
+    } else {
+        setOfNotNull(folders.tree.firstOrNull { it.role == GridlinkFolderRole.INBOX }?.id)
+    }
+
+    // Tell whoever supplies [folders] which mailbox to read. ONE effect covering both directions,
+    // rather than a call beside each of the three places that write [openFolderId]: an id set in
+    // one place and cleared in two is exactly how a folder fetch gets left running behind a closed
+    // panel. Re-fires on a real change only, so re-opening the same folder does not re-fetch it.
+    LaunchedEffect(openFolderId) { onOpenFolder(openFolderId) }
 
     /**
      * The calendar and the address book, plus whatever was added this run.
@@ -937,6 +984,7 @@ fun GridlinkRoot(
 
                     is GridlinkDetail.Folder -> GridlinkFolderMailScreen(
                         folder = current.folder,
+                        mail = folders?.open,
                         onBack = { if (embedded) clearDetail(current) else closeDetail() },
                         // The third screen to make this hand-off, and the reason has not changed: reading
                         // mail means being on the tab that reads mail. ⚠️ It is the most tempting one to
@@ -1050,7 +1098,18 @@ fun GridlinkRoot(
                             destination = destination,
                             onSelectDestination = { destination = it },
                             tree = folderTree,
-                            onTreeChange = { folderTree = it },
+                            // 🔴 Dropped on the floor when a real account is behind the tree, and
+                            // that is the whole of the no-optimistic-overlay decision above. The
+                            // edit still happens: [onEdit] below is what performs it, and the tree
+                            // redraws from the server's own answer.
+                            onTreeChange = { if (folders == null) sampleFolderTree = it },
+                            onEdit = onFolderEdit,
+                            loading = folders?.loading == true,
+                            // The account's inbox, once there is one to name. The parameter's
+                            // default is the sample's literal "inbox" id, which no real server ever
+                            // uses, so without this a signed-in user opens the tab on a tree that is
+                            // entirely collapsed and has to expand the inbox by hand every time.
+                            initiallyExpanded = folderInitiallyExpanded,
                             onCompose = { composing = GridlinkComposeRequest.Fresh },
                             initialActionFolderId = initialFolderActionId,
                             initialStage = initialFolderStage,

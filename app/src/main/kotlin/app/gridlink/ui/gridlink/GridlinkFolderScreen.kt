@@ -124,7 +124,27 @@ fun GridlinkFolderScreen(
      */
     tree: List<GridlinkFolder>,
     onTreeChange: (List<GridlinkFolder>) -> Unit,
+    /**
+     * What the user just did to the mailboxes, as an instruction rather than as a result.
+     *
+     * 🔴 Reported ALONGSIDE [onTreeChange], not instead of it, and both fire for every edit. The
+     * rewritten tree is the optimistic redraw (the row renames under the finger, the new folder
+     * appears where it was typed); this is the half that reaches the server. See
+     * [GridlinkFolderEdit] on why a rewritten tree cannot be turned back into a `Mailbox/set`.
+     *
+     * Defaults to a no-op, so the gallery and every `@Preview` still edit a tree that goes nowhere,
+     * which is exactly what a sample should do.
+     */
+    onEdit: (GridlinkFolderEdit) -> Unit = {},
     modifier: Modifier = Modifier,
+    /**
+     * True before the folder cache has answered once.
+     *
+     * Only changes the subline. A count of zero mailboxes is a claim that the account has none, and
+     * for the second before Room answers that claim is false; "Loading" is the honest word for a
+     * number that is not known yet. The rows are absent either way, so there is nothing to skeleton.
+     */
+    loading: Boolean = false,
     /** Screen-capture hook: which folders start open, for §6d's collapsed and expanded frames. */
     initiallyExpanded: Set<String> = setOf("inbox"),
     /** Screen-capture hook: open the long-press sheet on this folder without long-pressing it. */
@@ -149,9 +169,15 @@ fun GridlinkFolderScreen(
     // Ancestors of a harness-requested folder are forced open, so `--es folderSheet ops-604` cannot
     // produce a sheet floating over a tree that does not visibly contain the row it names. Same
     // no-plausible-wrong-picture rule the gallery's other extras enforce by crashing.
-    val seedExpanded = remember(initiallyExpanded, initialActionFolderId, initialCreateUnder) {
+    // 🔴 Resolved against [tree], not against [GridlinkSampleTree]. It read the sample while the
+    // sample was the only tree there was; with a real account behind it, a harness id would be
+    // looked up in a mailbox list the screen is not drawing, and the ancestors it found would name
+    // folders that are not there. The default `setOf("inbox")` has the same shape and is harmless:
+    // a real account's inbox is not called "inbox", so nothing is force-opened and the tree simply
+    // starts collapsed.
+    val seedExpanded = remember(initiallyExpanded, initialActionFolderId, initialCreateUnder, tree) {
         val ancestors = initialActionFolderId
-            ?.let { GridlinkSampleTree.mailboxes.ancestorIds(it) }
+            ?.let { tree.ancestorIds(it) }
             .orEmpty()
         // 🔴 The create target itself, not only its ancestors. A branch's New folder row exists only
         // while that branch is open, so seeding `creating` at a folder that is shut asks the harness
@@ -208,7 +234,17 @@ fun GridlinkFolderScreen(
                 // 🔴 Not the unread count. Unread is the inbox's business; a tree's own summary is
                 // how much tree there is. Rendered in secondary text rather than in the unread
                 // colour, so a number here never gets mistaken for mail waiting.
-                subline = "$folderCount mailboxes",
+                //
+                // ⚠️ "Loading" rather than "0 mailboxes" before the cache has spoken. Zero is a
+                // statement about the account, and the folder table answers a frame or two after
+                // the tab is drawn, so a real account would flash a claim that it has no mail
+                // folders at all. Singular is handled because "1 mailboxes" is the kind of thing
+                // that survives review for years.
+                subline = when {
+                    loading -> "Loading"
+                    folderCount == 1 -> "1 mailbox"
+                    else -> "$folderCount mailboxes"
+                },
             )
         },
     ) {
@@ -276,6 +312,11 @@ fun GridlinkFolderScreen(
                                     folder = GridlinkFolder(id = "made-$created", name = name),
                                 ),
                             )
+                            // ⚠️ The optimistic row above carries a local `made-N` id and the real
+                            // one will not. That is fine and is why the id is not sent: the create
+                            // names a parent and a name, the server picks the id, and the next
+                            // folder read replaces the whole tree with what actually exists.
+                            onEdit(GridlinkFolderEdit.Create(name = name, parentId = item.parentId))
                             // The parent has children now, so it has a chevron now, and a folder
                             // that was expanded stays expanded. A root create needs nothing.
                             item.parentId?.let { expandedIds = expandedIds + it }
@@ -304,6 +345,7 @@ fun GridlinkFolderScreen(
                 takenNames = tree.siblingNames(actionFolder.id).orEmpty(),
                 onRename = { name ->
                     onTreeChange(tree.updateFolder(actionFolder.id) { it.copy(name = name) })
+                    onEdit(GridlinkFolderEdit.Rename(id = actionFolder.id, name = name))
                     dismiss()
                 },
                 onDismiss = ::dismiss,
@@ -313,6 +355,7 @@ fun GridlinkFolderScreen(
                 folder = actionFolder,
                 onDelete = {
                     onTreeChange(tree.removeFolder(actionFolder.id))
+                    onEdit(GridlinkFolderEdit.Delete(actionFolder.id))
                     expandedIds = expandedIds - actionFolder.id
                     // 🔴 Nothing is done about the open folder here, and that is the payoff for the
                     // caller owning the tree. Its open mailbox is an id resolved against this same
