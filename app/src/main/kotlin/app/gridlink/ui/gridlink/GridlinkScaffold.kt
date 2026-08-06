@@ -3,6 +3,7 @@ package app.gridlink.ui.gridlink
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -11,10 +12,12 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
@@ -68,11 +71,17 @@ import kotlinx.coroutines.launch
  * screens that are subtly out of line with each other, and Brandon reads a layout by whether its
  * edges line up.
  *
- * ## Why the controls are in the Column rather than over it
+ * ## Why the nav pill is in the Column rather than over it
  * 🔴 The panel takes the remaining height, so content physically cannot render behind the nav pill.
  * A translucent bar with rows sliding beneath it is the standard move and it is wrong here: the
  * glass is already sitting on an aurora, so anything passing behind the bar becomes a third layer
  * of near-transparent colour and the bar stops reading as a solid control.
+ *
+ * The compose button is the one exception and it is an overlay on purpose, because it has to be able
+ * to leave the column: Brandon asked for it at the far right of the whole *window* when two panes
+ * are showing, which is a place the 380dp list column does not reach. It still never has content
+ * behind it — the list column leaves a gap where it sits, and the reading pane's action row gives up
+ * its far-right slot (see [GridlinkDetailFrame]).
  *
  * [belowHeader] is for chrome that belongs to one screen rather than to the app — currently the
  * calendar's view switcher. It sits outside the panel because it acts on the panel's contents, and
@@ -203,6 +212,13 @@ fun GridlinkScaffold(
                     // the nav pill but shares its baseline and its height, so the bottom of the
                     // screen stays a single band and the panel keeps the vertical space a stacked
                     // FAB would have taken.
+                    //
+                    // 🔴 The button itself is NOT in this Row. It is drawn once, over the whole
+                    // window, and slid into place — see the overlay below. What is left here is the
+                    // hole it occupies, which is why the gap is a [Spacer] and not an absence: the
+                    // pill has to stop short of the button or the two would overlap, and in two
+                    // panes the button has left the column entirely so the pill takes the width
+                    // back.
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -215,6 +231,9 @@ fun GridlinkScaffold(
                         horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s16),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        if (sidePane == null) {
+                            Spacer(Modifier.width(GridlinkDimens.composeButton))
+                        }
                         GridlinkNavPill(
                             selected = destination,
                             onSelect = onSelectDestination,
@@ -222,48 +241,100 @@ fun GridlinkScaffold(
                             onSelectionAction = onSelectionAction,
                             modifier = Modifier.weight(1f),
                         )
-                        GridlinkComposeButton(onClick = onCompose, destination = destination)
                     }
                 }
             }
 
-            // 🔴 The system-bar inset is applied ONCE, on the outer Column, rather than by each
-            // pane. Two siblings each insetting themselves from `systemBars` would each take the
-            // full left AND right cutout, so the gutter between the panes would silently inherit
-            // padding that belongs to the outside edges of the window.
-            Column(
+            // 🔴 The system-bar inset is applied ONCE, here, rather than by each pane. Two siblings
+            // each insetting themselves from `systemBars` would each take the full left AND right
+            // cutout, so the gutter between the panes would silently inherit padding that belongs to
+            // the outside edges of the window.
+            //
+            // A Box around the Column rather than the Column alone, because the compose button is
+            // now a sibling of the panes instead of a child of one. [BoxWithConstraints] because
+            // where it slides TO is the width of the inset window, which nothing else here knows.
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
                     .windowInsetsPadding(WindowInsets.systemBars),
             ) {
-                GridlinkChromeRow(onOpenMenu = { menuOpen = true }, sync = sync)
-                if (sidePane == null) {
-                    mailColumn(Modifier.weight(1f).fillMaxWidth())
-                } else {
-                    Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        mailColumn(
-                            Modifier
-                                .width(GridlinkDimens.listPaneWidth)
-                                .fillMaxHeight(),
-                        )
-                        // No divider down the seam. Both panes inset their glass by the same
-                        // [GridlinkSpacing.chrome], so the gap between the two panels is already
-                        // twice that with the aurora showing through it. The backdrop IS the
-                        // separator, and a hairline drawn on top of a 40dp channel of colour would
-                        // be a line separating two things that are already demonstrably apart.
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight(),
-                        ) {
-                            CompositionLocalProvider(
-                                LocalGridlinkPaneHeaderHeight provides headerHeight,
+                Column(modifier = Modifier.fillMaxSize()) {
+                    GridlinkChromeRow(onOpenMenu = { menuOpen = true }, sync = sync)
+                    if (sidePane == null) {
+                        mailColumn(Modifier.weight(1f).fillMaxWidth())
+                    } else {
+                        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            mailColumn(
+                                Modifier
+                                    .width(GridlinkDimens.listPaneWidth)
+                                    .fillMaxHeight(),
+                            )
+                            // No divider down the seam. Both panes inset their glass by the same
+                            // [GridlinkSpacing.chrome], so the gap between the two panels is already
+                            // twice that with the aurora showing through it. The backdrop IS the
+                            // separator, and a hairline drawn on top of a 40dp channel of colour
+                            // would be a line separating two things that are already demonstrably
+                            // apart.
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight(),
                             ) {
-                                sidePane()
+                                CompositionLocalProvider(
+                                    LocalGridlinkPaneHeaderHeight provides headerHeight,
+                                ) {
+                                    sidePane()
+                                }
                             }
                         }
                     }
                 }
+
+                /**
+                 * The one compose button, wherever the window currently wants it.
+                 *
+                 * ## Why it is drawn here and not in the control row
+                 * Brandon's ask was that it travel: left of the nav pill in one pane, hard right of
+                 * the whole window in two, and *slide* between them. A button composed inside
+                 * [mailColumn] cannot do that. In two panes that column is a fixed 380dp, so the
+                 * furthest right it could ever reach is the seam between the panes, which is nowhere
+                 * near the right of the window; and moving it between two parents means one instance
+                 * leaving and another arriving, which is a cut, not a slide. So it is a sibling of
+                 * both panes, positioned by an animated offset, and the control row leaves a hole
+                 * for it when it is home.
+                 *
+                 * ## 🔴 The one it lands on in two panes is over the reading pane, on purpose
+                 * That is what "the very rightmost position" means on a window whose right half is
+                 * the thread. It floats over the pane's glass rather than displacing it. The pane
+                 * scrolls its own content and ends above the window's bottom padding, so what sits
+                 * under the button is the tail of the fade, not a line of text.
+                 */
+                val homeX = GridlinkSpacing.chrome
+                // Coerced, because [BoxWithConstraints] hands back the real width and a window
+                // narrower than the button plus its margins would otherwise compute a target to the
+                // LEFT of home and slide the wrong way. Nothing this app runs on is that narrow;
+                // the guard costs a comparison and removes the class of bug entirely.
+                val farX = (maxWidth - GridlinkSpacing.chrome - GridlinkDimens.composeButton)
+                    .coerceAtLeast(homeX)
+                val composeX by animateDpAsState(
+                    // `sidePane == null` IS the compact layout: the caller passes a pane whenever the
+                    // window is wide, open or empty. Read from the same value the layout above
+                    // branches on, so the button cannot end up parked for a layout that is not showing.
+                    targetValue = if (sidePane == null) homeX else farX,
+                    animationSpec = GridlinkMotion.standard(),
+                    label = "composeSlide",
+                )
+                GridlinkComposeButton(
+                    onClick = onCompose,
+                    destination = destination,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        // The same bottom margin the control row uses, so the button keeps the nav
+                        // pill's baseline at both ends of the journey. The button and the pill are
+                        // both [GRIDLINK_PILL_HEIGHT], so matching the bottom matches the whole line.
+                        .padding(bottom = GridlinkSpacing.chrome)
+                        .offset(x = composeX),
+                )
             }
         }
 
@@ -500,6 +571,21 @@ fun GridlinkRoot(
      * observing after the panel shut is a Room query and a folder fetch nobody is looking at.
      */
     onOpenFolder: (String?) -> Unit = {},
+    /**
+     * The account's appointments, or null to draw [GridlinkSampleTree]'s. See
+     * [GridlinkCalendarContent], including the 🔴 on why null is not the same as an empty calendar.
+     */
+    calendar: GridlinkCalendarContent? = null,
+    /**
+     * The account's address book, or null to draw [GridlinkSampleContacts]'. See
+     * [GridlinkContactContent].
+     */
+    contacts: GridlinkContactContent? = null,
+    /**
+     * The signed-in account's own domain, used to tell an internal appointment from one with an
+     * outside party. Defaults to the sample's, which is what a `@Preview` wants.
+     */
+    ownDomain: String = GridlinkSample.OWN_DOMAIN,
 ) {
     var destination by rememberSaveable(initialDestination) { mutableStateOf(initialDestination) }
     // Not `rememberSaveable`: a request holds contacts and attachments, which is a parcelable
@@ -695,7 +781,12 @@ fun GridlinkRoot(
      */
     var addedEvents by remember { mutableStateOf(emptyList<GridlinkEvent>()) }
     var addedContacts by remember { mutableStateOf(emptyList<GridlinkContact>()) }
-    val book = remember(addedEvents, addedContacts) { GridlinkBook(addedEvents, addedContacts) }
+    // 🔴 [calendar] and [contacts] are keys too, not just constructor arguments. They change when a
+    // sync lands, and a book remembered on the added lists alone would be the same object before and
+    // after, so a calendar open on screen would keep drawing the pre-sync month forever.
+    val book = remember(addedEvents, addedContacts, calendar, contacts, ownDomain) {
+        GridlinkBook(addedEvents, addedContacts, calendar, contacts, ownDomain)
+    }
 
     /**
      * Which "+" form is open, if any.
@@ -709,12 +800,18 @@ fun GridlinkRoot(
     /**
      * Which day the calendar opens pointed at, when something else already decided what is open.
      *
-     * 🔴 Keyless `remember` ON PURPOSE, so it is captured once and then never moves. Feeding the
-     * currently-open event's date in instead would re-point the calendar on every tap and, worse,
-     * snap it back to today the moment the card was closed, dragging the user out of whatever month
-     * they were reading. This is a starting position, not a binding.
+     * 🔴 Captured once and then never moved. Feeding the currently-open event's date in instead would
+     * re-point the calendar on every tap and, worse, snap it back to today the moment the card was
+     * closed, dragging the user out of whatever month they were reading. This is a starting position,
+     * not a binding.
+     *
+     * ⚠️ The key is "has the calendar got anything in it yet", which is the one change that must be
+     * allowed through. With the sample it is true on the first frame and this is a keyless remember in
+     * all but name. With a real calendar the events arrive from Room a frame or two later, so a
+     * restore-after-fold with an event card open would otherwise look this up against an empty book,
+     * find nothing, and drop the user back on the current month with their appointment open.
      */
-    val calendarStart = remember { openEventId?.let { book.eventById(it)?.date } }
+    val calendarStart = remember(book.events.isNotEmpty()) { openEventId?.let { book.eventById(it)?.date } }
 
     // The pane's emptiness is derived, never assigned. One place decides whether what is open is
     // still real, so the row highlight, the back handler and the pane cannot end up disagreeing.

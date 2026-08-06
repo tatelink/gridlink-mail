@@ -7,16 +7,28 @@ import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContactSection
 import java.time.LocalDate
 
 /**
- * Everything the calendar and the address book render: the sample, plus whatever was added this run.
+ * Everything the calendar and the address book render: the account's own, or the sample, plus
+ * whatever was added this run.
  *
- * ## What "saved" means today, and what it does not
- * 🔴 This is memory, not a server. An event or a contact added here appears immediately in the list,
- * the month grid, the day column, the A-Z index and the composer's suggestions, and it is gone the
- * next time the app is launched. That is a decision rather than an unfinished job: there is no CalDAV
- * or CardDAV client anywhere in this fork, so "save" has no destination yet, and the alternative to
- * being honest about that was a Save button that closed a form and dropped what was in it. When a DAV
- * client exists, this class is the seam it replaces: everything downstream already asks it rather
- * than asking [GridlinkSampleTree] or [GridlinkSampleContacts] directly.
+ * ## The one seam
+ * 🔴 Every calendar and contact read in this package goes through this class — the month grid, the day
+ * columns, the A-Z index, the event card's "what else is on that day", the contact card, and the
+ * composer's suggestions. That is deliberate and it is what makes swapping the source a single edit
+ * instead of a hunt: when [calendar] or [addressBook] is supplied, all of them move together. Anything
+ * that reaches past this to [GridlinkSampleTree] or [GridlinkSampleContacts] directly is a screen that
+ * will still be showing invented data to a signed-in user after everything around it has moved.
+ *
+ * ## Null means "nobody is supplying one"
+ * Not "it is empty". [calendar] and [addressBook] follow [GridlinkMailContent]'s rule exactly, so a
+ * `@Preview`, the two-pane harness and a signed-out launch all keep the sample, and a real account
+ * with an empty calendar shows an empty calendar.
+ *
+ * ## What "saved" still means
+ * ⚠️ [addedEvents] and [addedContacts] are memory, not a server. Something added from the new-event or
+ * new-contact form appears immediately everywhere listed above and is gone on the next launch: the DAV
+ * client behind [calendar] and [addressBook] is READ-ONLY, so "save" still has no destination. That is
+ * the honest half of an unfinished job rather than a design, and writing back needs conditional PUT
+ * and a conflict story before it can be trusted with an appointment.
  *
  * ## Why a CompositionLocal rather than a parameter
  * The reads are seven levels down. `GridlinkSampleTree.eventsOn(...)` was being called from inside
@@ -26,42 +38,74 @@ import java.time.LocalDate
  * it along untouched is how the sixth one gets forgotten and quietly goes on rendering the sample.
  *
  * ⚠️ [staticCompositionLocalOf], so a change here recomposes the whole subtree rather than only the
- * readers. That is the right trade for something that changes when a form is saved and at no other
- * time, and it is the same choice [LocalGridlinkColors] makes for the palette.
+ * readers. That is the right trade for something that changes when a form is saved or a sync lands,
+ * and it is the same choice [LocalGridlinkColors] makes for the palette.
  */
 @Immutable
 class GridlinkBook(
     val addedEvents: List<GridlinkEvent> = emptyList(),
     val addedContacts: List<GridlinkContact> = emptyList(),
+    /** The account's real calendar, or null to fall back to [GridlinkSampleTree]. */
+    val calendar: GridlinkCalendarContent? = null,
+    /** The account's real address book, or null to fall back to [GridlinkSampleContacts]. */
+    val addressBook: GridlinkContactContent? = null,
+    /**
+     * The signed-in account's own domain.
+     *
+     * Read by [GridlinkEventScreen] to decide an appointment has no outside party. Taken from the
+     * account rather than [GridlinkSample.OWN_DOMAIN] so a real user's own meetings are not treated as
+     * somebody else's.
+     */
+    val ownDomain: String = GridlinkSample.OWN_DOMAIN,
 ) {
 
-    /** The sample calendar with this run's additions folded in. */
+    /** True when the calendar below is the account's, so nothing may fill it in from the sample. */
+    val calendarLive: Boolean = calendar != null
+
+    /** True when the address book below is the account's. */
+    val contactsLive: Boolean = addressBook != null
+
+    /** The date to ring on the grid: really today when live, the sample's fixed day otherwise. */
+    val today: LocalDate = calendar?.today ?: GridlinkSampleTree.TODAY
+
+    /** First read still outstanding, so a header must not state a confident zero. */
+    val calendarLoading: Boolean = calendar?.loading == true
+
+    val contactsLoading: Boolean = addressBook?.loading == true
+
+    /** The calendar with this run's additions folded in. */
     val events: List<GridlinkEvent> =
-        if (addedEvents.isEmpty()) GridlinkSampleTree.events else GridlinkSampleTree.events + addedEvents
+        (calendar?.events ?: GridlinkSampleTree.events).let {
+            if (addedEvents.isEmpty()) it else it + addedEvents
+        }
 
     /**
      * The address book with this run's additions folded in, in phonebook order.
      *
      * Re-sorted rather than appended, so somebody added as "Aaron Vance" lands under V between the
-     * existing names instead of at the bottom under whatever letter the list happened to end on.
+     * existing names instead of at the bottom under whatever letter the list happened to end on. A
+     * live book arrives already sorted by the database (NOCASE, so `de Vries` files with `De Vries`),
+     * and is left alone unless something was added to it.
      */
     val contacts: List<GridlinkContact> =
-        if (addedContacts.isEmpty()) {
-            GridlinkSampleContacts.all
-        } else {
-            (GridlinkSampleContacts.all + addedContacts)
-                .sortedWith(compareBy({ it.family.lowercase() }, { it.given.lowercase() }))
+        (addressBook?.contacts ?: GridlinkSampleContacts.all).let {
+            if (addedContacts.isEmpty()) {
+                it
+            } else {
+                (it + addedContacts).sortedWith(compareBy({ c -> c.family.lowercase() }, { c -> c.given.lowercase() }))
+            }
         }
 
     /**
      * [contacts], grouped for the A-Z list.
      *
-     * 🔴 Regrouped only when something was added. The sample's own grouping is computed once at class
+     * 🔴 Regrouped only when it cannot be reused. The sample's own grouping is computed once at class
      * load, and re-deriving it per composition would redo the whole 47-entry group-and-sort on every
-     * frame of a scrub to produce a list that cannot have changed.
+     * frame of a scrub to produce a list that cannot have changed. A live book is grouped once here,
+     * per emission of the flow, which is the same bargain.
      */
     val sections: List<GridlinkContactSection> =
-        if (addedContacts.isEmpty()) {
+        if (addressBook == null && addedContacts.isEmpty()) {
             GridlinkSampleContacts.sections
         } else {
             contacts.groupBy { it.letter }
@@ -82,6 +126,26 @@ class GridlinkBook(
     fun eventById(id: String): GridlinkEvent? = events.firstOrNull { it.id == id }
 
     fun contactById(id: String): GridlinkContact? = contacts.firstOrNull { it.id == id }
+
+    /**
+     * Whoever in the book represents [domain], for the event card's outside party.
+     *
+     * 🔴 Routed through here rather than calling [GridlinkSampleContacts.forDomain] at the use site,
+     * because that function always answers from the fixtures. On a real account it would put an
+     * invented person's name and Write button on a genuine appointment, which is a worse failure than
+     * showing no name at all: the user would send mail to them.
+     */
+    fun contactForDomain(domain: String): GridlinkContact? {
+        if (domain.isBlank()) return null
+        if (!contactsLive) return GridlinkSampleContacts.forDomain(domain)
+        val matches = contacts.filter { it.domain.equals(domain, ignoreCase = true) }
+        // The company entry first, for the same reason the sample's own lookup prefers it: a card
+        // for the organisation says more on an appointment than whichever employee sorts first.
+        return matches.firstOrNull { it.organization } ?: matches.firstOrNull()
+    }
+
+    /** Whether the loaded calendar can be trusted to be complete for [date]. */
+    fun coversDate(date: LocalDate): Boolean = calendar?.covers(date) ?: true
 }
 
 /**
@@ -98,7 +162,8 @@ val LocalGridlinkBook = staticCompositionLocalOf { GridlinkBook() }
  * 🔴 Prefixed, and the prefix is load-bearing in one specific place: [GridlinkSampleContacts.isSample]
  * decides whether the outbox will send to a contact, and it decides it by id. A contact Brandon typed
  * in himself is a real address he chose, so it must NOT collide with a fixture id and get refused;
- * `new:` cannot collide with either the sample ids or the composer's `typed:` ones.
+ * `new:` cannot collide with the sample ids, the composer's `typed:` ones, or a synced card's
+ * [GridlinkDavMapping.PREFIX].
  *
  * ⚠️ The counter is the list size, so it is stable for as long as nothing is deleted, and nothing can
  * be deleted yet. The moment removal exists this has to become a real sequence, or the second contact

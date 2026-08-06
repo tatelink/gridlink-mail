@@ -5,35 +5,35 @@ import kotlinx.serialization.Serializable
 /**
  * What the user asked this account to sync, chosen during setup and editable afterwards.
  *
- * ## 🔴 Two of these three do nothing yet, and that is recorded here rather than hidden
- * [mail] is real: it drives the JMAP client that has existed since upstream. [calendar] and
- * [contacts] have no engine behind them at all — `core/jmap` speaks Email, Mailbox, Identity, Sieve,
- * Vacation, Quota and Push, and there is no CalDAV or CardDAV client anywhere in the tree. Storing
- * the answer before the engine exists is deliberate: the setup screen has to ask the question once,
- * at the only moment the user is thinking about it, and the alternative is asking again later in a
- * settings screen nobody opens.
+ * All three are live. [mail] drives the JMAP/IMAP client the app is built on; [calendar] and
+ * [contacts] drive `core/dav`'s CalDAV and CardDAV sync through
+ * [app.gridlink.core.data.dav.DavRepository], which discovers the collections from the account's own
+ * server and caches them into Room.
  *
- * ⚠️ So the honesty burden sits on the UI, not on this type. Whatever screen offers these toggles
- * must say that two of them are a stored preference and not a running sync. A toggle that flips,
- * persists, and quietly fetches nothing is worse than no toggle: it teaches the user that the app
- * lies, and they then distrust the one toggle that is telling the truth.
+ * ## Why all three default to on
+ * "Set up my account" means the account, and a user who has just typed a password into a mail app is
+ * not expecting to have to ask a second time for the calendar that came with it. The toggles exist
+ * for the person who deliberately wants mail only, which is a real preference and a rarer one.
  *
- * Defaults are mail-on, everything-else-off, which is both the honest default (only mail works) and
- * the conservative one (nothing is enabled on the user's behalf).
+ * 🔴 Defaulting to on also decides what happens to accounts saved BEFORE these fields existed. Their
+ * stored JSON has no entry for either, so they deserialize onto these defaults and start syncing.
+ * That is the intended behaviour: those accounts were created by a build where the toggles were
+ * documented as doing nothing, so a stored `false` there records the state of the app, not a choice
+ * the user made.
+ *
+ * ## ⚠️ What a `true` here still cannot promise
+ * Only that Gridlink will try. The DAV sync needs a password to do Basic auth with, so an OAuth or
+ * token account skips it (a refresh token sent as a password is a failed login, and on a server that
+ * bans a source IP after repeated auth failures that is how an account locks itself out of mail as
+ * well). A server with no CalDAV at all simply fails discovery. Both are reported into the log and
+ * neither touches the mail sync indicator.
  */
 @Serializable
 data class SyncSelection(
-    /** Mail. Live: this is the JMAP sync the rest of the app is built on. */
+    /** Mail, over JMAP or IMAP depending on the account. */
     val mail: Boolean = true,
-    /** ⚠️ Recorded only. No CalDAV client exists yet, so nothing is fetched. */
-    val calendar: Boolean = false,
-    /** ⚠️ Recorded only. No CardDAV client exists yet, so nothing is fetched. */
-    val contacts: Boolean = false,
-) {
-    /**
-     * True when the selection asks for something this build cannot deliver, which is what a UI
-     * checks before deciding whether to explain itself. Kept here rather than in the screen so the
-     * day CalDAV lands there is one place to change, and the caption stops appearing on its own.
-     */
-    val hasUnbuiltSelection: Boolean get() = calendar || contacts
-}
+    /** Calendars, over CalDAV. Discovered from the account's server; read-only. */
+    val calendar: Boolean = true,
+    /** Address books, over CardDAV. Discovered from the account's server; read-only. */
+    val contacts: Boolean = true,
+)

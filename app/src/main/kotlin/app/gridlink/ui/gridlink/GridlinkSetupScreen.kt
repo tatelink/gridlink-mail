@@ -55,12 +55,12 @@ data class GridlinkSetupRequest(
  * not leaves it empty and gets upstream's behaviour unchanged. The placeholder says which is which,
  * because a blank required-looking field with no explanation is how a first launch dead-ends.
  *
- * ## 🔴 Two of the three sync toggles do not sync anything, and the screen says so
- * There is no CalDAV or CardDAV client in this tree. [SyncSelection] carries the reasoning for storing
- * the answer anyway; what belongs HERE is the admission. The caption under the section states it in
- * plain words, and it is not a footnote in [GridlinkColors.textSecondary] the eye slides past — it
- * appears only when the user has actually asked for one of the two, so it reads as an answer to what
- * they just did rather than as boilerplate.
+ * ## The sync toggles are all live now, and both start on
+ * Calendar and Contacts once stored a preference with nothing behind it, and this screen carried an
+ * admission saying so. `core/dav` exists, so both the caption and the admission are gone: they are
+ * ordinary CalDAV and CardDAV syncs against the same server the mail comes from, and they default to
+ * on because "set up my account" means the account. [SyncSelection] carries the rest of the
+ * reasoning, including what a `true` still cannot promise on an OAuth account.
  *
  * Mail is not a toggle. It is the app; a "mail: OFF" switch on a mail client's setup screen is a
  * control that either does nothing or bricks the thing you are installing, and there is no third
@@ -243,12 +243,8 @@ fun GridlinkSetupScreen(
             onToggle = { contacts = it },
         )
 
-        if (calendar || contacts) {
-            GridlinkSetupCaption(
-                text = "Gridlink cannot sync calendar or contacts yet. Your choice is saved and " +
-                    "will take effect when it can; until then nothing is fetched for them.",
-            )
-        }
+        // No caption under this section any more. It used to admit that the two toggles fetched
+        // nothing; they fetch now, so the admission would be its own kind of lie.
 
         // Clears the panel's bottom fade so the last row is never half-dissolved.
         Spacer(Modifier.height(GridlinkSpacing.s16))
@@ -296,20 +292,3 @@ private fun GridlinkSetupFactRow(
     }
 }
 
-/** The admission under the sync rows. Plain body text, indented to the rows it is about. */
-@Composable
-private fun GridlinkSetupCaption(
-    text: String,
-    modifier: Modifier = Modifier,
-) {
-    Text(
-        text = text,
-        style = GridlinkType.metadata,
-        color = GridlinkTheme.colors.textSecondary,
-        modifier = modifier.padding(
-            start = GridlinkSpacing.rowHorizontal,
-            end = GridlinkSpacing.rowHorizontal,
-            top = GridlinkSpacing.s8,
-        ),
-    )
-}

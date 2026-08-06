@@ -1,5 +1,7 @@
 package app.gridlink.core.data.calendar
 
+import app.gridlink.core.data.text.ContentLine
+import app.gridlink.core.data.text.ContentLines
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -69,10 +71,10 @@ object ICalendar {
         if (raw.isNullOrBlank()) return null
         if (raw.length > MAX_SOURCE_CHARS) return null
         return try {
-            val lines = unfold(raw).mapNotNull(::parseLine)
+            val lines = ContentLines.parseAll(raw)
 
             var method: String? = null
-            val event = ArrayList<Line>()
+            val event = ArrayList<ContentLine>()
             var inEvent = false
             var captured = false
             for (l in lines) {
@@ -91,11 +93,11 @@ object ICalendar {
 
             // An event with no usable start can't be placed on a calendar — treat as unusable.
             val startLine = first("DTSTART") ?: return null
-            val start = parseDate(startLine.value, startLine.params) ?: return null
+            val start = parseDate(startLine) ?: return null
 
             val endLine = first("DTEND")
             val end: Long? = when {
-                endLine != null -> parseDate(endLine.value, endLine.params)?.millis
+                endLine != null -> parseDate(endLine)?.millis
                 else -> first("DURATION")?.let { parseDuration(it.value) }?.let { start.millis + it }
             }
 
@@ -107,15 +109,15 @@ object ICalendar {
             }
 
             ParsedEvent(
-                title = first("SUMMARY")?.let { unescapeText(it.value) }?.takeIf { it.isNotBlank() },
+                title = first("SUMMARY")?.let { ContentLines.unescapeText(it.value) }?.takeIf { it.isNotBlank() },
                 startMillis = start.millis,
                 endMillis = end,
                 allDay = start.allDay,
-                location = first("LOCATION")?.let { unescapeText(it.value) }?.takeIf { it.isNotBlank() },
+                location = first("LOCATION")?.let { ContentLines.unescapeText(it.value) }?.takeIf { it.isNotBlank() },
                 organizer = organizerLine?.let(::organizerOf),
                 attendeeCount = attendees.size,
                 recurs = event.any { it.name == "RRULE" },
-                description = first("DESCRIPTION")?.let { unescapeText(it.value) }?.takeIf { it.isNotBlank() },
+                description = first("DESCRIPTION")?.let { ContentLines.unescapeText(it.value) }?.takeIf { it.isNotBlank() },
                 method = method,
                 status = first("STATUS")?.value?.trim()?.uppercase()?.takeIf { it.isNotBlank() },
                 uid = uidLine?.value?.trim()?.takeIf { it.isNotBlank() },
@@ -133,94 +135,9 @@ object ICalendar {
         }
     }
 
-    // ---- Lines -------------------------------------------------------------------------------
-
-    private data class Line(
-        val name: String,
-        val params: Map<String, String>,
-        val value: String,
-        /** The verbatim unfolded source line, kept so a REPLY can echo it exactly. */
-        val raw: String,
-    )
+    // ---- Dates -------------------------------------------------------------------------------
 
     private data class Dated(val millis: Long, val allDay: Boolean)
-
-    /**
-     * RFC 5545 unfolding: a CRLF/LF immediately followed by a space or tab continues the
-     * previous logical line, so join it back (dropping the break and the one leading space).
-     *
-     * Each logical line is accumulated in one [StringBuilder] and materialised once. Rebuilding
-     * the string per continuation instead is quadratic, and a .ics made of hundreds of thousands
-     * of one-character continuations then freezes the reader for minutes with no exception to
-     * catch — it is a hang, not a failure.
-     */
-    private fun unfold(raw: String): List<String> {
-        val out = ArrayList<String>()
-        val current = StringBuilder()
-        var started = false
-        var i = 0
-        while (i < raw.length) {
-            var end = i
-            while (end < raw.length && raw[end] != '\n' && raw[end] != '\r') end++
-            if (started && end > i && (raw[i] == ' ' || raw[i] == '\t')) {
-                current.append(raw, i + 1, end) // continuation: drop the single leading space/tab
-            } else {
-                if (started) out.add(current.toString())
-                current.setLength(0)
-                current.append(raw, i, end)
-                started = true
-            }
-            // CRLF is one break, so is a lone CR or LF.
-            i = if (end + 1 < raw.length && raw[end] == '\r' && raw[end + 1] == '\n') end + 2 else end + 1
-        }
-        if (started) out.add(current.toString())
-        return out
-    }
-
-    /** Split one content line into NAME, params, and VALUE (value starts at the first unquoted colon). */
-    private fun parseLine(line: String): Line? {
-        if (line.isBlank()) return null
-        var colon = -1
-        var inQuote = false
-        for (i in line.indices) {
-            val c = line[i]
-            if (c == '"') inQuote = !inQuote
-            else if (c == ':' && !inQuote) { colon = i; break }
-        }
-        if (colon < 0) return null
-        val head = line.substring(0, colon)
-        val value = line.substring(colon + 1)
-        val segs = splitUnquoted(head, ';')
-        if (segs.isEmpty()) return null
-        val name = segs[0].trim().uppercase()
-        if (name.isEmpty()) return null
-        val params = HashMap<String, String>()
-        for (j in 1 until segs.size) {
-            val eq = segs[j].indexOf('=')
-            if (eq > 0) {
-                params[segs[j].substring(0, eq).trim().uppercase()] =
-                    segs[j].substring(eq + 1).trim().trim('"')
-            }
-        }
-        return Line(name, params, value, line)
-    }
-
-    private fun splitUnquoted(s: String, sep: Char): List<String> {
-        val out = ArrayList<String>()
-        val sb = StringBuilder()
-        var inQuote = false
-        for (c in s) {
-            when {
-                c == '"' -> { inQuote = !inQuote; sb.append(c) }
-                c == sep && !inQuote -> { out.add(sb.toString()); sb.clear() }
-                else -> sb.append(c)
-            }
-        }
-        out.add(sb.toString())
-        return out
-    }
-
-    // ---- Dates -------------------------------------------------------------------------------
 
     private val DATE_TIME = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss")
 
@@ -229,10 +146,10 @@ object ICalendar {
      * all-day (`VALUE=DATE` / bare yyyymmdd → midnight in the system zone) and floating
      * (no zone → system local time). Returns null on anything it can't read.
      */
-    private fun parseDate(rawValue: String, params: Map<String, String>): Dated? {
-        val v = rawValue.trim()
+    private fun parseDate(line: ContentLine): Dated? {
+        val v = line.value.trim()
         if (v.isEmpty()) return null
-        val dateOnly = params["VALUE"].equals("DATE", true) || (v.length == 8 && !v.contains('T'))
+        val dateOnly = line.param("VALUE").equals("DATE", true) || (v.length == 8 && !v.contains('T'))
         return try {
             if (dateOnly) {
                 val date = LocalDate.parse(v, DateTimeFormatter.BASIC_ISO_DATE)
@@ -242,10 +159,15 @@ object ICalendar {
                 val utc = v.endsWith("Z")
                 val core = if (utc) v.dropLast(1) else v
                 val ldt = LocalDateTime.parse(core, DATE_TIME)
+                val tzid = line.param("TZID")
                 val zone = when {
                     utc -> ZoneOffset.UTC
-                    params["TZID"] != null ->
-                        runCatching { ZoneId.of(params["TZID"]) }.getOrDefault(ZoneId.systemDefault())
+                    tzid != null -> runCatching { ZoneId.of(tzid) }.getOrNull()
+                        // An invitation forwarded out of Exchange carries a Windows zone name that
+                        // ZoneId cannot read; without this the card falls through to the device zone
+                        // and quietly shows the wrong hour to anyone not in the organiser's.
+                        ?: WindowsTimeZones.zoneFor(tzid)
+                        ?: ZoneId.systemDefault()
                     else -> ZoneId.systemDefault()
                 }
                 Dated(ldt.atZone(zone).toInstant().toEpochMilli(), allDay = false)
@@ -271,31 +193,8 @@ object ICalendar {
 
     // ---- Text --------------------------------------------------------------------------------
 
-    /** Unescape an iCalendar TEXT value: \\n → newline, \\, \; \\\\ → the literal character. */
-    private fun unescapeText(s: String): String {
-        if (!s.contains('\\')) return s
-        val sb = StringBuilder(s.length)
-        var i = 0
-        while (i < s.length) {
-            val c = s[i]
-            if (c == '\\' && i + 1 < s.length) {
-                when (s[i + 1]) {
-                    'n', 'N' -> sb.append('\n')
-                    '\\' -> sb.append('\\')
-                    ';' -> sb.append(';')
-                    ',' -> sb.append(',')
-                    else -> sb.append(s[i + 1])
-                }
-                i += 2
-            } else {
-                sb.append(c); i++
-            }
-        }
-        return sb.toString()
-    }
-
-    private fun organizerOf(line: Line): String? {
-        line.params["CN"]?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
+    private fun organizerOf(line: ContentLine): String? {
+        line.param("CN")?.takeIf { it.isNotBlank() }?.let { return it }
         return emailOf(line.value).takeIf { it.isNotBlank() }
     }
 
@@ -303,8 +202,7 @@ object ICalendar {
     private fun emailOf(value: String): String =
         value.trim().replaceFirst(Regex("(?i)^mailto:"), "").trim()
 
-    private fun cnOf(line: Line): String? =
-        line.params["CN"]?.trim()?.takeIf { it.isNotBlank() }
+    private fun cnOf(line: ContentLine): String? = line.param("CN")?.takeIf { it.isNotBlank() }
 
     // ---- REPLY (iTIP) generation ------------------------------------------------------------
 

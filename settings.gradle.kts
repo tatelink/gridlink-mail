@@ -25,5 +25,6 @@ rootProject.name = "Gridlink"
 include(":app")
 include(":core:jmap")
 include(":core:imap")
+include(":core:dav")
 include(":core:data")
 include(":libs:openpgp-api")

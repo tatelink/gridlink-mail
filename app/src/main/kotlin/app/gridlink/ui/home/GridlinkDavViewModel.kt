@@ -1,0 +1,227 @@
+package app.gridlink.ui.home
+
+import android.app.Application
+import android.util.Log
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import app.gridlink.container
+import app.gridlink.core.data.calendar.CalendarOccurrence
+import app.gridlink.core.data.dav.DavSyncOutcome
+import app.gridlink.core.data.db.AddressBookContactEntity
+import app.gridlink.ui.gridlink.GridlinkCalendarContent
+import app.gridlink.ui.gridlink.GridlinkContactContent
+import app.gridlink.ui.gridlink.GridlinkDavMapping
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.stateIn
+import java.time.LocalDate
+
+/**
+ * Real appointments and real contacts for the Gridlink screens.
+ *
+ * [GridlinkMailViewModel]'s counterpart for the other two tabs, and built the same way for the same
+ * reasons: it reads Room and only Room, maps with [GridlinkDavMapping], and lets
+ * [app.gridlink.core.data.dav.DavRepository] be the only thing that touches the network. The tabs are
+ * therefore on screen before the first request goes out and stay on screen when every request fails.
+ *
+ * ## Why this is a second view model rather than four more flows on the first
+ * Different lifetime and different failure. Mail resyncs on a schedule, on a push, and on a pull;
+ * calendars and address books change by the hour at most, and a DAV account can be perfectly healthy
+ * while `Email/query` is broken (or the other way round). Keeping them apart is also what lets the
+ * chrome row's chip go on meaning exactly one thing, which is whether mail arrived.
+ *
+ * ## ⚠️ The window is fixed, not the month you are looking at
+ * [WINDOW_BACK_DAYS] and [WINDOW_FORWARD_DAYS] around today, expanded once and observed. Following
+ * the user's paging would mean plumbing the calendar screen's private anchor up through
+ * [app.gridlink.ui.gridlink.GridlinkRoot] and back down into a flow, and re-running the recurrence
+ * expansion on every swipe. For an account with tens of events the whole span costs nothing, and
+ * [GridlinkCalendarContent.window] is what stops the header claiming a confident zero outside it.
+ *
+ * ## ⚠️ Where a DAV failure goes
+ * Into the log. [DavSyncOutcome.error] carries a sentence worth showing and there is nowhere on these
+ * screens to show it yet, so this reports rather than swallows, and does NOT feed the sync chip: a
+ * calendar the user never asked to sync must not be able to turn the mail indicator amber.
+ */
+class GridlinkDavViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val store = application.container.accountStore
+    private val repo = application.container.davRepository
+
+    /** Which account's calendar and address book are on screen. Set by the host. */
+    private val accountId = MutableStateFlow<String?>(null)
+
+    /**
+     * The day everything is measured from.
+     *
+     * State rather than a `LocalDate.now()` inside the flow, because it is a query KEY: recomputing
+     * it per emission would re-point the Room observation at a new range on every emission, which is
+     * a restart loop. Re-read on bind and on every sync, which is what carries an app left open
+     * overnight across midnight.
+     */
+    private val anchor = MutableStateFlow(LocalDate.now())
+
+    /** Whether the event table has answered once for the CURRENT account. See [GridlinkMailViewModel.primed]. */
+    private val calendarPrimed = MutableStateFlow(false)
+
+    private val contactsPrimed = MutableStateFlow(false)
+
+    /**
+     * Point both tabs at [id], or leave them where they are.
+     *
+     * The guard is the whole method, for [GridlinkMailViewModel.bind]'s reason: this is called from a
+     * composition effect, so it runs again on every unfold, and re-arming an unchanged account would
+     * re-skeleton both tabs each time the hinge moved.
+     */
+    fun bind(id: String) {
+        if (accountId.value == id) return
+        accountId.value = id
+        anchor.value = LocalDate.now()
+        calendarPrimed.value = false
+        contactsPrimed.value = false
+    }
+
+    /**
+     * The signed-in account's own domain, or empty when the username is not an address.
+     *
+     * 🔴 Empty is a working value, not a broken one. An event with no organiser is mapped to this
+     * domain, and [app.gridlink.ui.gridlink.GridlinkEventScreen] compares the two, so an account with
+     * no domain gets "every event is mine" rather than "every event belongs to a stranger". The host
+     * derives the same value the same way for [app.gridlink.ui.gridlink.GridlinkBook.ownDomain], and
+     * the two have to agree.
+     */
+    private val ownDomain: Flow<String> = combine(accountId, store.accountsFlow) { id, accounts ->
+        accounts.firstOrNull { it.id == id }?.username?.substringAfter('@', "").orEmpty()
+    }.distinctUntilChanged()
+
+    private data class Span(val accountId: String, val from: LocalDate, val to: LocalDate)
+
+    private val span: Flow<Span?> = combine(accountId, anchor) { id, today ->
+        id?.let { Span(it, today.minusDays(WINDOW_BACK_DAYS), today.plusDays(WINDOW_FORWARD_DAYS)) }
+    }.distinctUntilChanged()
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val occurrences: Flow<List<CalendarOccurrence>> = span
+        .flatMapLatest { s ->
+            if (s == null) flowOf(emptyList()) else repo.observeOccurrences(s.accountId, s.from, s.to)
+        }
+        .onEach { calendarPrimed.value = true }
+
+    /** The Calendar tab, as [app.gridlink.ui.gridlink.GridlinkRoot] takes it. */
+    val calendar: StateFlow<GridlinkCalendarContent> =
+        combine(occurrences, calendarPrimed, anchor, ownDomain) { list, ready, today, domain ->
+            GridlinkCalendarContent(
+                events = list.map { GridlinkDavMapping.event(it, domain) },
+                today = today,
+                loading = !ready,
+                window = today.minusDays(WINDOW_BACK_DAYS)..today.plusDays(WINDOW_FORWARD_DAYS),
+            )
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(SUBSCRIPTION_GRACE_MS),
+            // Loading, not empty. The first frame draws before Room has answered, and an empty
+            // calendar there is a statement about the account rather than about the query.
+            initialValue = GridlinkCalendarContent(
+                events = emptyList(),
+                today = LocalDate.now(),
+                loading = true,
+            ),
+        )
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val cards: Flow<List<AddressBookContactEntity>> = accountId
+        .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else repo.observeContacts(id) }
+        .onEach { contactsPrimed.value = true }
+
+    /** The Contacts tab, as [app.gridlink.ui.gridlink.GridlinkRoot] takes it. */
+    val contacts: StateFlow<GridlinkContactContent> =
+        combine(cards, contactsPrimed) { rows, ready ->
+            GridlinkContactContent(
+                contacts = rows.map(GridlinkDavMapping::contact),
+                loading = !ready,
+            )
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(SUBSCRIPTION_GRACE_MS),
+            initialValue = GridlinkContactContent(contacts = emptyList(), loading = true),
+        )
+
+    /**
+     * Fetch the account's calendars and address books.
+     *
+     * Returns nothing on purpose. The chrome row's chip is the MAIL indicator, and a DAV failure has
+     * three ordinary causes that say nothing about mail: the user never turned these on, the account
+     * signs in with OAuth (so there is no password to do Basic auth with), or one shared calendar out
+     * of four is no longer readable. Turning any of those into an amber chip would train the one
+     * signal that matters to be ignored.
+     *
+     * ⚠️ Both halves run even if the first fails, because they are two separate servers as far as
+     * this is concerned: a broken calendar must not cost the user their contacts.
+     */
+    suspend fun sync() {
+        val id = accountId.value
+        if (id == null) {
+            // No query is coming, so leaving these false would park both tabs under a skeleton with
+            // no way out. Same latch [GridlinkMailViewModel.sync] applies for the same reason.
+            calendarPrimed.value = true
+            contactsPrimed.value = true
+            return
+        }
+        // A sync is the app's regular heartbeat, so it is also the moment to notice the date changed.
+        anchor.value = LocalDate.now()
+        try {
+            report("calendar", runCatching { repo.syncCalendars(id) })
+            report("contacts", runCatching { repo.syncContacts(id) })
+        } finally {
+            calendarPrimed.value = true
+            contactsPrimed.value = true
+        }
+    }
+
+    private fun report(what: String, result: Result<DavSyncOutcome>) {
+        val outcome = result.getOrElse { t ->
+            // 🔴 Rethrown, not logged as a failure. Cancellation means the caller went away (the pull
+            // gesture's scope left the composition), and recording that as a broken calendar would
+            // put a permanent complaint in the log for a perfectly ordinary navigation.
+            if (t is CancellationException) throw t
+            Log.w(TAG, "$what sync threw", t)
+            return
+        }
+        if (outcome.succeeded) {
+            Log.i(
+                TAG,
+                "$what sync: ${outcome.collections} collections, " +
+                    "${outcome.itemsChanged} changed, ${outcome.itemsRemoved} removed",
+            )
+        } else {
+            Log.w(TAG, "$what sync: ${outcome.error}")
+        }
+    }
+
+    private companion object {
+        const val TAG = "GridlinkDav"
+
+        /**
+         * How far either side of today the calendar is expanded.
+         *
+         * Generous rather than tight, and asymmetric because a calendar is mostly read forwards. The
+         * cost is one Room query over a table that holds one row per stored event (not per
+         * occurrence), plus expanding the recurrence rules across the span, which for an ordinary
+         * account is tens of rows. Widening it further is free until somebody has a decade of
+         * history, and by then this wants the user's viewport rather than a bigger constant.
+         */
+        const val WINDOW_BACK_DAYS = 400L
+        const val WINDOW_FORWARD_DAYS = 800L
+
+        /** Matches [GridlinkMailViewModel]'s, so a rotation does not tear down either observation. */
+        const val SUBSCRIPTION_GRACE_MS = 5_000L
+    }
+}

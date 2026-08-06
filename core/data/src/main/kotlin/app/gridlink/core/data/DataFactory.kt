@@ -2,6 +2,7 @@ package app.gridlink.core.data
 
 import android.content.Context
 import app.gridlink.core.data.account.AccountStore
+import app.gridlink.core.data.dav.DavRepository
 import app.gridlink.core.data.db.GridlinkDatabase
 import app.gridlink.core.data.mail.ImapMailService
 import app.gridlink.core.data.mail.MailboxUidValidityStore
@@ -11,6 +12,7 @@ import app.gridlink.core.data.mail.SyncStateStore
 import app.gridlink.core.data.pgp.PgpEngine
 import app.gridlink.core.data.settings.SettingsRepository
 import app.gridlink.core.data.storage.StorageRepository
+import app.gridlink.core.dav.DavClient
 import app.gridlink.core.imap.ImapClient
 import app.gridlink.core.imap.SmtpClient
 import app.gridlink.core.jmap.JmapClient
@@ -22,6 +24,7 @@ object DataFactory {
     class DataLayer(
         val mailRepository: MailRepository,
         val storageRepository: StorageRepository,
+        val davRepository: DavRepository,
     )
 
     fun create(
@@ -58,6 +61,15 @@ object DataFactory {
                 appContext, database.emailDao(), database.emailFtsDao(), database.emailBodyDao(),
                 database.mailboxDao(), database.snoozedDao(), database.purgeSnapshotDao(),
                 database.mailboxUidValidityDao(),
+            ),
+            davRepository = DavRepository(
+                // Its own transport: a DAV first sync can be one large slow response, and sharing
+                // the JMAP client's connection pool would let a calendar fetch hold up mail.
+                client = DavClient(),
+                accountStore = accountStore,
+                collectionDao = database.davCollectionDao(),
+                eventDao = database.calendarEventDao(),
+                contactDao = database.addressBookContactDao(),
             ),
         )
     }

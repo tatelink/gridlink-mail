@@ -137,8 +137,11 @@ fun GridlinkContactsScreen(
                 title = "Contacts",
                 unread = 0,
                 // Same reasoning as the folder tree's "N mailboxes": the second line summarises the
-                // screen, and a phonebook's summary is how many entries are in it.
-                subline = "${book.contacts.size} people and teams",
+                // screen, and a phonebook's summary is how many entries are in it. "Loading" while
+                // the first read is out, for the folder tree's reason as well: a count of zero is a
+                // claim that the account has nobody in it, which is a different thing from not
+                // having looked.
+                subline = if (book.contactsLoading) "Loading" else "${book.contacts.size} people and teams",
             )
         },
     ) {
