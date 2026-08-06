@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -279,7 +280,8 @@ fun GridlinkScaffold(
             // line; handing it to the content would let something inside the recording read it.
             CompositionLocalProvider(LocalGridlinkBackdrop provides backdrop) {
                 GridlinkMenuPanel(
-                    account = GRIDLINK_SAMPLE_ACCOUNT,
+                    account = chrome.config.account,
+                    accountCount = chrome.config.accountCount,
                     sync = sync,
                     lastSyncedAt = chrome.lastSyncedAt,
                     mode = chrome.mode,
@@ -289,11 +291,15 @@ fun GridlinkScaffold(
                     // looking at it, and the panel staying up is what lets you tap through all four
                     // and watch the app behind it repaint.
                     onSelectMode = chrome::selectMode,
-                    counts = GRIDLINK_SAMPLE_MENU_COUNTS,
-                    // Every destination behind this is a stub, so the honest behaviour is to close
-                    // and do nothing rather than to navigate somewhere that would be an empty
-                    // screen with a title on it. Wire these as each one lands.
-                    onSelect = { menuOpen = false },
+                    counts = chrome.config.menuCounts,
+                    // Closes FIRST, then acts. A row that navigates out from under an open drawer
+                    // leaves the drawer up over the thing it just opened; and a row wired to
+                    // nothing (which most of them still are) then simply dismisses, which is the
+                    // honest behaviour for a destination that does not exist yet.
+                    onSelect = {
+                        menuOpen = false
+                        chrome.config.onSelectMenu(it)
+                    },
                     onDismiss = { menuOpen = false },
                 )
             }
@@ -453,6 +459,27 @@ fun GridlinkRoot(
      * shared account store has an account in it.
      */
     sender: GridlinkSender = GridlinkNullSender,
+    /**
+     * The account's mail, or null to draw [GridlinkSample]'s. See [GridlinkMailContent], including
+     * the 🔴 on why null is not the same as an empty inbox.
+     */
+    mail: GridlinkMailContent? = null,
+    /**
+     * What to do about a filing, a mark-read or a mark-unread the user just asked for.
+     *
+     * Defaults to a no-op for [sender]'s reason: a tree rendered over nothing must not be able to
+     * act as though there is a mailbox behind it. With the sample, rows still animate out and the
+     * actions go nowhere, which is exactly what a sample should do.
+     */
+    onMailAction: (Set<String>, GridlinkMailAction) -> Unit = { _, _ -> },
+    /**
+     * Fetch the body of the message just opened. Called on every open, including re-opens.
+     *
+     * ⚠️ Also what marks the message read on the server, because that is what opening a message
+     * means. The list marks its own row read on the tap for the animation's sake; the durable half
+     * happens here.
+     */
+    onOpenMail: (String) -> Unit = {},
 ) {
     var destination by rememberSaveable(initialDestination) { mutableStateOf(initialDestination) }
     // Not `rememberSaveable`: a request holds contacts and attachments, which is a parcelable
@@ -645,7 +672,50 @@ fun GridlinkRoot(
     // The pane's emptiness is derived, never assigned. One place decides whether what is open is
     // still real, so the row highlight, the back handler and the pane cannot end up disagreeing.
     val visibleOpenId = openId?.takeIf { it != filedOpenId }
-    val open = visibleOpenId?.let(GridlinkSample::messageById)
+
+    /**
+     * The open message as the cache currently has it, with the fetched body folded in, or null.
+     *
+     * The body is merged here rather than carried on the row because it does not arrive with the
+     * row: a list fetch returns headers and the body is a second call. 🔴 Merged only when the ids
+     * match, per [GridlinkOpenMessage] — a body that lands after the reader has moved on belongs to
+     * a message that is no longer on screen, and pasting it under the current sender and subject
+     * would look completely convincing.
+     */
+    val resolvedOpen = visibleOpenId?.let { id ->
+        if (mail == null) {
+            GridlinkSample.messageById(id)
+        } else {
+            val row = mail.humans.firstOrNull { it.id == id }
+                ?: mail.bundle?.messages?.firstOrNull { it.id == id }
+            val fetched = mail.open?.takeIf { it.id == id }
+            row?.copy(
+                body = fetched?.html.orEmpty(),
+                attachment = fetched?.attachment,
+                // The paperclip stops being a guess the moment the fetch answers. If it said there
+                // is nothing attached, there is nothing attached.
+                attachmentPending = row.attachmentPending && fetched == null,
+            )
+        }
+    }
+
+    /**
+     * The last message that resolved, so a thread survives its own close animation.
+     *
+     * 🔴 Not tidiness. With the sample behind it, [GridlinkSample.messageById] resolves an id
+     * forever, so a thread being closed by its own Archive button kept its content the whole way
+     * off screen. Against a real mailbox the row leaves the cache the instant the archive commits,
+     * which is roughly one frame into a slide that lasts twenty, and without this the user watches
+     * the message they just archived turn into an empty panel and then slide away.
+     *
+     * The [takeIf] is what stops it becoming a leak of the wrong message: it only ever stands in for
+     * the id that is currently open, so closing the thread properly still empties it.
+     */
+    var lastOpen by remember { mutableStateOf<GridlinkMessage?>(null) }
+    SideEffect {
+        if (resolvedOpen != null) lastOpen = resolvedOpen
+    }
+    val open = resolvedOpen ?: lastOpen?.takeIf { it.id == visibleOpenId }
     // 🔴 Against the book rather than the sample, for the same reason [openFolder] resolves against
     // the live tree below: a contact or an event added this run has to be openable, and an id that
     // only the sample can resolve would make the row you just created the one row that does nothing
@@ -733,9 +803,9 @@ fun GridlinkRoot(
      * and is over by the time the list is uncovered, instead of a row visibly vanishing under the
      * user's eyes on a screen they just arrived back at.
      */
-    fun fileOpenThread(id: String) {
+    fun fileOpenThread(id: String, action: GridlinkMailAction) {
         removeNonce += 1
-        removeRequest = GridlinkRemoveRequest(setOf(id), removeNonce)
+        removeRequest = GridlinkRemoveRequest(setOf(id), removeNonce, action)
         closeDetail()
     }
 
@@ -790,15 +860,20 @@ fun GridlinkRoot(
                         GridlinkThreadAction.REPLY_ALL -> composing = gridlinkReplyAllTo(message)
                         GridlinkThreadAction.FORWARD -> composing = gridlinkForward(message)
 
-                        // All three file the message and leave. ⚠️ They are the same code today and they
-                        // must not stay that way: archive moves it, spam moves it AND trains the filter, and
-                        // unsubscribe sends a request first. The list only knows how to make a row leave, so
-                        // that is all any of them can do until there is a server on the other end. What each
-                        // one is *supposed* to do is written down here so the difference is not lost.
-                        GridlinkThreadAction.ARCHIVE,
-                        GridlinkThreadAction.SPAM,
-                        GridlinkThreadAction.UNSUBSCRIBE,
-                        -> fileOpenThread(message.id)
+                        // All three file the message and leave, and they no longer do it under the same
+                        // name. The note that used to sit here said they were identical code and must not
+                        // stay that way: archive moves it, spam moves it AND trains the filter, and
+                        // unsubscribe sends a request first. Each now says which one it is, and what
+                        // actually happens is decided by whoever receives it. ⚠️ Unsubscribe's request is
+                        // still not sent by anyone; the difference is at least no longer lost here.
+                        GridlinkThreadAction.ARCHIVE ->
+                            fileOpenThread(message.id, GridlinkMailAction.ARCHIVE)
+
+                        GridlinkThreadAction.SPAM ->
+                            fileOpenThread(message.id, GridlinkMailAction.SPAM)
+
+                        GridlinkThreadAction.UNSUBSCRIBE ->
+                            fileOpenThread(message.id, GridlinkMailAction.UNSUBSCRIBE)
                     }
                 }
             }
@@ -928,6 +1003,8 @@ fun GridlinkRoot(
                         GridlinkDestination.INBOX -> GridlinkMessageListScreen(
                             destination = destination,
                             onSelectDestination = { destination = it },
+                            mail = mail,
+                            onAction = onMailAction,
                             onCompose = { composing = GridlinkComposeRequest.Fresh },
                             sidePane = readingPane,
                             // Only in two panes. In one, the row that would be marked is underneath a
@@ -947,6 +1024,10 @@ fun GridlinkRoot(
                                 // opened again minutes after being parked, and a stale park would make
                                 // that tap silently do nothing at all.
                                 filedOpenId = null
+                                // Fetches the body, and marks it read on the server. Fired on every
+                                // open including a re-open: the fetch is cached, and a message the
+                                // user marked unread and then opened again is read again.
+                                onOpenMail(message.id)
                                 // 🔴 No animation in two panes. The thread is not travelling anywhere, and
                                 // running the entrance would slide the reading pane in from off-screen every
                                 // time you tapped a different row in a list sitting right next to it.

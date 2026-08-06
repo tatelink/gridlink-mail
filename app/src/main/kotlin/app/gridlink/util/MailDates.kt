@@ -118,6 +118,90 @@ object MailDates {
         return zoned.format(formatter)
     }
 
+    /**
+     * The stamp a **Gridlink** list row carries: today's time, then "Yesterday", then the weekday
+     * for the rest of the week, then [formatListDate]'s two older steps unchanged.
+     *
+     * ## Why this is not [formatListDate]
+     * They answer the same question for two different lists and the Gridlink design gives a
+     * different answer. Its mock stamps a morning's mail "7:14 AM", the day before "Yesterday" and
+     * the days before that "Tue" — a week of mail placed in words, because that list is read as a
+     * timeline with day headings and a numeric date inside it would be reading the wrong register.
+     * [formatListDate] serves upstream's list, which has no headings and goes straight from today's
+     * time to "4 Jul". Neither is wrong; folding them together would make one of the two lists lie
+     * about its own design.
+     *
+     * What they DO share is the far end, and deliberately: past this week both fall back to the same
+     * "d MMM" / short-numeric pair, including the rule that the year appears only once it is not the
+     * current one. A 2019 message reading like a 2026 one is the same bug in either list.
+     *
+     * ## The two parameters that look like they should be constants
+     * [yesterday] is passed in because it is UI text and this file has no resources; the caller
+     * hands over `R.string.gridlink_yesterday` and the nine translations stay in the one place the
+     * parity test can see them. [locale] decides the weekday's spelling and whether the time reads
+     * "7:14 AM" or "07:14" — the language's own short-time pattern, not a hard-coded one, so the
+     * twelve-hour clock in the mock is what en-US gets rather than what everybody gets.
+     *
+     * [today] is the reference day in [zone] for [formatListDate]'s reason: near midnight the
+     * reader's calendar and UTC disagree, and the row must follow the reader's.
+     */
+    fun formatGridlinkStamp(
+        iso: String?,
+        zone: ZoneId = ZoneId.systemDefault(),
+        today: LocalDate = LocalDate.now(zone),
+        locale: Locale = appLocale,
+        yesterday: String = "Yesterday",
+    ): String {
+        val zoned = zoned(iso, zone) ?: return ""
+        val date = zoned.toLocalDate()
+        return when {
+            date == today -> zoned.format(shortTimeFormatter(locale))
+            date == today.minusDays(1) -> yesterday
+            // Strictly inside the last week, and only in the PAST: a message stamped tomorrow (a
+            // sender's clock is wrong, or the mail was scheduled) must not come back as a weekday
+            // that reads like last week's. It falls through to a date, which is at least unambiguous.
+            date.isAfter(today.minusDays(7)) && date.isBefore(today) ->
+                zoned.format(weekdayFormatter.withLocale(locale))
+            date.year == today.year -> zoned.format(dayMonthFormatter.withLocale(locale))
+            else -> zoned.format(shortDateFormatter(locale))
+        }
+    }
+
+    /** "Tue" in the app's language: the short weekday name. */
+    private val weekdayFormatter = DateTimeFormatter.ofPattern("EEE", appLocale)
+
+    /**
+     * "7:14 AM" in en-US, "07:14" in de: the language's own short time.
+     *
+     * Read from the locale rather than written out, for [withTwoDigitYear]'s reason. Whether a
+     * language uses a twelve or twenty-four hour clock is not ours to decide, and a hard-coded
+     * "h:mm a" would stamp German mail "7:14 vorm.".
+     *
+     * ⚠️ Known limit: this follows the LANGUAGE, not Android's own 24-hour toggle. A user in en-US
+     * who has switched their device to 24-hour time still gets "7:14 AM" here. Honouring that
+     * setting means reading `DateFormat.is24HourFormat`, which is an Android type and would cost
+     * this file its JVM-testability; when it matters, the boolean comes in as a parameter.
+     */
+    private val shortTimeFormatters = ConcurrentHashMap<Locale, DateTimeFormatter>()
+
+    private fun shortTimeFormatter(locale: Locale): DateTimeFormatter =
+        shortTimeFormatters.getOrPut(locale) {
+            val localized = DateTimeFormatterBuilder.getLocalizedDateTimePattern(
+                null, FormatStyle.SHORT, IsoChronology.INSTANCE, locale,
+            )
+            DateTimeFormatter.ofPattern(localized, locale)
+        }
+
+    /**
+     * The calendar day [iso] falls on in [zone], or null when it is missing or unreadable.
+     *
+     * For callers that need to compare days rather than print one (the Gridlink list's timeline
+     * headings). Null is a real answer and must stay distinguishable from "today": undated mail is
+     * usually the cache being confused, not something that arrived this second.
+     */
+    fun localDate(iso: String?, zone: ZoneId = ZoneId.systemDefault()): LocalDate? =
+        zoned(iso, zone)?.toLocalDate()
+
     /** [iso] rendered with [formatter] in [zone]; "" when missing or unparseable (never throws). */
     fun formatWith(
         iso: String?,

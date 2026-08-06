@@ -450,6 +450,19 @@ data class GridlinkMessage(
      * disagree.
      */
     val attachment: GridlinkAttachment? = null,
+    /**
+     * The message carries an attachment whose name and size are not known yet.
+     *
+     * 🔴 The one legitimate way to get a paperclip without an [attachment], and it exists because
+     * the cache genuinely knows one fact and not the other: a list fetch asks the server for
+     * `hasAttachment` and nothing else, and the file itself only arrives with the body. Left out,
+     * real mail would either lose the paperclip it has earned or gain a made-up file name to
+     * justify it, and the second of those is the thing the note above exists to prevent.
+     *
+     * So the row shows the clip and the thread lists nothing until the body lands, which is
+     * exactly what is known at each point. Sample data never sets this: it has both facts.
+     */
+    val attachmentPending: Boolean = false,
     /** True for machine-generated senders, which collapse into [GridlinkBundle]. */
     val automated: Boolean = false,
     val section: GridlinkSection = GridlinkSection.AUTOMATED,
@@ -460,8 +473,17 @@ data class GridlinkMessage(
      * §10 table. Nothing should ever construct a [GridlinkMessage] and leave this empty.
      */
     val body: String = "",
+    /**
+     * The sender's real address, off the message's own From header.
+     *
+     * Null for sample data, which has no headers and falls back to the derivation below. Real mail
+     * always sets it, and that is the whole point of the field: the derived form is a guess that
+     * happens to be right about robots and is frequently wrong about people, and a header is not
+     * something to guess at when the message is sitting right there carrying one.
+     */
+    val addressOverride: String? = null,
 ) {
-    val hasAttachment: Boolean get() = attachment != null
+    val hasAttachment: Boolean get() = attachment != null || attachmentPending
 
     /**
      * ⚠️ Derived, and invented in the same way the domains are.
@@ -478,7 +500,8 @@ data class GridlinkMessage(
      * [GridlinkSampleContacts.forSender] for how the match is made and why it is not string equality.
      */
     val address: String
-        get() = GridlinkSampleContacts.forSender(sender, domain)?.email
+        get() = addressOverride
+            ?: GridlinkSampleContacts.forSender(sender, domain)?.email
             ?: if (automated) {
                 "no-reply@$domain"
             } else {

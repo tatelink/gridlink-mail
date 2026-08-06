@@ -249,7 +249,13 @@ private fun GridlinkThreadSender(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = "to $GRIDLINK_SAMPLE_ACCOUNT",
+                // 🔴 The signed-in address, not a constant. This line used to read the sample's,
+                // which on a real account would have every message in the mailbox claim it was
+                // addressed to somebody else — on the one screen whose job is to let you check
+                // exactly that. It is still an approximation: it says who is READING, not what the
+                // To header holds, so a message received via a list or a bcc says "to <you>"
+                // because that is what the cache knows. The real recipients arrive with the body.
+                text = "to " + LocalGridlinkChrome.current.config.account,
                 style = GridlinkType.metadata,
                 color = colors.textSecondary,
                 maxLines = 1,

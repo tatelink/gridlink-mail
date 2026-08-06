@@ -73,7 +73,18 @@ private const val GRIDLINK_RECYCLE_DELAY_MS = 1400L
  * the second one is the same key and never runs.
  */
 @Immutable
-data class GridlinkRemoveRequest(val ids: Set<String>, val nonce: Int)
+data class GridlinkRemoveRequest(
+    val ids: Set<String>,
+    val nonce: Int,
+    /**
+     * Why they are leaving, so the list can report it on through `onAction`.
+     *
+     * ⚠️ Defaulted, and the default is the honest one: something asked for a row to go and did not
+     * say why, and archive is the only filing that is safe to assume. Defaulting to a delete would
+     * turn a caller's omission into destroyed mail.
+     */
+    val action: GridlinkMailAction = GridlinkMailAction.ARCHIVE,
+)
 
 /**
  * How long the "mark read" rewrite waits after a row is removed, so the recomposition it forces
@@ -81,6 +92,17 @@ data class GridlinkRemoveRequest(val ids: Set<String>, val nonce: Int)
  * cost of getting this wrong. Comfortably longer than `GridlinkMotion.rowCollapse()` needs.
  */
 private const val GRIDLINK_MARK_READ_DELAY_MS = 260L
+
+/**
+ * The bundle a real account gets when nothing in its inbox is automated: no children, so nothing
+ * draws it. Exists so the list never falls back to [GridlinkSample.reportsBundle] over real mail.
+ */
+private val GRIDLINK_NO_BUNDLE = GridlinkBundle(
+    title = "Automated",
+    unreadCount = 0,
+    senderSummary = "",
+    messages = emptyList(),
+)
 
 /**
  * How far down the panel the pull indicator comes to rest.
@@ -146,6 +168,27 @@ fun GridlinkMessageListScreen(
     destination: GridlinkDestination,
     onSelectDestination: (GridlinkDestination) -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * The account's actual mail, or null to draw [GridlinkSample]'s.
+     *
+     * 🔴 Null means "nobody is supplying mail", NOT "there is no mail". See [GridlinkMailContent].
+     * A real account with an empty inbox supplies a content with empty lists and gets the empty
+     * state; collapsing the two would show a stranger's sample mail in a fresh mailbox.
+     *
+     * ## 🔴 This screen still OWNS its two lists, and that is not laziness
+     * The obvious shape is to read `mail.humans` directly everywhere and delete the local state. It
+     * cannot work here. A row that has just been archived has to stay in the list, at its position,
+     * with zero height, until the collapse animation finishes and the write reaches the database and
+     * the flow emits without it. Rendering straight from the flow would delete the row from the
+     * LazyColumn on the frame the write lands, which is somewhere in the middle of its own exit, and
+     * the gap would snap shut instead of closing.
+     *
+     * So the flow SEEDS the lists and re-seeds them on every emission (the database is the truth,
+     * and an optimistic edit that the server rejects is corrected within a frame of the correction
+     * arriving), while [removedIds] stays local and survives the re-seed. A row that is mid-exit and
+     * arrives again in the next emission is still mid-exit.
+     */
+    mail: GridlinkMailContent? = null,
     initiallyExpanded: Boolean = false,
     /** Screen-capture hook: lets the gallery open straight into a selection without a long-press. */
     initiallySelected: Set<String> = emptySet(),
@@ -238,6 +281,26 @@ fun GridlinkMessageListScreen(
      * something in the list" is the fact being published, not "a row left".
      */
     onFiled: (Set<String>) -> Unit = {},
+    /**
+     * What the user just asked to have done to some messages, and to which ones.
+     *
+     * ## Why this exists beside [onFiled] rather than replacing it
+     * They answer different questions and only one of them is about the server. [onFiled] means "the
+     * reading pane may now be showing something that left the list", which is a layout fact, and it
+     * deliberately stays silent for a [removeRequest] the pane itself initiated. This one means "go
+     * and do it", and it has to fire for mark-read and mark-unread as well, neither of which files
+     * anything. Folding them together would either send the pane-clearing signal on a mark-read or
+     * skip the server write on a thread-initiated archive.
+     *
+     * 🔴 Fires for a [removeRequest] too, unlike [onFiled]. The thread's Archive button asks this
+     * screen to remove the row precisely because this screen is where filing means something; the
+     * button itself does not write to a mailbox and must not start.
+     *
+     * ⚠️ The default is a no-op, so the gallery and any preview drop every action on the floor and
+     * the rows still animate out. That is right for a sample and wrong for an account, which is why
+     * the whole of this is opt-in from above rather than reached out for from in here.
+     */
+    onAction: (Set<String>, GridlinkMailAction) -> Unit = { _, _ -> },
     onOpenMessage: (GridlinkMessage) -> Unit = {},
     onCompose: () -> Unit = {},
 ) {
@@ -278,16 +341,45 @@ fun GridlinkMessageListScreen(
     // express position. Read and unread now live in the list itself, where they belong, and the one
     // surviving override is the one that is genuinely transient.
     var humans by remember {
-        mutableStateOf(if (initiallyEmpty) emptyList() else GridlinkSample.humanMessages)
+        mutableStateOf(
+            when {
+                mail != null -> mail.humans
+                initiallyEmpty -> emptyList()
+                else -> GridlinkSample.humanMessages
+            },
+        )
     }
     var robots by remember {
-        mutableStateOf(if (initiallyEmpty) emptyList() else GridlinkSample.reportsBundle.messages)
+        mutableStateOf(
+            when {
+                mail != null -> mail.bundle?.messages.orEmpty()
+                initiallyEmpty -> emptyList()
+                else -> GridlinkSample.reportsBundle.messages
+            },
+        )
     }
 
     // The single remaining override: ids that are mid-disappearance. Not "deleted" — the message is
     // still in the list above, it is simply being animated out. Keeping it in the list is what lets
     // the recycle loop hoist it while it is invisible and then let it animate back in.
     var removedIds by remember { mutableStateOf(emptySet<String>()) }
+
+    // Re-seed from the cache whenever it changes. See the 🔴 on [mail] for why this screen holds
+    // copies at all rather than rendering the flow directly.
+    //
+    // 🔴 [removedIds] is filtered against what arrived rather than cleared. Cleared, an archive would
+    // un-hide its own row the instant any unrelated message landed, halfway through the collapse.
+    // Left untouched, it would grow for the life of the screen and hide a message that came back
+    // (moved back on another device, or an undo) permanently and invisibly. Intersecting keeps
+    // exactly the rows that are both still present and still on their way out.
+    LaunchedEffect(mail) {
+        val content = mail ?: return@LaunchedEffect
+        val bundled = content.bundle?.messages.orEmpty()
+        humans = content.humans
+        robots = bundled
+        val present = (content.humans + bundled).mapTo(mutableSetOf()) { it.id }
+        removedIds = removedIds intersect present
+    }
 
     // 🔴 ONE animation for the whole list. Every row, every section label and every divider reads
     // this same value, so the list slides as a single sheet. Per-row animations off a Boolean would
@@ -324,6 +416,10 @@ fun GridlinkMessageListScreen(
             // visible under the opening thread, which is the frame that makes the two feel like one
             // action; doing it on close means the list changes under a screen you are looking away
             // from and the row appears to have changed by itself.
+            //
+            // 🔴 No [onAction] here, on purpose. Opening a message is what marks it read on the
+            // server, and that write rides on the body fetch [onOpenMessage] triggers. Reporting it
+            // separately would send two writes for one tap, and the second would race the first.
             if (message.unread) {
                 edit(setOf(message.id)) { it.copy(unread = false) }
             }
@@ -412,10 +508,23 @@ fun GridlinkMessageListScreen(
         when (action) {
             // Deliberately NOT reported through [onFiled]. Marking unread leaves the row exactly
             // where it is, so a reading pane showing it is still showing something that exists.
-            GridlinkSwipeAction.MARK_UNREAD -> edit(ids) { it.copy(unread = true) }
+            // It IS reported through [onAction]: the server has to be told, the pane does not.
+            GridlinkSwipeAction.MARK_UNREAD -> {
+                edit(ids) { it.copy(unread = true) }
+                onAction(ids, GridlinkMailAction.MARK_UNREAD)
+            }
+
             GridlinkSwipeAction.ARCHIVE, GridlinkSwipeAction.DELETE -> {
                 remove(ids)
                 onFiled(ids)
+                onAction(
+                    ids,
+                    if (action == GridlinkSwipeAction.DELETE) {
+                        GridlinkMailAction.DELETE
+                    } else {
+                        GridlinkMailAction.ARCHIVE
+                    },
+                )
             }
         }
     }
@@ -433,10 +542,21 @@ fun GridlinkMessageListScreen(
             -> {
                 remove(ids)
                 onFiled(ids)
+                // 🔴 Move is reported AS a move and not quietly as an archive. Whoever receives it
+                // can say it is not wired yet; it must not pick a mailbox on the user's behalf.
+                onAction(
+                    ids,
+                    when (action) {
+                        GridlinkSelectionAction.DELETE -> GridlinkMailAction.DELETE
+                        GridlinkSelectionAction.MOVE -> GridlinkMailAction.MOVE
+                        else -> GridlinkMailAction.ARCHIVE
+                    },
+                )
             }
 
             GridlinkSelectionAction.MARK_READ -> {
                 edit(ids) { it.copy(unread = false) }
+                onAction(ids, GridlinkMailAction.MARK_READ)
                 // Cleared, so the bar morphs back. The alternative is a selection still ticked over
                 // rows that no longer respond to the action you just used, which reads as a no-op.
                 selectedIds = emptySet()
@@ -448,10 +568,26 @@ fun GridlinkMessageListScreen(
     // the ids alone, archiving a message, letting the demo recycle bring it back and archiving it
     // again would be the same key twice in a row and the second one would silently do nothing.
     LaunchedEffect(removeRequest) {
-        removeRequest?.let { remove(it.ids) }
+        removeRequest?.let {
+            remove(it.ids)
+            // 🔴 Reported, unlike [onFiled]. The thread posted this request BECAUSE this screen is
+            // where filing means something; if the write did not happen here it would not happen at
+            // all, and the thread's Archive button would be a row disappearing and nothing else.
+            onAction(it.ids, it.action)
+        }
     }
 
-    val bundleTemplate = remember { GridlinkSample.reportsBundle }
+    // Title, sender summary and the phantom count come from whoever supplied the mail; only the
+    // unread number is recomputed below, so swipes move it.
+    //
+    // 🔴 The fallback when a real account has no automated mail is an EMPTY bundle, not the sample's.
+    // Nothing draws it (`bundleGone` is true with no children, so the row is invisible and the count
+    // is forced to zero), but the sample's would be sitting there with "Reports" and a phantom 14 on
+    // it, one changed condition away from appearing over somebody's real inbox.
+    val bundleTemplate = when {
+        mail != null -> mail.bundle ?: GRIDLINK_NO_BUNDLE
+        else -> GridlinkSample.reportsBundle
+    }
 
     // A bundle is not a message, so its circle can only mean "everything inside it". Selected when
     // all of its children are, which also means unticking one child unticks the bundle.
@@ -459,6 +595,11 @@ fun GridlinkMessageListScreen(
     val bundleSelected = selecting && selectedIds.containsAll(bundleIds)
 
     fun isPresent(message: GridlinkMessage) = message.id !in removedIds
+
+    // Either source can say it does not have the mail yet: the harness flag, or the account whose
+    // first read of the cache has not returned. ORed rather than replaced so the gallery's skeleton
+    // screenshot still works with a real account signed in behind it.
+    val awaitingMail = loading || mail?.loading == true
 
     // The bundle declares more unread than it carries children: §5's mock reads "14 new" against a
     // shorter sample list. That surplus is content the mock does not have rows for, so it comes in
@@ -504,7 +645,7 @@ fun GridlinkMessageListScreen(
                 // off lists this screen already holds, so it would happily render "21 unread" over
                 // a panel of blank placeholders: a number the app cannot have yet, sitting above
                 // the component whose entire job is to admit it does not have the mail.
-                unread = if (loading) 0 else unreadCount,
+                unread = if (awaitingMail) 0 else unreadCount,
                 selectedCount = selectedIds.size,
                 // 🔴 Hidden while selecting. A search field and a selection are two different
                 // modes of the same list, and offering both at once invites you to start one and
@@ -538,7 +679,7 @@ fun GridlinkMessageListScreen(
                     // there are no rows to drag. It is also already refreshing, and a pull that
                     // starts a second fetch on top of the first is a gesture that can only make
                     // things worse.
-                    enabled = hasMail && !loading,
+                    enabled = hasMail && !awaitingMail,
                     onRefresh = {
                         scope.launch {
                             refreshing = true
@@ -564,7 +705,7 @@ fun GridlinkMessageListScreen(
             // request look identical from inside this Box. Tested first, the skeleton wins for as
             // long as the answer is genuinely unknown, and the empty state only ever draws once the
             // server has actually said there is nothing.
-            if (loading) {
+            if (awaitingMail) {
                 GridlinkListSkeleton()
                 return@Box
             }

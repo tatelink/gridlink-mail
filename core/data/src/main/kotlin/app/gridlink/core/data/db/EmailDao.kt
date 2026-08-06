@@ -320,6 +320,35 @@ interface EmailDao {
     fun cachedThreadEmails(accountId: String, mailboxIds: List<String>, threadKey: String): Flow<List<EmailEntity>>
 
     /**
+     * The newest [limit] cached messages of one mailbox, observed.
+     *
+     * ## Why a bounded list and not the pager
+     * The list this feeds ([app.gridlink.ui.gridlink.GridlinkMessageListScreen]) holds its mail as
+     * two plain lists it owns and reorders — the automated bundle sits ABOVE the timeline rather
+     * than inside it, and a filed row is animated out of a list the screen is mutating. Paging
+     * hands out a stream that owns its own ordering and cannot be reordered from the UI, so
+     * driving that screen from a `PagingData` would mean re-deriving the split and the removal
+     * animation on every page emission. A window is the shape that screen actually wants.
+     *
+     * ⚠️ Which makes [limit] a real product limit, not a page size: mail older than the newest
+     * [limit] rows is not reachable by scrolling, because there is nothing below to reach. The
+     * caller sizing it is the one that owes the user a way past it (see
+     * `MailRepository.observeMailboxWindow`).
+     *
+     * Snoozed messages are excluded, matching every other read of this table: a snoozed message
+     * is deliberately out of sight until its time comes, and a second list that ignored that
+     * would put it back on screen with no explanation.
+     */
+    @Query(
+        "SELECT * FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId " +
+            "AND NOT EXISTS (SELECT 1 FROM snoozed WHERE snoozed.emailId = emails.id " +
+            "AND snoozed.accountId = emails.accountId AND snoozed.until > " +
+            "(CAST(strftime('%s','now') AS INTEGER) * 1000)) " +
+            "ORDER BY sortKey DESC LIMIT :limit",
+    )
+    fun observeMailboxWindow(accountId: String, mailboxId: String, limit: Int): Flow<List<EmailEntity>>
+
+    /**
      * Per-folder count of unread THREADS (the conversation-mode drawer badge): one row per
      * (accountId, mailboxId) with the number of threads whose in-folder part has an unread
      * member. Mirrors the collapsed list's folder-scoped sub-query `g` in
