@@ -53,6 +53,8 @@ data class SettingsBackup(
     val unreadTint: Boolean? = null,
     /** Whether the dark theme sits on a black background, for OLED panels (#117). */
     val pureBlack: Boolean? = null,
+    /** Whether each message-list row starts with the sender's coloured initials (#144). */
+    val listMonogram: Boolean? = null,
     /** [DeliveryMode] name (Instant / Battery saver). */
     val deliveryMode: String? = null,
     val notificationContent: String? = null,

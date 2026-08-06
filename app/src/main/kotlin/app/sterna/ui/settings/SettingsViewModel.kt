@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.sterna.container
 import app.sterna.core.data.account.K9SettingsImporter
+import app.sterna.core.data.settings.LIST_MONOGRAM_DEFAULT
 import app.sterna.core.data.settings.ListDensity
 import app.sterna.core.data.settings.MessageTextSize
 import app.sterna.core.data.settings.PreviewLines
@@ -93,6 +94,19 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun setPureBlack(enabled: Boolean) {
         viewModelScope.launch { settings.setPureBlack(enabled) }
+    }
+
+    // LIST_MONOGRAM_DEFAULT for the first frame, like the two above and for the same reason: a
+    // literal here would be a fourth copy of the default, free to disagree with the repository for
+    // as long as DataStore takes to answer — the switch would show the wrong position on entry.
+    val listMonogram = settings.listMonogram.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = LIST_MONOGRAM_DEFAULT,
+    )
+
+    fun setListMonogram(enabled: Boolean) {
+        viewModelScope.launch { settings.setListMonogram(enabled) }
     }
 
     val swipeRight = settings.swipeRightAction.stateIn(

@@ -419,6 +419,7 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val previewLines by viewModel.previewLines.collectAsStateWithLifecycle()
     val unreadTint by viewModel.unreadTint.collectAsStateWithLifecycle()
     val pureBlack by viewModel.pureBlack.collectAsStateWithLifecycle()
+    val listMonogram by viewModel.listMonogram.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var language by remember { mutableStateOf(currentAppLanguage()) }
     DetailScaffold(title = stringResource(R.string.settings_appearance_screen_title), onBack = onBack) { padding ->
@@ -492,6 +493,12 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     subtitle = stringResource(R.string.settings_unread_tint_subtitle),
                     checked = unreadTint,
                     onCheckedChange = viewModel::setUnreadTint,
+                )
+                SettingSwitch(
+                    title = stringResource(R.string.settings_list_monogram_title),
+                    subtitle = stringResource(R.string.settings_list_monogram_subtitle),
+                    checked = listMonogram,
+                    onCheckedChange = viewModel::setListMonogram,
                 )
             }
         }

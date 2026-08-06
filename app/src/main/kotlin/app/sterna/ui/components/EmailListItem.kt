@@ -260,11 +260,18 @@ fun EmailListItem(
             .padding(start = 16.dp, end = 4.dp, top = rowPadding, bottom = rowPadding),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Monogram(
-            seed = (recipient ?: email.from.firstOrNull())?.email ?: senderName,
-            label = recipient?.display() ?: senderName,
-        )
-        Spacer(Modifier.width(12.dp))
+        // The initials are the reader's to remove (#144): on SimpleLogin-style mail nobody has an
+        // avatar and the column is a stack of identical circles. The Spacer is INSIDE the guard —
+        // left outside, its 12 dp would add to the Row's own padding(start = 16.dp) and leave a
+        // dead band at the start of every row with nothing in it. The setting is read here rather
+        // than passed in, so all three call sites of this row follow it by construction.
+        if (LocalListMonogram.current) {
+            Monogram(
+                seed = (recipient ?: email.from.firstOrNull())?.email ?: senderName,
+                label = recipient?.display() ?: senderName,
+            )
+            Spacer(Modifier.width(12.dp))
+        }
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(

@@ -118,6 +118,16 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_PURE_BLACK] = enabled }
     }
 
+    /** Whether a message-list row starts with the sender's coloured initials (#144). ON by default
+     *  — it is what the app does today. Off, the row starts at its own left padding and the name,
+     *  subject and preview take the width back; nothing else about the row changes, and no other
+     *  monogram in the app (the reader, the drawer, the account picker) is touched. */
+    val listMonogram: Flow<Boolean> = dataStore.data.map(::listMonogramFrom)
+
+    suspend fun setListMonogram(enabled: Boolean) {
+        dataStore.edit { it[KEY_LIST_MONOGRAM] = enabled }
+    }
+
     val swipeRightAction: Flow<SwipeAction> = swipeFlow(KEY_SWIPE_RIGHT, SwipeAction.TOGGLE_READ)
     val swipeLeftAction: Flow<SwipeAction> = swipeFlow(KEY_SWIPE_LEFT, SwipeAction.DELETE)
 
@@ -341,6 +351,7 @@ class SettingsRepository(context: Context) {
         replyBar = replyBar.first(),
         unreadTint = unreadTint.first(),
         pureBlack = pureBlack.first(),
+        listMonogram = listMonogram.first(),
         deliveryMode = deliveryMode.first().name,
         notificationContent = notificationContent.first().name,
     )
@@ -373,6 +384,7 @@ class SettingsRepository(context: Context) {
         backup.replyBar?.let { setReplyBar(it) }
         backup.unreadTint?.let { setUnreadTint(it) }
         backup.pureBlack?.let { setPureBlack(it) }
+        backup.listMonogram?.let { setListMonogram(it) }
         backup.deliveryMode?.let { v -> runCatching { DeliveryMode.valueOf(v) }.getOrNull()?.let { setDeliveryMode(it) } }
         backup.notificationContent?.let { v -> runCatching { NotificationContent.valueOf(v) }.getOrNull()?.let { setNotificationContent(it) } }
     }
@@ -516,3 +528,25 @@ const val PURE_BLACK_DEFAULT = false
  * it an empty store, a store with the switch on, and one with it off.
  */
 internal fun pureBlackFrom(prefs: Preferences): Boolean = prefs[KEY_PURE_BLACK] ?: PURE_BLACK_DEFAULT
+
+/** The key the sender-initials switch is stored under. Renaming it puts the initials back for every
+ *  user who has removed them, so it is pinned by name in [listMonogramFrom]'s test. */
+internal val KEY_LIST_MONOGRAM = booleanPreferencesKey("list_monogram")
+
+/**
+ * What a message-list row does when nobody has touched the switch: show the sender's initials, which
+ * is what the app does today (#144). One definition, read by [listMonogramFrom], by the settings
+ * screen's initial value, by the activity's first frame and by the CompositionLocal's own fallback —
+ * the last three are the copies that make a literal here dangerous.
+ */
+const val LIST_MONOGRAM_DEFAULT = true
+
+/**
+ * Whether message-list rows start with the sender's initials, read from the stored preferences.
+ *
+ * The LOOKUP is in here and not in the flow, for the reason spelled out on [replyBarFrom]: given
+ * the whole [Preferences] there is no way to defeat the default from outside, and the test can hand
+ * it an empty store, a store with the switch on, and one with it off.
+ */
+internal fun listMonogramFrom(prefs: Preferences): Boolean =
+    prefs[KEY_LIST_MONOGRAM] ?: LIST_MONOGRAM_DEFAULT

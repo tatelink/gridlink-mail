@@ -272,6 +272,8 @@
     <string name="settings_preview_title">Podgląd</string>
     <string name="settings_unread_tint_title">Tło nieprzeczytanych wiadomości</string>
     <string name="settings_unread_tint_subtitle">Nieprzeczytane wiadomości otrzymują własne tło, oprócz pogrubionego tekstu.</string>
+    <string name="settings_list_monogram_title">Pokaż inicjały nadawcy</string>
+    <string name="settings_list_monogram_subtitle">Kolorowe kółko na początku każdego wiersza listy wiadomości.</string>
     <string name="settings_theme_auto">Automatyczny</string>
     <string name="settings_theme_light">Jasny</string>
     <string name="settings_theme_dark">Ciemny</string>

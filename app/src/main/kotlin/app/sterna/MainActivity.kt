@@ -11,6 +11,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.appcompat.app.AppCompatActivity
+import app.sterna.core.data.settings.LIST_MONOGRAM_DEFAULT
 import app.sterna.core.data.settings.ListDensity
 import app.sterna.core.data.settings.PreviewLines
 import app.sterna.core.data.settings.PURE_BLACK_DEFAULT
@@ -19,6 +20,7 @@ import app.sterna.core.data.settings.UNREAD_TINT_DEFAULT
 import app.sterna.ui.SternaApp
 import app.sterna.ui.message.NavFadeGuard
 import app.sterna.ui.components.LocalListDensity
+import app.sterna.ui.components.LocalListMonogram
 import app.sterna.ui.components.LocalPreviewLines
 import app.sterna.ui.components.LocalUnreadTint
 import app.sterna.ui.theme.SternaTheme
@@ -55,6 +57,9 @@ class MainActivity : AppCompatActivity() {
             // exists in three places (see LocalListDensity), and a literal that drifts from the
             // repository's flashes the wrong list on every launch.
             val unreadTint by settings.unreadTint.collectAsState(initial = UNREAD_TINT_DEFAULT)
+            // LIST_MONOGRAM_DEFAULT, not a literal, for the same reason: a literal here that drifts
+            // from the repository's flashes a list with the wrong start column on every launch.
+            val listMonogram by settings.listMonogram.collectAsState(initial = LIST_MONOGRAM_DEFAULT)
             // PURE_BLACK_DEFAULT, not a literal, for the same reason as the line above: this is the
             // first frame's copy of a default that also lives in the repository and the view model,
             // and one that drifts repaints the whole theme a frame after launch.
@@ -64,6 +69,7 @@ class MainActivity : AppCompatActivity() {
                     LocalListDensity provides density,
                     LocalPreviewLines provides previewLines,
                     LocalUnreadTint provides unreadTint,
+                    LocalListMonogram provides listMonogram,
                 ) {
                     SternaApp(
                         pendingMailto = pendingMailto.value,
