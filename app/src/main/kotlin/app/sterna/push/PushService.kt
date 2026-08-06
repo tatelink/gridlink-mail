@@ -107,6 +107,11 @@ class PushService : Service() {
         // served by their endpoint (issue #17) and hold no direct connection here.
         val accounts = watched.filter { store.notificationsEnabled(it.id) && !up.isActive(it.id) }
         if (accounts.isEmpty()) {
+            // The one arm that ends without even a summary line: nothing to watch, so the service
+            // stops. Legitimate (every account opted out, or all of them ride UnifiedPush) and also
+            // what a credential that failed to decrypt looks like from here — AccountStore returns
+            // no credentials and says nothing. Say which of the two it is.
+            Log.i(TAG, PushController.nothingToWatchLine(watched.size))
             stopSelf()
             return
         }
@@ -124,12 +129,21 @@ class PushService : Service() {
         // stale entry behind.
         groups.forEach { (loginId, group) -> group.forEach { carriedBy[it.id] = loginId } }
         groups.forEach { (loginId, group) -> watch(loginId, group, gen, userInitiated) }
-        Log.i(TAG, "Watching ${accounts.size} account(s) over ${groups.size} connection(s) for new mail")
+        // Every watch() above has returned, so [connections] holds every handle this arm came away
+        // with — which is not the same claim as "this many sockets are up"; the summary's own doc
+        // in [PushController] spells out what a held handle does and does not prove.
+        Log.i(TAG, PushController.armSummary(accounts.size, groups.size, connections.size))
     }
 
     /** (Re)establish the single push connection for one login and fan changes out to its accounts. */
     private suspend fun watch(loginId: String, group: List<AccountCredentials>, gen: Int, userInitiated: Boolean) {
-        if (gen != generation) return
+        // The guard is unchanged: an arm from a retired generation must not open a socket. What is
+        // new is that it says so — dropped here, this login ended with no connection and nothing
+        // rescheduled, and used to leave logcat looking exactly like a healthy push. Read the
+        // generation ONCE: printing a second read would let the line claim two equal numbers while
+        // saying it gave up.
+        val current = generation
+        if (gen != current) { Log.w(TAG, PushController.abandonedArmLine(loginId, gen, current)); return }
         val repo = application.container.mailRepository
         val currentId = application.container.accountStore.currentId()
         val unified = PushController.unifiedInboxVisible
@@ -174,11 +188,17 @@ class PushService : Service() {
     private fun scheduleReconnect(loginId: String, group: List<AccountCredentials>, gen: Int) {
         scope.launch {
             delay(RECONNECT_DELAY_MS)
-            if (gen == generation) {
+            // Read once, same reason as the arm guard above.
+            val current = generation
+            if (gen == current) {
                 Log.i(TAG, "Reconnecting push for login $loginId")
                 runCatching { connections.remove(loginId)?.close() }
                 // Never user-initiated: a reconnect must announce the gap's mail, not swallow it.
                 watch(loginId, group, gen, userInitiated = false)
+            } else {
+                // Dropping the retry is correct here, and it is also the end of this login's push
+                // for this generation — the only trace it leaves is this line.
+                Log.w(TAG, PushController.abandonedReconnectLine(loginId, gen, current))
             }
         }
     }

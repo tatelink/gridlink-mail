@@ -106,6 +106,59 @@ object PushController {
     fun isWatched(accountId: String, currentId: String?, pushAllAccounts: Boolean): Boolean =
         pushAllAccounts || accountId == currentId
 
+    /**
+     * The one line the service writes to logcat when an arm finishes: what was ASKED FOR and what
+     * it came away with, never one standing in for the other. [logins] is the number of login groups
+     * the arm tried to connect (one connection per login, issue #31); [held] is how many connection
+     * handles it still holds afterwards.
+     *
+     * [held] is deliberately NOT called "open", and the difference is not pedantry. A handle is
+     * recorded when the transport hands one back, which on IMAP IDLE happens before the connect
+     * attempt starts (the session opens on the connection's own thread) and on a JMAP EventSource
+     * before the server has answered. What [held] rules out is the case this line exists for: a
+     * login whose arm never got that far — offline, a refused session, a retired generation — where
+     * the count drops to 0 while the requested count stays up. On JMAP that covers an offline arm,
+     * since the session and mailbox fetch that precede the EventSource are blocking.
+     *
+     * Pure so the wording is pinned by unit tests: this string is read as evidence when diagnosing
+     * a report, and no reader should be able to infer from it a connection that was never asked for.
+     */
+    fun armSummary(accounts: Int, logins: Int, held: Int): String =
+        "Push armed for $accounts account(s): $logins login connection(s) requested, $held held"
+
+    /**
+     * The line the service writes when an arm finds nothing to watch and stops itself. This is the
+     * one arm that ends without even a summary — no connection, no reschedule, no service — and it
+     * has two very different causes that look identical from here: every account legitimately opted
+     * out or served by UnifiedPush, or credentials that never materialised. [candidates] is how many
+     * accounts were considered before the filter, so a zero there says the second thing.
+     */
+    fun nothingToWatchLine(candidates: Int): String =
+        "Push arm found nothing to watch: 0 of $candidates account(s) need a direct connection, stopping"
+
+    /**
+     * The line the service writes when it drops an arm because the generation moved on. The guard
+     * itself is right — a socket opened for a retired generation would be a leak after an account
+     * switch — but giving up used to cost nothing in logcat, so a service holding no connection at
+     * all was indistinguishable from a healthy one. Both generations are printed, the arm's and the
+     * service's: only their difference says WHY it was dropped, and one number alone cannot.
+     *
+     * [loginId] is the internal account/login id (a UUID from [AccountStore], or the login's UUID
+     * for a grouped sub-account), never an address or a credential — a reporter's logcat is pasted
+     * in public. Pure, so the wording is pinned by unit tests rather than re-derived here.
+     */
+    fun abandonedArmLine(loginId: String, gen: Int, current: Int): String =
+        "Stale push arm abandoned for login $loginId (generation $gen, service is at $current)"
+
+    /**
+     * Same renouncement, one step later: a reconnect that was scheduled, waited, and found its
+     * generation retired. Worded differently from [abandonedArmLine] on purpose — the two are
+     * distinct events (nothing was ever opened vs. a pending retry dropped) and a logcat reader has
+     * only the sentence to tell them apart.
+     */
+    fun abandonedReconnectLine(loginId: String, gen: Int, current: Int): String =
+        "Stale push reconnect abandoned for login $loginId (generation $gen, service is at $current)"
+
     /** The read-only status line for one account (hidden by UI when notifications are off). */
     fun statusFor(context: Context, accountId: String): PushStatus {
         val container = (context.applicationContext as Application).container

@@ -2,6 +2,7 @@ package app.sterna
 
 import android.app.Application
 import android.content.Context
+import android.util.Log
 import app.sterna.core.data.DataFactory
 import app.sterna.core.data.account.AccountStore
 import app.sterna.core.data.mail.BodyCachePurge
@@ -31,7 +32,13 @@ class AppContainer(context: Context) {
 
     val accountStore: AccountStore = AccountStore(context.applicationContext)
     val settingsRepository: SettingsRepository = SettingsRepository(context.applicationContext)
-    private val jmapClient: JmapClient = JmapClient()
+    /** `core/jmap` is plain Kotlin/JVM and cannot see `android.util.Log`, so the app hands it the
+     *  sink. The tag below is byte-for-byte half of the `adb logcat -s PushService:* JmapClient:*`
+     *  filter already given to reporters, and is pinned by a test. Info/warn levels only —
+     *  proguard-rules.pro strips debug and verbose in release, which is what reporters run. */
+    private val jmapClient: JmapClient = JmapClient { message, error ->
+        if (error == null) Log.i("JmapClient", message) else Log.w("JmapClient", message, error)
+    }
 
     /** OpenPGP via the OpenKeychain provider (binds lazily; harmless when not installed). */
     val pgpEngine: OpenKeychainPgpEngine = OpenKeychainPgpEngine(context.applicationContext)

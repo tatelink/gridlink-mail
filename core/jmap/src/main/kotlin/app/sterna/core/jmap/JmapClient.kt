@@ -65,9 +65,16 @@ import java.util.concurrent.TimeUnit
 class JmapClient internal constructor(
     private val httpClient: OkHttpClient,
     private val json: Json,
+    /**
+     * Where the few push-connection lines go. Silent by default so this module keeps no logging
+     * dependency (it is plain Kotlin/JVM: `android.util.Log` is not on its classpath and must not
+     * get there); the app passes a lambda that writes to logcat. Second argument is the failure
+     * cause when there is one.
+     */
+    private val log: (String, Throwable?) -> Unit = { _, _ -> },
 ) {
     /** Public constructor for app code — uses a default OkHttp client. */
-    constructor() : this(defaultHttpClient(), DefaultJson)
+    constructor(log: (String, Throwable?) -> Unit = { _, _ -> }) : this(defaultHttpClient(), DefaultJson, log)
 
     /** GET the Session resource and parse it (RFC 8620 §2). */
     suspend fun fetchSession(sessionUrl: String, auth: JmapAuth): JmapSession =
@@ -2177,14 +2184,33 @@ class JmapClient internal constructor(
         val sseClient = httpClient.newBuilder()
             .readTimeout(PING_SECONDS + 30L, TimeUnit.SECONDS)
             .build()
+        // The life of this connection is the one thing a bug report needs and the app cannot
+        // observe from outside: opened, closed, or dead — and why. Three lines, and only the
+        // origin of the URL: what a reporter pastes in public must not carry the credential the
+        // query or the userinfo can hold (the header is never logged at all).
+        val origin = eventSourceOrigin(url)
+        // Every log call is wrapped: the sink comes from the caller, and a sink that throws must
+        // never cost the reconnect below it. Diagnosing a dead push is worth a line, not the push.
+        runCatching { log("event source: opening to $origin", null) }
         val listener = object : EventSourceListener() {
             override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
                 runCatching { json.decodeFromString<StateChange>(data) }.getOrNull()?.let(onStateChange)
             }
 
-            override fun onClosed(eventSource: EventSource) = onClosed()
+            override fun onClosed(eventSource: EventSource) {
+                runCatching { log("event source: closed by $origin", null) }
+                onClosed()
+            }
 
-            override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) = onClosed()
+            override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
+                // A refused connection arrives with no throwable at all, only the response — an
+                // expired token answering 401 on the SSE endpoint is the likeliest of those, and
+                // "failed" with nothing after it would say no more than the silence it replaces.
+                // The status code, and only the status code: headers and body are never touched.
+                val status = response?.let { " (HTTP ${it.code})" } ?: ""
+                runCatching { log("event source: failed for $origin$status", t) }
+                onClosed()
+            }
         }
         val eventSource = EventSources.createFactory(sseClient).newEventSource(request, listener)
         return Closeable { eventSource.cancel() }
