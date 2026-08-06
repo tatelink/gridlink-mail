@@ -795,6 +795,8 @@
     <string name="settings_theme_sterna_caption">Sterna-Palette: Arctic (hell) · Pelagic (dunkel).</string>
     <string name="settings_dynamic_color_title">Material You-Farben</string>
     <string name="settings_dynamic_color_subtitle">Farben aus deinem Hintergrundbild statt der Sterna-Palette verwenden (Android 12+).</string>
+    <string name="settings_pure_black_title">Schwarzer Hintergrund</string>
+    <string name="settings_pure_black_subtitle">Das dunkle Design auf einen schwarzen Hintergrund stellen, für OLED-Bildschirme. Erhöhte Flächen bleiben etwas heller; das helle Design ändert sich nicht.</string>
     <string name="empty_inbox_title">Alles erledigt</string>
     <string name="empty_inbox_body">Nichts unterwegs. Neue Post landet hier.</string>
     <string name="empty_folder_title">Noch nichts hier</string>

@@ -1,8 +1,10 @@
 package app.sterna.ui.theme
 
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 
 /**
  * Sterna Mail's brand palette — the Arctic tern: a calm, cold base (sea-grey /
@@ -108,4 +110,48 @@ val PelagicColorScheme = darkColorScheme(
     surfaceContainer = Color(0xFF18222B),
     surfaceContainerHigh = Color(0xFF222D36),
     surfaceContainerHighest = Color(0xFF2C3841),
+)
+
+/**
+ * How far the raised surface roles are pulled toward black in the OLED scheme.
+ *
+ * ⚠ This is **not** a fraction of brightness. Compose's [lerp] interpolates in Oklab, and black is
+ * the origin there, so pulling by *f* scales the Oklab vector by (1−f) and therefore the light the
+ * panel actually emits by **(1−f)³**. At 0.2 a surface emits about half of what it did; at 0.5 it
+ * would emit an eighth, which is why a first pass at 0.5 left an `AlertDialog` sitting on a black
+ * page with an edge five times weaker than the one it has today.
+ *
+ * The bound that keeps it honest is executed by the tests, not asserted here: after compression,
+ * every container must still stand at least as far above the black page as the *weakest* edge this
+ * app already ships — the one a `DropdownMenu` has over the ordinary dark background. Below that
+ * line we would be shipping something worse than what we have, on purpose.
+ */
+private const val PureBlackPull = 0.2f
+
+/**
+ * The OLED variant of a **dark** scheme: the page itself becomes true black — the pixels an OLED
+ * panel can switch off — while every raised surface is *compressed* toward black.
+ *
+ * [background], [ColorScheme.surface] and [ColorScheme.surfaceDim] are the page, so they go to
+ * [Color.Black] outright. The six container roles are not: Material 3 draws no border on an
+ * `AlertDialog`, a `DropdownMenu`, a bottom sheet or the navigation drawer — their edge exists only
+ * because their fill is lighter than what sits behind them. Flattening the six onto black would
+ * dissolve ~42 call sites at once and each would have to be given a border by hand. Pulling them
+ * with a single [PureBlackPull] keeps the tonal ladder intact, just darker, and leaves every call
+ * site untouched.
+ *
+ * Nothing else moves: `surfaceVariant`, the outlines, the coloured `*Container` roles, the scrim and
+ * the inverse roles carry meaning of their own, and this transformation is about the panel, not the
+ * palette. Applying it to a light scheme would be nonsense — [applyPureBlack] guards that.
+ */
+internal fun ColorScheme.pulledToBlack(): ColorScheme = copy(
+    background = Color.Black,
+    surface = Color.Black,
+    surfaceDim = Color.Black,
+    surfaceContainerLowest = lerp(surfaceContainerLowest, Color.Black, PureBlackPull),
+    surfaceContainerLow = lerp(surfaceContainerLow, Color.Black, PureBlackPull),
+    surfaceContainer = lerp(surfaceContainer, Color.Black, PureBlackPull),
+    surfaceContainerHigh = lerp(surfaceContainerHigh, Color.Black, PureBlackPull),
+    surfaceContainerHighest = lerp(surfaceContainerHighest, Color.Black, PureBlackPull),
+    surfaceBright = lerp(surfaceBright, Color.Black, PureBlackPull),
 )

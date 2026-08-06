@@ -803,6 +803,8 @@
     <string name="settings_theme_sterna_caption">Paleta Sterna: Arctic (claro) · Pelagic (escuro).</string>
     <string name="settings_dynamic_color_title">Cores Material You</string>
     <string name="settings_dynamic_color_subtitle">Usar as cores do seu papel de parede em vez da paleta da Sterna (Android 12+).</string>
+    <string name="settings_pure_black_title">Fundo preto</string>
+    <string name="settings_pure_black_subtitle">Colocar o tema escuro sobre um fundo preto, para telas OLED. As superfícies elevadas ficam um pouco mais claras; o tema claro não muda.</string>
 
     <!-- Empty states -->
     <string name="empty_inbox_title">Tudo em dia</string>

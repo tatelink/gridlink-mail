@@ -108,6 +108,16 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_UNREAD_TINT] = enabled }
     }
 
+    /** Whether the dark theme sits on a black background, for OLED panels (#117). OFF by default.
+     *  It only ever touches the DARK scheme: in light theme the value is stored and inert. The
+     *  elevated surfaces are compressed toward black rather than flattened onto it, so the app is
+     *  not uniformly black — see `pulledToBlack`. */
+    val pureBlack: Flow<Boolean> = dataStore.data.map(::pureBlackFrom)
+
+    suspend fun setPureBlack(enabled: Boolean) {
+        dataStore.edit { it[KEY_PURE_BLACK] = enabled }
+    }
+
     val swipeRightAction: Flow<SwipeAction> = swipeFlow(KEY_SWIPE_RIGHT, SwipeAction.TOGGLE_READ)
     val swipeLeftAction: Flow<SwipeAction> = swipeFlow(KEY_SWIPE_LEFT, SwipeAction.DELETE)
 
@@ -330,6 +340,7 @@ class SettingsRepository(context: Context) {
         signatureDelimiter = signatureDelimiter.first(),
         replyBar = replyBar.first(),
         unreadTint = unreadTint.first(),
+        pureBlack = pureBlack.first(),
         deliveryMode = deliveryMode.first().name,
         notificationContent = notificationContent.first().name,
     )
@@ -361,6 +372,7 @@ class SettingsRepository(context: Context) {
         backup.signatureDelimiter?.let { setSignatureDelimiter(it) }
         backup.replyBar?.let { setReplyBar(it) }
         backup.unreadTint?.let { setUnreadTint(it) }
+        backup.pureBlack?.let { setPureBlack(it) }
         backup.deliveryMode?.let { v -> runCatching { DeliveryMode.valueOf(v) }.getOrNull()?.let { setDeliveryMode(it) } }
         backup.notificationContent?.let { v -> runCatching { NotificationContent.valueOf(v) }.getOrNull()?.let { setNotificationContent(it) } }
     }
@@ -482,3 +494,25 @@ const val UNREAD_TINT_DEFAULT = true
  * it an empty store, a store with the switch on, and one with it off.
  */
 internal fun unreadTintFrom(prefs: Preferences): Boolean = prefs[KEY_UNREAD_TINT] ?: UNREAD_TINT_DEFAULT
+
+/** The key the pure-black switch is stored under. Renaming it loses the setting of every user who
+ *  has turned the black background on, so it is pinned by name in [pureBlackFrom]'s test. */
+internal val KEY_PURE_BLACK = booleanPreferencesKey("pure_black")
+
+/**
+ * What the dark theme does when nobody has touched the switch: keep the Pelagic surfaces (#117).
+ * OFF, deliberately — the black background is a preference, not the product's theme, and a default
+ * of `true` would repaint every dark-theme user's app on update without anyone asking for it. One
+ * definition, read by [pureBlackFrom], by the settings screen's initial value and by the activity's
+ * first frame — the last two are the copies that make a literal there dangerous.
+ */
+const val PURE_BLACK_DEFAULT = false
+
+/**
+ * Whether the dark theme sits on a black background, read from the stored preferences.
+ *
+ * The LOOKUP is in here and not in the flow, for the reason spelled out on [replyBarFrom]: given
+ * the whole [Preferences] there is no way to defeat the default from outside, and the test can hand
+ * it an empty store, a store with the switch on, and one with it off.
+ */
+internal fun pureBlackFrom(prefs: Preferences): Boolean = prefs[KEY_PURE_BLACK] ?: PURE_BLACK_DEFAULT

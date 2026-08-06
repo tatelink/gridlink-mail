@@ -798,6 +798,8 @@
     <string name="settings_theme_sterna_caption">Sterna-palet: Arctic (licht) · Pelagic (donker).</string>
     <string name="settings_dynamic_color_title">Material You-kleuren</string>
     <string name="settings_dynamic_color_subtitle">Gebruik kleuren van je achtergrond in plaats van het palet van Sterna (Android 12+).</string>
+    <string name="settings_pure_black_title">Zwarte achtergrond</string>
+    <string name="settings_pure_black_subtitle">Zet het donkere thema op een zwarte achtergrond, voor OLED-schermen. Verhoogde vlakken blijven iets lichter; het lichte thema verandert niet.</string>
     <string name="empty_inbox_title">Alles bijgewerkt</string>
     <string name="empty_inbox_body">Niets onderweg. Nieuwe post landt hier.</string>
     <string name="empty_folder_title">Hier nog niets</string>

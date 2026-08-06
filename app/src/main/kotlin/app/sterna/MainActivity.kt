@@ -13,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.appcompat.app.AppCompatActivity
 import app.sterna.core.data.settings.ListDensity
 import app.sterna.core.data.settings.PreviewLines
+import app.sterna.core.data.settings.PURE_BLACK_DEFAULT
 import app.sterna.core.data.settings.ThemeMode
 import app.sterna.core.data.settings.UNREAD_TINT_DEFAULT
 import app.sterna.ui.SternaApp
@@ -54,7 +55,11 @@ class MainActivity : AppCompatActivity() {
             // exists in three places (see LocalListDensity), and a literal that drifts from the
             // repository's flashes the wrong list on every launch.
             val unreadTint by settings.unreadTint.collectAsState(initial = UNREAD_TINT_DEFAULT)
-            SternaTheme(themeMode = themeMode, dynamicColor = dynamicColor) {
+            // PURE_BLACK_DEFAULT, not a literal, for the same reason as the line above: this is the
+            // first frame's copy of a default that also lives in the repository and the view model,
+            // and one that drifts repaints the whole theme a frame after launch.
+            val pureBlack by settings.pureBlack.collectAsState(initial = PURE_BLACK_DEFAULT)
+            SternaTheme(themeMode = themeMode, dynamicColor = dynamicColor, pureBlack = pureBlack) {
                 CompositionLocalProvider(
                     LocalListDensity provides density,
                     LocalPreviewLines provides previewLines,

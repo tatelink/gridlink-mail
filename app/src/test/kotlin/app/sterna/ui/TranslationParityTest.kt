@@ -57,6 +57,31 @@ class TranslationParityTest {
         assertEquals("format arguments lost or added in a translation", emptyList<String>(), broken)
     }
 
+    /**
+     * The rules above compare against whatever `values-*` happen to exist, so they say nothing
+     * about a language that disappears — and nothing about the label added last. Both are pinned
+     * here: the nine directories the app ships, by name, and the black-background switch (#117),
+     * which is the setting that would otherwise reach eight of nine users as two English lines in
+     * the middle of a translated Appearance screen.
+     */
+    @Test
+    fun `the nine languages all label the black-background switch`() {
+        val files = listOf(File(res, "values/strings.xml")) + translations()
+        assertEquals(
+            "the app ships nine languages; a directory that vanishes takes its own parity rule " +
+                "with it and nothing else notices",
+            listOf(
+                "values", "values-de", "values-es", "values-fr", "values-it",
+                "values-nl", "values-pl", "values-pt", "values-ru",
+            ),
+            files.map { it.parentFile.name },
+        )
+        val expected = setOf("settings_pure_black_title", "settings_pure_black_subtitle")
+        val missing = files.associate { it.parentFile.name to (expected - keysOf(it)) }
+            .filterValues { it.isNotEmpty() }
+        assertEquals("the OLED switch is unlabelled in", emptyMap<String, Set<String>>(), missing)
+    }
+
     /** Every `%s` / `%1$s` / `%d` … a string carries, as a set (order is the translator's to choose). */
     private fun placeholdersOf(file: File): Map<String, Set<String>> = STRING
         .findAll(file.readText())

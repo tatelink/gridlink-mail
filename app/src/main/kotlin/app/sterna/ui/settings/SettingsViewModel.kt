@@ -9,6 +9,7 @@ import app.sterna.core.data.account.K9SettingsImporter
 import app.sterna.core.data.settings.ListDensity
 import app.sterna.core.data.settings.MessageTextSize
 import app.sterna.core.data.settings.PreviewLines
+import app.sterna.core.data.settings.PURE_BLACK_DEFAULT
 import app.sterna.core.data.settings.REPLY_BAR_DEFAULT
 import app.sterna.core.data.settings.UNREAD_TINT_DEFAULT
 import app.sterna.core.data.settings.SettingsBackup
@@ -79,6 +80,19 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun setUnreadTint(enabled: Boolean) {
         viewModelScope.launch { settings.setUnreadTint(enabled) }
+    }
+
+    // PURE_BLACK_DEFAULT for the first frame, like unreadTint above and for the same reason: a
+    // literal here would be a third copy of the default, free to disagree with the repository for
+    // as long as DataStore takes to answer — the switch would show the wrong position on entry.
+    val pureBlack = settings.pureBlack.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = PURE_BLACK_DEFAULT,
+    )
+
+    fun setPureBlack(enabled: Boolean) {
+        viewModelScope.launch { settings.setPureBlack(enabled) }
     }
 
     val swipeRight = settings.swipeRightAction.stateIn(

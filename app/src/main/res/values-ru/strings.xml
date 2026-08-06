@@ -810,6 +810,8 @@
     <string name="settings_theme_sterna_caption">Палитра Sterna: Arctic (светлая) · Pelagic (тёмная).</string>
     <string name="settings_dynamic_color_title">Цвета Material You</string>
     <string name="settings_dynamic_color_subtitle">Использовать цвета из ваших обоев вместо палитры Sterna (Android 12+).</string>
+    <string name="settings_pure_black_title">Чёрный фон</string>
+    <string name="settings_pure_black_subtitle">Тёмная тема на чёрном фоне, для OLED-экранов. Приподнятые поверхности остаются немного светлее; светлая тема не меняется.</string>
     <string name="empty_inbox_title">Всё разобрано</string>
     <string name="empty_inbox_body">Ничего в пути. Новые письма приземлятся здесь.</string>
     <string name="empty_folder_title">Здесь пока пусто</string>

@@ -418,6 +418,7 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val density by viewModel.listDensity.collectAsStateWithLifecycle()
     val previewLines by viewModel.previewLines.collectAsStateWithLifecycle()
     val unreadTint by viewModel.unreadTint.collectAsStateWithLifecycle()
+    val pureBlack by viewModel.pureBlack.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var language by remember { mutableStateOf(currentAppLanguage()) }
     DetailScaffold(title = stringResource(R.string.settings_appearance_screen_title), onBack = onBack) { padding ->
@@ -454,6 +455,16 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                         onCheckedChange = viewModel::setDynamicColor,
                     )
                 }
+                // OUTSIDE the Android 12 guard above, on purpose: that guard exists because
+                // dynamic colour needs Android 12, and a black background does not. It also stays
+                // visible in LIGHT theme, where it is inert — its subtitle says so. Hiding it with
+                // the current theme would make it a coupled toggle, which this project does not do.
+                SettingSwitch(
+                    title = stringResource(R.string.settings_pure_black_title),
+                    subtitle = stringResource(R.string.settings_pure_black_subtitle),
+                    checked = pureBlack,
+                    onCheckedChange = viewModel::setPureBlack,
+                )
                 Text(
                     text = stringResource(R.string.settings_theme_sterna_caption),
                     style = MaterialTheme.typography.bodySmall,

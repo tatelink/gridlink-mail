@@ -394,6 +394,8 @@
     <string name="settings_theme_sterna_caption">Sterna palette: Arctic (light) · Pelagic (dark).</string>
     <string name="settings_dynamic_color_title">Material You colours</string>
     <string name="settings_dynamic_color_subtitle">Use colours from your wallpaper instead of Sterna\'s palette (Android 12+).</string>
+    <string name="settings_pure_black_title">Black background</string>
+    <string name="settings_pure_black_subtitle">Put the dark theme on a black background, for OLED screens. Raised surfaces stay a little lighter; the light theme is unchanged.</string>
     <string name="settings_message_list_section">Message list</string>
     <string name="settings_density_title">Density</string>
     <string name="settings_preview_title">Preview</string>

@@ -807,6 +807,8 @@
     <string name="settings_theme_sterna_caption">Paleta Sterna: Arctic (jasna) · Pelagic (ciemna).</string>
     <string name="settings_dynamic_color_title">Kolory Material You</string>
     <string name="settings_dynamic_color_subtitle">Używaj kolorów z tapety zamiast palety Sterna (Android 12+).</string>
+    <string name="settings_pure_black_title">Czarne tło</string>
+    <string name="settings_pure_black_subtitle">Umieszcza ciemny motyw na czarnym tle, dla ekranów OLED. Wyniesione powierzchnie pozostają nieco jaśniejsze; jasny motyw się nie zmienia.</string>
     <string name="empty_inbox_title">Wszystko ogarnięte</string>
     <string name="empty_inbox_body">Nic w drodze. Nowe wiadomości wylądują tutaj.</string>
     <string name="empty_folder_title">Jeszcze nic tu nie ma</string>
