@@ -21,8 +21,10 @@ import androidx.compose.material.icons.automirrored.outlined.Forward
 import androidx.compose.material.icons.automirrored.outlined.ReplyAll
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.AttachFile
+import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.HideImage
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Report
 import androidx.compose.material.icons.outlined.Unsubscribe
 import androidx.compose.material3.Icon
@@ -109,8 +111,21 @@ fun GridlinkThreadScreen(
     // screen is not disposed between messages, so a remembered `true` would silently un-block the
     // next sender's tracking pixels.
     var showOnce by remember(message.id) { mutableStateOf(false) }
+    // Keyed on the message id like everything else here: a More sheet left open in the reading pane
+    // must not survive into a different message's actions.
+    var showingMore by remember(message.id) { mutableStateOf(false) }
     val hasRemoteContent = remember(message.body) { EmailRemoteContent.referencedBy(message.body) }
     val showRemote = showOnce || imagesAlwaysAllowed
+    // 🔴 Unsubscribe is the one action here that talks to someone else. Every other button
+    // rearranges mail that is already on the device, and this one tells a sender you exist and are
+    // reading. It gets asked first, wherever it was tapped from.
+    val dispatch: (GridlinkThreadAction) -> Unit = { action ->
+        if (action == GridlinkThreadAction.UNSUBSCRIBE) {
+            confirmingUnsubscribe = true
+        } else {
+            onAction(action)
+        }
+    }
 
     GridlinkDetailFrame(
         title = message.subject,
@@ -119,17 +134,8 @@ fun GridlinkThreadScreen(
         embedded = embedded,
         bottom = {
             GridlinkThreadActionPill(
-                message = message,
-                onAction = { action ->
-                    // 🔴 Unsubscribe is the one action here that talks to someone else. Every other
-                    // button rearranges mail that is already on the device, and this one tells a
-                    // sender you exist and are reading. It gets asked first.
-                    if (action == GridlinkThreadAction.UNSUBSCRIBE) {
-                        confirmingUnsubscribe = true
-                    } else {
-                        onAction(action)
-                    }
-                },
+                onAction = dispatch,
+                onMore = { showingMore = true },
                 modifier = Modifier.weight(1f),
             )
             GridlinkDetailAccentButton(
@@ -211,6 +217,17 @@ fun GridlinkThreadScreen(
                 )
             }
         }
+    }
+
+    if (showingMore) {
+        GridlinkThreadMoreSheet(
+            message = message,
+            onAction = { action ->
+                showingMore = false
+                dispatch(action)
+            },
+            onDismiss = { showingMore = false },
+        )
     }
 
     if (confirmingUnsubscribe) {
@@ -484,59 +501,37 @@ private fun GridlinkThreadAttachment(
 /**
  * Everything you can do to an open message.
  *
- * 🔴 [REPLY] is the accent circle and the other four share the pill. It is deliberately not in the
- * pill as well: two controls that do the same thing on one 64dp baseline is how you end up tapping
- * the wrong one, and the circle is already the loudest object on the screen. The circle carries the
- * word "Reply" for the same reason, see [GridlinkThreadReplyButton].
+ * 🔴 [REPLY] is the accent circle, [FORWARD] and [ARCHIVE] share the pill with a More slot, and the
+ * rest live behind More ([GridlinkThreadMoreSheet]). Reply is deliberately not in the pill as well:
+ * two controls that do the same thing on one 64dp baseline is how you end up tapping the wrong one,
+ * and the circle is already the loudest object on the screen. The circle carries the word "Reply"
+ * for the same reason, see [GridlinkDetailAccentButton].
  */
 enum class GridlinkThreadAction { REPLY, REPLY_ALL, FORWARD, ARCHIVE, SPAM, UNSUBSCRIBE }
 
 /**
- * The four secondary actions, in the same shell the nav pill uses on the list.
+ * The secondary actions, in the same shell the nav pill uses on the list.
  *
  * The bottom of every screen in this app is one wide pill plus one accent circle, and a thread that
  * arranged its actions any other way would read as a different product. Reply gets the circle, which
  * is the same relationship the list has between navigation and Compose.
  *
- * ## 🔴 Four, and which four depends on the sender
- * Brandon asked for Reply, Reply all, Forward, Archive, Unsubscribe and Spam. Six will not fit: the
- * pill is about 323dp wide once the circle and the chrome pad are out of it, and six 11sp labels in
- * that space would need "Unsub". So the set is contextual, which is also more honest than a fixed
- * six:
- *
- * - **A person wrote it:** Reply all, Forward, Archive, Spam. There is no unsubscribe link in a mail
- *   from a colleague, and offering one that cannot work is worse than not offering it.
- * - **A machine sent it** ([GridlinkMessage.automated]): Forward, Archive, Unsubscribe, Spam. Reply
- *   all drops out, because replying to everyone on a billing statement means replying to a no-reply
- *   robot and a mailing list, and Reply is still on the circle for the rare one that does read them.
- *
- * ⚠️ The real signal is the `List-Unsubscribe` header, not [GridlinkMessage.automated]. The sample
- * data has no headers, and `automated` is the field that means the same thing here. Swap it when the
- * JMAP store lands, and expect the two to disagree: plenty of genuine bulk mail ships no header at
- * all, and the button has to disappear for those rather than fail.
+ * ## 🔴 Three slots, the third being More
+ * This pill used to hold four contextual actions, and in §7's reading pane four labelled slots plus
+ * the Reply circle plus the scaffold's parked "+" put six controls on one baseline about 460dp wide.
+ * Brandon called it "way too crowded" and picked the overflow: the two actions you reach for while
+ * reading (Forward, Archive) keep their one-tap slots, and the rare, deliberate ones (Reply all or
+ * Unsubscribe, and Spam) sit one tap further away in [GridlinkThreadMoreSheet]. The same three
+ * slots everywhere, full screen included — a pill that changed its population with the window would
+ * be two bars to learn.
  */
 @Composable
 private fun GridlinkThreadActionPill(
-    message: GridlinkMessage,
     onAction: (GridlinkThreadAction) -> Unit,
+    onMore: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     GridlinkDetailActionPill(modifier = modifier) {
-        if (message.automated) {
-            GridlinkDetailActionItem(
-                label = "Unsubscribe",
-                icon = Icons.Outlined.Unsubscribe,
-                onClick = { onAction(GridlinkThreadAction.UNSUBSCRIBE) },
-                modifier = Modifier.weight(1f),
-            )
-        } else {
-            GridlinkDetailActionItem(
-                label = "Reply all",
-                icon = Icons.AutoMirrored.Outlined.ReplyAll,
-                onClick = { onAction(GridlinkThreadAction.REPLY_ALL) },
-                modifier = Modifier.weight(1f),
-            )
-        }
         GridlinkDetailActionItem(
             label = "Forward",
             icon = Icons.AutoMirrored.Outlined.Forward,
@@ -550,11 +545,67 @@ private fun GridlinkThreadActionPill(
             modifier = Modifier.weight(1f),
         )
         GridlinkDetailActionItem(
+            label = "More",
+            icon = Icons.Outlined.MoreHoriz,
+            onClick = onMore,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/**
+ * What the pill's More slot opens: the actions worth having that are not worth a permanent slot.
+ *
+ * ## 🔴 Which actions, and why it depends on the sender
+ * - **A person wrote it:** Reply all, then Spam. There is no unsubscribe link in a mail from a
+ *   colleague, and offering one that cannot work is worse than not offering it.
+ * - **A machine sent it** ([GridlinkMessage.automated]): Unsubscribe, then Spam. Reply all drops
+ *   out, because replying to everyone on a billing statement means replying to a no-reply robot and
+ *   a mailing list, and Reply is still on the circle for the rare one that does read them.
+ *
+ * Spam is not tinted [app.gridlink.ui.theme.GridlinkColors.destructive]: red in this palette is
+ * spent on delete and nothing else, and filing to Junk is recoverable.
+ *
+ * ⚠️ The real signal is the `List-Unsubscribe` header, not [GridlinkMessage.automated]. The sample
+ * data has no headers, and `automated` is the field that means the same thing here. Swap it when the
+ * JMAP store lands, and expect the two to disagree: plenty of genuine bulk mail ships no header at
+ * all, and the row has to disappear for those rather than fail.
+ */
+@Composable
+private fun GridlinkThreadMoreSheet(
+    message: GridlinkMessage,
+    onAction: (GridlinkThreadAction) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    GridlinkCenterSheet(onDismiss = onDismiss) {
+        // Restates which message is being acted on, same rule as the folder sheet: the sheet covers
+        // the thing it acts on, and on the reading pane that thing may not be the only message on
+        // screen.
+        GridlinkSheetHeading(
+            title = message.sender,
+            icon = Icons.Outlined.Email,
+            subline = message.subject,
+        )
+        GridlinkSheetDivider()
+        if (message.automated) {
+            GridlinkSheetAction(
+                label = "Unsubscribe",
+                icon = Icons.Outlined.Unsubscribe,
+                onClick = { onAction(GridlinkThreadAction.UNSUBSCRIBE) },
+            )
+        } else {
+            GridlinkSheetAction(
+                label = "Reply all",
+                icon = Icons.AutoMirrored.Outlined.ReplyAll,
+                onClick = { onAction(GridlinkThreadAction.REPLY_ALL) },
+            )
+        }
+        GridlinkSheetAction(
             label = "Spam",
             icon = Icons.Outlined.Report,
             onClick = { onAction(GridlinkThreadAction.SPAM) },
-            modifier = Modifier.weight(1f),
         )
+        GridlinkSheetFooterSpace()
     }
 }
 

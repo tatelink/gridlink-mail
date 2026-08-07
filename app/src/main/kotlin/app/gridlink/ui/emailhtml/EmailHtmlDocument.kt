@@ -171,6 +171,14 @@ private val CSS_URL = Regex("""url\(\s*(["']?)([^)"']*)\1\s*\)""", RegexOption.I
  * first non-null wins, and [preview] is the last resort. Which one was used changes the render:
  * real HTML carries its own backgrounds and is inverted wholesale in a dark theme, while plain text
  * is painted in the app's own colours.
+ *
+ * ## 🔴 The viewport meta says `width=device-width` and deliberately NOT `initial-scale=1`
+ * Both readers run with `useWideViewPort` + `loadWithOverviewMode`, which is the standard
+ * mail-client recipe for fixed-width marketing mail: a 600px table in a 460dp pane gets zoomed out
+ * until it fits, at whatever width the pane actually has. But overview mode only zooms when the
+ * page has not pinned its own scale, so the `initial-scale=1` this meta used to carry disabled the
+ * whole mechanism and wide newsletters rendered oversized with a horizontal scroll. Putting the
+ * pin back reintroduces that bug on every screen at once.
  */
 fun buildEmailHtmlDocument(
     htmlContent: String?,
@@ -219,7 +227,7 @@ fun buildEmailHtmlDocument(
         return """
             <!DOCTYPE html><html><head>
             $CSP_META
-            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <meta name="viewport" content="width=device-width">
             <meta name="color-scheme" content="only light">
             <style>
               /* Force the email to render its LIGHT design before we invert: many marketing
@@ -236,7 +244,13 @@ fun buildEmailHtmlDocument(
                  leaves a bright band below the content where the body shows through).
                  Inner wrappers keep their own backgrounds and still get inverted. */
               html { filter: invert(1) hue-rotate(180deg); background: transparent !important; }
-              body { margin: 16px; font-family: sans-serif; line-height: 1.45; color: #111111;
+              /* 🔴 margin is !important because the messages fight it: most marketing mail ships
+                 its own body{margin:0} (as a later <style> or an inline attribute the parser merges
+                 onto the real body), which silently won and put the text flush against the panel
+                 edge. font-size is NOT !important on purpose: it only sets the default for mail
+                 that never chose one, and mail that did chose its own design. */
+              body { margin: 16px !important; font-family: sans-serif; font-size: 15px;
+                     line-height: 1.45; color: #111111;
                      background: transparent !important;
                      word-wrap: break-word; overflow-wrap: break-word; }
               /* Emoji are colour glyphs, so the page filter turns a yellow face blue (issue #58).
@@ -264,12 +278,14 @@ fun buildEmailHtmlDocument(
     return """
         <!DOCTYPE html><html><head>
         $CSP_META
-        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="viewport" content="width=device-width">
         <meta name="color-scheme" content="$colorScheme">
         <style>
           html { color-scheme: $colorScheme; }
           html, body { background-color: $bg; }
-          body { margin: 16px; font-family: sans-serif; line-height: 1.45; color: $fg;
+          /* margin/font-size rationale is on the dark branch's body rule; keep the two in step. */
+          body { margin: 16px !important; font-family: sans-serif; font-size: 15px;
+                 line-height: 1.45; color: $fg;
                  word-wrap: break-word; overflow-wrap: break-word; }
           img { max-width: 100%; height: auto; }
           a { color: $link; }
