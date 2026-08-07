@@ -68,10 +68,38 @@ Out of scope:
   to review and remove the certificate. The configuration is app-wide rather than mail-only,
   so such an authority is equally trusted for any remote content you choose to load inside a
   message (remote content stays blocked until you ask for it).
-- **No TLS downgrade on redirects.** The JMAP HTTP client follows redirects for
-  `/.well-known/jmap` discovery but refuses HTTPS→HTTP redirects
-  (`followSslRedirects(false)`), so an injected same-host redirect cannot leak the
-  `Authorization` header over cleartext.
+- **Redirects, and where credentials go.** The JMAP HTTP client follows redirects, because
+  `/.well-known/jmap` discovery relies on them, and the rule it applies to credentials is
+  OkHttp's own: the `Authorization` header survives a redirect only within the same origin
+  (scheme, host and port). When a redirect crosses origins the header is stripped, so the
+  request that reaches the target arrives anonymous. Sterna therefore sends it once more,
+  authenticated, to the origin it was redirected to. That replay is triggered by the origin
+  having changed and by nothing else: not by the status code, and not by what came back. It
+  has to be, because a JMAP server can legitimately answer the anonymous request with a valid
+  but empty session rather than a 401, and a mailbox that genuinely has no account answers the
+  same way. It happens once per call, on discovery and on every later reconnection, since the
+  session is re-fetched on sync and on push reconnect, not only when you add the account. That
+  is a deliberate trade, and it is worth stating plainly: whatever host is named in a
+  `Location` header receives your credentials, over HTTPS. Naming a different host for the API
+  is how some real deployments work, Fastmail among them. Note also which parties get to name
+  it: discovery tries several hosts derived from your address (the domain itself first, then
+  `mail.`, `jmap.` and `api.` under it), and each is offered the credentials in turn, so
+  whoever answers HTTPS on those names is in this position, not only your mail server.
+- **No scheme change on a redirect, in either direction.** A redirect that changes the scheme
+  is never followed (`followSslRedirects(false)`): the response is surfaced as a failure
+  instead, so no request is made to the target at all. Note what that setting does and does
+  not do. It is not what keeps the header off the wire, since OkHttp drops `Authorization` on
+  any origin change, a scheme change included; it is what keeps the request from being made
+  in the first place. A third layer sits underneath both: Android refuses cleartext HTTP for
+  the app (`targetSdk` 36, with no exemption added in the network security config). That third
+  layer covers the HTTP stack, which is what JMAP and OAuth use; it says nothing about the
+  IMAP and SMTP clients, which open their own sockets and are governed by the connection
+  security you pick for the account (see below). Credentials cannot reach a cleartext endpoint
+  through a JMAP redirect.
+- **The session document carries the same trust.** The `apiUrl`, `downloadUrl`, `uploadUrl`
+  and `eventSourceUrl` a server advertises are called with your credentials, whichever host
+  they name. An `http://` URL advertised over a session that was itself fetched over HTTPS is
+  rewritten to `https://` rather than followed in the clear.
 - **Cleartext is never a default and never silent.** The sign-in screen offers no cleartext
   option: an account is created over TLS or STARTTLS. The account editor does offer
   `ConnectionSecurity.NONE`, because a bridge on 127.0.0.1 (Proton Bridge and the like) is a

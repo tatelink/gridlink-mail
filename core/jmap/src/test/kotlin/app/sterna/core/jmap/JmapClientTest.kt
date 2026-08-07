@@ -25,6 +25,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -172,6 +173,44 @@ class JmapClientTest {
         val followed = server.takeRequest()
         assertEquals("/jmap/session", followed.path)
         assertEquals("Bearer fmu1-token", followed.getHeader("Authorization"))
+    }
+
+    @Test fun fetchSession_doesNotFollowARedirectThatChangesScheme() = runBlocking {
+        // followSslRedirects(false) governs EVERY scheme change, both ways (OkHttp's
+        // buildRedirectRequest compares the two schemes for equality), so an http→https hop is
+        // refused exactly like the https→http downgrade the guard exists for — which lets the
+        // plaintext mock server prove it without any TLS test dependency.
+        //
+        // The target is 127.0.0.1:1: no DNS, no handshake, connection refused with the network
+        // cable out. If the guard ever goes away, OkHttp follows the hop and the call dies on a
+        // ConnectException instead of surfacing the 302 — that swap of exception type is what
+        // this test watches. ⛔ Not server.requestCount: the mock never hears about the second
+        // hop either way, so counting it would assert 1 in both worlds and prove nothing.
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(302)
+                .setHeader("Location", "https://127.0.0.1:1/jmap/session"),
+        )
+
+        val failure = assertThrows(JmapException::class.java) {
+            runBlocking {
+                client.fetchSession(
+                    server.url("/.well-known/jmap").toString(),
+                    BearerAuth("fmu1-token"),
+                )
+            }
+        }
+
+        // The redirect is reported as the failure, not followed: the status is pinned on the
+        // field that carries it, rather than on a substring of the message.
+        assertEquals(302, failure.httpCode)
+    }
+
+    @Test fun defaultHttpClient_refusesSchemeChangesButStillFollowsRedirects() {
+        // The two halves of the discovery posture, pinned on the client app code actually gets
+        // (JmapClient()'s public constructor builds this one).
+        assertFalse(JmapClient.defaultHttpClient().followSslRedirects)
+        assertTrue(JmapClient.defaultHttpClient().followRedirects)
     }
 
     // ---- the decision itself, run on its arguments (issue #137) ----

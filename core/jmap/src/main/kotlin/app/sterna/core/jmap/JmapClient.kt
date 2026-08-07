@@ -2564,9 +2564,18 @@ class JmapClient internal constructor(
         internal fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
-            // Discovery relies on following 3xx redirects, but never down to cleartext: a
-            // same-host HTTPS→HTTP redirect re-attaches the Authorization header, so an active
-            // attacker could harvest credentials in plaintext. Refuse the TLS downgrade.
+            // Discovery relies on following 3xx redirects, but never across a scheme change,
+            // in either direction (OkHttp compares the two schemes for equality).
+            //
+            // ⛔ What this refuses is the REQUEST, not a header leak. OkHttp already strips
+            // Authorization on any origin change, scheme included (canReuseConnectionFor
+            // compares scheme, host and port), so the header was never the thing at risk on
+            // this hop. Without this line the client would still reach for a cleartext
+            // endpoint an injected redirect named, and the caller would get the platform's
+            // cleartext refusal instead of the redirect that actually came back.
+            //
+            // Held by JmapClientTest, as behaviour and as the flag's value: deleting this
+            // line used to leave the whole suite green.
             .followSslRedirects(false)
             .build()
     }
