@@ -75,20 +75,20 @@ import java.io.File
  *
  * {
  *   "account": {
- *     "mode": "jmap",                       // "jmap" | "jmap-auto" | "imap"
- *     "server": "https://mail.pinty.fr",    // jmap only; ignored (may be absent) for jmap-auto
- *     "username": "alex@pinty.fr",
- *     "password": "…",                      // the ONLY place a secret ever appears
+ *     "mode": "jmap",                          // "jmap" | "jmap-auto" | "imap"
+ *     "server": "https://mail.example.com",    // jmap only; ignored (may be absent) for jmap-auto
+ *     "username": "alex@example.com",
+ *     "password": "…",                         // the ONLY place a secret ever appears
  *     "accountName": "Alex JMAP",
- *     "imapHost": "mail.pinty.fr",          // imap only, from here down
+ *     "imapHost": "mail.example.com",          // imap only, from here down
  *     "imapPort": 993,
- *     "imapSecurity": "TLS",                // TLS | STARTTLS | NONE
- *     "smtpHost": "mail.pinty.fr",
+ *     "imapSecurity": "TLS",                   // TLS | STARTTLS | NONE
+ *     "smtpHost": "mail.example.com",
  *     "smtpPort": 587,
  *     "smtpSecurity": "STARTTLS"
  *   },
  *   "identities": [
- *     { "id": "bench-alias", "name": "Alex Alias", "email": "alias@pinty.fr",
+ *     { "id": "bench-alias", "name": "Alex Alias", "email": "alias@example.com",
  *       "signature": "-- \nAlex", "signatureHtml": "", "default": true }
  *   ],
  *   "settings": { "themeMode": "DARK", "conversationView": true, "unreadTint": true }
@@ -161,8 +161,9 @@ import java.io.File
  *
  * Three channels, all carrying the same JSON report, none of them ever carrying a password:
  *  1. logcat, tag [TAG], one line per report line (`adb logcat -d -s BenchProvision`);
- *  2. the file named by the `out` extra, when it is writable — a script reads it without parsing
- *     logcat;
+ *  2. the file named by the `out` extra, when it is under `/data/local/tmp/` and writable — a
+ *     script reads it without parsing logcat. A path anywhere else is REFUSED, not written: see
+ *     `isBenchOutPathAllowed`, and note that writing truncates whatever it lands on;
  *  3. the ordered-broadcast result: code 0 on success, 1 on failure, with a one-line summary as
  *     result data, which `am broadcast` prints on the shell's stdout by itself.
  * Channel 3 is what a script should branch on; 1 and 2 are what a human reads afterwards.
@@ -606,11 +607,28 @@ class BenchProvisionReceiver : BroadcastReceiver() {
             // One log line per report line: logcat truncates a long single entry.
             Log.i(TAG, if (ok) "RESULT ok" else "RESULT FAILED")
             text.lines().forEach { Log.i(TAG, it) }
-            if (!outPath.isNullOrBlank()) {
-                runCatching { File(outPath).writeText(text) }.onFailure {
+            // ⛔ THE ONLY FILE THIS RECEIVER MAY TOUCH. `out` arrives on an exported,
+            // permission-less broadcast and writeText TRUNCATES, so an unjudged path lets any app
+            // on the device have a file of its choosing replaced by this report — through a
+            // receiver whose KDoc above promises it removes nothing. The judgement is
+            // isBenchOutPathAllowed() in src/benchShared/kotlin, where a unit test can execute it.
+            // A refusal only skips the write: the log lines above and the broadcast result below
+            // still carry the verdict.
+            val out = outPath.orEmpty()
+            when {
+                out.isBlank() -> Unit
+                !isBenchOutPathAllowed(out) -> Log.e(
+                    TAG,
+                    "refusing to write the report to $out: the out file must be a plain file " +
+                        "under $BENCH_OUT_DIR (e.g. ${BENCH_OUT_DIR}bench.out), pre-created " +
+                        "world-writable from the shell. Writing truncates, so this receiver will " +
+                        "not touch a path outside it; the report above and the broadcast result " +
+                        "still carry the verdict",
+                )
+                else -> runCatching { File(out).writeText(text) }.onFailure {
                     Log.e(
                         TAG,
-                        "could not write $outPath (pre-create it world-writable from the shell); " +
+                        "could not write $out (pre-create it world-writable from the shell); " +
                             "the report above and the broadcast result still carry the verdict",
                         it,
                     )

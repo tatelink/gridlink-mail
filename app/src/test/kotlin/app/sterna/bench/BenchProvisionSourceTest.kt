@@ -5,7 +5,8 @@ import org.junit.Test
 import java.io.File
 
 /**
- * A source lint over `app/src/testApp/kotlin` — the bench provisioning entry points.
+ * A source lint over the bench provisioning entry points — every directory of [BENCH_DIRS], i.e.
+ * everything that lands in the `-PtestApp` build and nowhere else.
  *
  * WHY IT READS TEXT INSTEAD OF EXECUTING ANYTHING. That source set is registered inside the
  * `-PtestApp` gate (see `app/build.gradle.kts`), and the unit-test suite does NOT pass that
@@ -17,11 +18,15 @@ import java.io.File
  * is written to fail loudly in the three ways that matter:
  *
  *  1. nothing to read is RED, never a silent green (see [failsLoudlyWhenThereIsNothingToRead]);
- *  2. no fourth account-creation path, and no unpinned read of an intent extra, may appear in the
- *     bench sources ([noAccountCreationOutsideTheViewModel]);
+ *  2. no fourth account-creation path, no unpinned read of an intent extra, and no unpinned touch
+ *     of a FILE may appear in the bench sources ([noAccountCreationOutsideTheViewModel]);
  *  3. the bench really does go through the ViewModel's own entry points ([receiverCallsTheViewModelEntryPoints]);
  *  4. each of those entry points sits under the branch that names its protocol
- *     ([eachEntryPointSitsUnderItsOwnBranch]) — rule 3 alone cannot see two swapped labels.
+ *     ([eachEntryPointSitsUnderItsOwnBranch]) — rule 3 alone cannot see two swapped labels;
+ *  5. the report's destination is still judged before it is written
+ *     ([theOutPathIsJudgedBeforeTheReportIsWritten]). The judgement itself is executed by
+ *     BenchOutPathTest; this only pins that the receiver calls it, because a perfect predicate
+ *     nobody calls protects nothing and no test compiles this receiver.
  *
  * ⛔ JUDGMENT IS WHOLE-LINE EQUALITY, NEVER `contains`. A suspicious line is FOUND by regex and
  * then judged by comparing the whole trimmed line against [ALLOWED_LINES]. `in`/`contains` is blind
@@ -41,13 +46,18 @@ class BenchProvisionSourceTest {
 
     @Test
     fun failsLoudlyWhenThereIsNothingToRead() {
-        val files = benchSources()
-        if (files.isEmpty()) {
+        // EACH directory must yield something, never the two of them together: benchShared holds
+        // one small file today, so a total count would stay comfortably above zero while the
+        // receiver's own directory vanished.
+        val silent = BENCH_DIRS.filter { ktFilesUnder(it).isEmpty() }
+        if (silent.isNotEmpty()) {
             fail(
-                "no .kt file under $BENCH_DIR — this lint is the ONLY check the bench provisioning " +
-                    "code has (the test suite never compiles it, it is behind -PtestApp), so an " +
-                    "empty source set means the check is measuring nothing. Either the receiver was " +
-                    "deleted (then delete this test and say so), or it moved (then fix BENCH_DIR).",
+                "nothing to read under: " + silent.joinToString(", ") +
+                    " — this lint is the ONLY check the bench provisioning code has (the test " +
+                    "suite never compiles it, it is behind -PtestApp), so an empty or missing " +
+                    "source set means the check is measuring nothing there. Either that code was " +
+                    "deleted (then delete the directory from BENCH_DIRS and say so), or it moved " +
+                    "(then fix BENCH_DIRS). Looked under ${REPO_ROOT.absolutePath}.",
             )
         }
     }
@@ -68,12 +78,21 @@ class BenchProvisionSourceTest {
         if (offences.isNotEmpty()) {
             fail(
                 "the bench provisioning sources must POSE state only through ConnectViewModel's own " +
-                    "entry points. These lines create, destroy or re-key accounts by hand, or take a " +
-                    "secret off a broadcast extra:\n" + offences.joinToString("\n") +
+                    "entry points. These lines create, destroy or re-key accounts by hand, take a " +
+                    "secret off a broadcast extra, or open/alter a file outside the pinned two:\n" +
+                    offences.joinToString("\n") +
                     "\n\nA fourth add path is what #121 closed: priming the cache before the account " +
                     "exists writes a page of inbox rows under accountId = \"\", rows no account owns " +
                     "and no label can name. A secret in an extra leaks through the host's ps, the " +
-                    "driver's failure output and am's own \"Broadcasting: Intent { … }\" echo.",
+                    "driver's failure output and am's own \"Broadcasting: Intent { … }\" echo.\n\n" +
+                    "[touches a file] is the newest of the three, and the most literal: this " +
+                    "receiver is exported with NO permission, a whole-file write TRUNCATES, and the " +
+                    "KDoc of the receiver promises in so many words that it REMOVES NOTHING, EVER. " +
+                    "One unpinned line opening a file — even one sitting right beside the guarded " +
+                    "write, even one that never runs today — is a second door to that promise being " +
+                    "broken by any app on the device. There is exactly one report write, it goes " +
+                    "through isBenchOutPathAllowed(), and it is pinned in ALLOWED_LINES. If a new " +
+                    "file line is genuinely needed, JUDGE ITS PATH FIRST, then pin it there.",
             )
         }
     }
@@ -119,20 +138,56 @@ class BenchProvisionSourceTest {
         }
     }
 
+    @Test
+    fun theOutPathIsJudgedBeforeTheReportIsWritten() {
+        val lines = benchSources().flatMap { it.readText().lines() }.map { it.trim() }.toSet()
+        val missing = OUT_PATH_GUARD_LINES.filterNot { it in lines }
+        if (missing.isNotEmpty()) {
+            fail(
+                "the guard on the report's destination is gone from the bench sources. Missing, " +
+                    "whole and trimmed:\n" + missing.joinToString("\n") +
+                    "\n\nWithout it the receiver writes wherever the `out` extra points, and " +
+                    "writeText TRUNCATES: this receiver is exported and carries no permission, so " +
+                    "any app on the device could name /data/data/app.sterna.test/files/… and have " +
+                    "that file replaced by the report — in a class whose KDoc promises it removes " +
+                    "nothing. isBenchOutPathAllowed() lives in src/benchShared/kotlin precisely so " +
+                    "a unit test can execute it (BenchOutPathTest); this pins that it is actually " +
+                    "CALLED, on the very string that is then handed to File(). Lines found near " +
+                    "the write:\n" +
+                    lines.filter { "writeText" in it || "BenchOutPathAllowed" in it }
+                        .joinToString("\n").ifEmpty { "(none)" },
+            )
+        }
+    }
+
     private fun benchSources(): List<File> =
-        BENCH_ROOT.walkTopDown().filter { it.isFile && it.extension == "kt" }.sortedBy { it.path }.toList()
+        BENCH_DIRS.flatMap { ktFilesUnder(it) }.sortedBy { it.path }
+
+    private fun ktFilesUnder(dir: String): List<File> =
+        File(REPO_ROOT, dir).walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
 
     private companion object {
-        const val BENCH_DIR = "app/src/testApp/kotlin"
+        /**
+         * EVERY directory that ends up in the bench APK. `src/testApp/kotlin` is the receiver;
+         * `src/benchShared/kotlin` is the plain-Kotlin half that a unit test can execute — and it
+         * is compiled into the SAME `-PtestApp` build, with the same powers. Leaving it out of this
+         * walk would make "move the helper next door" a way to launder any rule below.
+         */
+        val BENCH_DIRS = listOf("app/src/testApp/kotlin", "app/src/benchShared/kotlin")
 
-        /** Repo root, walked up from the module's working directory (as the other source lints do). */
-        val BENCH_ROOT: File by lazy {
+        /**
+         * Repo root, walked up from the module's working directory (as the other source lints do).
+         * Anchored on `settings.gradle.kts`, NOT on one of [BENCH_DIRS]: anchoring on a bench
+         * directory means a deleted directory cannot be found, and "cannot find it" would have to
+         * be an error thrown from a lazy initialiser instead of the loud, explaining failure of
+         * [failsLoudlyWhenThereIsNothingToRead].
+         */
+        val REPO_ROOT: File by lazy {
             generateSequence(File("").absoluteFile) { it.parentFile }
-                .firstOrNull { File(it, BENCH_DIR).isDirectory }
-                ?.let { File(it, BENCH_DIR) }
+                .firstOrNull { File(it, "settings.gradle.kts").isFile }
                 ?: error(
-                    "cannot locate $BENCH_DIR from ${File("").absolutePath} — this test reads source " +
-                        "files as text and needs a working directory inside the checkout",
+                    "cannot locate the repo root from ${File("").absolutePath} — this test reads " +
+                        "source files as text and needs a working directory inside the checkout",
                 )
         }
 
@@ -166,6 +221,20 @@ class BenchProvisionSourceTest {
             // of — `getStringExtra("pass")` walked straight through.
             "reads a broadcast extra" to Regex("""\bget\w*Extra\s*\("""),
             "names an extra after a secret" to Regex("""(?i)EXTRA_\w*(PASSWORD|PASSWD|PWD|SECRET|TOKEN|PASS|CRED|KEY)"""),
+            // ⛔ SECOND INVERTED RULE, and it is inverted for the same reason as the extras above:
+            // EVERY line that opens or alters a file is forbidden, and the legitimate ones are
+            // pinned whole in ALLOWED_LINES. Pinning the GUARDED write is not enough on its own —
+            // that only proves the guarded line still exists, never that it is the only write. A
+            // second, unguarded write added right after it left the whole suite green: the original
+            // hole restored, with the refusal cheerfully logged next to the write that happened.
+            // Wide on purpose (the file handle itself, not just the destructive verbs): a rule that
+            // misses costs a truncated file, a rule that overshoots costs one pinned line.
+            "touches a file" to Regex(
+                """\bFile\s*\(|\bFile(OutputStream|Writer)\s*\(|\bFiles\s*\.|""" +
+                    """\b(writeText|writeBytes|appendText|appendBytes|outputStream|bufferedWriter""" +
+                    """|printWriter|createNewFile|createTempFile|mkdir|mkdirs|delete|deleteRecursively""" +
+                    """|deleteOnExit|renameTo|copyTo|copyRecursively|openFileOutput|setWritable)\s*\(""",
+            ),
         )
 
         /**
@@ -174,10 +243,20 @@ class BenchProvisionSourceTest {
          * comment, one more argument — and it stops matching, so it goes back to red. That is the
          * point, and it is why the two legitimate extra reads are pinned here rather than carved
          * out of the regex.
+         *
+         * The list now serves TWO inverted rules: the extra reads, and the file touches added
+         * below them. Same contract for both — an entry is one exact line, and every other line
+         * the rule finds is a failure.
          */
         val ALLOWED_LINES: List<String> = listOf(
             "val specPath = intent.getStringExtra(EXTRA_SPEC)",
             "val outPath = intent.getStringExtra(EXTRA_OUT)",
+            // The two file lines the bench is allowed to have, and no others: the spec handle it
+            // reads, and the ONE report write, the one that sits behind isBenchOutPathAllowed().
+            // Any third line that opens a file — even an innocent-looking one right beside this
+            // write — is a second, unjudged door to the same truncation.
+            "val file = File(specPath)",
+            "else -> runCatching { File(out).writeText(text) }.onFailure {",
         )
 
         /**
@@ -200,5 +279,17 @@ class BenchProvisionSourceTest {
         )
 
         val VM_ENTRY_POINT_CALLS: List<String> = EXPECTED_BRANCHES.map { it.second }
+
+        /**
+         * The two lines that keep the report inside `/data/local/tmp`: the judgement, and the
+         * write it guards. Both pinned WITH THEIR ARGUMENT — the same `out` must be judged and
+         * written, otherwise a mutation judges one string and truncates another. Whole-line
+         * equality like everything else here: appending anything to either line turns this red,
+         * which is the moment someone re-reads what is being written and where.
+         */
+        val OUT_PATH_GUARD_LINES: List<String> = listOf(
+            "!isBenchOutPathAllowed(out) -> Log.e(",
+            "else -> runCatching { File(out).writeText(text) }.onFailure {",
+        )
     }
 }

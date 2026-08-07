@@ -5,25 +5,25 @@
   </global>
   <accounts>
     <account uuid="00000000-0000-0000-0000-000000000010">
-      <name>Pinty Mail</name>
+      <name>Example Mail</name>
       <incoming-server type="IMAP">
-        <host>mail.pinty.fr</host>
+        <host>mail.example.com</host>
         <port>993</port>
         <connection-security>SSL_TLS_REQUIRED</connection-security>
         <authentication-type>PLAIN</authentication-type>
-        <username>victor@pinty.fr</username>
+        <username>victor@example.com</username>
       </incoming-server>
       <outgoing-server type="SMTP">
-        <host>mail.pinty.fr</host>
+        <host>mail.example.com</host>
         <port>587</port>
         <connection-security>STARTTLS_REQUIRED</connection-security>
         <authentication-type>PLAIN</authentication-type>
-        <username>victor@pinty.fr</username>
+        <username>victor@example.com</username>
       </outgoing-server>
       <identities>
         <identity>
           <name>Victor</name>
-          <email>victor@pinty.fr</email>
+          <email>victor@example.com</email>
           <description>Default</description>
           <settings>
             <value key="signatureUse">true</value>

@@ -56,13 +56,24 @@ android {
     // not merge with it. There is no src/debug/AndroidManifest.xml today, so nothing is lost; the
     // day someone adds one, every -PtestApp build would drop it without a word. Whoever adds it
     // must merge the two by hand (or move the bench receiver's declaration into it).
+    // src/benchShared/kotlin holds the bench decisions that are PLAIN KOTLIN (no Android import),
+    // so that a unit test can execute them: src/testApp/kotlin above is compiled only under
+    // -PtestApp, and the test suite does not pass the property, so nothing in it can be run by a
+    // test. With the property it rides along with the bench sources on the app variants; without
+    // it, it is compiled into the unit tests instead. ONE copy on the test compile classpath in
+    // either case, never two — and in neither case does it reach src/main, so the published APK
+    // stays bit-for-bit what it was.
     if (testApp) {
         sourceSets.getByName("debug").res.srcDir("src/testApp/res")
         sourceSets.getByName("release").res.srcDir("src/testApp/res")
         sourceSets.getByName("debug").kotlin.srcDir("src/testApp/kotlin")
         sourceSets.getByName("release").kotlin.srcDir("src/testApp/kotlin")
+        sourceSets.getByName("debug").kotlin.srcDir("src/benchShared/kotlin")
+        sourceSets.getByName("release").kotlin.srcDir("src/benchShared/kotlin")
         sourceSets.getByName("debug").manifest.srcFile("src/testApp/AndroidManifest.xml")
         sourceSets.getByName("release").manifest.srcFile("src/testApp/AndroidManifest.xml")
+    } else {
+        sourceSets.getByName("test").kotlin.srcDir("src/benchShared/kotlin")
     }
 
     // Reproducible builds: the compiled ART baseline profile (assets/dexopt/baseline.prof)
