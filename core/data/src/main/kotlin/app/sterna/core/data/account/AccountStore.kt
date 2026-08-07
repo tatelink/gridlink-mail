@@ -107,14 +107,30 @@ data class LinkedAccountsDiff(
  * login's own account alone prunes every sub-account — that is exactly the all-access-revoked
  * case. An empty [discovered] (a session advertising no mail account at all — a broken or
  * mail-less response) is an empty diff instead: never prune on evidence that weak.
+ *
+ * [probes] (the #129 `Mailbox/get` outcomes, see [retainReachableMailAccounts]) governs ADMISSION
+ * ONLY, never eviction. A sub-account the server STILL LISTS but whose probe came back `forbidden`
+ * for a passing reason — a reloaded ACL, a moment of server-side denial — must stay linked: an
+ * account leaves only when the SERVER stops listing it, because pruning deletes a real shared
+ * mailbox's StoredAccount and purges its five tables. So `prunedIds` is derived from the RAW
+ * [discovered] (#31, unchanged) and only `toAdd` from the probe-filtered list (#129, unchanged).
+ *
+ * ONE list in, on purpose: a second "already filtered" parameter next to the raw one would let a
+ * caller pass the same list twice and silently restore the destruction, so the filter is applied
+ * HERE and nowhere else. [probes] carries no default for the same reason — every call site is in
+ * this module and names it, and a default `emptyMap()` would let a new call site quietly admit an
+ * account the server refuses.
  */
 fun diffLinkedAccounts(
     login: StoredAccount,
     existingLinked: List<StoredAccount>,
     discovered: List<DiscoveredMailAccount>,
+    probes: Map<String, Result<*>>,
 ): LinkedAccountsDiff {
     val primary = discovered.firstOrNull() ?: return LinkedAccountsDiff()
+    // Eviction reads the RAW list, admission the probe-filtered one — never the other way round.
     val subs = discovered.drop(1)
+    val admissible = retainReachableMailAccounts(discovered, probes).drop(1)
     val trackedJmapIds = existingLinked.mapNotNull { it.jmapAccountId }.toSet()
     val liveSubIds = subs.map { it.jmapAccountId }.toSet()
     // Self-healing: two linked records tracking the SAME server account under one login are
@@ -131,7 +147,9 @@ fun diffLinkedAccounts(
     return LinkedAccountsDiff(
         pinPrimaryId = primary.jmapAccountId.takeIf { login.jmapAccountId == null },
         // Skip the login's own account and ones already tracked.
-        toAdd = subs.filter { it.jmapAccountId != primary.jmapAccountId && it.jmapAccountId !in trackedJmapIds },
+        toAdd = admissible.filter {
+            it.jmapAccountId != primary.jmapAccountId && it.jmapAccountId !in trackedJmapIds
+        },
         prunedIds = (revokedIds + duplicateIds).distinct(),
     )
 }
@@ -164,8 +182,12 @@ fun diffLinkedAccounts(
  * so dropping it would make every real sub-account look revoked.
  *
  * Input order is preserved, primary first, which is what the store's reconcile means by "the head".
+ *
+ * `internal` on purpose: [diffLinkedAccounts] is the one place allowed to apply it, so that no
+ * caller can hand the store a list it has already filtered — which is what turned a passing
+ * `forbidden` into the deletion of a live shared mailbox.
  */
-fun retainReachableMailAccounts(
+internal fun retainReachableMailAccounts(
     discovered: List<DiscoveredMailAccount>,
     probes: Map<String, Result<*>>,
 ): List<DiscoveredMailAccount> = discovered.filterIndexed { index, candidate ->
@@ -633,13 +655,23 @@ class AccountStore(context: Context) {
      * account and prunes any whose access was revoked, returning the pruned ids so the caller can
      * purge their caches. Idempotent — writes nothing and returns empty when nothing changed, so it
      * is safe to call on every session refresh. Never touches a login's inbox metadata or secret.
+     *
+     * [discovered] is the RAW session list, never one the caller has already filtered: [probes] (one
+     * `Mailbox/get` outcome per non-primary candidate, keyed by JMAP account id) travels alongside it
+     * and is applied inside [diffLinkedAccounts], where it can gate admission without ever causing an
+     * eviction. Handing this a pre-filtered list is what deleted a real shared mailbox on a passing
+     * `forbidden`.
      */
     @Synchronized
-    fun reconcileLinkedAccounts(loginId: String, discovered: List<DiscoveredMailAccount>): List<String> {
+    fun reconcileLinkedAccounts(
+        loginId: String,
+        discovered: List<DiscoveredMailAccount>,
+        probes: Map<String, Result<*>>,
+    ): List<String> {
         val list = accounts()
         val login = list.firstOrNull { it.id == loginId } ?: return emptyList()
         val existingLinked = list.filter { it.loginId == loginId }
-        val diff = diffLinkedAccounts(login, existingLinked, discovered)
+        val diff = diffLinkedAccounts(login, existingLinked, discovered, probes)
         if (diff.isEmpty()) return emptyList()
 
         val updated = list.toMutableList()

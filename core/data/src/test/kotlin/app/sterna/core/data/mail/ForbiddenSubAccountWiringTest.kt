@@ -5,18 +5,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * ⚠ SOURCE LINT, NOT A BEHAVIOUR TEST. The decision itself is EXECUTED by
- * `ReachableMailAccountsTest`; this only reads the plug that carries it, because `MailRepository`
- * needs Room, an Android `Context` and a live session, and `client` is a concrete `JmapClient`
- * rather than an interface, so the probe site cannot be built or faked in a JVM test.
+ * ⚠ SOURCE LINT, NOT A BEHAVIOUR TEST. The decisions themselves are EXECUTED by
+ * `ReachableMailAccountsTest` and `LinkedAccountsDiffTest`; this only reads the plug that carries
+ * them, because `MailRepository` needs Room, an Android `Context` and a live session, and `client`
+ * is a concrete `JmapClient` rather than an interface, so the probe site cannot be built or faked
+ * in a JVM test.
  *
  * Whole lines are compared, never a fragment: a `contains` is blind to every mutation that
- * LENGTHENS the line (`retainReachableMailAccounts(discovered, probes).ifEmpty { discovered }`
+ * LENGTHENS the line (`accountStore.reconcileLinkedAccounts(loginId, discovered.take(1), probes)`
  * would read as present and undo the fix).
  *
- * What it pins, for Codeberg #129: that the non-primary candidates are probed one Mailbox/get each,
- * each in its OWN runCatching, that the early return still sits in front of the probe, and above
- * all that what reaches the store is the FILTERED list and not `discovered`.
+ * What it pins, for Codeberg #129 and #31: that the non-primary candidates are probed one
+ * Mailbox/get each, each in its OWN runCatching, that the early return still sits in front of the
+ * probe, and that what reaches the store is the UNFILTERED candidate list PLUS the probes — the
+ * repository applies no keep/discard of its own, because a list filtered here reads as "revoked
+ * server-side" in the store's diff and deletes a real shared mailbox with its whole cache.
  */
 class ForbiddenSubAccountWiringTest {
 
@@ -34,7 +37,7 @@ class ForbiddenSubAccountWiringTest {
         )
     }
 
-    @Test fun `reconcile probes every non-primary candidate and hands the store the filtered list`() {
+    @Test fun `reconcile probes every non-primary candidate and hands the store the raw list plus probes`() {
         assertBody(
             "reconcileLinkedAccounts",
             """
@@ -47,8 +50,8 @@ class ForbiddenSubAccountWiringTest {
             candidate.jmapAccountId to
             runCatching { client.getMailboxes(session, candidate.jmapAccountId, auth) }.rethrowIfCancelled()
             }
-            val reachable = retainReachableMailAccounts(discovered, probes)
-            val pruned = runCatching { accountStore.reconcileLinkedAccounts(loginId, reachable) }.getOrDefault(emptyList())
+            val pruned = runCatching { accountStore.reconcileLinkedAccounts(loginId, discovered, probes) }
+            .getOrDefault(emptyList())
             pruned.forEach { prunedId ->
             // App-layer teardown first (notification baselines); each step best-effort so one
             // failure never leaves the rest of a revoked account behind.
@@ -121,6 +124,30 @@ class ForbiddenSubAccountWiringTest {
     }
 
     /**
+     * ORDER, not the whole body: the mention list below sees only the TEXT and its rank, so moving
+     * the reconcile call BELOW connect()'s own `client.getMailboxes(...)` keeps both and leaves the
+     * rest of this file green while the reconcile has quietly moved past the point the session is
+     * used for. Only the order is pinned — the #32 identity block in between is none of this
+     * test's business, and pinning it line for line would break #129's suite on every edit there.
+     */
+    @Test fun `connect reconciles the linked accounts before it uses the session`() {
+        val lines = bodyLines("connect")
+        val reconcile = lines.indexOf("reconcileLinkedAccounts(credentials, session, auth)")
+        val use = lines.indexOfFirst { "client.getMailboxes(" in it }
+        assertTrue(
+            "connect() no longer calls reconcileLinkedAccounts(credentials, session, auth) — that " +
+                "call is what makes the #129 filter and the #31 prune run at all.",
+            reconcile >= 0,
+        )
+        assertTrue("connect() no longer calls client.getMailboxes( — read the new body.", use >= 0)
+        assertTrue(
+            "the reconcile now sits BELOW connect()'s own getMailboxes: the session is used before " +
+                "the sub-accounts are reconciled.",
+            reconcile < use,
+        )
+    }
+
+    /**
      * Every mention of the reconcile in the file, declaration and call sites alike, WITH their
      * arguments. Deleting the connect() call site is the mutation this closes: the whole suite
      * stayed green without it, the #129 filter would never run outside the add flow, and #31 would
@@ -135,8 +162,7 @@ class ForbiddenSubAccountWiringTest {
                 "makes revocations prune (#31); the after-add one is what the add flow shows.",
             listOf(
                 "private suspend fun reconcileLinkedAccounts(",
-                "val pruned = runCatching { accountStore.reconcileLinkedAccounts(loginId, reachable) }" +
-                    ".getOrDefault(emptyList())",
+                "val pruned = runCatching { accountStore.reconcileLinkedAccounts(loginId, discovered, probes) }",
                 "reconcileLinkedAccounts(credentials, cached.session, cached.auth)",
                 "reconcileLinkedAccounts(credentials, session, auth)",
             ),
@@ -166,18 +192,19 @@ class ForbiddenSubAccountWiringTest {
     }
 
     /**
-     * And nothing else in the file may hand the store a discovered list: a second call site would
-     * be a way back in for the account the server refuses.
+     * And nothing else in the file may hand the store a candidate list: a second call site would be
+     * a way back in for the account the server refuses — or, worse, a way to hand the store a list
+     * the repository has filtered itself, which is what pruned a live shared mailbox.
      */
-    @Test fun `the store's reconcile is called from exactly one place, with the filtered list`() {
+    @Test fun `the store's reconcile is called from exactly one place, with the unfiltered list and the probes`() {
         val calls = DaoQuerySource.mailSource("MailRepository").lines().map { it.trim() }
             .filter { "accountStore.reconcileLinkedAccounts(" in it }
         assertEquals(
             "MailRepository now calls AccountStore.reconcileLinkedAccounts somewhere else, or with " +
-                "another list than the one retainReachableMailAccounts returned (#129).",
+                "something other than (loginId, the raw discovered list, probes) — filtering the " +
+                "list here is what turns a passing 'forbidden' into a prune (#129 vs #31).",
             listOf(
-                "val pruned = runCatching { accountStore.reconcileLinkedAccounts(loginId, reachable) }" +
-                    ".getOrDefault(emptyList())",
+                "val pruned = runCatching { accountStore.reconcileLinkedAccounts(loginId, discovered, probes) }",
             ),
             calls,
         )

@@ -17,7 +17,6 @@ import app.sterna.core.data.account.MailEndpoint
 import app.sterna.core.data.account.MailProtocol
 import app.sterna.core.data.account.OAuthCredentials
 import app.sterna.core.data.account.StoredIdentity
-import app.sterna.core.data.account.retainReachableMailAccounts
 import app.sterna.core.data.filter.FilterRule
 import app.sterna.core.data.filter.FilterScriptStatus
 import app.sterna.core.data.filter.SieveCodec
@@ -4782,9 +4781,14 @@ class MailRepository(
      * server will serve mail for — a read-only CALENDAR share puts the sharer's account in the
      * session, mail capability and all, and refuses every Mailbox/get for it. So each NON-PRIMARY
      * candidate is probed with one Mailbox/get (its own runCatching: a refusal for one must teach
-     * nothing about the others) and [retainReachableMailAccounts] holds the whole keep/discard
-     * decision. The early return above stays in front of that: a login with no sub-account still
-     * costs no extra request.
+     * nothing about the others). The early return above stays in front of that: a login with no
+     * sub-account still costs no extra request.
+     *
+     * The probes are handed to the store RAW, alongside the unfiltered candidate list, and the
+     * keep/discard decision is applied inside diffLinkedAccounts. Filtering here and passing only
+     * the survivors is what let a passing `forbidden` (a reloaded ACL) read as "revoked server-side"
+     * and delete a real shared mailbox with its whole cache: the probe governs admission, never
+     * eviction.
      */
     private suspend fun reconcileLinkedAccounts(
         credentials: AccountCredentials,
@@ -4799,8 +4803,8 @@ class MailRepository(
             candidate.jmapAccountId to
                 runCatching { client.getMailboxes(session, candidate.jmapAccountId, auth) }.rethrowIfCancelled()
         }
-        val reachable = retainReachableMailAccounts(discovered, probes)
-        val pruned = runCatching { accountStore.reconcileLinkedAccounts(loginId, reachable) }.getOrDefault(emptyList())
+        val pruned = runCatching { accountStore.reconcileLinkedAccounts(loginId, discovered, probes) }
+            .getOrDefault(emptyList())
         pruned.forEach { prunedId ->
             // App-layer teardown first (notification baselines); each step best-effort so one
             // failure never leaves the rest of a revoked account behind.
