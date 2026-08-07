@@ -30,6 +30,8 @@ enum class DavKind(
     internal val dataProp: PropKey,
     internal val collectionType: String,
     internal val dataElement: String,
+    /** The `Content-Type` a PUT into this kind of collection must carry. */
+    internal val contentType: String,
 ) {
     CALENDAR(
         wellKnown = "/.well-known/caldav",
@@ -39,6 +41,7 @@ enum class DavKind(
         dataProp = PropKey.CALENDAR_DATA,
         collectionType = "urn:ietf:params:xml:ns:caldav|calendar",
         dataElement = "calendar-data",
+        contentType = "text/calendar; charset=utf-8",
     ),
     ADDRESS_BOOK(
         wellKnown = "/.well-known/carddav",
@@ -48,6 +51,7 @@ enum class DavKind(
         dataProp = PropKey.ADDRESS_DATA,
         collectionType = "urn:ietf:params:xml:ns:carddav|addressbook",
         dataElement = "address-data",
+        contentType = "text/vcard; charset=utf-8",
     ),
 }
 
@@ -85,11 +89,34 @@ data class DavSyncResult(
     val fullResync: Boolean,
 )
 
+/** Where a written item landed, as the server sees it. */
+data class DavWriteResult(
+    /** Absolute URL of the created resource. */
+    val url: String,
+    /**
+     * The same resource as a percent-DECODED path.
+     *
+     * 🔴 This, not [url], is what a local mirror must key on. Every row this app stores came from a
+     * MultiStatus `<D:href>`, which [MultiStatus] hands back decoded, so a row keyed on anything
+     * else (the absolute URL, or the still-encoded path) does not match the row the very next sync
+     * creates for the same item. The visible symptom is the new event appearing twice, which is a
+     * miserable bug to chase because both copies are real and correct.
+     */
+    val href: String,
+    /** The server's etag for the new item, when it sent one. Needed later to update or delete. */
+    val etag: String?,
+)
+
 class DavException(message: String, val code: Int? = null) : Exception(message)
 
 /**
- * A CalDAV/CardDAV client: enough to discover a user's collections and keep a local mirror of them
- * up to date. Read-only, deliberately, matching what the Calendar and Contacts tabs actually do.
+ * A CalDAV/CardDAV client: enough to discover a user's collections, keep a local mirror of them up
+ * to date, and add new items to them.
+ *
+ * Reading is the whole of [discover] and [sync]. Writing is [create] alone: this can add an item,
+ * and deliberately cannot yet change or delete one. Editing needs `If-Match` on the stored etag
+ * plus an answer for the 412 that says somebody else got there first, and that conflict story is
+ * its own piece of work rather than a flag on this one.
  *
  * ## The shape of a sync
  * [discover] finds the collections once (well-known → principal → home set → list). [sync] then
@@ -223,6 +250,59 @@ class DavClient internal constructor(
             } else {
                 throw e
             }
+        }
+    }
+
+    /**
+     * Create one new item in a collection.
+     *
+     * [fileName] names the resource inside [collectionUrl] and by convention is `<uid>.ics` or
+     * `<uid>.vcf`. It only has to be unique in the collection; the UID inside [data] is the real
+     * identity, and keeping the two the same is what makes a server's own web UI show a sane
+     * filename instead of a random one.
+     *
+     * ## 🔴 `If-None-Match: *` is what makes this a create and not a silent overwrite
+     * Without it a PUT to a path that already exists replaces whatever was there, and since the
+     * path is derived from a UID, a UID collision would quietly destroy an existing appointment.
+     * With it the server answers **412 Precondition Failed** instead, and nothing is lost. That is
+     * why the 412 below is reported as a distinct message rather than folded into "write failed":
+     * the two mean completely different things to whoever has to decide what happens next.
+     *
+     * PUT answers with a plain body or none at all, never a MultiStatus, so this cannot go through
+     * [execute] and does its own response handling.
+     */
+    suspend fun create(
+        collectionUrl: String,
+        fileName: String,
+        credentials: DavCredentials,
+        kind: DavKind,
+        data: String,
+    ): DavWriteResult = withContext(Dispatchers.IO) {
+        val collection = collectionUrl.toHttpUrlOrNull()
+            ?: throw DavException("Bad collection URL: $collectionUrl")
+        // addPathSegment, not string concatenation: the segment is encoded exactly once, and a
+        // collection URL that arrived without its trailing slash cannot swallow its last segment.
+        val target = collection.newBuilder().addPathSegment(fileName).build()
+        val request = Request.Builder()
+            .url(target)
+            .put(data.toRequestBody(kind.contentType.toMediaType()))
+            .header("If-None-Match", "*")
+            .header("Authorization", credentials.authorizationHeader())
+            .build()
+        http.newCall(request).execute().use { response ->
+            if (response.code == 412) {
+                throw DavException("An item with that id already exists", 412)
+            }
+            if (!response.isSuccessful) throw DavException(errorFor(response), response.code)
+            DavWriteResult(
+                url = target.toString(),
+                // pathSegments is the decoded form, which is the point. See DavWriteResult.href.
+                href = "/" + target.pathSegments.joinToString("/"),
+                // A server MAY omit the etag (RFC 4791 §5.3.4) when it changed what it stored, e.g.
+                // added a VTIMEZONE. Null is honest: the next sync will fetch the item and record
+                // whatever the server actually kept, which beats storing an etag that is a guess.
+                etag = response.header("ETag")?.trim('"', ' ')?.takeIf { it.isNotBlank() },
+            )
         }
     }
 

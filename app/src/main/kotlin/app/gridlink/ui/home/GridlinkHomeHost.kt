@@ -147,6 +147,7 @@ fun GridlinkHomeHost(
             contacts = contacts,
             ownDomain = ownDomain,
             sender = sender,
+            calendarWriter = davViewModel.calendarWriter,
         )
     }
 }
