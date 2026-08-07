@@ -788,9 +788,9 @@
     <string name="settings_text_size_normal">Normalny</string>
     <string name="settings_text_size_large">Duży</string>
     <string name="settings_text_size_huge">Bardzo duży</string>
-    <string name="settings_account_notifications_section">Powiadomienia</string>
-    <string name="settings_account_notifications_title">Powiadomienia o nowej poczcie</string>
-    <string name="settings_account_notifications_subtitle">Pokazuj powiadomienia o nowej poczcie na tym koncie.</string>
+    <string name="settings_account_notifications_section">Synchronizacja i powiadomienia</string>
+    <string name="settings_account_notifications_title">Synchronizuj nową pocztę</string>
+    <string name="settings_account_notifications_subtitle">Pobiera nową pocztę tego konta w tle i powiadamia o niej. Gdy opcja jest wyłączona, poczta pojawia się dopiero po otwarciu aplikacji lub pociągnięciu w dół, aby odświeżyć.</string>
     <string name="settings_group_app">Aplikacja</string>
     <string name="settings_group_current_account">To konto · %1$s</string>
     <string name="settings_group_current_account_generic">To konto</string>

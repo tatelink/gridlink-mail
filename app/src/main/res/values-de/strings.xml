@@ -776,9 +776,9 @@
     <string name="settings_text_size_normal">Normal</string>
     <string name="settings_text_size_large">Groß</string>
     <string name="settings_text_size_huge">Sehr groß</string>
-    <string name="settings_account_notifications_section">Benachrichtigungen</string>
-    <string name="settings_account_notifications_title">Benachrichtigungen für neue E-Mails</string>
-    <string name="settings_account_notifications_subtitle">Benachrichtigungen für neue E-Mails in diesem Konto anzeigen.</string>
+    <string name="settings_account_notifications_section">Synchronisierung und Benachrichtigungen</string>
+    <string name="settings_account_notifications_title">Neue E-Mails synchronisieren</string>
+    <string name="settings_account_notifications_subtitle">Ruft neue E-Mails dieses Kontos im Hintergrund ab und benachrichtigt dich. Ist die Option aus, kommen dessen E-Mails erst an, wenn du die App öffnest oder zum Aktualisieren nach unten ziehst.</string>
     <string name="settings_group_app">App</string>
     <string name="settings_group_current_account">Dieses Konto · %1$s</string>
     <string name="settings_group_current_account_generic">Dieses Konto</string>

@@ -782,9 +782,9 @@
     <string name="settings_text_size_normal">Normal</string>
     <string name="settings_text_size_large">Grande</string>
     <string name="settings_text_size_huge">Enorme</string>
-    <string name="settings_account_notifications_section">Notificaciones</string>
-    <string name="settings_account_notifications_title">Notificaciones de correo nuevo</string>
-    <string name="settings_account_notifications_subtitle">Muestra notificaciones de correo nuevo en esta cuenta.</string>
+    <string name="settings_account_notifications_section">Sincronización y notificaciones</string>
+    <string name="settings_account_notifications_title">Sincronizar el correo nuevo</string>
+    <string name="settings_account_notifications_subtitle">Obtiene el correo nuevo de esta cuenta en segundo plano y te avisa. Si está desactivado, su correo solo llega cuando abres la aplicación o deslizas para actualizar.</string>
     <string name="settings_group_app">Aplicación</string>
     <string name="settings_group_current_account">Esta cuenta · %1$s</string>
     <string name="settings_group_current_account_generic">Esta cuenta</string>

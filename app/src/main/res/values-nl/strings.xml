@@ -779,9 +779,9 @@
     <string name="settings_text_size_normal">Normaal</string>
     <string name="settings_text_size_large">Groot</string>
     <string name="settings_text_size_huge">Zeer groot</string>
-    <string name="settings_account_notifications_section">Meldingen</string>
-    <string name="settings_account_notifications_title">Meldingen voor nieuwe e-mail</string>
-    <string name="settings_account_notifications_subtitle">Toon meldingen voor nieuwe e-mail in dit account.</string>
+    <string name="settings_account_notifications_section">Synchronisatie en meldingen</string>
+    <string name="settings_account_notifications_title">Nieuwe e-mail synchroniseren</string>
+    <string name="settings_account_notifications_subtitle">Haalt nieuwe e-mail van dit account op de achtergrond op en waarschuwt je. Staat dit uit, dan komt de e-mail pas binnen wanneer je de app opent of omlaag trekt om te vernieuwen.</string>
     <string name="settings_group_app">App</string>
     <string name="settings_group_current_account">Dit account · %1$s</string>
     <string name="settings_group_current_account_generic">Dit account</string>

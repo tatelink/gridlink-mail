@@ -784,9 +784,9 @@
     <string name="settings_text_size_huge">Enorme</string>
 
     <!-- Per-account notifications -->
-    <string name="settings_account_notifications_section">Notificações</string>
-    <string name="settings_account_notifications_title">Notificações de novos e-mails</string>
-    <string name="settings_account_notifications_subtitle">Mostrar notificações de novos e-mails desta conta.</string>
+    <string name="settings_account_notifications_section">Sincronização e notificações</string>
+    <string name="settings_account_notifications_title">Sincronizar novos e-mails</string>
+    <string name="settings_account_notifications_subtitle">Obtém os novos e-mails desta conta em segundo plano e notifica-o. Se estiver desativado, os e-mails só chegam quando abre a aplicação ou puxa para atualizar.</string>
     <string name="settings_group_app">App</string>
     <string name="settings_group_current_account">Esta conta · %1$s</string>
     <string name="settings_group_current_account_generic">Esta conta</string>

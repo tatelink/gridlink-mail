@@ -82,6 +82,96 @@ class TranslationParityTest {
         assertEquals("the OLED switch is unlabelled in", emptyMap<String, Set<String>>(), missing)
     }
 
+    /**
+     * PARITY OF KEYS IS NOT PARITY OF MEANING, AND THIS SWITCH IS WHERE THAT BITES.
+     *
+     * `notificationsEnabled` reads like a display setting and is not one: five of the six places
+     * that consult it go and FETCH mail (`PushController`, `PushService`, `MailFetchWorker`,
+     * `PushFetchWorker`, `BootReceiver`/`BootRestart`), and only one decides whether to notify
+     * (`FetchAndNotify`). A label that promises "Show notifications for new mail" therefore lies
+     * about what turning it off costs. The English text is pinned here, whole, so that the honest
+     * wording cannot be quietly walked back to the display-only one it replaced.
+     *
+     * Whole-value equality on purpose: `contains` is blind to anything a mutation APPENDS, and that
+     * blindness has cost this repo three defects already.
+     */
+    @Test
+    fun `the account switch says it governs the fetch, not only the notification`() {
+        val actual = valuesOf(File(res, "values/strings.xml")).filterKeys { it in ENGLISH }
+        assertEquals(
+            "the per-account switch gates background fetching, not just the notification; its " +
+                "English label has to say so",
+            ENGLISH,
+            actual,
+        )
+    }
+
+    /**
+     * The failure the key-parity rules above cannot see: a `values-*` that carries the key and the
+     * ENGLISH text under it. For a label being reworded that is the likely accident — copy the new
+     * English into the eight files, translate seven of them — and it ships as a screen where one
+     * language silently reverts to the old, wrong promise.
+     */
+    @Test
+    fun `no language leaves the account switch in English`() {
+        val english = valuesOf(File(res, "values/strings.xml"))
+        val copied = translations().associate { file ->
+            val theirs = valuesOf(file)
+            file.parentFile.name to ENGLISH.keys.filter { theirs[it] != null && theirs[it] == english[it] }.toSet()
+        }.filterValues { it.isNotEmpty() }
+        assertEquals("the English text left untranslated in", emptyMap<String, Set<String>>(), copied)
+    }
+
+    /**
+     * The subtitle makes TWO statements, and a translation that keeps only the first is wrong in a
+     * way no parity rule notices: (a) the switch drives the background fetch, and (b) with it off
+     * the mail still arrives, on opening the app or pulling to refresh. Drop (b) and the setting
+     * reads as "off means no mail", which it is not.
+     *
+     * (b) cannot be checked by meaning here, so it is checked by shape: the subtitle has to be at
+     * least two sentences long, each one long enough to be one (see [sentencesOf] — a dot count
+     * alone would take "z. B." for a second sentence), plus a floor on the whole text.
+     */
+    @Test
+    fun `every language keeps both halves of the account switch explanation`() {
+        val files = listOf(File(res, "values/strings.xml")) + translations()
+        val truncated = files.mapNotNull { file ->
+            val text = valuesOf(file)[SUBTITLE].orEmpty()
+            val sentences = sentencesOf(text)
+            when {
+                sentences.size < 2 ->
+                    "${file.parentFile.name}: ${sentences.size} sentence(s), so it cannot say both " +
+                        "what the switch fetches and what still arrives when it is off — <$text>"
+                text.length < 60 -> "${file.parentFile.name}: ${text.length} characters is too short to say both — <$text>"
+                else -> null
+            }
+        }
+        assertEquals("the account switch subtitle says only half of it in", emptyList<String>(), truncated)
+    }
+
+    /**
+     * The sentences of a label: split on a full stop / question mark / exclamation mark that ends a
+     * word, keeping only the parts that look like a sentence — 20 characters or more, AND opening
+     * on a capital letter.
+     *
+     * Both conditions were needed. Counting dots alone takes "z. B." for a sentence break; the
+     * length floor alone does not save it, because the tail it leaves ("auf dem Sperrbildschirm",
+     * 23 characters) clears the floor on its own — that mutation went green here before the capital
+     * was required, and what kills it is that the tail of an abbreviation resumes in lower case.
+     *
+     * The price is a translation whose second sentence starts on a lower-case word (a "de Vries",
+     * an "e-mail"): the eight languages here do not, and a rewrite that wants to must widen this
+     * rule on purpose rather than by accident.
+     */
+    private fun sentencesOf(text: String): List<String> = text.split(SENTENCE_END)
+        .map { it.trim() }
+        .filter { it.length >= 20 && it.firstOrNull(Char::isLetter)?.isUpperCase() == true }
+
+    /** Each `<string>`'s text exactly as the file carries it, escapes included. */
+    private fun valuesOf(file: File): Map<String, String> = STRING
+        .findAll(file.readText())
+        .associate { it.groupValues[1] to it.groupValues[2] }
+
     /** Every `%s` / `%1$s` / `%d` … a string carries, as a set (order is the translator's to choose). */
     private fun placeholdersOf(file: File): Map<String, Set<String>> = STRING
         .findAll(file.readText())
@@ -107,6 +197,19 @@ class TranslationParityTest {
 
         /** A Java format specifier as Android uses them: `%s`, `%d`, `%1${'$'}s`, `%2${'$'}d`. */
         val PLACEHOLDER = Regex("%(?:\\d+\\$)?[sd]")
+
+        /** End of a sentence: the punctuation, and then a space or the end of the label. */
+        val SENTENCE_END = Regex("[.!?…](?=\\s|${'$'})")
+
+        const val SUBTITLE = "settings_account_notifications_subtitle"
+
+        /** The three labels of the per-account switch, in English, whole. */
+        val ENGLISH = mapOf(
+            "settings_account_notifications_section" to "Sync and notifications",
+            "settings_account_notifications_title" to "Sync new mail",
+            SUBTITLE to "Fetches this account\\'s new mail in the background and notifies you. " +
+                "When off, its mail arrives only when you open the app or pull to refresh.",
+        )
 
         /** Repo root, found by walking up from the module's working directory. */
         val res: File by lazy {

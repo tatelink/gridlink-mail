@@ -782,9 +782,9 @@
     <string name="settings_text_size_normal">Normale</string>
     <string name="settings_text_size_large">Grande</string>
     <string name="settings_text_size_huge">Molto grande</string>
-    <string name="settings_account_notifications_section">Notifiche</string>
-    <string name="settings_account_notifications_title">Notifiche di nuova posta</string>
-    <string name="settings_account_notifications_subtitle">Mostra le notifiche per la nuova posta di questo account.</string>
+    <string name="settings_account_notifications_section">Sincronizzazione e notifiche</string>
+    <string name="settings_account_notifications_title">Sincronizza la nuova posta</string>
+    <string name="settings_account_notifications_subtitle">Recupera la nuova posta di questo account in secondo piano e ti avvisa. Se è disattivata, la sua posta arriva solo quando apri l’app o trascini verso il basso per aggiornare.</string>
     <string name="settings_group_app">App</string>
     <string name="settings_group_current_account">Questo account · %1$s</string>
     <string name="settings_group_current_account_generic">Questo account</string>
