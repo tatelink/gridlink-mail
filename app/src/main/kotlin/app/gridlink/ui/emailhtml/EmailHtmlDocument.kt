@@ -76,6 +76,91 @@ object EmailRemoteContent {
 }
 
 /**
+ * Point every resource the browser resolves on its own at a URL it is actually allowed to fetch.
+ *
+ * ## 🔴 Why a body full of `http://` images renders nothing, with no error anywhere
+ * Cleartext HTTP is off by default for an app targeting Android 9 or later, and this one does not
+ * turn it back on ([app.gridlink] `network_security_config.xml`). Mail is still full of `http://`
+ * image URLs, so the platform drops those loads **silently**: no CSP violation, no mixed-content
+ * warning, nothing in logcat. All the reader sees is a broken-image glyph, and because the only
+ * control on screen is the images banner, it reads as "show images is broken".
+ *
+ * Protocol-relative URLs (`//host/pixel.gif`) fail the same way for a different reason: the document
+ * is loaded with a null base URL, so `//host` resolves against `about:blank` and goes nowhere.
+ *
+ * ## Why upgrade rather than permit cleartext
+ * Permitting cleartext would fix the pictures by making every request in the app downgradeable,
+ * including the ones carrying the user's password. And the fetch itself is the thing worth
+ * protecting here: a remote image in mail tells whoever is on the path which message is open and
+ * when, which is the exact leak the blocking banner exists to control. An upgrade is strictly better
+ * than what happens today, because today the answer is already "nothing loaded".
+ *
+ * A host that genuinely has no HTTPS still shows a broken image. That is the current behaviour for
+ * every host, so nothing that works now can regress, and refusing to read someone's mail over
+ * cleartext is the right way to lose that one.
+ *
+ * ## ⚠️ Only the scheme, and only at the front of a URL
+ * `href` is untouched: a link fetches nothing until it is tapped, and it leaves through the system
+ * browser, which has its own opinion about cleartext. Inside a value only a LEADING `http://` is
+ * rewritten, never one further in, because `src="https://track/r?u=http://real"` carries the second
+ * one as data and upgrading it would rewrite somebody's redirect target.
+ */
+internal fun upgradeResourceUrls(html: String): String {
+    val attributes = RESOURCE_ATTRIBUTE.replace(html) { m ->
+        val name = m.groupValues[1]
+        val equals = m.groupValues[2]
+        val quoted = m.groups[3] ?: m.groups[4]
+        val value = quoted?.value ?: m.groupValues[5]
+        // srcset is a comma-separated list of candidates, each its own URL. The others are one URL.
+        val fixed = if (name.equals("srcset", ignoreCase = true)) {
+            value.split(',').joinToString(",") { candidate ->
+                val lead = candidate.takeWhile(Char::isWhitespace)
+                lead + upgradeUrl(candidate.substring(lead.length))
+            }
+        } else {
+            upgradeUrl(value)
+        }
+        val quote = when {
+            m.groups[3] != null -> "\""
+            m.groups[4] != null -> "'"
+            else -> ""
+        }
+        "$name$equals$quote$fixed$quote"
+    }
+    return CSS_URL.replace(attributes) { m ->
+        val quote = m.groupValues[1]
+        "url($quote${upgradeUrl(m.groupValues[2])}$quote)"
+    }
+}
+
+/** A single URL, made fetchable. Anything already secure, or `data:`/`cid:`, is returned untouched. */
+private fun upgradeUrl(raw: String): String {
+    val url = raw.trim()
+    return when {
+        url.startsWith("//") -> "https:$url"
+        url.regionMatches(0, "http://", 0, HTTP_SCHEME_LENGTH, ignoreCase = true) ->
+            "https://" + url.substring(HTTP_SCHEME_LENGTH)
+
+        else -> raw
+    }
+}
+
+private const val HTTP_SCHEME_LENGTH = 7
+
+/**
+ * The attributes a browser resolves without being asked, with their value in whichever quoting the
+ * sender used (or none). Deliberately the same list as [EmailRemoteContent.referencedBy] matches on,
+ * so the banner and the upgrade cannot disagree about what counts as a remote reference.
+ */
+private val RESOURCE_ATTRIBUTE = Regex(
+    """\b(src|srcset|background|poster)(\s*=\s*)(?:"([^"]*)"|'([^']*)'|([^\s>]*))""",
+    RegexOption.IGNORE_CASE,
+)
+
+/** `url(...)` in a style attribute or a `<style>` block, quoted or bare. */
+private val CSS_URL = Regex("""url\(\s*(["']?)([^)"']*)\1\s*\)""", RegexOption.IGNORE_CASE)
+
+/**
  * The document a mail-body WebView actually loads: the message's own markup, wrapped in a policy,
  * a colour scheme and (optionally) two spacer elements.
  *
@@ -103,6 +188,8 @@ fun buildEmailHtmlDocument(
     inlineImages.forEach { (cid, dataUri) ->
         inner = inner.replace("cid:$cid", dataUri).replace("cid:<$cid>", dataUri)
     }
+    // 🔴 After the cid inlining, so an inlined data: URI is never a candidate. See the function.
+    inner = upgradeResourceUrls(inner)
     // Neutralise the email's own dark-mode styles. On a dark-mode device the WebView matches
     // `prefers-color-scheme: dark`, so a marketing email renders its dark variant — which our
     // invert then turns light (the "white band in dark theme" bug); declaring color-scheme is
