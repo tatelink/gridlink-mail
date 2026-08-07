@@ -7,18 +7,27 @@ import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.appcompat.app.AppCompatActivity
 import app.gridlink.core.data.settings.ListDensity
 import app.gridlink.core.data.settings.PreviewLines
 import app.gridlink.core.data.settings.ThemeMode
 import app.gridlink.ui.AppNavHost
+import app.gridlink.ui.gridlink.GridlinkIntroOverlay
+import app.gridlink.ui.gridlink.rememberGridlinkIntroMode
 import app.gridlink.ui.message.NavFadeGuard
 import app.gridlink.ui.components.LocalListDensity
 import app.gridlink.ui.components.LocalPreviewLines
 import app.gridlink.ui.theme.AppTheme
+import app.gridlink.ui.theme.ProvideGridlinkTokens
 
 class MainActivity : AppCompatActivity() {
     /** A mailto: link waiting to open the compose screen (Codeberg #15). Set from the launch
@@ -29,6 +38,17 @@ class MainActivity : AppCompatActivity() {
     /** A new-mail notification tap waiting to open that message (Codeberg #17 follow-up). Same
      *  singleTask/onNewIntent plumbing as [pendingMailto]. */
     private val pendingEmailOpen = androidx.compose.runtime.mutableStateOf<EmailOpenTarget?>(null)
+
+    /**
+     * Whether this launch gets the animated intro.
+     *
+     * 🔴 Read once in [onCreate] and never again, because "did the user open the app" is a fact
+     * about the launch and not about the composition. Deciding it inside `setContent` would replay
+     * the intro on every recreation the system feels like handing out — a rotation, an unfold, a
+     * font size change, coming back to a process the launcher trimmed — each time on top of
+     * whatever the user was reading.
+     */
+    private var playIntro = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,6 +61,11 @@ class MainActivity : AppCompatActivity() {
         if (savedInstanceState == null) {
             pendingMailto.value = parseMailto(intent) ?: parseShare(intent)
             pendingEmailOpen.value = parseEmailOpen(intent)
+            // ⚠️ Not on every cold start: only on the ones that are actually somebody opening
+            // Gridlink. A tapped new-mail notification and a mailto: link from another app are both
+            // requests to be somewhere specific, and a brand animation in front of either is the app
+            // making the user wait through its logo to get to the thing they already asked for.
+            playIntro = pendingMailto.value == null && pendingEmailOpen.value == null
         }
         val settings = application.container.settingsRepository
         setContent {
@@ -53,18 +78,33 @@ class MainActivity : AppCompatActivity() {
                     LocalListDensity provides density,
                     LocalPreviewLines provides previewLines,
                 ) {
-                    AppNavHost(
-                        pendingMailto = pendingMailto.value,
-                        onMailtoConsumed = {
-                            pendingMailto.value = null
-                            stripMailtoPayload()
-                        },
-                        pendingEmailOpen = pendingEmailOpen.value,
-                        onEmailOpenConsumed = {
-                            pendingEmailOpen.value = null
-                            stripEmailOpenPayload()
-                        },
-                    )
+                    // 🔴 Saved, not merely remembered. Unfolding recreates this activity, and a
+                    // remembered flag would come back false-by-default and replay the intro over
+                    // the mail the user just opened the phone to read. Saved, an intro that has
+                    // already finished stays finished across the hinge.
+                    var introPlaying by rememberSaveable { mutableStateOf(playIntro) }
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        AppNavHost(
+                            pendingMailto = pendingMailto.value,
+                            onMailtoConsumed = {
+                                pendingMailto.value = null
+                                stripMailtoPayload()
+                            },
+                            pendingEmailOpen = pendingEmailOpen.value,
+                            onEmailOpenConsumed = {
+                                pendingEmailOpen.value = null
+                                stripEmailOpenPayload()
+                            },
+                        )
+                        if (introPlaying) {
+                            // Gridlink's palette, which the nav host provides for itself further
+                            // down but nothing provides up here. See [rememberGridlinkIntroMode] for
+                            // why resolving it a second time is safe and what would break it.
+                            ProvideGridlinkTokens(mode = rememberGridlinkIntroMode()) {
+                                GridlinkIntroOverlay(onFinished = { introPlaying = false })
+                            }
+                        }
+                    }
                 }
             }
         }

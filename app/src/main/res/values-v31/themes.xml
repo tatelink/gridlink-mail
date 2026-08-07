@@ -1,11 +1,28 @@
 <resources>
-    <!-- Android 12+ system splash: the Gridlink mark on the icon's own tile colour, so the
-         cold start looks like the launcher icon opening rather than a separate screen. The
-         icon is the adaptive foreground itself, which already sits inside the 2/3 safe zone
-         the splash spec asks for, so there is one piece of artwork and it cannot drift.
+    <!-- Android 12+ system splash: a bare coloured field, and deliberately nothing on it.
+
+         🔴 The mark USED to be here, as windowSplashScreenAnimatedIcon, so the cold start
+         looked like the launcher icon opening. It cannot be, now that GridlinkIntroOverlay
+         exists: the splash held the FINISHED mark for as long as the app took to draw, and
+         then the intro took it apart and built it again. Measured on the emulator the splash
+         was still up 2.3s in, so what you actually saw was the logo, assembled and sitting
+         still, and then that same logo scattering into nine blocks and reassembling. The
+         animation only means anything if the mark has not already been shown finished.
+
+         🔴 And deleting the attribute is NOT how you get rid of it. With no icon named, the
+         platform falls back to android:icon from the manifest, which is the same mark — the
+         double-logo survived the deletion unchanged and had to be caught on a device a second
+         time. A transparent drawable is the only way to say "no icon" to this API.
+
+         ⚠️ Devices below API 31 never had one anyway: values/themes.xml sets a window
+         background and no icon. The branding is the intro's job on every version now. Launches
+         that skip the intro (a notification tap, a mailto: link; see MainActivity.playIntro)
+         get the bare field and go straight where they were asked to go, which is the right
+         trade: those users asked for a message, not for a logo.
+
          Uses the platform attributes directly (no androidx.core:core-splashscreen needed). -->
     <style name="Theme.Gridlink.Splash" parent="Theme.Gridlink">
         <item name="android:windowSplashScreenBackground">@color/gridlink_splash_background</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/gridlink_splash_blank</item>
     </style>
 </resources>

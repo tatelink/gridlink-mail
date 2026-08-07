@@ -1,7 +1,14 @@
 <resources>
     <!-- Pre-Compose window background, matching the Pelagic (dark) surface. -->
     <color name="gridlink_window_background">#0E1A1F</color>
-    <!-- Splash field, dark: the Gridlink icon's own dark tile, so the mark sits on the
-         same near-black it does in the launcher and the hand-off is seamless. -->
-    <color name="gridlink_splash_background">#05070C</color>
+    <!-- Splash field, dark: GridlinkNightColors.background, for the same reason the light one is
+         GridlinkDayColors.background — the splash hands straight over to GridlinkIntroOverlay,
+         which paints that exact fill. See values/colors.xml for the full note, including why this
+         resource can only ever be approximately right.
+
+         ⚠️ Night's and not OLED's (#000000), and the choice does not matter: the two are four
+         points apart on one channel and the step between them is not visible on any panel. Day is
+         the case that had to be got right, being a saturated blue behind what used to be a
+         near-white field. -->
+    <color name="gridlink_splash_background">#050A14</color>
 </resources>
