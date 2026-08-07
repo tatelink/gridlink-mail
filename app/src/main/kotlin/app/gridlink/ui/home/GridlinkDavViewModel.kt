@@ -9,8 +9,10 @@ import app.gridlink.core.data.calendar.CalendarOccurrence
 import app.gridlink.core.data.dav.DavSyncOutcome
 import app.gridlink.core.data.db.AddressBookContactEntity
 import app.gridlink.ui.gridlink.GridlinkCalendarContent
+import app.gridlink.ui.gridlink.GridlinkCalendarWriter
 import app.gridlink.ui.gridlink.GridlinkContactContent
 import app.gridlink.ui.gridlink.GridlinkDavMapping
+import app.gridlink.ui.gridlink.GridlinkEvent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -153,6 +155,45 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
             started = SharingStarted.WhileSubscribed(SUBSCRIPTION_GRACE_MS),
             initialValue = GridlinkContactContent(contacts = emptyList(), loading = true),
         )
+
+    /**
+     * The new-event form's Save button, wired to the server.
+     *
+     * ## Why the writer lives here rather than in `ui.gridlink`
+     * It needs the account id, and the account id is this class's business: it arrives through
+     * [bind], it changes when the user switches accounts, and nothing under `ui.gridlink` is allowed
+     * to know accounts exist. Read at save time rather than captured, for the same reason
+     * `GridlinkOutboxSender` re-reads its account: the tap and the write are a user-visible moment
+     * apart, and an account switched in between must not be written to as if it were the old one.
+     *
+     * ⚠️ [GridlinkCalendarWriter.echoesIntoContent] is true because the repository caches the event
+     * in Room and [occurrences] is already watching, so it arrives on its own. The one case where
+     * that is not quite true is an event saved outside [WINDOW_BACK_DAYS]..[WINDOW_FORWARD_DAYS],
+     * which is on the server and correct but outside what this view model expands. That is the same
+     * window the calendar already declares through [GridlinkCalendarContent.window], not a new
+     * behaviour introduced by writing.
+     */
+    val calendarWriter: GridlinkCalendarWriter = object : GridlinkCalendarWriter {
+        override val echoesIntoContent: Boolean get() = true
+
+        override suspend fun save(event: GridlinkEvent): String? {
+            val id = accountId.value ?: return "No account is signed in."
+            val outcome = repo.createEvent(
+                accountId = id,
+                title = event.title,
+                date = event.date,
+                start = event.start,
+                end = event.end,
+                location = event.location,
+            )
+            if (outcome.succeeded) {
+                Log.i(TAG, "created event ${outcome.href}")
+            } else {
+                Log.w(TAG, "create event failed: ${outcome.error}")
+            }
+            return outcome.error
+        }
+    }
 
     /**
      * Fetch the account's calendars and address books.

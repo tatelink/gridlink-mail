@@ -244,6 +244,91 @@ object ICalendar {
         return lines.joinToString("\r\n") { fold(it) } + "\r\n"
     }
 
+    // ---- Writing a new event ------------------------------------------------------------------
+
+    private val UTC_DATE_TIME =
+        DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'").withZone(ZoneOffset.UTC)
+
+    private val DATE_ONLY = DateTimeFormatter.BASIC_ISO_DATE
+
+    /**
+     * Build a complete VCALENDAR holding one new VEVENT, ready to PUT to a CalDAV collection.
+     *
+     * This lives beside [buildReply] because both need [fold] and [escapeText], and a second copy of
+     * RFC 5545 line folding is a bug waiting to be fixed in only one of them.
+     *
+     * ## 🔴 Timed events are written in UTC, not in [zone]
+     * The obvious alternative is `DTSTART;TZID=America/New_York:20260806T090000`, and it is a trap:
+     * RFC 5545 §3.6.5 requires a matching VTIMEZONE component in the same VCALENDAR whenever a TZID
+     * is used, with the full daylight-saving rules spelled out. Servers are entitled to reject an
+     * object that names a zone it was not given, and writing a VTIMEZONE by hand is how an app ends
+     * up shipping stale transition rules. A `Z` stamp needs none of that and is unambiguous. What it
+     * costs is real but small: the event is pinned to an instant, so it does not follow the user to
+     * a new zone the way "9am wherever I am" would. For an appointment created on the device, at a
+     * place, on a date, an instant is the correct meaning anyway.
+     *
+     * ## 🔴 DTEND on an all-day event is EXCLUSIVE
+     * A one-day event on the 6th is `DTSTART;VALUE=DATE:20260806` / `DTEND;VALUE=DATE:20260807`.
+     * Writing the 6th in both makes a zero-length event, which readers disagree about: some drop it,
+     * some show it, and [ICalendarStream] would coerce the span to a day and quietly disagree with
+     * whatever the server's own web UI decided. The `+1` is the format, not an off-by-one.
+     *
+     * ## ⚠️ No ORGANIZER, deliberately
+     * An event with an ORGANIZER and no ATTENDEEs is still a scheduling object as far as CalDAV
+     * scheduling (RFC 6638) is concerned, and a server that implements it may act on the PUT:
+     * allocate a schedule tag, or mail somebody. This writes a plain calendar entry, which is what
+     * the form collects. Attendees, and the invitations that come with them, are their own feature.
+     *
+     * @param uid the event's stable identity; also what names the `.ics` on the server.
+     * @param nowMillis supplies DTSTAMP, passed in so this stays pure and testable.
+     */
+    fun buildEvent(
+        uid: String,
+        summary: String,
+        start: LocalDateTime,
+        end: LocalDateTime?,
+        allDay: Boolean,
+        zone: ZoneId,
+        location: String?,
+        description: String?,
+        nowMillis: Long,
+    ): String {
+        val lines = ArrayList<String>()
+        lines += "BEGIN:VCALENDAR"
+        lines += "VERSION:2.0"
+        lines += "PRODID:-//Gridlink Mail//EN"
+        // No METHOD. A METHOD makes this an iTIP message rather than a calendar object, and the two
+        // are not interchangeable: a stored event carrying METHOD:REQUEST is an invitation sitting
+        // in a calendar, which is the thing that makes clients offer to accept your own appointment.
+        lines += "BEGIN:VEVENT"
+        lines += "UID:$uid"
+        lines += "DTSTAMP:${UTC_STAMP.format(Instant.ofEpochMilli(nowMillis))}"
+        if (allDay) {
+            val from = start.toLocalDate()
+            // An end before or on the start day would produce a zero or negative span, so the
+            // minimum written is the next day: one whole day, which is what the form means by an
+            // all-day event with no end.
+            val until = (end?.toLocalDate() ?: from).let { if (it > from) it else from.plusDays(1) }
+            lines += "DTSTART;VALUE=DATE:${DATE_ONLY.format(from)}"
+            lines += "DTEND;VALUE=DATE:${DATE_ONLY.format(until)}"
+        } else {
+            lines += "DTSTART:${UTC_DATE_TIME.format(start.atZone(zone))}"
+            // Only when it is genuinely after the start. A DTEND at or before DTSTART is invalid
+            // per RFC 5545 §3.8.2.2, and omitting it makes the event a point in time, which every
+            // reader handles, rather than an interval every reader has to guess about.
+            end?.takeIf { it.isAfter(start) }?.let {
+                lines += "DTEND:${UTC_DATE_TIME.format(it.atZone(zone))}"
+            }
+        }
+        lines += "SUMMARY:${escapeText(summary)}"
+        location?.takeIf { it.isNotBlank() }?.let { lines += "LOCATION:${escapeText(it)}" }
+        description?.takeIf { it.isNotBlank() }?.let { lines += "DESCRIPTION:${escapeText(it)}" }
+        lines += "SEQUENCE:0"
+        lines += "END:VEVENT"
+        lines += "END:VCALENDAR"
+        return lines.joinToString("\r\n") { fold(it) } + "\r\n"
+    }
+
     private fun organizerLine(event: ParsedEvent): String? {
         val email = event.organizerEmail?.takeIf { it.isNotBlank() } ?: return null
         val cn = event.organizerCn?.let { ";CN=${quoteParam(it)}" } ?: ""

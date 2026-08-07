@@ -531,6 +531,14 @@ fun GridlinkRoot(
      */
     sender: GridlinkSender = GridlinkNullSender,
     /**
+     * What the new-event form's Save button does.
+     *
+     * Defaults to [GridlinkMemoryCalendarWriter], which keeps the event for the run. Unlike [sender]
+     * the default is not a refusal, and [GridlinkCalendarWriter] explains why: nobody is on the other
+     * end of an appointment that only ever existed on this device.
+     */
+    calendarWriter: GridlinkCalendarWriter = GridlinkMemoryCalendarWriter,
+    /**
      * The account's mail, or null to draw [GridlinkSample]'s. See [GridlinkMailContent], including
      * the 🔴 on why null is not the same as an empty inbox.
      */
@@ -807,6 +815,47 @@ fun GridlinkRoot(
      * to keep them apart.
      */
     var creating by remember { mutableStateOf<GridlinkCreation?>(null) }
+
+    /** True while the new-event form's save is on the wire. */
+    var savingEvent by remember { mutableStateOf(false) }
+
+    /** Why the last save was refused, shown on the form that still holds the event. */
+    var saveError by remember { mutableStateOf<String?>(null) }
+
+    /**
+     * Save an event: ask the writer, and only then close the form.
+     *
+     * ## 🔴 Why nothing is added locally when the writer echoes
+     * A real writer stores the event where the calendar is already watching, so it comes back on its
+     * own a beat later. Adding it to [addedEvents] as well would put the SAME event on the day twice,
+     * from two sources that both believe they are the only one. The memory writer echoes nothing, so
+     * there the local copy is the whole of it. [GridlinkCalendarWriter.echoesIntoContent] is what
+     * says which, because only the writer knows.
+     */
+    fun saveEvent(event: GridlinkEvent) {
+        savingEvent = true
+        // Cleared on the attempt, not on the answer: leaving the previous refusal up while the new
+        // attempt runs would have the form contradicting its own disabled Saving button.
+        saveError = null
+        scope.launch {
+            val failure = runCatching { calendarWriter.save(event) }
+                .getOrElse { t ->
+                    if (t is CancellationException) throw t
+                    t.message ?: "Couldn't save that event."
+                }
+            savingEvent = false
+            if (failure != null) {
+                saveError = failure
+                return@launch
+            }
+            if (!calendarWriter.echoesIntoContent) {
+                // 🔴 The id is minted HERE, off the count, because the form cannot know it.
+                // See [gridlinkNewId].
+                addedEvents = addedEvents + event.copy(id = gridlinkNewId("event", addedEvents.size))
+            }
+            creating = null
+        }
+    }
 
     /**
      * Which day the calendar opens pointed at, when something else already decided what is open.
@@ -1367,14 +1416,13 @@ fun GridlinkRoot(
                 when (val current = creating) {
                     is GridlinkCreation.Event -> GridlinkNewEventScreen(
                         date = current.date,
-                        onClose = { creating = null },
-                        onSave = { event ->
-                            // 🔴 The id is minted HERE, off the count, because the form cannot know it.
-                            // See [gridlinkNewId].
-                            addedEvents = addedEvents +
-                                event.copy(id = gridlinkNewId("event", addedEvents.size))
-                            creating = null
-                        },
+                        // Abandoning the form takes the refusal with it, for the composer's reason:
+                        // it was news about one attempt, and a reopened form reporting it would be
+                        // showing history about an event nobody is trying to save any more.
+                        onClose = { creating = null; saveError = null },
+                        onSave = ::saveEvent,
+                        saving = savingEvent,
+                        failure = saveError,
                     )
 
                     GridlinkCreation.Contact -> GridlinkNewContactScreen(

@@ -37,11 +37,11 @@ private const val DEFAULT_DURATION_MINUTES = 60L
 /**
  * The add-an-event form: what the calendar's "+" opens.
  *
- * ## What Save does today
- * Adds the event to [GridlinkBook] and nothing else. It shows up in the month grid, the day column,
- * the agenda and the day list immediately, and it is gone on the next launch. That is Tate's call
- * rather than a shortcut taken quietly: there is no CalDAV client in this fork to save it to, and the
- * alternative on the table was leaving the "+" dead until there is one.
+ * ## What Save does
+ * Hands the event to a [GridlinkCalendarWriter], which in the app is a real CalDAV PUT and in the
+ * debug gallery is memory. Which one is behind the button is not this screen's business; what IS its
+ * business is that the form stays open, with Save disabled, until the answer comes back. A form that
+ * closed optimistically would have nowhere to report a refusal, and "saved" would be a guess.
  *
  * ## Why the fields are in this order
  * Title, then when, then where. The title is the only required one and it takes the focus on open, so
@@ -63,6 +63,16 @@ fun GridlinkNewEventScreen(
     onSave: (GridlinkEvent) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    /** True while a save is in flight. Disables Save so one tap cannot become two events. */
+    saving: Boolean = false,
+    /**
+     * Why the last save did not happen, in the caller's words.
+     *
+     * Shown in the form's own hint line, over the event that caused it, which is the only place a
+     * refusal makes sense. It outranks the "needs a title" prompt: that one is advice about a form
+     * that has not been submitted, and this one is news about one that has.
+     */
+    failure: String? = null,
 ) {
     var title by remember { mutableStateOf(TextFieldValue()) }
     var day by remember(date) { mutableStateOf(date) }
@@ -81,10 +91,12 @@ fun GridlinkNewEventScreen(
     val named = title.text.isNotBlank()
     GridlinkFormScreen(
         title = "New event",
-        onClose = onClose,
-        confirmLabel = "Save",
-        confirmEnabled = named,
-        hint = if (named) null else "An event needs a title.",
+        // No way out while the PUT is in flight. Closing would not recall it, so an X there offers
+        // to cancel something it cannot, and the event turns up on the server anyway.
+        onClose = if (saving) null else onClose,
+        confirmLabel = if (saving) "Saving" else "Save",
+        confirmEnabled = named && !saving,
+        hint = failure ?: if (named) null else "An event needs a title.",
         onConfirm = {
             onSave(
                 GridlinkEvent(
