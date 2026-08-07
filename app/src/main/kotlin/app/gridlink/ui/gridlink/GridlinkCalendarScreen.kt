@@ -180,29 +180,29 @@ fun GridlinkCalendarScreen(
                     view == GridlinkCalendarView.AGENDA -> "${inRange.size} upcoming"
                     else -> "${inRange.size} events"
                 },
-                // 🔴 No steppers on the agenda. The other three views name their position in the
-                // title — "July 2026", "30 Jul – 1 Aug" — so a step visibly moves you. The agenda's
-                // title is just "Agenda", so paging it changed which events were listed while
-                // nothing on screen said where you now were: a control with an invisible effect.
-                // An agenda already means "from here on", and it scrolls, so the buttons were also
-                // a worse month view. Removed rather than labelled.
-                trailing = if (view == GridlinkCalendarView.AGENDA) {
-                    null
-                } else {
-                    {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            GridlinkStepButton(
-                                forward = false,
-                                onClick = { anchor = view.step(anchor, forward = false) },
-                            )
-                            GridlinkStepButton(
-                                forward = true,
-                                onClick = { anchor = view.step(anchor, forward = true) },
-                            )
-                        }
-                    }
-                },
             )
+        },
+        // 🔴 No steppers on the agenda. The other three views name their position in the title —
+        // "July 2026", "30 Jul – 1 Aug" — so a step visibly moves you. The agenda's title is just
+        // "Agenda", so paging it changed which events were listed while nothing on screen said
+        // where you now were: a control with an invisible effect. An agenda already means "from
+        // here on", and it scrolls, so the buttons were also a worse month view. Removed rather
+        // than labelled.
+        trailing = if (view == GridlinkCalendarView.AGENDA) {
+            null
+        } else {
+            {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    GridlinkStepButton(
+                        forward = false,
+                        onClick = { anchor = view.step(anchor, forward = false) },
+                    )
+                    GridlinkStepButton(
+                        forward = true,
+                        onClick = { anchor = view.step(anchor, forward = true) },
+                    )
+                }
+            }
         },
         belowHeader = {
             GridlinkViewSwitcher(selected = view, onSelect = { view = it })

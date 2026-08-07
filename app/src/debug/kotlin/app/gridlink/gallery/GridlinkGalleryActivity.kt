@@ -319,7 +319,7 @@ class GridlinkGalleryActivity : ComponentActivity() {
         openId?.let(GridlinkSample::messageById)
         // The contact card, already open. Same shape as `open` and it shares `openAt`, because the
         // two are open on different tabs and one tab is showing at a time.
-        //   am start -S -n .../GridlinkGalleryActivity --es tab contacts --es contact marisol-rivera
+        //   am start -S -n .../GridlinkGalleryActivity --es tab contacts --es contact rivera
         val contactId = intent?.getStringExtra("contact")?.trim()?.takeIf { it.isNotEmpty() }
         contactId?.let {
             // Validated here rather than left to the lookup, so the failure names the extra that is

@@ -61,6 +61,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
@@ -162,27 +163,31 @@ fun Modifier.gridlinkGlow(
 }
 
 /**
- * Screen header.
+ * Screen title, drawn inline on the chrome row beside the hamburger.
  *
- * 🔴 The subline is a plain unread count and nothing else, and it is absent when [unread] is zero.
+ * This used to be a stacked block of its own — 32sp title over a metadata subline, filling a row
+ * below the chrome row — until Brandon collapsed the whole top of the screen into one line: "leave
+ * the hamburger menu where it is, put INBOX on the same horizontal line, and put the search icon on
+ * the same line. then extend both side panes upward." So the title and its metadata now sit side by
+ * side on one baseline, and this composable no longer owns any horizontal padding or a right-hand
+ * slot: it is a passenger in [GridlinkChromeRow]'s header seat, and the search pill rides in the
+ * row's `trailing` seat instead of in here.
  *
- * It used to print a derived split, "3 need you · 14 reports", on the theory that the app's job is
- * to separate the messages that want a human from the ones that do not. That theory may be right
- * but the line was not: neither number matched anything the user could point at, "need you" is a
- * judgement the app invented, and the two halves invited a comparison that means nothing. A count
- * of unread is the one number in an inbox that is unambiguous.
- *
- * Zero unread prints nothing at all rather than "0 unread". An empty subline is the reward.
- *
- * [trailing] is the header's right-hand slot, currently the search pill. It is top-aligned with the
- * title rather than centred on the whole header, so its right edge and the title's left edge both
- * land on the same [GridlinkSpacing.chrome] pad line the list panel and the nav pill use. Brandon
- * reads a layout by whether its edges line up, and this is the line they all line up on.
+ * 🔴 The metadata beside the title is a plain unread count and nothing else, absent when [unread]
+ * is zero. It used to print a derived split, "3 need you · 14 reports", on the theory that the
+ * app's job is to separate the messages that want a human from the ones that do not. That theory
+ * may be right but the line was not: neither number matched anything the user could point at, and
+ * the two halves invited a comparison that means nothing. Zero unread prints nothing at all rather
+ * than "0 unread". An empty line is the reward.
  *
  * [subline] overrides the unread count for screens that are not a mailbox: the calendar puts its
  * date range there, the folder tree its mailbox total. It is drawn in secondary text rather than in
  * [GridlinkColors.attention][app.gridlink.ui.theme.GridlinkColors.attention], because that colour
  * means "unread" everywhere else in the app and a date wearing it would be making a claim.
+ *
+ * The title takes `weight(1f, fill = false)`: on one line it must be the thing that gives way, so a
+ * long calendar range ellipsizes the title rather than shoving the metadata (or the sync chip, or
+ * the search pill) off the edge.
  */
 @Composable
 fun GridlinkHeader(
@@ -191,79 +196,62 @@ fun GridlinkHeader(
     modifier: Modifier = Modifier,
     selectedCount: Int = 0,
     subline: String? = null,
-    trailing: (@Composable () -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
     val selecting = selectedCount > 0
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            // Tighter than the 0.9 default now that the circle spills past the header instead of
-            // being cropped to it: the same multiplier would wash half the screen and swallow the
-            // aurora, which is already doing the broad work behind this.
-            .gridlinkGlow(colors.glow, radiusMultiplier = 0.55f) {
-                Offset(it.width * 0.28f, it.height * 0.5f)
-            }
-            // §3's "chrome is spacious" is the only thing holding the top of this screen open, so
-            // the header is where it has to be spent. 40 over 20 against a 32sp ExtraBold title
-            // reads as breathing room; the previous 28 over 16 just read as a tight app bar.
-            //
-            // ⚠️ The top is 16 rather than that 40 now that [GridlinkChromeRow] sits above it,
-            // carrying its own 20 off the status bar. Two lots of breathing room stacked to 104dp of
-            // empty glass before the title, which is not spacious, it is a layout that lost its
-            // first row. The 20 at the bottom is untouched: that gap is between the subline and the
-            // panel, and nothing new was inserted there.
-            .padding(
-                start = GridlinkSpacing.chrome,
-                end = GridlinkSpacing.chrome,
-                top = GridlinkSpacing.s16,
-                bottom = GridlinkSpacing.s20,
-            ),
-        verticalAlignment = Alignment.Top,
+        // Tighter than the 0.9 default now that the circle spills past the header instead of
+        // being cropped to it: the same multiplier would wash half the screen and swallow the
+        // aurora, which is already doing the broad work behind this.
+        modifier = modifier.gridlinkGlow(colors.glow, radiusMultiplier = 0.55f) {
+            Offset(it.width * 0.28f, it.height * 0.5f)
+        },
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                // The count replaces the screen title rather than sitting beside it. §6b puts the
-                // selection ACTIONS in the toolbar; this is only the readout, and it belongs where
-                // the eye already is.
-                text = if (selecting) "$selectedCount selected" else title,
-                style = GridlinkType.screenTitle,
-                color = colors.textPrimary,
-            )
-            // The whole line is conditional, not just its text. A Text with an empty string still
-            // costs its line height and the 8dp above it, which would leave the title floating over
-            // a gap that only appears on an inbox with nothing left to read.
-            if (selecting) {
-                Text(
-                    text = "Tap to add or remove",
-                    modifier = Modifier.padding(top = GridlinkSpacing.s8),
-                    style = GridlinkType.metadata,
-                    color = colors.textSecondary,
-                )
-            } else if (subline != null) {
-                Text(
-                    text = subline,
-                    modifier = Modifier.padding(top = GridlinkSpacing.s8),
-                    style = GridlinkType.metadata,
-                    color = colors.textSecondary,
-                )
-            } else if (unread > 0) {
-                Text(
-                    text = "$unread unread",
-                    modifier = Modifier.padding(top = GridlinkSpacing.s8),
-                    style = GridlinkType.metadata,
-                    // Same colour as the dots down the list. The header count and the row markers
-                    // are the same fact stated twice, so they have to match or the eye reads them
-                    // as two different signals. Amber in the dark modes, blue in Day.
-                    color = colors.attention,
-                )
-            }
+        Text(
+            // The count replaces the screen title rather than sitting beside it. §6b puts the
+            // selection ACTIONS in the toolbar; this is only the readout, and it belongs where
+            // the eye already is.
+            text = if (selecting) "$selectedCount selected" else title,
+            style = GridlinkType.screenTitle,
+            color = colors.textPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .alignByBaseline(),
+        )
+        // The whole metadata Text is conditional, not just its string: an empty Text would still
+        // cost its 12dp lead-in and hold a phantom seat beside the title.
+        val metaText: String?
+        val metaColor: Color
+        if (selecting) {
+            metaText = "Tap to add or remove"
+            metaColor = colors.textSecondary
+        } else if (subline != null) {
+            metaText = subline
+            metaColor = colors.textSecondary
+        } else if (unread > 0) {
+            metaText = "$unread unread"
+            // Same colour as the dots down the list. The header count and the row markers are the
+            // same fact stated twice, so they have to match or the eye reads them as two different
+            // signals. Amber in the dark modes, blue in Day.
+            metaColor = colors.attention
+        } else {
+            metaText = null
+            metaColor = colors.textSecondary
         }
-        if (trailing != null) {
-            // Nudged down so the circle's centre lands near the title's cap height instead of on
-            // its ascender line. Optical, not arithmetic: the title is 32sp ExtraBold and sits
-            // visually lower in its own line box than the metrics suggest.
-            Box(modifier = Modifier.padding(top = GridlinkSpacing.s8)) { trailing() }
+        if (metaText != null) {
+            Text(
+                text = metaText,
+                style = GridlinkType.metadata,
+                color = metaColor,
+                maxLines = 1,
+                // Baseline-aligned with the 32sp title, not centre-aligned. Two different type
+                // sizes sharing a line only read as one line if their letters sit on one floor.
+                modifier = Modifier
+                    .padding(start = GridlinkSpacing.s12)
+                    .alignByBaseline(),
+            )
         }
     }
 }
@@ -273,6 +261,16 @@ private val SEARCH_PILL_HEIGHT = 44.dp
 
 /** How wide the input gets when the pill opens. Fixed, so the header's layout never jumps. */
 private val SEARCH_FIELD_WIDTH = 168.dp
+
+/** Shared by both glyphs in the pill, the magnifier and the close, so they cannot drift apart. */
+private val SEARCH_GLYPH_SIZE = 20.dp
+
+// SEARCH_PILL_FOOTPRINT used to live here: the expanded pill's whole width, summed from the layout
+// constants so the scaffold could reserve a fixed right-aligned box for it. That reservation is
+// unnecessary now that the pill sits LAST in the chrome row after a weight(1f) header: Row layout
+// measures weighted children with whatever is left after the fixed ones, so when the pill opens it
+// takes its width out of the header's slack and its right edge never moves off the pad line. The
+// growth is leftward for free, with no reserved footprint and no animated offset.
 
 /**
  * Search, as a momentary control in the header instead of a permanent seat in the nav bar.
@@ -365,7 +363,7 @@ fun GridlinkSearchPill(
                     imageVector = Icons.Outlined.Search,
                     contentDescription = if (isExpanded) null else "Search mail",
                     tint = glyph,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(SEARCH_GLYPH_SIZE),
                 )
                 if (isExpanded) {
                     BasicTextField(
@@ -400,7 +398,7 @@ fun GridlinkSearchPill(
                         tint = colors.textSecondary,
                         modifier = Modifier
                             .padding(start = GridlinkSpacing.s8)
-                            .size(20.dp)
+                            .size(SEARCH_GLYPH_SIZE)
                             .clickable { close() },
                     )
                 }

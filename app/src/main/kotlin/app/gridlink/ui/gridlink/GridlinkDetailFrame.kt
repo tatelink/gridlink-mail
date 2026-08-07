@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
@@ -57,7 +56,7 @@ import app.gridlink.ui.theme.GridlinkType
  * So the frame is one composable and the screens are its contents. The thread was migrated onto it
  * rather than left alone, because a shared frame that one screen opts out of is not shared.
  *
- * ## What [embedded] changes, and why it is four things
+ * ## What [embedded] changes, and why
  * True means §7's reading pane rather than a screen over the list, and every difference follows
  * from the same fact: something else already owns the window. The backdrop is not painted again
  * (the scaffold painted one across both panes), the system-bar inset is not taken again (the
@@ -65,9 +64,18 @@ import app.gridlink.ui.theme.GridlinkType
  * beside it), and the action row gives up its far-right slot to the scaffold's compose button, which
  * parks there in two panes.
  *
- * It is still not a different *layout*: every metric below the header is the one the standing screen
- * uses, and the fourth difference is a trailing inset rather than a rearrangement. That is what stops
- * the two halves of the fork's reading experience from drifting.
+ * ## Where the title goes in the pane
+ * Embedded, the title moves INSIDE the glass, as the panel's first line over a hairline, instead of
+ * floating above it the way the standing screen's header does. Two reasons. Brandon asked for it —
+ * "integrate the subject into the header of the message preview window" — and the one-line chrome
+ * row made it structural: with the list's big title gone from above its panel, a strip title above
+ * THIS panel would be the only text floating on the backdrop, and the two panes' glass would start
+ * on different lines. This also quietly fixes the contact, event and folder panes, whose panels
+ * never repeated the name of the thing they were showing.
+ *
+ * It is still not a different *layout* inside the panel: every metric is the one the standing
+ * screen uses, and the action-row difference is a trailing inset rather than a rearrangement. That
+ * is what stops the two halves of the fork's reading experience from drifting.
  */
 @Composable
 fun GridlinkDetailFrame(
@@ -97,20 +105,21 @@ fun GridlinkDetailFrame(
                 Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)
             },
         ) {
-            GridlinkDetailHeader(
-                title = title,
-                onBack = onBack,
-                // 🔴 The back button goes, and the space it occupied does NOT collapse to zero. The
-                // header keeps the same height either way so the reading pane's glass panel starts
-                // on the same line as the list's, and Brandon reads a layout by whether its edges
-                // line up. See [GridlinkDetailHeader].
-                showBack = !embedded,
-                // With no chrome row above it, a standing detail screen spends 40 here to hold the
-                // top of the window open. The pane sits under the scaffold's chrome row, which has
-                // already spent it, so it drops to the same 16 [GridlinkHeader] uses for exactly the
-                // same reason.
-                topPadding = if (embedded) GridlinkSpacing.s16 else GridlinkSpacing.s40,
-            )
+            if (embedded) {
+                // No header at all: the pane sits under the scaffold's chrome row, which already
+                // holds the hamburger and the title line, and the pane's own title is inside the
+                // glass below. What remains of the old header is this spacer, matching whatever
+                // chrome the list column still stacks above ITS panel (the calendar's view
+                // switcher) so the two panels start on the same line. Zero on every other screen,
+                // so most of the time it is nothing — which is the whole point of the one-line
+                // restructure: the glass goes UP. See [LocalGridlinkPaneHeaderHeight].
+                val paneFloor = LocalGridlinkPaneHeaderHeight.current
+                if (paneFloor > 0.dp) {
+                    Spacer(Modifier.height(paneFloor))
+                }
+            } else {
+                GridlinkDetailHeader(title = title, onBack = onBack)
+            }
 
             Box(
                 modifier = Modifier
@@ -120,8 +129,44 @@ fun GridlinkDetailFrame(
                     .clip(panelShape)
                     .background(colors.listSurface, panelShape)
                     .border(GridlinkDimens.hairline, colors.surfaceBorder, panelShape),
-                content = panel,
-            )
+            ) {
+                if (embedded) {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        // The pane's title, inside the glass: Brandon's "integrate the subject
+                        // into the header of the message preview window". Same style the standing
+                        // header uses, so folding the device does not change the subject's size,
+                        // only where it sits.
+                        Text(
+                            text = title,
+                            style = GridlinkType.threadTitle,
+                            color = colors.textPrimary,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(
+                                start = GridlinkSpacing.rowHorizontal,
+                                end = GridlinkSpacing.rowHorizontal,
+                                top = GridlinkSpacing.s16,
+                                bottom = GridlinkSpacing.s12,
+                            ),
+                        )
+                        // A hairline, not a heavier rule: this is the same divider weight the
+                        // panel's own content uses, so the title reads as the panel's first row
+                        // rather than as a second window title bar.
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(GridlinkDimens.hairline)
+                                .background(colors.divider),
+                        )
+                        Box(
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            content = panel,
+                        )
+                    }
+                } else {
+                    Box(modifier = Modifier.fillMaxSize(), content = panel)
+                }
+            }
 
             if (bottom == null) {
                 Spacer(Modifier.height(GridlinkSpacing.chrome))
@@ -183,7 +228,10 @@ fun GridlinkDetailFrame(
 }
 
 /**
- * Back control plus the title.
+ * Back control plus the title, for the STANDING detail screen only. The embedded pane draws its
+ * title inside the glass instead — see the frame's doc — so this header no longer carries the
+ * `showBack` / floor machinery it grew for the pane; a screen that owns the whole window always has
+ * a back button and always spends 40 holding the top of the window open.
  *
  * The title sits here rather than scrolling with the content on purpose. A title that scrolls away
  * is fine in a client where the header collapses into a smaller copy of itself, and is just missing
@@ -197,44 +245,24 @@ private fun GridlinkDetailHeader(
     title: String,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    showBack: Boolean = true,
-    topPadding: Dp = GridlinkSpacing.s40,
 ) {
     val colors = GridlinkTheme.colors
-    // 🔴 A floor, not a height. §7's reading pane has no back button, and a title that happens to fit
-    // on one line would otherwise make this header shorter than the list header beside it and start
-    // the two glass panels on different lines. Two floors, whichever is taller:
-    //
-    //  - the circle button's own size, so dropping the back control never shrinks the header;
-    //  - the list header's MEASURED height, which is the one that actually matters, because the two
-    //    headers hold different things and there is no arithmetic that makes them agree. Zero
-    //    outside the two-pane layout, and zero for the first frame inside it. See
-    //    [LocalGridlinkPaneHeaderHeight].
-    //
-    // A title long enough to wrap past the floor is left alone. At that point the reading pane's
-    // panel starts lower than the list's and that is honest: the alternative is truncating a subject
-    // to protect an edge, and the subject is the content.
-    val ownFloor = GridlinkDimens.headerControl + topPadding + GridlinkSpacing.s20
-    val paneFloor = LocalGridlinkPaneHeaderHeight.current
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = maxOf(ownFloor, paneFloor))
             .padding(
                 start = GridlinkSpacing.chrome,
                 end = GridlinkSpacing.chrome,
-                top = topPadding,
+                top = GridlinkSpacing.s40,
                 bottom = GridlinkSpacing.s20,
             ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (showBack) {
-            GridlinkDetailCircleButton(
-                icon = Icons.AutoMirrored.Outlined.ArrowBack,
-                label = "Back",
-                onClick = onBack,
-            )
-        }
+        GridlinkDetailCircleButton(
+            icon = Icons.AutoMirrored.Outlined.ArrowBack,
+            label = "Back",
+            onClick = onBack,
+        )
         Text(
             text = title,
             style = GridlinkType.threadTitle,
@@ -243,9 +271,7 @@ private fun GridlinkDetailHeader(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .weight(1f)
-                // The gap belongs to the button, so it goes when the button does. Kept, it would
-                // indent the title past the panel's leading edge for no reason the eye can name.
-                .padding(start = if (showBack) GridlinkSpacing.s16 else 0.dp),
+                .padding(start = GridlinkSpacing.s16),
         )
     }
 }
@@ -340,9 +366,9 @@ fun GridlinkDetailActionItem(
             style = GridlinkType.toolbarLabel,
             color = colors.textPrimary,
             maxLines = 1,
-            // "Unsubscribe" is the longest label in the app and it is within about 10dp of its slot
-            // on a folded display. Ellipsis rather than a clip so if it ever does run out of room it
-            // says so, instead of quietly dropping the last letter and reading as a typo.
+            // The longest labels sit within about 10dp of their slot on a folded display. Ellipsis
+            // rather than a clip so if one ever does run out of room it says so, instead of quietly
+            // dropping the last letter and reading as a typo.
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 2.dp),
         )
