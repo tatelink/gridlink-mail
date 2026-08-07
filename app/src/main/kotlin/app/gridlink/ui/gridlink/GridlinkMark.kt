@@ -50,11 +50,23 @@ import app.gridlink.ui.theme.GridlinkTheme
  * meant to land on the smallest shape because it is the only lit one.
  */
 
+/**
+ * ## 🔴 Why so much of this file is `internal` rather than `private`
+ * [GridlinkIntroOverlay] draws the same mark moving, and it draws it by calling the functions below
+ * rather than by owning a second copy of the artwork. That is the entire point of the arrangement:
+ * the animation's last frame has to BE the static mark, not a careful imitation of it, or the two
+ * drift apart the first time the icon pack is re-ported and only one of them is updated.
+ *
+ * ⚠️ So `internal` here means "the animation may reuse this", not "this is a general drawing kit".
+ * Nothing outside this package draws the mark by hand, and the public surface is still exactly
+ * [GridlinkMark] and [gridlinkMarkBloomOverflow].
+ */
+
 /** The mark's own coordinate space. The launcher's 30..78 span, re-based to 0..48. */
-private const val MARK_UNITS = 48f
+internal const val MARK_UNITS = 48f
 
 /** Hairline on the blocks, in mark units. From the launcher's 0.3125 at the same scale. */
-private const val MARK_HAIRLINE = 0.3125f
+internal const val MARK_HAIRLINE = 0.3125f
 
 /** The grid stroke, in mark units. Texture, not a feature. */
 private const val MARK_GRID_STROKE = 0.25f
@@ -70,10 +82,10 @@ private const val MARK_GRID_ALPHA = 0.06f
  * than it has a VectorDrawable one, so it is a radial gradient with its reach matched to the real
  * blur's.
  */
-private const val MARK_BLOOM_RADIUS = 14.5f
+internal const val MARK_BLOOM_RADIUS = 14.5f
 
 /** Where the bloom is centred, in mark units: the hot node's own centre, 32 + 16/2. */
-private const val MARK_BLOOM_CENTRE = 40f
+internal const val MARK_BLOOM_CENTRE = 40f
 
 /** How much brighter and wider the bloom runs at full [GridlinkMark] glow. See the parameter's doc. */
 private const val MARK_BLOOM_GLOW_GAIN = 0.45f
@@ -114,7 +126,7 @@ fun gridlinkMarkBloomOverflow(size: Dp = GRIDLINK_MARK_SIZE, glow: Float = 0f): 
  * between the light mark and the dark one.
  */
 @Immutable
-private data class GridlinkMarkPalette(
+internal data class GridlinkMarkPalette(
     val grid: Color,
     val bloom: Color,
     val bloomAlphas: List<Float>,
@@ -150,7 +162,7 @@ private data class GridlinkMarkPalette(
  * backdrops; it does not reach down to one small object.
  */
 @Composable
-private fun gridlinkMarkPalette(): GridlinkMarkPalette {
+internal fun gridlinkMarkPalette(): GridlinkMarkPalette {
     val dark = GridlinkTheme.mode != GridlinkMode.DAY
     return GridlinkMarkPalette(
         grid = if (dark) Color(0xFF4C9AF5) else Color(0xFF1B5FCB),
@@ -213,13 +225,14 @@ fun GridlinkMark(
 }
 
 /** The "grid" in Gridlink: five lines each way, felt more than seen. Drawn first, under everything. */
-private fun DrawScope.drawGrid(palette: GridlinkMarkPalette, unit: Float) {
+internal fun DrawScope.drawGrid(palette: GridlinkMarkPalette, unit: Float, alpha: Float = 1f) {
     val stroke = MARK_GRID_STROKE * unit
     val end = MARK_UNITS * unit
+    val a = MARK_GRID_ALPHA * alpha
     for (step in 1..5) {
         val at = step * 8f * unit
-        drawLine(palette.grid, Offset(at, 0f), Offset(at, end), stroke, alpha = MARK_GRID_ALPHA)
-        drawLine(palette.grid, Offset(0f, at), Offset(end, at), stroke, alpha = MARK_GRID_ALPHA)
+        drawLine(palette.grid, Offset(at, 0f), Offset(at, end), stroke, alpha = a)
+        drawLine(palette.grid, Offset(0f, at), Offset(end, at), stroke, alpha = a)
     }
 }
 
@@ -231,16 +244,28 @@ private fun DrawScope.drawGrid(palette: GridlinkMarkPalette, unit: Float) {
  * tail filling the corners with a faint square, which reads as a panel behind the mark rather than
  * as light. Same rule as `gridlinkGlow`.
  */
-private fun DrawScope.drawBloom(palette: GridlinkMarkPalette, unit: Float, lit: Float) {
+internal fun DrawScope.drawBloom(
+    palette: GridlinkMarkPalette,
+    unit: Float,
+    lit: Float,
+    /**
+     * Scales the whole falloff. 1f is the mark as drawn, and the animation uses it to hold the bloom
+     * at nothing until the node exists to emit it. 🔴 A multiplier on the stops rather than a
+     * `graphicsLayer` alpha on the caller, because the bloom overhangs the mark's box by design and a
+     * layer would cut its overhang off square. See [gridlinkMarkBloomOverflow].
+     */
+    alpha: Float = 1f,
+) {
     val bloom = palette.bloom
     val centre = Offset(MARK_BLOOM_CENTRE * unit, MARK_BLOOM_CENTRE * unit)
     val radius = MARK_BLOOM_RADIUS * unit * (1f + MARK_BLOOM_GLOW_SPREAD * lit)
     val gain = 1f + MARK_BLOOM_GLOW_GAIN * lit
+    if (alpha <= 0f) return
     drawCircle(
         brush = Brush.radialGradient(
-            0f to bloom.copy(alpha = (palette.bloomAlphas[0] * gain).coerceAtMost(1f)),
-            0.55f to bloom.copy(alpha = (palette.bloomAlphas[1] * gain).coerceAtMost(1f)),
-            0.8f to bloom.copy(alpha = (palette.bloomAlphas[2] * gain).coerceAtMost(1f)),
+            0f to bloom.copy(alpha = (palette.bloomAlphas[0] * gain).coerceAtMost(1f) * alpha),
+            0.55f to bloom.copy(alpha = (palette.bloomAlphas[1] * gain).coerceAtMost(1f) * alpha),
+            0.8f to bloom.copy(alpha = (palette.bloomAlphas[2] * gain).coerceAtMost(1f) * alpha),
             1f to bloom.copy(alpha = 0f),
             center = centre,
             radius = radius,
@@ -257,7 +282,14 @@ private fun DrawScope.drawBloom(palette: GridlinkMarkPalette, unit: Float, lit: 
  * simply the mass's brush reused: a brush is in local pixels, and the node starts two thirds of the
  * way down the mark.
  */
-private fun DrawScope.drawBlocks(palette: GridlinkMarkPalette, unit: Float, lit: Float) {
+internal fun DrawScope.drawBlocks(
+    palette: GridlinkMarkPalette,
+    unit: Float,
+    lit: Float,
+    /** Fades the four finished shapes in over whatever is underneath. See [GridlinkIntroOverlay]. */
+    alpha: Float = 1f,
+) {
+    if (alpha <= 0f) return
     // The mass, top-left. 29 x 29, radius 7.
     drawBlock(
         x = 0f, y = 0f, w = 29f, h = 29f, r = 7f, unit = unit,
@@ -267,16 +299,17 @@ private fun DrawScope.drawBlocks(palette: GridlinkMarkPalette, unit: Float, lit:
             endY = 29f * unit,
         ),
         stroke = palette.massStroke,
+        alpha = alpha,
     )
     // Inert, top-right. 16 x 29, radius 5.
     drawBlock(
         x = 32f, y = 0f, w = 16f, h = 29f, r = 5f, unit = unit,
-        brush = null, fill = palette.inert, stroke = palette.inertStroke,
+        brush = null, fill = palette.inert, stroke = palette.inertStroke, alpha = alpha,
     )
     // Inert, bottom-left. 29 x 16, radius 5.
     drawBlock(
         x = 0f, y = 32f, w = 29f, h = 16f, r = 5f, unit = unit,
-        brush = null, fill = palette.inert, stroke = palette.inertStroke,
+        brush = null, fill = palette.inert, stroke = palette.inertStroke, alpha = alpha,
     )
     // The hot node, bottom-right. 16 x 16, radius 5. The smallest shape and the only lit one.
     drawBlock(
@@ -290,11 +323,12 @@ private fun DrawScope.drawBlocks(palette: GridlinkMarkPalette, unit: Float, lit:
             endY = 48f * unit,
         ),
         stroke = palette.nodeStroke,
+        alpha = alpha,
     )
 }
 
 @Suppress("LongParameterList")
-private fun DrawScope.drawBlock(
+internal fun DrawScope.drawBlock(
     x: Float,
     y: Float,
     w: Float,
@@ -304,14 +338,15 @@ private fun DrawScope.drawBlock(
     brush: Brush?,
     fill: Color? = null,
     stroke: Color? = null,
+    alpha: Float = 1f,
 ) {
     val origin = Offset(x * unit, y * unit)
     val size = Size(w * unit, h * unit)
     val corner = CornerRadius(r * unit, r * unit)
     if (brush != null) {
-        drawRoundRect(brush = brush, topLeft = origin, size = size, cornerRadius = corner)
+        drawRoundRect(brush = brush, topLeft = origin, size = size, cornerRadius = corner, alpha = alpha)
     } else if (fill != null) {
-        drawRoundRect(color = fill, topLeft = origin, size = size, cornerRadius = corner)
+        drawRoundRect(color = fill, topLeft = origin, size = size, cornerRadius = corner, alpha = alpha)
     }
     if (stroke != null) {
         // Inset by half the stroke so the hairline sits inside the shape's edge rather than
@@ -323,6 +358,7 @@ private fun DrawScope.drawBlock(
             size = Size(size.width - half * 2f, size.height - half * 2f),
             cornerRadius = CornerRadius(corner.x - half, corner.y - half),
             style = Stroke(width = MARK_HAIRLINE * unit),
+            alpha = alpha,
         )
     }
 }

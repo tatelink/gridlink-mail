@@ -2,9 +2,23 @@
     <!-- Pre-Compose window background, matching the Arctic (light) surface so launch
          shows the brand colour instead of a white flash. Compose drives all in-app colour. -->
     <color name="gridlink_window_background">#F7F8FA</color>
-    <!-- Splash field. This is the Gridlink icon's own tile colour, not a near-match: the
-         cold start draws the launcher mark on it, so an exact match reads as the icon
-         growing into the app rather than as a second screen. Follows day/night (an
-         always-light splash is a flashbang on a dark-themed device). -->
-    <color name="gridlink_splash_background">#E9EFF7</color>
+    <!-- Splash field. GridlinkDayColors.background, and it has to be: the splash hands straight
+         over to GridlinkIntroOverlay, which paints Day's cyan-to-blue gradient corner to corner.
+
+         🔴 This was #E9EFF7, the launcher tile's pale colour, and that was right only while the
+         splash drew the mark on it — an exact tile match made the icon look like it was growing
+         into the app. Now that the splash is bare and the intro paints the app's real backdrop,
+         a pale field in front of that gradient is a white flash followed by saturated blue.
+         Verified on the emulator: the jump is the most visible thing in the whole launch.
+
+         ⚠️ #2F6FE0 is the gradient's flat FALLBACK, not its start (#4DD5F0). The gradient runs
+         top-left to bottom-right and is this blue over most of the screen; matching the cyan
+         corner instead would fix one corner and mismatch the other nine tenths.
+
+         ⚠️ Imperfect by construction, and knowingly so. This resource follows the system's
+         light/dark setting while the intro's palette follows the CLOCK (GridlinkTokens.
+         gridlinkModeForHour), and no resource qualifier can read the hour. It is exact for the
+         two cases that actually happen — light theme during Day hours, dark theme at night —
+         and briefly wrong for a dark-themed phone at noon. -->
+    <color name="gridlink_splash_background">#2F6FE0</color>
 </resources>

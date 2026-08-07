@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Nothing. Deliberately.
+
+    🔴 This exists because "no splash icon" is not something Android 12+ lets you ask for.
+    Leaving windowSplashScreenAnimatedIcon unset does not give a bare splash: the platform falls
+    back to the launcher icon, so the finished Gridlink mark appears for the whole cold start and
+    GridlinkIntroOverlay then scatters it into nine blocks and rebuilds it. Verified by removing
+    the attribute and watching the mark show up anyway. Handing the platform a transparent
+    drawable is the only way to get the empty field the intro needs to start from.
+
+    ⚠️ Do not "fix" this by pointing it back at @drawable/ic_launcher_foreground. See the note in
+    values-v31/themes.xml for what that actually looks like on a device.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@android:color/transparent" />
+</shape>
