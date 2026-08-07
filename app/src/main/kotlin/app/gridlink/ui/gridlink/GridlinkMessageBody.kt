@@ -30,6 +30,7 @@ import app.gridlink.ui.emailhtml.EmailTheme
 import app.gridlink.ui.emailhtml.buildEmailHtmlDocument
 import app.gridlink.ui.message.BodyReveal
 import app.gridlink.ui.message.HeightPoll
+import app.gridlink.ui.rememberLeaveOnce
 import java.io.ByteArrayInputStream
 
 /**
@@ -93,6 +94,9 @@ internal fun GridlinkMessageBody(
     inlineImages: Map<String, String> = emptyMap(),
 ) {
     val context = LocalContext.current
+    // The reader is a nav destination, so this is that destination's latch: it releases when the
+    // user comes back from the browser.
+    val leaveOnce = rememberLeaveOnce()
     val theme = remember(text, link, dark) {
         EmailTheme(
             // 🔴 Transparent, and there is deliberately no background parameter to pass instead.
@@ -128,7 +132,10 @@ internal fun GridlinkMessageBody(
     val client = remember { GridlinkBodyWebViewClient() }
     client.blockRemote = blockRemote
     client.onContentHeight = { px -> heightPx = px }
-    client.onOpenUrl = { uri -> openExternally(context, uri) }
+    // 🔴 Guarded, like every other way out of the app. A link in a message is the easiest one to
+    // double-fire: the WebView reports the tap, the browser takes a moment to come up, and a second
+    // tap on a body that has not moved yet opens the page twice.
+    client.onOpenUrl = { uri -> leaveOnce { openExternally(context, uri) } }
     // Fades in rather than appearing, because the reveal lands one frame after the poll settles and
     // a body that pops is indistinguishable from a body that reloaded.
     val revealed by animateFloatAsState(
@@ -327,15 +334,21 @@ private class GridlinkBodyWebViewClient : WebViewClient() {
     }
 }
 
-/** Hand a URL to the system's default handler. A device with no browser at all simply gets nothing. */
-private fun openExternally(context: Context, uri: Uri) {
-    try {
-        context.startActivity(
-            Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-        )
-    } catch (t: Exception) {
-        // Nothing on the device can open it. Silently ignoring beats crashing the reader.
-    }
+/**
+ * Hand a URL to the system's default handler, and say whether anything took it.
+ *
+ * 🔴 The Boolean is the contract [rememberLeaveOnce] is built on, not a courtesy: the latch closes
+ * only when a launch actually happened, so a tap that nothing on the device can open leaves the next
+ * one live instead of deadening every link in the message.
+ */
+private fun openExternally(context: Context, uri: Uri): Boolean = try {
+    context.startActivity(
+        Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+    )
+    true
+} catch (t: Exception) {
+    // Nothing on the device can open it. Silently ignoring beats crashing the reader.
+    false
 }
 
 /** A Compose colour as the CSS hex the document builder takes. */
