@@ -323,6 +323,10 @@ fun AccountRow(
     }
 }
 
+/** The reveal icon is offered only when there is something to reveal. */
+internal fun revealIconOffered(isPassword: Boolean, value: String): Boolean =
+    isPassword && value.isNotEmpty()
+
 /** Labelled outlined text field for editable settings (server URL, username, …). */
 @Composable
 fun SettingTextField(
@@ -332,21 +336,24 @@ fun SettingTextField(
     keyboardType: KeyboardType = KeyboardType.Text,
     isPassword: Boolean = false,
 ) {
-    var passwordVisible by remember { mutableStateOf(false) }
-    val masked = isPassword && !passwordVisible
+    // Keyed on emptiness, not on the value: the reveal survives typing, but falls back to hidden
+    // as soon as the field is cleared AND again on the first keystroke after that. Without the key
+    // a revealed-then-cleared field would print the next secret typed into it in clear text.
+    var revealRequested by remember(value.isEmpty()) { mutableStateOf(false) }
+    val masked = isPassword && !revealRequested
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
         singleLine = true,
         visualTransformation = if (masked) PasswordVisualTransformation() else VisualTransformation.None,
-        trailingIcon = if (isPassword) {
+        trailingIcon = if (revealIconOffered(isPassword, value)) {
             {
-                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                IconButton(onClick = { revealRequested = !revealRequested }) {
                     Icon(
-                        if (passwordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                        if (revealRequested) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
                         contentDescription = stringResource(
-                            if (passwordVisible) R.string.connect_password_hide else R.string.connect_password_show,
+                            if (revealRequested) R.string.connect_password_hide else R.string.connect_password_show,
                         ),
                     )
                 }
