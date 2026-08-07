@@ -552,6 +552,17 @@ fun GridlinkRoot(
      */
     onOpenMail: (String) -> Unit = {},
     /**
+     * Remember, or forget, that a sender's remote images may load.
+     *
+     * A parameter rather than a field on [GridlinkMailContent] because that class is `@Immutable`
+     * and a lambda inside it would recompose every row on each emission. The standing permission
+     * itself arrives as [GridlinkMailContent.imageAllowlist].
+     *
+     * Defaults to a no-op for [onMailAction]'s reason. Over the sample, "Always" then reads as a
+     * button that does nothing, which is the honest outcome: there is no store to write to.
+     */
+    onAllowImages: (sender: String, allowed: Boolean) -> Unit = { _, _ -> },
+    /**
      * The account's mailboxes, or null to draw [GridlinkSampleTree]'s. See [GridlinkFolderContent].
      */
     folders: GridlinkFolderContent? = null,
@@ -839,6 +850,11 @@ fun GridlinkRoot(
                 // The paperclip stops being a guess the moment the fetch answers. If it said there
                 // is nothing attached, there is nothing attached.
                 attachmentPending = row.attachmentPending && fetched == null,
+                // Both travel with the body and mean nothing without it. ⚠️ While the fetch is in
+                // flight the body is "", which the renderer draws as an empty page either way, so
+                // the defaults here are not a claim that the message is plain text.
+                bodyIsPlainText = fetched?.plainText == true,
+                inlineImages = fetched?.inlineImages.orEmpty(),
             )
         }
     }
@@ -1036,6 +1052,12 @@ fun GridlinkRoot(
                         message = current.message,
                         onBack = { if (embedded) clearDetail(current) else closeDetail() },
                         onAction = threadActions(current.message),
+                        // 🔴 [GridlinkMessage.address], not `sender`, and lowercased on both sides:
+                        // `sender` is a display name. The write half lowercases too, so an address
+                        // stored in one case and asked about in another cannot silently miss.
+                        imagesAlwaysAllowed = current.message.address.lowercase() in
+                            (mail?.imageAllowlist ?: emptySet()),
+                        onAlwaysAllowImages = { onAllowImages(current.message.address, it) },
                         embedded = embedded,
                     )
 

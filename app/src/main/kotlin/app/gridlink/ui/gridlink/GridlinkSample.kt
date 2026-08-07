@@ -482,6 +482,28 @@ data class GridlinkMessage(
      * something to guess at when the message is sitting right there carrying one.
      */
     val addressOverride: String? = null,
+    /**
+     * True when [body] is the message's plain-text part rather than HTML.
+     *
+     * 🔴 The two are rendered differently and neither treatment is right for the other. Plain text
+     * is reflowed (RFC 3676 soft breaks, or a newsletter arrives with the sender's 72-column line
+     * endings baked in) and painted in the app's own colours. HTML carries its own design, so in a
+     * dark theme the whole page is inverted instead. Handing one over as the other is not a
+     * near-miss, it is a body that looks broken.
+     *
+     * False for sample data, which is HTML by construction.
+     */
+    val bodyIsPlainText: Boolean = false,
+    /**
+     * `cid:` → `data:` for the images the body references inline, so a signature logo or an embedded
+     * screenshot draws without going near the network.
+     *
+     * ⚠️ Not a cache and not an attachment list. These parts arrive with the body, they are already
+     * on the device, and they are deliberately exempt from the remote-content block: nothing about
+     * showing them tells the sender anything. [GridlinkMailViewModel.attachmentOf] skips the same
+     * parts for the opposite reason, so a tracking pixel never grows into a paperclip.
+     */
+    val inlineImages: Map<String, String> = emptyMap(),
 ) {
     val hasAttachment: Boolean get() = attachment != null || attachmentPending
 

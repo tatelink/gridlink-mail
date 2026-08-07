@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,15 +14,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.outlined.Forward
 import androidx.compose.material.icons.automirrored.outlined.ReplyAll
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.AttachFile
+import androidx.compose.material.icons.outlined.HideImage
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Report
 import androidx.compose.material.icons.outlined.Unsubscribe
 import androidx.compose.material3.Icon
@@ -36,15 +35,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextLinkStyles
-import androidx.compose.ui.text.fromHtml
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.gridlink.ui.emailhtml.EmailRemoteContent
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 import app.gridlink.ui.theme.GridlinkDimens
+import app.gridlink.ui.theme.GridlinkMode
 import app.gridlink.ui.theme.GridlinkRadii
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
@@ -91,11 +87,30 @@ fun GridlinkThreadScreen(
      * [GridlinkDetailFrame], which is where what it changes is written down.
      */
     embedded: Boolean = false,
+    /**
+     * Whether this sender is on the standing images allowlist.
+     *
+     * 🔴 Passed in rather than read here. The list lives in the app's settings store, and nothing in
+     * this package is allowed to know that a settings store exists — the same rule that keeps the
+     * debug gallery drawing every screen with no account and no database. Defaulting to false is
+     * also the right default for a preview: blocked.
+     */
+    imagesAlwaysAllowed: Boolean = false,
+    /** Add or remove this sender from that list. No-op by default, for the gallery. */
+    onAlwaysAllowImages: (allowed: Boolean) -> Unit = {},
 ) {
     val colors = GridlinkTheme.colors
+    val mode = GridlinkTheme.mode
     var confirmingUnsubscribe by remember(message.id, initiallyConfirmingUnsubscribe) {
         mutableStateOf(initiallyConfirmingUnsubscribe)
     }
+    // 🔴 Keyed on the message id, so it resets when a different message opens. "Show images" is a
+    // decision about the message in front of you and it must not travel: in the reading pane the
+    // screen is not disposed between messages, so a remembered `true` would silently un-block the
+    // next sender's tracking pixels.
+    var showOnce by remember(message.id) { mutableStateOf(false) }
+    val hasRemoteContent = remember(message.body) { EmailRemoteContent.referencedBy(message.body) }
+    val showRemote = showOnce || imagesAlwaysAllowed
 
     GridlinkDetailFrame(
         title = message.subject,
@@ -124,12 +139,12 @@ fun GridlinkThreadScreen(
             )
         },
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .gridlinkEdgeFade(fadeTop = false),
-        ) {
+        // 🔴 No outer verticalScroll any more, and that is the whole shape of this screen. The body
+        // is a WebView that owns its own scroll so Blink can cull what is offscreen (see
+        // [GridlinkMessageBody]); an outer scroll would have to measure it to its full content
+        // height, which defeats that and puts two scroll containers on one drag. So everything else
+        // is pinned and the body takes the space that is left.
+        Column(modifier = Modifier.fillMaxSize()) {
             GridlinkThreadSender(message)
 
             Box(
@@ -139,27 +154,62 @@ fun GridlinkThreadScreen(
                     .background(colors.divider),
             )
 
-            GridlinkThreadBody(
+            // Only when blocking would actually change what is on screen. A banner over a message
+            // that never asked for anything is noise, and noise is how a privacy control stops
+            // being read. The allowed-banner has the same condition for the same reason: there is
+            // nothing to say about images on a message that has none.
+            if (hasRemoteContent) {
+                if (showRemote) {
+                    // ⚠️ Only for the standing permission. A one-off "Show" needs no banner: the
+                    // reader pressed it two seconds ago and nothing was remembered.
+                    if (imagesAlwaysAllowed) {
+                        GridlinkImagesAllowedBanner(
+                            sender = message.sender,
+                            onStopAllowing = { onAlwaysAllowImages(false) },
+                        )
+                    }
+                } else {
+                    GridlinkImagesBanner(
+                        sender = message.sender,
+                        onShowOnce = { showOnce = true },
+                        onAlwaysAllow = { onAlwaysAllowImages(true) },
+                    )
+                }
+            }
+
+            GridlinkMessageBody(
                 html = message.body,
-                modifier = Modifier.padding(
-                    horizontal = GridlinkSpacing.s20,
-                    vertical = GridlinkSpacing.s20,
-                ),
+                blockRemote = !showRemote,
+                // The palette's text and accent, so nothing in the markup can paint itself
+                // invisible. 🔴 A body carrying `#000000` because it looked right in Day would be
+                // unreadable in Night, which is what the whole-page invert in a dark theme is for.
+                // There is no background to pass: the renderer is transparent so the frosted panel
+                // reads through it. See [GridlinkMessageBody].
+                text = colors.textPrimary,
+                link = colors.accent,
+                dark = mode != GridlinkMode.DAY,
+                plainText = message.bodyIsPlainText,
+                inlineImages = message.inlineImages,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .gridlinkEdgeFade(fadeTop = false),
             )
 
             message.attachment?.let { attachment ->
+                // Pinned under the body rather than following it. It used to sit at the end of the
+                // prose, which was fine when the whole screen scrolled as one; with the body
+                // scrolling inside itself, an attachment placed after it would be unreachable.
                 GridlinkThreadAttachment(
                     attachment = attachment,
                     modifier = Modifier.padding(
                         start = GridlinkSpacing.s20,
                         end = GridlinkSpacing.s20,
-                        bottom = GridlinkSpacing.s8,
+                        top = GridlinkSpacing.s8,
+                        bottom = GridlinkSpacing.s12,
                     ),
                 )
             }
-
-            // Clears the bottom fade so the last line of prose is never half-dissolved.
-            Spacer(Modifier.height(GridlinkDimens.listFade))
         }
     }
 
@@ -266,49 +316,122 @@ private fun GridlinkThreadSender(
 }
 
 /**
- * The body, as rich text.
+ * The blocked-images notice, and the two ways out of it.
  *
- * `AnnotatedString.fromHtml` goes through `HtmlCompat` and then maps the spans Compose has an
- * equivalent for, which covers weight, slant, underline, strikethrough, size, sub, sup and links.
- * That is a real rich-text renderer and it is a genuinely limited one: **no tables and no images**,
- * and `BulletSpan`/`QuoteSpan` are dropped silently, so `<ul>` and `<blockquote>` render as plain
- * lines with no error to notice. [GridlinkSampleBodies] therefore sticks to a documented safe tag
- * set and writes bullets as literal characters.
+ * 🔴 It is in the message, not in a menu. Upstream puts the same two controls behind the overflow,
+ * which is a defensible place for a setting and the wrong place for this: the reader is looking at a
+ * message with holes in it and needs to be told why, in the same glance. A control the reader has to
+ * go looking for is one they will only find after deciding the app is broken.
  *
- * ## Why not a WebView
- * A WebView would render anything, and that is the problem. It loads remote content by default,
- * which means every tracking pixel in every marketing email reports back the moment you open it,
- * and it brings its own scroll container, its own text selection and its own idea of colour into
- * the middle of a Compose screen. Real marketing HTML will eventually need one, with remote content
- * blocked until the reader asks for it. That is a privacy decision with a UI attached, not a
- * renderer swap, and it belongs in its own change.
- *
- * 🔴 The link colour comes from the palette. Nothing in the markup is allowed to set a colour: a
- * body carrying `#000000` because it looked right in Day would be invisible in Night.
+ * The two actions are genuinely different promises and the labels say so. **Show** is once, for this
+ * message, and is forgotten the moment it closes. **Always** writes the sender into a list that
+ * outlives the app being killed, and from then on their mail loads pictures on open. That second one
+ * is a standing permission granted to somebody else, so it names them rather than saying "always".
  */
 @Composable
-private fun GridlinkThreadBody(
-    html: String,
+private fun GridlinkImagesBanner(
+    sender: String,
+    onShowOnce: () -> Unit,
+    onAlwaysAllow: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = GridlinkTheme.colors
-    val body = remember(html, colors.accent) {
-        AnnotatedString.fromHtml(
-            htmlString = html,
-            linkStyles = TextLinkStyles(
-                style = SpanStyle(
-                    color = colors.accent,
-                    textDecoration = TextDecoration.Underline,
-                ),
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(colors.surfaceRaised)
+            .padding(
+                start = GridlinkSpacing.s20,
+                end = GridlinkSpacing.s12,
+                top = GridlinkSpacing.s8,
+                bottom = GridlinkSpacing.s8,
             ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.HideImage,
+            contentDescription = null,
+            tint = colors.textSecondary,
+            modifier = Modifier.size(18.dp),
         )
+        Text(
+            // States the consequence, which is the entire reason the block exists. "Images blocked"
+            // alone reads as a limitation of the app; this reads as a thing it did on purpose.
+            text = "Images blocked so $sender can't tell you opened this.",
+            style = GridlinkType.metadata,
+            color = colors.textSecondary,
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = GridlinkSpacing.s12),
+        )
+        GridlinkImagesBannerAction(label = "Show", onClick = onShowOnce)
+        GridlinkImagesBannerAction(label = "Always", onClick = onAlwaysAllow)
     }
+}
+
+/** One word in the banner, tappable. A text button, because two of them beside prose is enough. */
+@Composable
+private fun GridlinkImagesBannerAction(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = GridlinkTheme.colors
     Text(
-        text = body,
-        style = GridlinkType.body,
-        color = colors.textPrimary,
-        modifier = modifier,
+        text = label,
+        style = GridlinkType.chip,
+        color = colors.accent,
+        maxLines = 1,
+        modifier = modifier
+            .clip(RoundedCornerShape(GridlinkRadii.pill))
+            .clickable(onClick = onClick)
+            .padding(horizontal = GridlinkSpacing.s8, vertical = GridlinkSpacing.s8),
     )
+}
+
+/**
+ * The standing notice, once the reader has said yes to this sender for good.
+ *
+ * ⚠️ It is not decoration and it is not a success message. The banner above is how the allowlist is
+ * joined, and without this there is no way to see from a message that the sender is on it, and no
+ * way off it at all except from the settings screen upstream owns. A permission you cannot see and
+ * cannot revoke where you granted it is not really a permission.
+ */
+@Composable
+private fun GridlinkImagesAllowedBanner(
+    sender: String,
+    onStopAllowing: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = GridlinkTheme.colors
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(colors.surfaceRaised)
+            .padding(
+                start = GridlinkSpacing.s20,
+                end = GridlinkSpacing.s12,
+                top = GridlinkSpacing.s8,
+                bottom = GridlinkSpacing.s8,
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.Image,
+            contentDescription = null,
+            tint = colors.textSecondary,
+            modifier = Modifier.size(18.dp),
+        )
+        Text(
+            text = "Images always load from $sender.",
+            style = GridlinkType.metadata,
+            color = colors.textSecondary,
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = GridlinkSpacing.s12),
+        )
+        GridlinkImagesBannerAction(label = "Stop", onClick = onStopAllowing)
+    }
 }
 
 /**

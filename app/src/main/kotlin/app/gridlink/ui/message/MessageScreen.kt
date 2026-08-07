@@ -137,6 +137,9 @@ import app.gridlink.core.jmap.model.EmailAddress
 import app.gridlink.core.jmap.model.EmailBodyPart
 import android.text.format.DateUtils
 import app.gridlink.ui.canSnoozeIn
+import app.gridlink.ui.emailhtml.EmailRemoteContent
+import app.gridlink.ui.emailhtml.EmailTheme
+import app.gridlink.ui.emailhtml.buildEmailHtmlDocument
 import app.gridlink.ui.inbox.mailboxDisplayName
 import app.gridlink.ui.inbox.mailboxPathLabel
 import app.gridlink.ui.components.Monogram
@@ -2868,15 +2871,11 @@ private class BlockingWebViewClient : WebViewClient() {
 
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
         if (!blockRemote) return null
-        // Default-deny: only inert, local sources are allowed through. Anything else — http(s),
-        // protocol-relative URLs (which arrive with a null/empty scheme), ws, ftp, prefetch — is
-        // blocked so a tracking pixel can't fire by any vector. Keying on "http"/"https" alone
-        // (the old behaviour) let "//evil.com/x.gif" and friends slip past.
-        val scheme = request?.url?.scheme?.lowercase()
-        return if (scheme == "data" || scheme == "cid" || scheme == "about") {
-            null
-        } else {
+        // The default-deny rule itself is shared with Gridlink's reader; see [EmailRemoteContent].
+        return if (EmailRemoteContent.blocked(request?.url)) {
             WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
+        } else {
+            null
         }
     }
 
@@ -2886,7 +2885,7 @@ private class BlockingWebViewClient : WebViewClient() {
         // Only hand off web/contact schemes to the system. Never forward intent:, javascript:,
         // file:, content:, data: etc. — an <a href="intent://…"> in a hostile email could
         // otherwise redirect into another app or an internal component.
-        if (scheme !in SAFE_OPEN_SCHEMES) return true // swallow: don't navigate, don't open
+        if (scheme !in EmailRemoteContent.SAFE_OPEN_SCHEMES) return true // swallow: don't navigate, don't open
         // Act only on a genuine user tap. Auto-navigations (<meta refresh>, scripted redirects)
         // arrive without a gesture; ignoring them stops a message from opening an app or firing
         // a network request just by being viewed.
@@ -2896,308 +2895,29 @@ private class BlockingWebViewClient : WebViewClient() {
         onOpenUrl(target)
         return true
     }
-
-    private companion object {
-        val SAFE_OPEN_SCHEMES = setOf("http", "https", "mailto", "tel", "sms", "geo")
-    }
 }
 
 /**
- * Content-Security-Policy for rendered email. JavaScript is already disabled on the WebView;
- * this is defense-in-depth that also kills scripts, plugins, iframes, and form submissions
- * (phishing posts) outright, while still allowing inline styles and images. Remote images are
- * permitted by the policy but gated at load time by [BlockingWebViewClient] so the "show images"
- * toggle keeps working; the policy stops every other remote vector (connect/frame/object/script).
+ * This screen's document, built from the JMAP model.
+ *
+ * The document itself is [buildEmailHtmlDocument], which is shared with Gridlink's reader and
+ * therefore takes strings. This is the half that knows what an [Email] is.
  */
-private const val CSP_META =
-    "<meta http-equiv=\"Content-Security-Policy\" content=\"" +
-        "default-src 'none'; img-src data: cid: http: https:; style-src 'unsafe-inline'; " +
-        "font-src data:; media-src data: cid: http: https:; " +
-        "form-action 'none'; base-uri 'none'; frame-src 'none'; object-src 'none'\">"
-
 private fun buildHtmlDocument(
     email: Email,
     inlineImages: Map<String, String> = emptyMap(),
     theme: EmailTheme = EmailTheme("#ffffff", "#111111", "#0b5fff", false),
     topSpacerCssPx: Int = 0,
     bottomSpacerCssPx: Int = 0,
-): String {
-    val htmlContent = email.htmlContent()
-    var inner = htmlContent
-        ?: email.textContent()?.let { "<pre class=\"plain\">${escapeHtml(reflowFormatFlowed(it))}</pre>" }
-        ?: "<p>${escapeHtml(email.preview ?: "(no content)")}</p>"
-    // Embed inline images: replace cid: references with their data URIs.
-    inlineImages.forEach { (cid, dataUri) ->
-        inner = inner.replace("cid:$cid", dataUri).replace("cid:<$cid>", dataUri)
-    }
-    // Neutralise the email's own dark-mode styles. On a dark-mode device the WebView matches
-    // `prefers-color-scheme: dark`, so a marketing email renders its dark variant — which our
-    // invert then turns light (the "white band in dark theme" bug); declaring color-scheme is
-    // ignored by Android WebView, so we defang the media queries directly by appending an
-    // always-false condition. The email then always renders its light design, which we show
-    // as-is (light theme) or invert (dark theme).
-    inner = inner.replace(
-        Regex("""prefers-color-scheme\s*:\s*dark""", RegexOption.IGNORE_CASE),
-        "prefers-color-scheme:dark) and (max-width:0px",
-    )
-    // Bracket the content with two real DOCUMENT elements (scrollable, unlike body padding which Blink
-    // drops, or WebView view padding which clips the last lines): a transparent TOP spacer of the
-    // collapsing header's height so the header overlays blank space and content starts below it; and a
-    // BOTTOM spacer (class s-end) reserving room for the overlaying Reply/Forward bar so the last line
-    // clears it. The bottom spacer is COLOURED (.s-end in the CSS below) so it doesn't invert to white
-    // in dark mode. cid/data already inlined above; pure layout, no scripts.
-    inner = "<div aria-hidden=\"true\" style=\"height:${topSpacerCssPx}px\"></div>" + inner +
-        "<div aria-hidden=\"true\" class=\"s-end\" style=\"height:${bottomSpacerCssPx}px\"></div>"
-    val richHtml = htmlContent != null
-    if (theme.dark && richHtml) {
-        // Rich HTML carries its own (usually white) backgrounds we can't restyle reliably,
-        // so render it light and invert the whole page. The filter MUST sit on the root
-        // <html>: marketing emails are full <html> documents, and the parser hoists their
-        // <body> out of any wrapper <div> — a div filter would then invert nothing (the
-        // old "white frame" bug). The root always contains every node, wherever it lands.
-        // hue-rotate keeps colours roughly intact; media is re-inverted to look normal.
-        return """
-            <!DOCTYPE html><html><head>
-            $CSP_META
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <meta name="color-scheme" content="only light">
-            <style>
-              /* Force the email to render its LIGHT design before we invert: many marketing
-                 emails ship a prefers-color-scheme:dark variant, which the WebView would pick
-                 on a dark-mode device — inverting an already-dark email yields a wrong, light
-                 result (e.g. a white band in dark theme). "only light" opts the page out of the
-                 system dark preference so its dark media queries don't fire. */
-              html { color-scheme: only light; }
-              /* Transparent page background: the filter only inverts the document's own
-                 painting, not the WebView's native background (set to the app surface).
-                 So empty areas show the app's dark surface instead of a pure-black box
-                 (white inverted) that clashed with it. !important beats the document-level
-                 background many emails set via an inline style on <body> (which otherwise
-                 leaves a bright band below the content where the body shows through).
-                 Inner wrappers keep their own backgrounds and still get inverted. */
-              html { filter: invert(1) hue-rotate(180deg); background: transparent !important; }
-              body { margin: 16px; font-family: sans-serif; line-height: 1.45; color: #111111;
-                     background: transparent !important;
-                     word-wrap: break-word; overflow-wrap: break-word; }
-              /* Emoji are colour glyphs, so the page filter turns a yellow face blue (issue #58).
-                 Counter-invert them exactly like media, restoring their real colours. */
-              img, picture, video, svg, iframe, .s-emo { filter: invert(1) hue-rotate(180deg); }
-              img { max-width: 100%; height: auto; }
-              a { color: #0b57d0; }
-              /* Bottom spacer reserving room for the overlaying Reply/Forward bar. Transparent so it
-                 shows the WebView's native surface (same trick as the page background above): a fixed
-                 colour would invert to pure black (#fff -> #000), which doesn't match the app's dark
-                 surface and left a visibly-off rectangle at the end of the mail. */
-              .s-end { background: transparent; }
-            </style></head><body>${wrapEmoji(inner)}</body></html>
-        """.trimIndent()
-    }
-    // Plain/simple text (or light mode): paint with the resolved theme colours directly,
-    // so the body's background matches the app surface (no seam below the message).
-    val bg = theme.background
-    val fg = theme.text
-    val link = theme.link
-    // Rich HTML reaches here only in light theme: pin it to its light design (same reason as
-    // the invert branch) so a prefers-color-scheme:dark email doesn't render dark on a
-    // dark-mode device. Plain text follows the app theme.
-    val colorScheme = if (richHtml) "only light" else if (theme.dark) "dark" else "light"
-    return """
-        <!DOCTYPE html><html><head>
-        $CSP_META
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <meta name="color-scheme" content="$colorScheme">
-        <style>
-          html { color-scheme: $colorScheme; }
-          html, body { background-color: $bg; }
-          body { margin: 16px; font-family: sans-serif; line-height: 1.45; color: $fg;
-                 word-wrap: break-word; overflow-wrap: break-word; }
-          img { max-width: 100%; height: auto; }
-          a { color: $link; }
-          pre.plain { white-space: pre-wrap; word-wrap: break-word; font-family: sans-serif; }
-          /* Bottom spacer reserving room for the overlaying Reply/Forward bar; surface colour so it
-             blends with the body background. */
-          .s-end { background: $bg; }
-        </style></head><body>$inner</body></html>
-    """.trimIndent()
-}
-
-/** Resolved theme colours (CSS hex) handed to the email WebView so it matches the app. */
-private data class EmailTheme(val background: String, val text: String, val link: String, val dark: Boolean)
-
-private fun escapeHtml(text: String): String = text
-    .replace("&", "&amp;")
-    .replace("<", "&lt;")
-    .replace(">", "&gt;")
-
-private const val ZWJ = '\u200D' // zero-width joiner: glues a multi-part emoji into one glyph
-private const val VS15 = '\uFE0E' // variation selector: force TEXT (monochrome) presentation
-private const val VS16 = '\uFE0F' // variation selector: force EMOJI (colour) presentation
-private const val KEYCAP = '\u20E3' // combining enclosing keycap (1⃣)
-
-/** Elements whose content is not markup (or is counter-inverted already): copied verbatim. */
-private val OPAQUE_ELEMENTS = setOf("style", "script", "title", "textarea", "svg")
-
-/**
- * BMP code points that default to emoji (colour) presentation. Everything else in the BMP is a
- * text glyph (✓, ©, →, …) that the mail font paints in the body colour, so it must NOT be
- * counter-inverted — unless the author forced colour with a VS16, which [emojiClusterEnd] honours.
- */
-private val EMOJI_BMP = listOf(
-    0x231A..0x231B, 0x23E9..0x23EC, 0x23F0..0x23F0, 0x23F3..0x23F3, 0x25FD..0x25FE,
-    0x2614..0x2615, 0x2648..0x2653, 0x267F..0x267F, 0x2693..0x2693, 0x26A1..0x26A1,
-    0x26AA..0x26AB, 0x26BD..0x26BE, 0x26C4..0x26C5, 0x26CE..0x26CE, 0x26D4..0x26D4,
-    0x26EA..0x26EA, 0x26F2..0x26F3, 0x26F5..0x26F5, 0x26FA..0x26FA, 0x26FD..0x26FD,
-    0x2705..0x2705, 0x270A..0x270B, 0x2728..0x2728, 0x274C..0x274C, 0x274E..0x274E,
-    0x2753..0x2755, 0x2757..0x2757, 0x2795..0x2797, 0x27B0..0x27B0, 0x27BF..0x27BF,
-    0x2B1B..0x2B1C, 0x2B50..0x2B50, 0x2B55..0x2B55,
+): String = buildEmailHtmlDocument(
+    htmlContent = email.htmlContent(),
+    textContent = email.textContent(),
+    preview = email.preview,
+    inlineImages = inlineImages,
+    theme = theme,
+    topSpacerCssPx = topSpacerCssPx,
+    bottomSpacerCssPx = bottomSpacerCssPx,
 )
-
-private fun isEmojiPresentation(cp: Int): Boolean = when {
-    cp < 0x231A -> false
-    cp in 0x1F000..0x1FAFF -> true // pictographs, faces, transport, flags, symbols
-    cp > 0xFFFF -> false
-    else -> EMOJI_BMP.any { cp in it }
-}
-
-/**
- * Whether [cp] may carry a variation selector, i.e. whether it is an `Emoji=Yes` base. In ASCII
- * only `#`, `*` and the digits qualify (keycap bases); everything else starts at U+00A9 (©).
- */
-private fun isEmojiBase(cp: Int): Boolean =
-    cp >= 0x00A9 || cp == '#'.code || cp == '*'.code || cp in '0'.code..'9'.code
-
-/**
- * End index of the emoji cluster starting at [i] (base + variation selector, skin tone, keycap or
- * flag-tag modifiers), or -1 if there is no emoji there.
- */
-private fun emojiClusterEnd(s: String, i: Int): Int {
-    if (i >= s.length) return -1
-    val cp = s.codePointAt(i)
-    var j = i + Character.charCount(cp)
-    val emoji = when {
-        j < s.length && s[j] == VS15 -> false // author asked for the monochrome text glyph
-        isEmojiPresentation(cp) -> true
-        // ✔️, ©️, keycap bases: colour forced by the author. Only a real Emoji=Yes base can carry a
-        // VS16 — its ASCII members are exactly `#`, `*` and `0`-`9`, every other one is >= U+00A9.
-        // Without that guard a stray U+FE0F right after an HTML character reference would split the
-        // entity (`&#127876;️` -> `&#127876<span…>;️</span>`, rendering as "🎄;").
-        j < s.length && s[j] == VS16 && isEmojiBase(cp) -> true
-        else -> false
-    }
-    if (!emoji) return -1
-    while (j < s.length) {
-        val m = s.codePointAt(j)
-        val modifier = m == VS16.code || m == KEYCAP.code ||
-            m in 0x1F3FB..0x1F3FF || m in 0xE0020..0xE007F
-        if (!modifier) break
-        j += Character.charCount(m)
-    }
-    return j
-}
-
-/**
- * End index of the run of emoji starting at [start], or [start] if none. Clusters joined by a ZWJ
- * (👨‍👩‍👧, 🏳️‍🌈) render as ONE glyph, so the run must keep them together; adjacent emoji are
- * folded into the same run too, which just means fewer spans.
- */
-private fun emojiRunEnd(s: String, start: Int): Int {
-    var i = start
-    while (true) {
-        val end = emojiClusterEnd(s, i)
-        if (end < 0) break
-        i = end
-        if (i < s.length && s[i] == ZWJ && emojiClusterEnd(s, i + 1) > 0) i++
-    }
-    return i
-}
-
-/** Copies the markup starting at `<` in [s] to [out]; returns the index just past it. */
-private fun copyMarkup(s: String, start: Int, out: StringBuilder): Int {
-    if (s.startsWith("<!--", start)) {
-        val end = s.indexOf("-->", start + 4)
-        val stop = if (end < 0) s.length else end + 3
-        out.append(s, start, stop)
-        return stop
-    }
-    var i = start + 1
-    var quote = ' '
-    while (i < s.length) {
-        val c = s[i]
-        if (quote != ' ') {
-            if (c == quote) quote = ' '
-        } else if (c == '"' || c == '\'') {
-            quote = c
-        } else if (c == '>') {
-            i++
-            break
-        }
-        i++
-    }
-    val tagEnd = minOf(i, s.length)
-    out.append(s, start, tagEnd)
-    if (start + 1 < s.length && s[start + 1] == '/') return tagEnd
-    var n = start + 1
-    while (n < s.length && s[n].isLetterOrDigit()) n++
-    val name = s.substring(start + 1, n).lowercase()
-    if (name !in OPAQUE_ELEMENTS || s.regionMatches(tagEnd - 2, "/>", 0, 2)) return tagEnd
-    val close = s.indexOf("</$name", tagEnd, ignoreCase = true)
-    val stop = if (close < 0) s.length else close
-    out.append(s, tagEnd, stop)
-    return stop
-}
-
-/**
- * Wraps every emoji in the mail's TEXT in a `.s-emo` span carrying the counter-filter, so the
- * page-wide invert of the dark reader (see [buildHtmlDocument]) is undone on colour glyphs and a
- * yellow face stays yellow instead of turning blue (issue #58). Tags, attributes, URLs and the
- * content of `<style>`/`<script>`/`<svg>` are copied verbatim: a wrong edit there would corrupt
- * the message, which is far worse than an off-colour emoji.
- */
-internal fun wrapEmoji(html: String): String {
-    val out = StringBuilder(html.length + 64)
-    var i = 0
-    while (i < html.length) {
-        val c = html[i]
-        val next = if (i + 1 < html.length) html[i + 1] else ' '
-        if (c == '<' && (next.isLetter() || next == '/' || next == '!' || next == '?')) {
-            i = copyMarkup(html, i, out)
-            continue
-        }
-        val end = emojiRunEnd(html, i)
-        if (end > i) {
-            out.append("<span class=\"s-emo\">").append(html, i, end).append("</span>")
-            i = end
-        } else {
-            out.append(c)
-            i++
-        }
-    }
-    return out.toString()
-}
-
-/**
- * Reflow RFC 3676 `format=flowed` plain text: join soft-wrapped lines (those ending in a
- * space) into one logical line, keeping hard breaks and blank lines so the `<pre>` render
- * wraps at the viewport instead of showing the sender's ~72-char line breaks (issue #4).
- *
- * JMAP exposes the body as `text/plain` without the `format` parameter, so we key off the
- * soft-break convention itself: a trailing space before the newline. Non-flowed text has no
- * such trailing spaces, so it passes through unchanged (hard line breaks preserved). A single
- * leading space is space-stuffing (protects lines starting with space/`>`/`From `) and is
- * removed; the signature separator `-- ` is a hard break despite its trailing space.
- */
-internal fun reflowFormatFlowed(text: String): String {
-    val lines = text.split("\n")
-    val sb = StringBuilder()
-    for ((i, raw) in lines.withIndex()) {
-        var line = raw.removeSuffix("\r")
-        if (line.startsWith(" ")) line = line.substring(1) // undo space-stuffing
-        sb.append(line)
-        val soft = line.endsWith(" ") && line != "-- "
-        if (!soft && i != lines.lastIndex) sb.append('\n')
-    }
-    return sb.toString()
-}
 
 // Date formatting lives in [MailDates] — the composer writes the same formatted date into a reply's
 // attribution and a forward's header, and the two must not drift.
@@ -3206,7 +2926,6 @@ private fun formatFull(iso: String?): String = MailDates.formatFull(iso)
 private fun formatWith(iso: String?, formatter: DateTimeFormatter): String =
     MailDates.formatWith(iso, formatter)
 
-/** Snooze presets → (label, epoch-millis), computed in the device's time zone. */
 /** Snooze presets (label → epoch-millis). Shared by the message view and the inbox selection menu. */
 internal fun snoozePresets(context: android.content.Context): List<Pair<String, Long>> {
     val zone = java.time.ZoneId.systemDefault()
@@ -3222,3 +2941,4 @@ internal fun snoozePresets(context: android.content.Context): List<Pair<String, 
         context.getString(R.string.snooze_next_week) to nextWeek,
     ).map { (label, time) -> label to time.toInstant().toEpochMilli() }
 }
+

@@ -46,6 +46,20 @@ data class GridlinkMailContent(
      * an unbounded cache of message bodies living in UI state.
      */
     val open: GridlinkOpenMessage? = null,
+    /**
+     * Sender addresses whose remote images load without being asked, lowercased.
+     *
+     * 🔴 A set of addresses rather than a boolean on the open message, because it is a standing
+     * permission and not a property of what is on screen: it survives the app being killed, it is
+     * shared with upstream's reader (same store, same key), and the thread view has to be able to
+     * say "you allowed this sender" about a message opened days later.
+     *
+     * ⚠️ There is no callback beside it. [GridlinkMailContent] is `@Immutable` and a lambda in it
+     * would break that equality, recomposing every list row whenever the view model re-emitted.
+     * Granting and revoking arrive as a scaffold parameter instead, the same shape the filing
+     * actions already use.
+     */
+    val imageAllowlist: Set<String> = emptySet(),
 )
 
 /**
@@ -69,6 +83,10 @@ data class GridlinkOpenMessage(
     val attachment: GridlinkAttachment? = null,
     /** Why the body could not be fetched, in a sentence, or null. */
     val error: String? = null,
+    /** True when [html] is really the plain-text part. See [GridlinkMessage.bodyIsPlainText]. */
+    val plainText: Boolean = false,
+    /** The body's inline images, `cid:` → `data:`. See [GridlinkMessage.inlineImages]. */
+    val inlineImages: Map<String, String> = emptyMap(),
 )
 
 /**

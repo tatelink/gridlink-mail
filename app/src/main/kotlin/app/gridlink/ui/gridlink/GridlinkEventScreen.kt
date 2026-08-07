@@ -1,5 +1,7 @@
 package app.gridlink.ui.gridlink
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -225,7 +227,16 @@ fun GridlinkEventScreen(
             // as having failed to load.
             event.location?.let { where ->
                 GridlinkSectionLabel(text = "Where")
-                GridlinkEventFact(text = where, icon = Icons.Outlined.Place)
+                GridlinkEventFact(
+                    text = where,
+                    icon = Icons.Outlined.Place,
+                    // Handed to whichever map app is installed, which on this fleet is Google Maps.
+                    // 🔴 A `geo:` intent and not a maps.google.com URL: the URL would be a browser
+                    // tab on a phone with no map app, and would ask Google a question on behalf of a
+                    // reader who only tapped an address. `geo:` stays on the device unless something
+                    // is there to answer it.
+                    onClick = { openMap(context, where) },
+                )
             }
 
             // ⚠️ Before the counterparty sections, not after. The mail list can run to a dozen rows,
@@ -332,6 +343,26 @@ private fun durationLabel(start: LocalTime, end: LocalTime): String {
  * 🔴 One function feeding both, because a Copy and a Share that produce different text for the same
  * event is a bug nobody reports and everybody notices once.
  */
+/**
+ * Hand a place name to whatever map app the device has.
+ *
+ * `geo:0,0?q=<query>` is the documented way to ask for a place you have no coordinates for: the
+ * zeroes are ignored when a query is present, and every map app on Android registers for it.
+ *
+ * 🔴 Wrapped in a try. There is no guarantee anything handles `geo:` (a bare AOSP emulator does not),
+ * and an unhandled implicit intent is an `ActivityNotFoundException` that takes the app down. Nothing
+ * happening is the right failure for a tap on an address.
+ */
+private fun openMap(context: android.content.Context, place: String) {
+    val uri = Uri.parse("geo:0,0?q=" + Uri.encode(place))
+    val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    try {
+        context.startActivity(intent)
+    } catch (t: android.content.ActivityNotFoundException) {
+        android.util.Log.w("GridlinkEvent", "no map app for $uri", t)
+    }
+}
+
 private fun GridlinkEvent.asPlainText(): String = buildString {
     appendLine(title)
     appendLine(date.format(EVENT_DATE))
@@ -342,8 +373,13 @@ private fun GridlinkEvent.asPlainText(): String = buildString {
 /**
  * One labelled fact: a glyph, then the value, then an optional quieter second line.
  *
- * Inert on purpose. Tapping a location on a real calendar opens a map, and this app has no address
- * to hand a map — "2043 Hillcrest" is a store number, not a place the OS can find.
+ * Inert unless given an [onClick]. The With row stays inert (a domain is not somewhere you can go);
+ * Where is tappable now that the events are real DAV events carrying whatever the organiser typed.
+ *
+ * ⚠️ Sample events still say things like "2043 Hillcrest", which is a store number rather than an
+ * address, so tapping one hands a map a query it will not find. That is the map's answer to give, not
+ * this screen's to pre-empt: guessing which strings are "real enough" to be tappable would make the
+ * row work for some appointments and silently not for others.
  */
 @Composable
 private fun GridlinkEventFact(
@@ -351,11 +387,15 @@ private fun GridlinkEventFact(
     icon: ImageVector,
     modifier: Modifier = Modifier,
     secondary: String? = null,
+    onClick: (() -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
     Row(
         modifier = modifier
             .fillMaxWidth()
+            // 🔴 Before the padding, so the touch target covers the row's full width and its 16dp of
+            // breathing room rather than just the glyph and the text.
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(
                 start = GridlinkSpacing.rowHorizontal,
                 end = GridlinkSpacing.rowHorizontal,
