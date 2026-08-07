@@ -76,6 +76,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
@@ -98,6 +99,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
@@ -1182,6 +1184,16 @@ private fun RecipientChipsField(
     // width, instead of pushing the subject and body down as an inline list did. Its position comes
     // from the popup's own anchor bounds; only the width has to be measured here.
     var fieldWidthPx by remember { mutableStateOf(0) }
+    // …and its bottom edge inside the compose root, plus the root's own height, so the menu can be
+    // capped at the room actually left below the field once the keyboard is up (#143). On API 30+
+    // the window is NOT resized for the IME (MainActivity goes edge to edge), so the keyboard is
+    // known here only as an inset and nothing else in this field knows it took the bottom half of
+    // a small screen. On API 26-29 that is NOT established: the manifest still carries
+    // adjustResize, the root may shrink as well, and the keyboard would then be counted twice —
+    // no menu at all instead of a short one. The reporter's device is API 27; the bench (Moto G,
+    // API 28) is what settles it. See SuggestionMenuFit.kt.
+    var fieldBottomPx by remember { mutableStateOf(0) }
+    var windowHeightPx by remember { mutableStateOf(0) }
     val inputValue = if (inputState.text == input) {
         inputState
     } else {
@@ -1231,7 +1243,11 @@ private fun RecipientChipsField(
                 .heightIn(min = 48.dp)
                 // Content is inset while the divider below runs full width (#26 follow-up).
                 .padding(horizontal = 16.dp)
-                .onGloballyPositioned { fieldWidthPx = it.size.width },
+                .onGloballyPositioned {
+                    fieldWidthPx = it.size.width
+                    fieldBottomPx = (it.positionInRoot().y + it.size.height).roundToInt()
+                    windowHeightPx = it.findRootCoordinates().size.height
+                },
         ) {
             FieldLabel(label)
             if (collapsed) {
@@ -1378,8 +1394,25 @@ private fun RecipientChipsField(
             trailing?.invoke()
         }
         FieldDivider()
-        if (expanded && suggestions.isNotEmpty()) {
-            val density = LocalDensity.current
+        val density = LocalDensity.current
+        // The keyboard is read HERE, in the field's own composition, and never inside the Popup: a
+        // Popup is a separate window and its insets are not the screen's. Reading it as an inset is
+        // the only way to know the keyboard is up at all, since the window itself is not resized
+        // (edge to edge) — the same read ConnectScreen makes to lift its credential block.
+        val imeBottomPx = WindowInsets.ime.getBottom(density)
+        // The height the menu may take, or null when there is not even one row of room left under
+        // the field — in which case no menu is drawn at all (#143). Keyed on every quantity that
+        // moves: the keyboard's height changes without any of this composable's own state
+        // changing, and an unkeyed remember would keep serving the pre-keyboard cap.
+        val menuMaxHeight = remember(windowHeightPx, fieldBottomPx, imeBottomPx, density) {
+            suggestionMenuMaxHeight(
+                windowHeightPx = windowHeightPx,
+                fieldBottomPx = fieldBottomPx,
+                imeHeightPx = imeBottomPx,
+                density = density,
+            )
+        }
+        if (expanded && suggestions.isNotEmpty() && menuMaxHeight != null) {
             // A floating contextual menu, not an inline list: it hangs under the field and over
             // whatever is below, so the subject and body never shift as suggestions appear or vanish
             // (the inline list used to push them down). Positioned at the field's bottom-left by the
@@ -1412,11 +1445,13 @@ private fun RecipientChipsField(
                     tonalElevation = 3.dp,
                     shadowElevation = 6.dp,
                 ) {
-                    // Cap the menu height and let it scroll on its own; items stack with a divider so
-                    // they read as distinct rows.
+                    // Cap the menu at the room measured under the field with the keyboard up, and
+                    // let it scroll on its own — a lower cap therefore loses no suggestion, it only
+                    // stops the list from covering the keys that filter it. Items stack with a
+                    // divider so they read as distinct rows.
                     Column(
                         Modifier
-                            .heightIn(max = 256.dp)
+                            .heightIn(max = menuMaxHeight)
                             .verticalScroll(rememberScrollState()),
                     ) {
                         suggestions.forEachIndexed { index, contact ->
