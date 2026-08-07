@@ -631,25 +631,26 @@ fun GridlinkMessageListScreen(
         header = {
             GridlinkHeader(
                 title = "Inbox",
-                // 🔴 Zero while loading, which suppresses the whole subline. The count is computed
-                // off lists this screen already holds, so it would happily render "21 unread" over
-                // a panel of blank placeholders: a number the app cannot have yet, sitting above
-                // the component whose entire job is to admit it does not have the mail.
+                // 🔴 Zero while loading, which suppresses the whole metadata line. The count is
+                // computed off lists this screen already holds, so it would happily render "21
+                // unread" over a panel of blank placeholders: a number the app cannot have yet,
+                // sitting above the component whose entire job is to admit it does not have the
+                // mail.
                 unread = if (awaitingMail) 0 else unreadCount,
                 selectedCount = selectedIds.size,
-                // 🔴 Hidden while selecting. A search field and a selection are two different
-                // modes of the same list, and offering both at once invites you to start one and
-                // silently lose the other.
-                trailing = if (selecting) null else {
-                    {
-                        GridlinkSearchPill(
-                            query = searchQuery,
-                            onQueryChange = { searchQuery = it },
-                            initiallyExpanded = initialSearchExpanded,
-                        )
-                    }
-                },
             )
+        },
+        // 🔴 Hidden while selecting. A search field and a selection are two different modes of the
+        // same list, and offering both at once invites you to start one and silently lose the
+        // other.
+        trailing = if (selecting) null else {
+            {
+                GridlinkSearchPill(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    initiallyExpanded = initialSearchExpanded,
+                )
+            }
         },
     ) {
         Box(

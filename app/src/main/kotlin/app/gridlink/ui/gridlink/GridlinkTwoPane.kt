@@ -46,23 +46,24 @@ import app.gridlink.ui.theme.GridlinkType
 val GRIDLINK_PANE_BREAKPOINT: Dp = 600.dp
 
 /**
- * How tall the list pane's header turned out to be, published to whatever is in the reading pane.
+ * How tall the chrome the list column stacks ABOVE its glass panel turned out to be, published to
+ * whatever is in the reading pane.
+ *
+ * Since the one-line chrome row landed, that chrome is only the scaffold's `belowHeader` slot — the
+ * calendar's view switcher — because the title moved up onto the chrome row, which spans both panes
+ * and so cannot misalign them. On every other screen nothing sits above the list's panel, this
+ * stays 0, and the two panels top-align by construction. The embedded [GridlinkDetailFrame] reads
+ * it and spends exactly this much as a spacer before its own panel.
  *
  * ## Why this is measured and not a number
  * The two panes are laid out independently, so nothing makes their glass panels start on the same
- * line. They start on the same line only if the two headers happen to be the same height, and out of
- * the box they are not: the list header carries a title and an unread subline, the reading pane's
- * carries a subject. That was a visible 21dp step between the two panels the first time this was
- * rendered.
+ * line when one of them stacks extra chrome. A hard-coded height for the view switcher would be
+ * wrong under a large font scale the first time the switcher's labels wrapped, so the scaffold
+ * measures the real thing (padding included) and publishes the answer here. It costs one
+ * recomposition on the first frame, before which the reading pane simply starts at the top.
  *
- * A constant closes that gap for exactly one screen. [GridlinkHeader] drops its subline entirely when
- * nothing is unread, grows it to two lines under a large font scale, and swaps it for "Tap to add or
- * remove" during selection, so a hard-coded 21 would be wrong in three states the app already has.
- * The scaffold measures its own header instead and publishes the answer here, and the reading pane
- * uses it as a floor. It costs one recomposition on the first frame, before which the reading pane
- * simply uses its own minimum.
- *
- * Zero means "nobody measured", which is the honest value outside the two-pane layout.
+ * Zero means "nothing to clear", which is the honest value outside the two-pane layout and on every
+ * screen without a `belowHeader`.
  */
 val LocalGridlinkPaneHeaderHeight = compositionLocalOf { 0.dp }
 

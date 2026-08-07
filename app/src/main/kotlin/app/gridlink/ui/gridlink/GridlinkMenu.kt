@@ -1,8 +1,10 @@
 package app.gridlink.ui.gridlink
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -46,29 +48,23 @@ import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
 
 /**
- * The app's own row of chrome, above every screen title, and the sheet the menu opens.
+ * The app's own row of chrome, above every screen, and the sheet the menu opens.
  *
- * ## Why a whole row rather than a fifth thing in the title row
- * The design handoff put the menu control up for a vote and this is the option that won: "a
- * dedicated chrome row above the 32sp title, menu on the leading edge, live sync state on the
- * trailing edge. The title keeps its full measure, the menu lands under the left thumb, and the row
- * gives the sync indicator a home it does not currently have." Tate picked it in the same words,
- * "hamburger menu top left above inbox area".
+ * ## One line now, not a row above a header
+ * This started as a dedicated strip above a stacked 32sp header, chosen over an inline title
+ * precisely because "a 32sp ExtraBold title next to two 44dp circles has nowhere to wrap". Tate
+ * overrode that with the restructure that made both panes taller: "leave the hamburger menu where it
+ * is, put INBOX on the same horizontal line, and put the search icon on the same line. then extend
+ * both side panes upward." So the title moved INTO this row (the [header] slot), the screen's
+ * trailing control (search, the calendar steppers) moved to its far end, and the vertical space the
+ * stacked header spent is now panel. The wrap problem is answered with `maxLines = 1` and ellipsis
+ * in [GridlinkHeader], which is the trade he picked.
  *
- * The alternative was pairing it with the search pill on the title row's trailing edge, which costs
- * no height. It was rejected for two reasons that both cost more than the height does: a 32sp
- * ExtraBold title next to two 44dp circles has nowhere to wrap, and a menu on the trailing edge of a
- * folded Fold is the one corner a right thumb has to stretch for.
- *
- * ## Why it lives in the scaffold and not in [GridlinkHeader]
- * The header belongs to a screen and says what that screen is. This row belongs to the app and says
- * nothing about where you are: the same menu and the same sync state on all four tabs. Putting it in
- * the header would mean four screens each passing the same two arguments, and the first one to
- * forget would silently lose the app's only route to Settings.
- *
- * 🔴 [GridlinkHeader]'s top padding was cut from 40 to 16 when this landed. Every Gridlink screen
- * goes through [GridlinkScaffold], so the header now never renders without this row above it, and
- * keeping the old 40 stacked two lots of breathing room into 104dp of empty glass before the title.
+ * ## Why it lives in the scaffold and not in the screens
+ * The hamburger and the sync chip belong to the app and say nothing about where you are: the same
+ * menu and the same sync state on all four tabs. Four screens each passing the same two arguments
+ * would work until one forgot, and that would silently lose the app's only route to Settings. The
+ * screens supply only what is theirs: the title block and the trailing control.
  */
 
 /** How the connection is doing, as the trailing edge of the chrome row states it. */
@@ -108,12 +104,17 @@ private val SYNC_DOT = 8.dp
 private val SYNC_CHIP_HEIGHT = 28.dp
 
 /**
- * Menu on the left, sync state on the right, nothing in between.
+ * Menu on the left, the screen's title beside it, sync state and the trailing control on the right.
  *
- * The two ends are deliberately different kinds of object: a 44dp circle is a control and reads as
- * one, a 28dp chip with no press state is a readout and reads as one. Making the sync chip tappable
- * would be inventing a behaviour the design does not specify, and the state it would have to open is
- * already the first line of the menu sheet.
+ * The hamburger is a 44dp circle and reads as a control; the 28dp chip with no press state is a
+ * readout and reads as one. Making the sync chip tappable would be inventing a behaviour the design
+ * does not specify, and the state it would have to open is already the first line of the menu sheet.
+ *
+ * ## 🔴 The chip sits LEFT of [trailing], and it animates its width
+ * Tate's ask pins the search icon to the far right of the line, so the corner is [trailing]'s and
+ * the chip slides in beside it. It expands and shrinks rather than only fading, because it shares a
+ * Row with a weight-sized title block: a chip that claimed its width on frame one would shove the
+ * trailing control sideways in a single jump every time a sync started.
  *
  * ## 🔴 Nothing is shown when everything is fine
  * Tate, on the inbox: *"get rid of 'synced' its redundant"*. It was. A chip that says "Synced"
@@ -136,6 +137,10 @@ fun GridlinkChromeRow(
     onOpenMenu: () -> Unit,
     sync: GridlinkSyncState,
     modifier: Modifier = Modifier,
+    /** The screen's title block, drawn beside the hamburger. See [GridlinkHeader]. */
+    header: (@Composable () -> Unit)? = null,
+    /** The screen's far-right control: the inbox's search pill, the calendar's steppers. */
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     Row(
         modifier = modifier
@@ -144,20 +149,33 @@ fun GridlinkChromeRow(
                 start = GridlinkSpacing.chrome,
                 end = GridlinkSpacing.chrome,
                 top = GridlinkSpacing.chrome,
+                // The gap between this line and the glass panels below it. The stacked header used
+                // to spend s20 under its subline; the single line spends s16, which is the same
+                // breath the panels get from the pad line at their sides.
+                bottom = GridlinkSpacing.s16,
             ),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         GridlinkMenuButton(onClick = onOpenMenu)
-        // Fades rather than popping, because the common transition is SYNCED to SYNCING to SYNCED
-        // and an element that appears instantly in the corner of the eye reads as a glitch. The row
-        // height is set by the 44dp circle, so the chip arriving and leaving never moves anything.
+        // The weight is what pins [trailing] to the corner AND what lets the search pill open
+        // leftward: the pill growing simply takes width back from this box, so its right edge never
+        // moves off the pad line.
+        Box(modifier = Modifier.weight(1f).padding(start = GridlinkSpacing.s16)) {
+            header?.invoke()
+        }
+        // Width animates along with the fade — see the header comment on why the chip must not
+        // claim its space in one frame.
         AnimatedVisibility(
             visible = sync != GridlinkSyncState.SYNCED,
-            enter = fadeIn(GridlinkMotion.standard()),
-            exit = fadeOut(GridlinkMotion.standard()),
+            enter = fadeIn(GridlinkMotion.standard()) + expandHorizontally(GridlinkMotion.standard()),
+            exit = fadeOut(GridlinkMotion.standard()) + shrinkHorizontally(GridlinkMotion.standard()),
         ) {
-            GridlinkSyncChip(sync = sync)
+            GridlinkSyncChip(sync = sync, modifier = Modifier.padding(start = GridlinkSpacing.s12))
+        }
+        if (trailing != null) {
+            Box(modifier = Modifier.padding(start = GridlinkSpacing.s12)) {
+                trailing()
+            }
         }
     }
 }
