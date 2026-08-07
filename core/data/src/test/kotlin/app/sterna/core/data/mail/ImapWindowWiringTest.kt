@@ -133,11 +133,47 @@ class ImapWindowWiringTest {
         // request or shrink every window to 200. What the walk then does with an unbounded window
         // is executed on a real socket in `core:imap`
         // (`FolderWalkOnTheWireTest.an unbounded window walks the folder to its first message`).
-        assertLine(
-            "ImapMailService", "loadFolder",
-            "session.walkFolder(status.exists, limit, IMAP_FOLDER_PAGE) { page ->",
-        )
+        // ⛔ `status`, not `status.exists`: the walk answers with `folderStatedEmpty`, and the two
+        // halves of that answer (the count, and whether the server ever stated it) must reach it as
+        // one value. Handing over the count alone let this line pair it with a provenance of its
+        // own — and a walk that reports "empty" for a folder whose size was never stated has its
+        // cache DELETED by the reconcile at the end.
+        assertLine("ImapMailService", "loadFolder", "session.walkFolder(status, limit, IMAP_FOLDER_PAGE) { page ->")
         assertLine("ImapMailService", "loadFolder", "onPage(page.map { it.toEntity(credentials.id, target.path) })")
+    }
+
+    @Test fun `the folder's size is what the SELECT said, never a verdict written here`() {
+        // ⛔ THE MUTATION THIS EXISTS FOR, which the whole suite survived until it was written:
+        //
+        //     - val status = session.select(target.path)
+        //     + val status = session.select(target.path).copy(existsObserved = true)
+        //
+        // `exists` stays 0 (the server said nothing), `existsObserved` becomes true, the walk then
+        // STATES the folder empty, `reconcilableIds` answers the empty set, and the reconcile
+        // DELETES every cached row of the folder — the "SELECT without EXISTS" symptom whole, with
+        // the retention prune inheriting the same empty set. 300 rows to zero, no error, nothing
+        // left offline.
+        //
+        // Nothing executable can see it: no JVM test runs `loadFolder` (Room, an Android `Context`,
+        // a live socket), `core:imap`'s wire tests drive the session directly, and the decision
+        // tests build their walk by hand. The `walkFolder` line above is unchanged to the character
+        // under the mutation, so pinning it proves nothing here.
+        //
+        // Two facts, and the second is the load-bearing one: the SELECT's answer is taken WHOLE, and
+        // this function does not name `existsObserved` or `copy(` at all. The verdict TRAVELS
+        // through `loadFolder`; it is never written in it.
+        assertLine("ImapMailService", "loadFolder", "val status = session.select(target.path)")
+        val body = lines("ImapMailService", "loadFolder").filterNot { it.startsWith("//") }
+        listOf("existsObserved", "copy(").forEach { forged ->
+            assertEquals(
+                "ImapMailService.loadFolder now names `$forged`. The one thing this function may " +
+                    "not do is decide whether the server stated the folder's size: an `existsObserved` " +
+                    "asserted here licenses the reconcile to DELETE a folder the app knows nothing " +
+                    "about:\n" + body.filter { forged in it }.joinToString("\n"),
+                emptyList<String>(),
+                body.filter { forged in it },
+            )
+        }
     }
 
     @Test fun `the numbering is settled before the walk, through the function that says so`() {
@@ -201,16 +237,24 @@ class ImapWindowWiringTest {
         assertLine("ImapMailService", "loadFolder", "walk = walk,")
     }
 
-    @Test fun `the moved verdict is read from the walk and nowhere else`() {
-        // The decision, whole. It is three lines so it can be pinned entire: the mutation to fear
-        // is `if (load.walk.moved) return null` losing its `!`-equivalent, or the refusal turning
-        // into an empty set — which would delete the folder instead of sparing it.
+    @Test fun `the two refusals are read from the walk and nowhere else`() {
+        // The decision, whole. It is four lines so it can be pinned entire: the mutations to fear
+        // are `if (load.walk.moved) return null` losing its `!`-equivalent, the empty-walk refusal
+        // below it going missing, or either refusal turning into an empty set — which would delete
+        // the folder instead of sparing it.
+        //
+        // ⛔ The second line is the one added for a walk that read NOTHING: a SELECT that never
+        // stated a count, or a page whose every FETCH was unreadable, both end with no UID and
+        // nothing thrown. Deleting on that is a 300-row folder gone to zero on one pull-to-refresh.
+        // `folderStatedEmpty` is the only thing that tells it from a folder the server SAID is
+        // empty, which must still be able to clear its cache — dropping the `!` swaps the two.
         assertEquals(
             "reconcilableIds is no longer, line for line, what this was written against. Null is a " +
                 "REFUSAL to reconcile; an empty set is an instruction to delete the folder.",
             """
             {
             if (load.walk.moved) return null
+            if (load.walk.uids.isEmpty() && !load.walk.folderStatedEmpty) return null
             return load.walk.uids.mapTo(HashSet()) { ImapMailService.emailId(accountId, load.targetMailboxId, it) }
             }
             """.trimIndent().lines().map { it.trim() }.filter { it.isNotEmpty() },

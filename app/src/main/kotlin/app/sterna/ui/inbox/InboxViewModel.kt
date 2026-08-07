@@ -216,6 +216,13 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      *  is what the destroy re-checks against the server before touching anything (#122). */
     private var pendingDeleteTargets: List<Triple<AccountCredentials, String, String>> = emptyList()
 
+    /** The IMAP numbering (UIDVALIDITY) each of those folders was under WHEN THE USER CONFIRMED,
+     *  keyed by (accountId, mailboxId) — null on JMAP and on a folder never observed. Frozen with
+     *  the targets and replayed as-is, because that is the only value worth opposing: read it
+     *  again at flush or at execution and you read the number a refresh recorded AFTER the
+     *  renumbering, which the server then matches by construction (#99). */
+    private var pendingDeleteNumbering: Map<Pair<String, String>, Long?> = emptyMap()
+
     /** The held-back messages themselves — kept so [undoDelete] can re-complete their threads,
      *  and so [completeThreadsAfterAction] never re-caches a row whose destroy is pending. */
     private var pendingDeleteEmails: List<Email> = emptyList()
@@ -1063,11 +1070,16 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * only times the snackbar. Batched per account (one Email/set / UID STORE+EXPUNGE per chunk),
      * so holding back several hundred in-Trash messages destroys them in a few shots (#29).
      */
-    private fun heldBackDestroy(emails: List<Email>, label: String) {
+    private suspend fun heldBackDestroy(emails: List<Email>, label: String) {
         val targets = emails.mapNotNull { e -> credentialsFor(e)?.let { Triple(it, e.id, e.mailboxId.orEmpty()) } }
         if (targets.isEmpty()) return
+        // Frozen HERE, with the confirmation, and carried by the work: an IMAP UID means something
+        // only inside one numbering, and the destroy fires minutes later (#99). Read at execution
+        // instead, it would be the numbering of whatever the folder became.
+        val numbering = recordedNumbering(targets)
         flushPendingDestroy()
         pendingDeleteTargets = targets
+        pendingDeleteNumbering = numbering
         pendingDeleteEmails = emails
         viewModelScope.launch {
             // The eviction is local and immediate, so the mask only has to cover it: once the rows
@@ -1084,11 +1096,12 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             dropSearchResults(emails.mapTo(mutableSetOf()) { it.emailKey() })
             _pendingDelete.value = label
             targets.groupBy { it.first.id }.forEach { (accountId, rows) ->
-                MessageDestroyWorker.schedule(getApplication(), accountId, idsByFolder(rows), PURGE_HOLD_BACK_MS)
+                MessageDestroyWorker.schedule(getApplication(), accountId, foldersToDestroy(accountId, rows, numbering), PURGE_HOLD_BACK_MS)
             }
             pendingDeleteJob = viewModelScope.launch {
                 delay(PURGE_HOLD_BACK_MS)
                 pendingDeleteTargets = emptyList()
+                pendingDeleteNumbering = emptyMap()
                 pendingDeleteEmails = emptyList()
                 _pendingDelete.value = null
             }
@@ -1097,23 +1110,45 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * One account's held-back rows, grouped by the folder each message was in when the user
-     * confirmed — what the destroy is checked against on JMAP (#122). An empty key means the
-     * cached row named no folder: the destroy then has nothing to verify its order with and
-     * destroys nothing, which is the safe end of that.
+     * confirmed — what the destroy is checked against on JMAP (#122) — each group stamped with
+     * that folder's [numbering], which is what an IMAP destroy opposes to the server (#99). An
+     * empty key means the cached row named no folder: the destroy then has nothing to verify its
+     * order with, and no numbering either, and destroys nothing — the safe end of that.
      */
-    private fun idsByFolder(rows: List<Triple<AccountCredentials, String, String>>): Map<String, List<String>> =
-        rows.groupBy({ it.third }, { it.second })
+    private fun foldersToDestroy(
+        accountId: String,
+        rows: List<Triple<AccountCredentials, String, String>>,
+        numbering: Map<Pair<String, String>, Long?>,
+    ): List<MessageDestroyWorker.FolderDestroy> {
+        return rows.groupBy({ it.third }, { it.second }).map { (mailboxId, ids) ->
+            MessageDestroyWorker.FolderDestroy(mailboxId, ids, numbering[accountId to mailboxId])
+        }
+    }
+
+    /** The IMAP numbering of every folder [targets] touches, as recorded right now — i.e. at the
+     *  confirmation, which is the only moment this may be read (see [pendingDeleteNumbering]).
+     *  One read per (account, folder), not per message. */
+    private suspend fun recordedNumbering(
+        targets: List<Triple<AccountCredentials, String, String>>,
+    ): Map<Pair<String, String>, Long?> {
+        return targets.distinctBy { it.first.id to it.third }
+            .associate { (credentials, _, mailboxId) -> (credentials.id to mailboxId) to repo.recordedUidValidity(credentials, mailboxId) }
+    }
 
     /** Commit any held-back destroy immediately (a new delete supersedes the pending one). */
     private fun flushPendingDestroy() {
         pendingDeleteJob?.cancel()
         pendingDeleteJob = null
         val targets = pendingDeleteTargets
+        // Not a suspending function, and it must not become one: what it replays is the destroy
+        // the user confirmed EARLIER, so it re-enqueues the numbering captured then (#99).
+        val numbering = pendingDeleteNumbering
         pendingDeleteTargets = emptyList()
+        pendingDeleteNumbering = emptyMap()
         pendingDeleteEmails = emptyList()
         _pendingDelete.value = null
         targets.groupBy { it.first.id }.forEach { (accountId, rows) ->
-            MessageDestroyWorker.flushNow(getApplication(), accountId, idsByFolder(rows))
+            MessageDestroyWorker.flushNow(getApplication(), accountId, foldersToDestroy(accountId, rows, numbering))
         }
     }
 
@@ -1126,6 +1161,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         }
         val restored = pendingDeleteEmails
         pendingDeleteTargets = emptyList()
+        pendingDeleteNumbering = emptyMap()
         pendingDeleteEmails = emptyList()
         _pendingDelete.value = null
         restoreSearchResults(restored.map { it.emailKey() })

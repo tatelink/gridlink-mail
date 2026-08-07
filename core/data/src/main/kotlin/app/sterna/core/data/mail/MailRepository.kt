@@ -3201,6 +3201,20 @@ class MailRepository(
         return email.mailboxId == trash
     }
 
+    /**
+     * The IMAP numbering last observed for [mailboxId] — for a caller that must FREEZE it with a
+     * user's confirmation and oppose it much later (the held-back destroy: the UI reads it here,
+     * the worker carries it, `destroyAll` opposes it). Null on JMAP, where an id survives anything
+     * a mailbox can go through, and null on IMAP when the folder's numbering was never observed:
+     * both mean "nothing to oppose", which destroys nothing (Codeberg #99).
+     *
+     * Read at the confirmation and never again: re-reading it at execution would pick up the
+     * number a refresh recorded after the renumbering, i.e. exactly the value that makes the
+     * guard pass on the mail it exists to save.
+     */
+    suspend fun recordedUidValidity(credentials: AccountCredentials, mailboxId: String): Long? =
+        if (credentials.protocol == MailProtocol.IMAP) imap.recordedUidValidity(credentials.id, mailboxId) else null
+
     /** Move a message to an arbitrary mailbox (e.g. unarchive → Inbox, or move-to-folder).
      *  Returns the destination the message ended up in (null = a no-op, already there), so the
      *  caller can offer an Undo that both restores the row and reverses the count nudge. */
@@ -3655,10 +3669,14 @@ class MailRepository(
      *  there and the command is a no-op — it survives. What protects IMAP against a stale id
      *  meaning something else again is [expectedUidValidity].
      *
-     *  [expectedUidValidity] is the IMAP numbering the ids were read under, when the caller has
-     *  one to offer (the Empty-trash snapshot does; an immediate destroy of rows the user is
-     *  looking at does not). A folder renumbered since then throws rather than destroying by
-     *  numbers that now mean something else (Codeberg #99). */
+     *  [expectedUidValidity] is the IMAP numbering the ids were read under, frozen when the user
+     *  confirmed: the Empty-trash snapshot carries it, and so does a held-back selection destroy
+     *  (the ViewModel reads it at the confirmation and the worker carries it in its `Data`). A
+     *  folder renumbered since then throws rather than destroying by numbers that now mean
+     *  something else (Codeberg #99). Null or unverifiable destroys NOTHING on IMAP: with nothing
+     *  to oppose, the SELECT would fall back on the number recorded NOW — which any refresh that
+     *  saw the renumbering has already updated — and the guard would compare it with itself. The
+     *  refused ids come back in [BulkResult.failed], which is what puts them back on screen. */
     suspend fun destroyAll(
         credentials: AccountCredentials,
         emailIds: List<String>,
@@ -3668,12 +3686,13 @@ class MailRepository(
         if (emailIds.isEmpty()) return BulkResult.EMPTY
         if (credentials.protocol == MailProtocol.IMAP) {
             val succeeded = mutableSetOf<String>(); val failed = mutableSetOf<String>()
-            emailIds.groupBy { ImapMailService.mailboxOf(it) }.forEach { (source, ids) ->
-                if (source == null) {
-                    failed += ids
-                } else {
-                    imapDestroyGroup(credentials, source, ids, succeeded, failed, expectedUidValidity)
-                }
+            // The net under the numbering the caller froze: with nothing to oppose, an expunge
+            // would go out against whatever the folder is numbered now (#99). Refused ids go to
+            // `failed`, never to `succeeded` — the caller re-queries and they come back on screen.
+            val plan = UidValidity.imapDestroyPlan(emailIds, expectedUidValidity)
+            failed += plan.refused
+            plan.byFolder.forEach { (source, ids) ->
+                imapDestroyGroup(credentials, source, ids, succeeded, failed, expectedUidValidity)
             }
             return BulkResult(succeeded, failed)
         }
@@ -4863,10 +4882,26 @@ class MailRepository(
         onMissing: (String) -> Unit = {},
     ): List<FolderRefresh> {
         if (credentials.protocol == MailProtocol.IMAP) {
+            // Refuse to START for an account that is already gone: this is a background pass, so
+            // the session, the LOGIN, the LIST and one FETCH per watched folder would all be spent
+            // in the name of an account the user has just removed. Signing out has to disconnect.
+            checkAccountStillConfigured(credentials.id, accountStore.accounts().map { it.id })
             val (loads, missing) = imap.loadWatchedFolders(
                 credentials, rekeyWatchedFolders(credentials.id, extraFolderIds), includeInbox, limit,
             )
             missing.forEach(onMissing)
+            // ⭐ And ask AGAIN, because everything above — the whole network read, seconds of it —
+            // sits between the check at the entry and this write, and nothing cancels this pass
+            // when the account goes (`signOut` never touches WorkManager, `PushService` only bumps
+            // its generation). Left unguarded, up to `limit` messages PER WATCHED FOLDER land under
+            // the removed id, AFTER the sign-out's orphan sweep has run, and stay in the unified
+            // list under a "deleted account" chip until the process restarts (#121).
+            //
+            // ⭐ One call, outside the loop, unlike the five other guarded paths: this branch alone
+            // reads the folders whole and then writes them in one group, so a single refusal here
+            // covers every write the `forEach` would make. Inside the lambda it would only repeat
+            // the same answer once per folder.
+            checkAccountStillConfigured(credentials.id, accountStore.accounts().map { it.id })
             loads.forEach { emailDao.upsertAll(it.messages) }
             // No departures on IMAP, and none can be invented here: re-reading a folder says what
             // it holds, never what left it (see [FolderRefresh.departedIds], #134).

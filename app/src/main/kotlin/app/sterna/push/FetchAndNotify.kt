@@ -5,6 +5,7 @@ import android.content.Context
 import app.sterna.container
 import app.sterna.core.data.account.AccountCredentials
 import app.sterna.core.data.account.MailProtocol
+import app.sterna.core.data.mail.AccountGoneException
 import kotlinx.coroutines.flow.first
 
 /**
@@ -35,66 +36,81 @@ object FetchAndNotify {
         includeExtras: Boolean = true,
         resetBaselines: Boolean = false,
     ) {
-        val container = (context.applicationContext as Application).container
-        val store = container.accountStore
-        val extras = if (includeExtras) store.watchedFolders(credentials.id) else emptySet()
-        val refreshes = container.mailRepository.refreshAccountFolders(
-            credentials,
-            extraFolderIds = extras,
-            includeInbox = includeInbox,
-            onMissing = { staleId ->
-                // Deleted/renamed server-side: the watch intent is gone — prune quietly.
-                store.setFolderWatched(credentials.id, staleId, watched = false)
-                NewMailNotifier.clear(context, credentials.id, staleId)
-            },
-        )
-        // The inbox is always the first refresh when requested (see refreshAccountFolders).
-        val inboxId = if (includeInbox) refreshes.firstOrNull()?.mailboxId else null
-        if (inboxId != null) NewMailNotifier.migrateLegacyBaseline(context, credentials.id, inboxId)
-        val unarchiveOnReply = container.settingsRepository.unarchiveOnReply.first()
-        refreshes.forEach { folder ->
-            val isInbox = folder.mailboxId == inboxId
-            val folderName = if (isInbox) null else folder.name
-            val hasBaseline = NewMailNotifier.hasBaseline(context, credentials.id, folder.mailboxId)
-            // Codeberg #50 (opt-in): BEFORE this pass advances OR reseeds the inbox baseline,
-            // pull the archived members of threads that just received genuinely-new inbox
-            // mail back into the Inbox, so the list the user lands on is already whole.
-            // Keyed to the same baseline+age-floor diff as the notifications, so mail the
-            // cache merely caught up on (scroll-back, re-sync) can never trigger it — and
-            // run ahead of ANY seed, because the silent app-open/account-switch reseed
-            // (resetBaselines) used to swallow a just-arrived reply into the baseline before
-            // it was ever diffed: reply from a sibling account, switch back, and the new
-            // conversation appeared with its archived members gone for good. The re-filed
-            // members join the processed set: they enter the baseline with this pass (never
-            // announced as "new" later), and the per-thread collapse keeps the new reply as
-            // the one notification. Best-effort — a failed move must not cost the
-            // notification (or the reseed).
-            val returned = if (isInbox && hasBaseline && unarchiveOnReply) {
-                val threads = NewMailNotifier.newSince(context, credentials.id, folder.mailboxId, folder.emails)
-                    .mapNotNull { it.threadId }
-                    .toSet()
-                runCatching { container.mailRepository.unarchiveThreadsOnReply(credentials, threads) }
-                    .getOrDefault(emptyList())
-            } else {
-                emptyList()
+        try {
+            val container = (context.applicationContext as Application).container
+            val store = container.accountStore
+            val extras = if (includeExtras) store.watchedFolders(credentials.id) else emptySet()
+            val refreshes = container.mailRepository.refreshAccountFolders(
+                credentials,
+                extraFolderIds = extras,
+                includeInbox = includeInbox,
+                onMissing = { staleId ->
+                    // Deleted/renamed server-side: the watch intent is gone — prune quietly.
+                    store.setFolderWatched(credentials.id, staleId, watched = false)
+                    NewMailNotifier.clear(context, credentials.id, staleId)
+                },
+            )
+            // The inbox is always the first refresh when requested (see refreshAccountFolders).
+            val inboxId = if (includeInbox) refreshes.firstOrNull()?.mailboxId else null
+            if (inboxId != null) NewMailNotifier.migrateLegacyBaseline(context, credentials.id, inboxId)
+            val unarchiveOnReply = container.settingsRepository.unarchiveOnReply.first()
+            refreshes.forEach { folder ->
+                val isInbox = folder.mailboxId == inboxId
+                val folderName = if (isInbox) null else folder.name
+                val hasBaseline = NewMailNotifier.hasBaseline(context, credentials.id, folder.mailboxId)
+                // Codeberg #50 (opt-in): BEFORE this pass advances OR reseeds the inbox baseline,
+                // pull the archived members of threads that just received genuinely-new inbox
+                // mail back into the Inbox, so the list the user lands on is already whole.
+                // Keyed to the same baseline+age-floor diff as the notifications, so mail the
+                // cache merely caught up on (scroll-back, re-sync) can never trigger it — and
+                // run ahead of ANY seed, because the silent app-open/account-switch reseed
+                // (resetBaselines) used to swallow a just-arrived reply into the baseline before
+                // it was ever diffed: reply from a sibling account, switch back, and the new
+                // conversation appeared with its archived members gone for good. The re-filed
+                // members join the processed set: they enter the baseline with this pass (never
+                // announced as "new" later), and the per-thread collapse keeps the new reply as
+                // the one notification. Best-effort — a failed move must not cost the
+                // notification (or the reseed).
+                val returned = if (isInbox && hasBaseline && unarchiveOnReply) {
+                    val threads = NewMailNotifier.newSince(context, credentials.id, folder.mailboxId, folder.emails)
+                        .mapNotNull { it.threadId }
+                        .toSet()
+                    runCatching { container.mailRepository.unarchiveThreadsOnReply(credentials, threads) }
+                        .getOrDefault(emptyList())
+                } else {
+                    emptyList()
+                }
+                // What the folder REMEMBERS: everything the pass read (not only what it hydrated for
+                // the diff), plus the members it just re-filed. The two sets are different sizes on
+                // purpose — see MailRepository.notifyRead.
+                val remembered = folder.baselineIds + returned.map { it.id }
+                if (seedsSilently(resetBaselines, isInbox, hasBaseline)) {
+                    // First sight of a folder (or an explicit reset): seed silently instead of
+                    // flooding notifications for its whole existing content.
+                    NewMailNotifier.seed(context, credentials.id, folder.mailboxId, remembered)
+                } else {
+                    // The folder's departures ride along: what the server said left it during THIS
+                    // refresh, so a message deleted from another client loses its banner (#134).
+                    // Empty on IMAP and on the seed path above, which has no banner to take down.
+                    NewMailNotifier.notifyDiff(
+                        context, credentials, folder.mailboxId, folderName, folder.emails + returned, remembered,
+                        folder.departedIds,
+                    )
+                }
             }
-            // What the folder REMEMBERS: everything the pass read (not only what it hydrated for
-            // the diff), plus the members it just re-filed. The two sets are different sizes on
-            // purpose — see MailRepository.notifyRead.
-            val remembered = folder.baselineIds + returned.map { it.id }
-            if (seedsSilently(resetBaselines, isInbox, hasBaseline)) {
-                // First sight of a folder (or an explicit reset): seed silently instead of
-                // flooding notifications for its whole existing content.
-                NewMailNotifier.seed(context, credentials.id, folder.mailboxId, remembered)
-            } else {
-                // The folder's departures ride along: what the server said left it during THIS
-                // refresh, so a message deleted from another client loses its banner (#134).
-                // Empty on IMAP and on the seed path above, which has no banner to take down.
-                NewMailNotifier.notifyDiff(
-                    context, credentials, folder.mailboxId, folderName, folder.emails + returned, remembered,
-                    folder.departedIds,
-                )
-            }
+        } catch (gone: AccountGoneException) {
+            // The refusal MailRepository's guards throw when the account this pass writes for was
+            // signed out mid-flight. It arrives here as a cancellation, and this is the single
+            // funnel of the four delivery paths — PushFetchWorker, MailFetchWorker and PushService
+            // each turn whatever comes out of this call into a Log.w/Log.e with a stack, and the
+            // worker into two more wake-ups besides (Result.retry()). Every sign-out would print
+            // an error for a gesture that SUCCEEDED, which is exactly what #130 took out of this
+            // log. Dropped here, with one line saying so.
+            //
+            // ⛔ It must stay the FIRST arm: AccountGoneException IS a CancellationException, so
+            // any arm above naming that type (or Throwable) takes it first and this one becomes
+            // unreachable without a word.
+            android.util.Log.i("FetchAndNotify", "background pass: ${credentials.id} signed out mid-pass, dropped", gone)
         }
     }
 

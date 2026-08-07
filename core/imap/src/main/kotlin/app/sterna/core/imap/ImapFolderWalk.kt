@@ -34,6 +34,22 @@ const val IMAP_FOLDER_PAGE = 200
 data class ImapFolderWalk(
     val uids: List<Long>,
     val moved: Boolean,
+    /**
+     * ⛔ Whether the `SELECT` this walk started from STATED that the folder holds nothing — an
+     * `* 0 EXISTS` the client actually parsed ([ImapMailboxStatus.existsObserved] and a count of
+     * zero), and never the absence of an answer.
+     *
+     * It exists because [uids] being empty says two opposite things at once. A folder that really
+     * holds no message walks without a single `FETCH` and answers with no UID — and its cache SHOULD
+     * be cleared, or an emptied folder shows its old contents for ever. A folder whose `SELECT`
+     * said nothing about its size, or whose every `FETCH` came back unreadable (no `UID` in the
+     * response — `ImapSession.messages` drops those silently), answers with no UID either, and
+     * clearing its cache destroys mail the server still holds.
+     *
+     * ⭐ False by default, the refusing direction: a fixture, or a future walk, that does not state
+     * this cannot license a delete by omission.
+     */
+    val folderStatedEmpty: Boolean = false,
 )
 
 /**

@@ -68,7 +68,7 @@ class FolderWalkOnTheWireTest {
         server.session().use { session ->
             val status = session.select("INBOX")
             out.walk = runBlocking {
-                session.walkFolder(status.exists, limit, pageSize) { page ->
+                session.walkFolder(status, limit, pageSize) { page ->
                     out.pages += page.map { it.uid }
                     out.fetchesWhenPageLanded += server.issued().count { it.startsWith("FETCH") }
                 }
@@ -360,7 +360,7 @@ class FolderWalkOnTheWireTest {
                 val status = session.select("INBOX")
                 runCatching {
                     runBlocking {
-                        session.walkFolder(status.exists, limit = 600, pageSize = 200) { page ->
+                        session.walkFolder(status, limit = 600, pageSize = 200) { page ->
                             pages += page.map { it.uid }
                         }
                     }

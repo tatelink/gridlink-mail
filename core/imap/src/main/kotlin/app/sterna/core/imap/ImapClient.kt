@@ -520,11 +520,21 @@ class ImapSession(private var socket: Socket) : Closeable {
             command("SELECT $verbatim")
         }
         var exists = 0
+        // ⛔ Zero is also what this holds when the server said NOTHING about the folder's size, and
+        // the two must not read alike: a walk built on an unstated zero fetches no page, brings back
+        // no UID, and the reconcile above takes that for an empty folder and DELETES the cache. So
+        // the count carries whether it was STATED — an `* n EXISTS` line whose n parsed.
+        var existsObserved = false
         var uidValidity = 0L
         var uidNext = 0L
         for (resp in result.untagged) {
             // * <n> EXISTS  |  * OK [UIDVALIDITY n] ...  |  * OK [UIDNEXT n] ...
-            if (resp.getOrNull(2) == "EXISTS") exists = (resp.getOrNull(1) as? String)?.toIntOrNull() ?: exists
+            if (resp.getOrNull(2) == "EXISTS") {
+                // Same reading as [folderMoved]'s, and deliberately the same strictness: an n that
+                // will not parse is not a count. There it means "assume movement", here "assume
+                // nothing" — both refuse rather than invent a number.
+                (resp.getOrNull(1) as? String)?.toIntOrNull()?.let { exists = it; existsObserved = true }
+            }
             val flat = resp.joinToString(" ") { it?.toString() ?: "NIL" }
             Regex("UIDVALIDITY (\\d+)").find(flat)?.let { uidValidity = it.groupValues[1].toLong() }
             Regex("UIDNEXT (\\d+)").find(flat)?.let { uidNext = it.groupValues[1].toLong() }
@@ -534,7 +544,7 @@ class ImapSession(private var socket: Socket) : Closeable {
         ) {
             throw ImapUidValidityChanged(path, expectedUidValidity, uidValidity)
         }
-        return ImapMailboxStatus(exists, uidValidity, uidNext)
+        return ImapMailboxStatus(exists, uidValidity, uidNext, existsObserved)
     }
 
     /**
@@ -551,9 +561,13 @@ class ImapSession(private var socket: Socket) : Closeable {
     }
 
     /**
-     * Read the newest [limit] messages of the SELECTed folder (which the caller's SELECT said holds
-     * [exists] of them) in requests of [pageSize] sequence positions, handing each page to [onPage]
-     * AS IT LANDS and keeping only UIDs.
+     * Read the newest [limit] messages of the SELECTed folder in requests of [pageSize] sequence
+     * positions, handing each page to [onPage] AS IT LANDS and keeping only UIDs.
+     *
+     * ⛔ [status] whole, and not just its count: the walk answers with [ImapFolderWalk.folderStatedEmpty],
+     * which is the difference between a folder the server said holds nothing and a folder whose size
+     * the server never stated ([ImapMailboxStatus.existsObserved]) — and the caller DELETES on that
+     * difference. Taking an `Int` here let the call site pair a count with a provenance of its own.
      *
      * ⛔ Why pages at all: [fetchPage] puts the whole window in one `FETCH`, and everything that
      * command brings back is parsed and held before a single message is read out of it. At the
@@ -590,11 +604,12 @@ class ImapSession(private var socket: Socket) : Closeable {
      * would not be.
      */
     suspend fun walkFolder(
-        exists: Int,
+        status: ImapMailboxStatus,
         limit: Int,
         pageSize: Int,
         onPage: suspend (List<ImapMessage>) -> Unit,
     ): ImapFolderWalk {
+        val exists = status.exists
         val lowest = folderWindowLowest(exists, limit)
         // De-duplicated BY UID: the walk's own pages can overlap after a renumbering, and a
         // sequence number is not a name. Insertion-ordered so the result stays newest-first.
@@ -618,7 +633,15 @@ class ImapSession(private var socket: Socket) : Closeable {
             if (fresh.isNotEmpty()) onPage(fresh)
             previous = page
         }
-        return ImapFolderWalk(uids = seen.toList(), moved = moved)
+        // ⛔ "Nothing came back" is not "there is nothing": an empty [seen] is what a folder of zero
+        // messages gives, and equally what a SELECT that never said how big the folder is gives, and
+        // what a page whose every FETCH was unreadable gives. Only the first may clear a cache, and
+        // only the SELECT can tell them apart — hence a count the server STATED, and zero.
+        return ImapFolderWalk(
+            uids = seen.toList(),
+            moved = moved,
+            folderStatedEmpty = status.existsObserved && exists == 0,
+        )
     }
 
     /**

@@ -53,19 +53,6 @@ data class ImapFolderLoad(
 )
 
 /**
- * The cache ids a finished IMAP folder walk MAY be reconciled against — or NULL when the folder
- * moved under the walk and there is no set the reconcile can safely be given.
- *
- * ⛔ A function of its own, and a pure one, because it is the whole IMAP half of the red line and a
- * condition buried in the middle of a refresh is a condition nobody can execute in a test. Null is
- * a refusal, never an empty set: `reconcileMailbox` given an empty keep set deletes the folder.
- *
- * Ids, not UIDs: the cache is keyed by `imap:account:folder:uid`, so the mapping needs the account
- * and the folder the walk actually landed on (which is not always the one the caller asked for —
- * `loadFolder` falls back to the inbox). And it is a mapping of the WHOLE walk, every page of it,
- * never the last one.
- */
-/**
  * ⛔ Settle the folder's NUMBERING before a single row of it can be seen, then walk it.
  *
  * Two lines and an order, in a function of its own for the reason [fullQueryWriteThrough] is one: an
@@ -93,8 +80,46 @@ internal suspend fun <R> withNumberingSettled(settle: suspend () -> Unit, walk: 
     return walk()
 }
 
+/**
+ * The cache ids a finished IMAP folder walk MAY be reconciled against — or NULL when the walk cannot
+ * vouch for what it read, and there is no set the reconcile can safely be given.
+ *
+ * ⛔ A function of its own, and a pure one, because it is the whole IMAP half of the red line and a
+ * condition buried in the middle of a refresh is a condition nobody can execute in a test. Null is
+ * a refusal, never an empty set: `reconcileMailbox` given an empty keep set deletes the folder.
+ *
+ * Ids, not UIDs: the cache is keyed by `imap:account:folder:uid`, so the mapping needs the account
+ * and the folder the walk actually landed on (which is not always the one the caller asked for —
+ * `loadFolder` falls back to the inbox). And it is a mapping of the WHOLE walk, every page of it,
+ * never the last one.
+ *
+ * Two refusals, in this order:
+ *
+ * 1. the folder MOVED under the walk ([ImapFolderWalk.moved]) — a page may have skipped a message
+ *    the server still holds, so the UIDs below are missing it and reconciling deletes it;
+ * 2. the walk read NOTHING and the folder never said it was empty. "The walk finished" is not the
+ *    same statement as "the walk saw the folder", and only the second licenses a delete — the same
+ *    rule, and the same wording, as the JMAP twin [reconcilableWindowIds]. Two ways to end up here
+ *    without anything failing: a `SELECT` that never stated a count (line absent, or `* NIL EXISTS`)
+ *    leaves `exists` at 0, so no page is even asked for; and a folder of a thousand messages whose
+ *    `FETCH` responses carry no `UID` is dropped item by item by `ImapSession.messages`. Both come
+ *    back empty, and clearing the cache on either loses every offline message of the folder.
+ *
+ * ⭐ [ImapFolderWalk.folderStatedEmpty] is the licence, and a folder that really is empty carries it:
+ * an emptied folder must still be able to clear a stale cache, or it shows its old contents for ever
+ * and nothing else on IMAP cleans up.
+ *
+ * ⚠ What refusal (2) costs, stated because it is a real change of behaviour: a folder whose remaining
+ * messages ALL carry `\Deleted` without an expunge — another client emptied the trash and did not
+ * purge — reports `* n EXISTS` with n > 0, so it is not "stated empty", and `ImapSession.messages`
+ * drops every one of them, so the walk brings back no UID. It is indistinguishable from a walk that
+ * read nothing, and it is refused: the cache used to be cleared here, and now keeps its stale rows,
+ * which Sterna lists and cannot open. Not permanent — an expunge, or one readable message back in
+ * the window, clears them — and it is the survivable direction, so it stands.
+ */
 internal fun reconcilableIds(load: ImapFolderLoad, accountId: String): Set<String>? {
     if (load.walk.moved) return null
+    if (load.walk.uids.isEmpty() && !load.walk.folderStatedEmpty) return null
     return load.walk.uids.mapTo(HashSet()) { ImapMailService.emailId(accountId, load.targetMailboxId, it) }
 }
 
@@ -451,7 +476,7 @@ class ImapMailService(
             val walk = withNumberingSettled(
                 settle = { reconcileNumbering(credentials.id, target.path, status.uidValidity) },
                 walk = {
-                    session.walkFolder(status.exists, limit, IMAP_FOLDER_PAGE) { page ->
+                    session.walkFolder(status, limit, IMAP_FOLDER_PAGE) { page ->
                         onPage(page.map { it.toEntity(credentials.id, target.path) })
                     }
                 },

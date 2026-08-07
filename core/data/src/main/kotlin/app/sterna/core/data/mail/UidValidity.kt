@@ -58,6 +58,53 @@ object UidValidity {
     fun mayDestroy(snapshotUidValidity: Long?): Boolean = snapshotUidValidity != null && snapshotUidValidity > 0L
 
     /**
+     * Which of [requested] an IMAP destroy may act on when all it has to oppose is [expected] —
+     * the numbering the ids were read under, frozen with the user's confirmation.
+     *
+     * The IMAP twin of `TrashPurge.destroyableIds`, and it answers all-or-nothing because that is
+     * what the question is: a UIDVALIDITY is a property of the FOLDER, not of an id, so either
+     * every UID in the wave still means what it meant or none of them does. Everything, in the
+     * order it came, when there is a numbering to oppose; nothing at all when there is not.
+     *
+     * "Nothing at all" is the whole point of the second half. A destroy that opposes nothing lets
+     * the SELECT fall back on the number the app has recorded RIGHT NOW — which an ordinary
+     * refresh has already updated if the folder was renumbered — so the guard compares that
+     * number with itself, concludes SAME, and the expunge goes out against UIDs that now name
+     * other, live messages. Refusing costs a re-query (the ids come back in `BulkResult.failed`,
+     * the caller drops its sync cursors and the messages reappear); destroying costs the mail.
+     */
+    fun destroyableUnderNumbering(requested: List<String>, expected: Long?): List<String> =
+        if (mayDestroy(expected)) requested else emptyList()
+
+    /** How an IMAP destroy of a wave splits: what to expunge, by folder, and what will not be
+     *  destroyed at all — the ids [destroyableUnderNumbering] refused, plus those naming no
+     *  folder. [refused] belongs in `BulkResult.failed`: their rows were evicted when the
+     *  hold-back started, and `failed` is what makes the caller re-query and bring them back. */
+    data class ImapDestroyPlan(val byFolder: Map<String, List<String>>, val refused: List<String>)
+
+    /**
+     * [destroyableUnderNumbering] and the fan-out in one decision, so the branch that routes a
+     * held-back destroy can be RUN by a test instead of restated by one: `MailRepository` needs
+     * Room and a `Context`, and a routing nothing executes is a routing a mutation walks through.
+     *
+     * ⚠ This REVERSES, one layer up, what `core/imap` decides for itself: there, a server that
+     * announces no UIDVALIDITY is deliberately not turned into a refusal (`UidValidityTest`, "a
+     * server announcing no numbering is not turned into a refusal"), because refusing would break
+     * the folder outright on a non-conforming server. Here it IS a refusal, and knowingly: this is
+     * the only caller that EXPUNGES, the refusal is silent and costs a re-query (the ids come back
+     * in `BulkResult.failed`), while proceeding costs the mail. On such a server no IMAP permanent
+     * delete of a selection goes through at all — that is the assumed price of the net.
+     */
+    fun imapDestroyPlan(requested: List<String>, expected: Long?): ImapDestroyPlan {
+        val destroyable = destroyableUnderNumbering(requested, expected)
+        val grouped = destroyable.groupBy { ImapMailService.mailboxOf(it) }
+        return ImapDestroyPlan(
+            byFolder = grouped.filterKeys { it != null }.mapKeys { (folder, _) -> folder!! },
+            refused = (requested - destroyable.toSet()) + grouped[null].orEmpty(),
+        )
+    }
+
+    /**
      * The `LIKE` pattern matching every cached id of one IMAP folder, with SQL's own wildcards
      * escaped: a folder called `a_b` would otherwise match `axb` too and take a neighbour's
      * cached bodies with it. Backslash first, or it would escape the escapes.

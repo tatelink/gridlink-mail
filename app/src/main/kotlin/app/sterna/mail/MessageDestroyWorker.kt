@@ -44,7 +44,14 @@ class MessageDestroyWorker(context: Context, params: WorkerParameters) : Corouti
                 // it against the server wave by wave and spares whatever has moved (#122); absent
                 // (a destroy enqueued before this key existed) it destroys nothing.
                 val mailboxId = inputData.getString(KEY_MAILBOX_ID)
-                if (ids.isNotEmpty() && repo.destroyAll(credentials, ids, mailboxId).failed.isNotEmpty()) {
+                // The IMAP numbering that folder was under WHEN THE USER CONFIRMED, out of this
+                // request's own Data (#99). Never re-read here: the folder's current numbering is
+                // whatever a refresh has recorded since, so opposing it would be comparing it with
+                // itself — the renumbered case would expunge UIDs that now name other messages
+                // without a single failure. Absent (a destroy enqueued before this key existed, a
+                // folder never observed) it reads 0 and destroys nothing, the safe end.
+                val uidValidity = inputData.getLong(KEY_UID_VALIDITY, 0L).takeIf { it > 0L }
+                if (ids.isNotEmpty() && repo.destroyAll(credentials, ids, mailboxId, uidValidity).failed.isNotEmpty()) {
                     // Some ids were rejected: still on the server, but their rows were evicted
                     // when the hold-back started. Drop the sync cursors so the next refresh
                     // does a full re-query and brings the survivors back into view.
@@ -67,6 +74,17 @@ class MessageDestroyWorker(context: Context, params: WorkerParameters) : Corouti
         )
     }
 
+    /**
+     * One folder's share of a held-back destroy: the ids the user confirmed, the folder they were
+     * in at that moment, and the IMAP numbering that folder was under at that moment — the three
+     * things a destroy has to be able to oppose to the server later. Grouped in one value so a
+     * caller cannot enqueue the ids of one folder stamped with the numbering of another.
+     *
+     * [uidValidity] is null on JMAP (nothing to number) and on an IMAP folder whose numbering was
+     * never observed; either way the destroy of that request is refused rather than run blind.
+     */
+    data class FolderDestroy(val mailboxId: String, val emailIds: List<String>, val uidValidity: Long?)
+
     companion object {
         private const val TAG = "MessageDestroyWorker"
         private const val KEY_ACCOUNT_ID = "accountId"
@@ -80,6 +98,16 @@ class MessageDestroyWorker(context: Context, params: WorkerParameters) : Corouti
          *  folder id costs nothing. A destroy enqueued by a version predating this key arrives
          *  with it null: on JMAP that destroys nothing, the safe end of an unverifiable order. */
         private const val KEY_MAILBOX_ID = "mailboxId"
+
+        /** The IMAP UIDVALIDITY [KEY_MAILBOX_ID] was under when the user confirmed — the numbering
+         *  the frozen UIDs belong to (Codeberg #99). A `Long` in the request's `Data`, like the
+         *  folder id: no table, no migration, and one number per request costs nothing.
+         *
+         *  0 means "none to oppose" (the folder's numbering was never observed, the server
+         *  announces none, or the destroy was enqueued by a version predating this key). On IMAP
+         *  that destroys NOTHING and the ids come back in `BulkResult.failed`, which triggers the
+         *  re-query below — the safe end of an order that cannot be checked. Unused on JMAP. */
+        private const val KEY_UID_VALIDITY = "uidValidity"
 
         /** The snapshot to destroy. Only the KEY travels in the worker's [androidx.work.Data]:
          *  the ids themselves live in the database, because Data is capped at 10 KiB and an
@@ -100,20 +128,21 @@ class MessageDestroyWorker(context: Context, params: WorkerParameters) : Corouti
         private const val MAX_IDS_BYTES_PER_REQUEST = 6 * 1024
 
         /**
-         * Hold the permanent destroy of [idsByMailbox] (one account) back for [holdBackMs], then
-         * run it. The ids come in grouped by the folder they were in when the user confirmed, so
-         * each request can carry its own [KEY_MAILBOX_ID] and the destroy can tell a message that
-         * has since been moved from one that has not (#122).
+         * Hold the permanent destroy of [folders] (one account) back for [holdBackMs], then run
+         * it. The ids come in grouped by the folder they were in when the user confirmed, with
+         * that folder's numbering, so each request carries its own [KEY_MAILBOX_ID] and
+         * [KEY_UID_VALIDITY] and the destroy can tell a message that has since been moved from
+         * one that has not (#122), in a folder still numbered as confirmed (#99).
          *
          * The whole account still goes in ONE `enqueueUniqueWork` call: the unique name is per
          * account, so scheduling folder by folder would have each group REPLACE the previous one
          * and silently drop a destroy the user confirmed.
          */
-        fun schedule(context: Context, accountId: String, idsByMailbox: Map<String, List<String>>, holdBackMs: Long) {
+        fun schedule(context: Context, accountId: String, folders: List<FolderDestroy>, holdBackMs: Long) {
             WorkManager.getInstance(context).enqueueUniqueWork(
                 destroyWorkName(accountId),
                 ExistingWorkPolicy.REPLACE,
-                destroyRequests(accountId, idsByMailbox, holdBackMs + DELAY_MARGIN_MS),
+                destroyRequests(accountId, folders, holdBackMs + DELAY_MARGIN_MS),
             )
         }
 
@@ -122,10 +151,13 @@ class MessageDestroyWorker(context: Context, params: WorkerParameters) : Corouti
          * the delayed unique work is cancelled and the same set is re-enqueued with no
          * delay — REPLACE alone would silently drop it, and the superseding hold-back is
          * about to claim the unique slot.
+         *
+         * [folders] is the set captured at THAT confirmation, numbering included: this replays a
+         * destroy the user already confirmed, so nothing here may be read afresh.
          */
-        fun flushNow(context: Context, accountId: String, idsByMailbox: Map<String, List<String>>) {
+        fun flushNow(context: Context, accountId: String, folders: List<FolderDestroy>) {
             cancelDestroy(context, accountId)
-            destroyRequests(accountId, idsByMailbox, delayMs = 0L)
+            destroyRequests(accountId, folders, delayMs = 0L)
                 .forEach { WorkManager.getInstance(context).enqueue(it) }
         }
 
@@ -156,16 +188,22 @@ class MessageDestroyWorker(context: Context, params: WorkerParameters) : Corouti
 
         private fun destroyRequests(
             accountId: String,
-            idsByMailbox: Map<String, List<String>>,
+            folders: List<FolderDestroy>,
             delayMs: Long,
         ): List<OneTimeWorkRequest> =
-            idsByMailbox.flatMap { (mailboxId, emailIds) ->
-                chunkBySize(emailIds).map { chunk ->
+            folders.flatMap { folder ->
+                chunkBySize(folder.emailIds).map { chunk ->
                     OneTimeWorkRequestBuilder<MessageDestroyWorker>()
                         .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
                         .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                         .setInputData(
-                            workDataOf(KEY_ACCOUNT_ID to accountId, KEY_EMAIL_IDS to chunk.toTypedArray(), KEY_MAILBOX_ID to mailboxId),
+                            workDataOf(
+                                KEY_ACCOUNT_ID to accountId,
+                                KEY_EMAIL_IDS to chunk.toTypedArray(),
+                                KEY_MAILBOX_ID to folder.mailboxId,
+                                // Data holds no null: 0 IS "nothing to oppose", and destroys nothing.
+                                KEY_UID_VALIDITY to (folder.uidValidity ?: 0L),
+                            ),
                         )
                         .build()
                 }

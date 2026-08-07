@@ -14,15 +14,22 @@ import org.junit.Test
  * (accountStore.currentId(), …)` compiles, keeps the call where it is, and stops the walk of every
  * account that is not the current one instead of the one that was signed out.
  *
- * ⛔ Five write paths are pinned, not two, and they were not all found at once — a counter-expertise
- * found the last three. Every path that WRITES under a local account id has to ask, immediately
- * before writing, because a network round-trip always separates the answer from the write:
+ * ⛔ Six write paths are pinned, not two, and they were not all found at once — a counter-expertise
+ * found three of them, and a later one found the sixth. Every path that WRITES under a local
+ * account id has to ask, immediately before writing, because a network round-trip always separates
+ * the answer from the write:
  *  - the JMAP full-query walk (page by page);
  *  - the IMAP folder walk (page by page);
  *  - the JMAP delta branch (its eviction, its upsert and its cursor);
  *  - the FTS header crawl, whose table the orphan sweep inventories too;
+ *  - the IMAP branch of `refreshAccountFolders` — the background push/worker pass, which reads the
+ *    watched folders whole and then writes them all in one `forEach`;
  *  - `refresh`, which absorbs the refusal in a `runCatching` and would otherwise go on to write the
  *    folder list under the removed id.
+ *
+ * ⛔ And three entry checks: `syncMailbox`, `imapWriteThrough`, and the same
+ * `refreshAccountFolders` IMAP branch — each spares a session, a LOGIN and a folder list for an
+ * account that was already gone when the pass started.
  */
 class SignedOutAccountWiringTest {
 
@@ -160,6 +167,52 @@ class SignedOutAccountWiringTest {
         assertTrue("the entry check now runs after the walk has started", entry < walk)
     }
 
+    // -- the background watched-folder pass: read whole, then written whole -------------------------
+
+    @Test fun `the watched-folder pass asks again between the network read and its grouped write`() {
+        // ⭐ The one pass of the six that does NOT write page by page: `loadWatchedFolders` returns
+        // when the whole network read is over (session, LOGIN, LIST, one FETCH per watched folder),
+        // and only then does the `forEach` write up to `limit` messages PER folder. One check
+        // immediately before the loop therefore covers every write it makes — and nothing else
+        // does: this is the background push/worker path, `signOut` never touches WorkManager and
+        // `PushService` only bumps its generation, so no cancellation reaches here.
+        //
+        // Pinned with its neighbours on both sides, because the guard line is verbatim the entry
+        // check a few lines above it: what is asserted is WHERE this one is, between the pruning of
+        // missing watches and the write, not merely that the file contains the call.
+        assertEquals(
+            "the IMAP branch of refreshAccountFolders no longer asks whether the account still " +
+                "exists between the network read and the grouped write it feeds. Moved below the " +
+                "forEach it is worth nothing: up to `limit` messages PER WATCHED FOLDER land under " +
+                "the removed id, after the sign-out's orphan sweep has run.",
+            listOf(
+                "missing.forEach(onMissing)",
+                "$guard(credentials.id, accountStore.accounts().map { it.id })",
+                "loads.forEach { emailDao.upsertAll(it.messages) }",
+            ),
+            block("refreshAccountFolders", "missing.forEach(onMissing)", 3),
+        )
+    }
+
+    @Test fun `the watched-folder pass refuses to start for an account that is gone`() {
+        val body = lines("refreshAccountFolders")
+        val branch = body.indexOf("if (credentials.protocol == MailProtocol.IMAP) {")
+        val entry = body.indexOf("$guard(credentials.id, accountStore.accounts().map { it.id })")
+        val read = body.indexOfFirst { it.startsWith("val (loads, missing) = imap.loadWatchedFolders(") }
+        assertTrue(
+            "refreshAccountFolders no longer checks the account list at the entry of its IMAP " +
+                "branch; its body is:\n" + body.joinToString("\n"),
+            entry >= 0,
+        )
+        assertTrue("refreshAccountFolders no longer branches on IMAP / no longer reads the watched folders", branch >= 0 && read >= 0)
+        assertTrue("the entry check now runs before the protocol branch it belongs to", branch < entry)
+        assertTrue(
+            "the entry check now runs after the network read: signing out no longer spares the " +
+                "session, the LOGIN, the LIST and the FETCHes of an account that is already gone",
+            entry < read,
+        )
+    }
+
     // -- the FTS header crawl: the third paginated walk ---------------------------------------------
 
     @Test fun `the search-index crawl asks before every page it indexes`() {
@@ -226,10 +279,10 @@ class SignedOutAccountWiringTest {
         val body = DaoQuerySource.mailSource("MailRepository").lines()
         val sites = body.indices.filter { body[it].trim().startsWith("$guard(") }
         assertEquals(
-            "MailRepository no longer carries seven guard call sites — two entries and five " +
+            "MailRepository no longer carries nine guard call sites — three entries and six " +
                 "writes. If a path was added or removed, say so here:\n" +
                 sites.joinToString("\n") { body[it].trim() },
-            7, sites.size,
+            9, sites.size,
         )
         sites.forEach { site ->
             val open = openBlocksAt(body, site).filter { "try" in it || "runCatching" in it }
@@ -242,6 +295,34 @@ class SignedOutAccountWiringTest {
                 emptyList<String>(), open,
             )
         }
+    }
+
+    @Test fun `MailRepository does not re-declare the guard under its own name`() {
+        // ⛔ A lint that pins CALL SITES and not what they BIND TO is blind to shadowing, and this
+        // file is where that costs the most: `AccountStillConfigured.kt` is in the SAME PACKAGE, so
+        // a `private fun checkAccountStillConfigured(…)` declared anywhere in this class needs no
+        // import to remove and no call site to touch — Kotlin resolves a member of the implicit
+        // receiver ahead of a top-level declaration of the package, and all NINE sites silently
+        // start calling the lenient copy. Every rule above stays green: the lines are identical,
+        // their order is identical, the count is identical, no `try` is open, and
+        // `SignedOutAccountStopsWritingTest` keeps executing the top-level function in its own
+        // rig — the one production no longer calls.
+        //
+        // It is the same family of blindness as the hole this file was extended for: what is not
+        // pinned is invisible. So the declaration itself is pinned, once, for all nine sites.
+        val declaration = Regex("""\bfun\s+$guard\s*[(<]""")
+        val found = DaoQuerySource.mailSource("MailRepository").lines()
+            .map { it.trim() }
+            .filter { declaration.containsMatchIn(it) }
+        assertEquals(
+            "MailRepository declares a function called '$guard' of its own:\n" +
+                found.joinToString("\n") +
+                "\nA member of this class shadows the top-level guard for every call site in the " +
+                "file, without one of them changing by a character. The guard must stay the one " +
+                "declared in AccountStillConfigured.kt — the one whose refusal is a cancellation " +
+                "and whose blank-id `require` is executed next door.",
+            emptyList<String>(), found,
+        )
     }
 
     /** The lines that opened the blocks still open just before [index] — the guard's enclosure. */

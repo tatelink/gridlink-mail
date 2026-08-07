@@ -85,4 +85,18 @@ data class ImapMailboxStatus(
     val exists: Int,
     val uidValidity: Long,
     val uidNext: Long,
+    /**
+     * ⛔ Whether [exists] is a number THE SERVER STATED, or merely the value it is initialised to.
+     *
+     * `SELECT` is required to answer `* n EXISTS` (RFC 3501 §6.3.1), and when it does not — the line
+     * absent, or an `n` that will not parse (`* NIL EXISTS`) — [exists] stays 0, which reads exactly
+     * like an empty folder. It is not one: it is a folder nothing is known about. A walk built on it
+     * asks for no page at all, comes back with no UID, and the reconcile above would then take the
+     * empty result as "the folder is empty" and DELETE every cached row of it.
+     *
+     * ⭐ False by default, and the default is the refusing one on purpose: a value that has to be
+     * asserted to license a delete cannot be forgotten into existence. `false` costs a cache that
+     * keeps more than the window until the next refresh; `true` costs the folder.
+     */
+    val existsObserved: Boolean = false,
 )
