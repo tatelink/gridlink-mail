@@ -376,6 +376,44 @@ class JmapClientTest {
         }
     }
 
+    /**
+     * What `Mailbox/get` puts in [JmapException.errorType] is the evidence a caller is entitled to
+     * act on, and the sub-account probe of Codeberg #129 discards an account on exactly one value
+     * of it. So the two shapes are pinned here, at the only place that can observe them.
+     *
+     * A JMAP METHOD error (HTTP 200, `["error", {"type": …}]`) carries its type verbatim. This is
+     * the answer the bench saw for an account visible only through a read-only calendar share.
+     */
+    @Test fun getMailboxes_methodErrorCarriesItsTypeAsErrorType() {
+        server.enqueue(MockResponse().setBody(FORBIDDEN_ERROR_JSON))
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+        try {
+            runBlocking { client.getMailboxes(session, "acc1", BasicAuth("u", "p")) }
+            throw AssertionError("expected JmapException")
+        } catch (e: JmapException) {
+            assertEquals("forbidden", e.errorType)
+        }
+    }
+
+    /**
+     * A TRANSPORT failure carries no error type — and must not be given one. An expiring Bearer
+     * token, an anti-abuse guard or a corporate proxy all answer HTTP 403, and a client that turned
+     * that into `errorType = "forbidden"` would have the #129 probe delete every sub-account of the
+     * login at once, purging their caches, over a passing authentication incident.
+     */
+    @Test fun getMailboxes_httpFailureCarriesNoErrorType() {
+        server.enqueue(MockResponse().setResponseCode(403).setBody("Forbidden"))
+        val session = JmapSession(apiUrl = server.url("/jmap/api/").toString())
+        try {
+            runBlocking { client.getMailboxes(session, "acc1", BasicAuth("u", "p")) }
+            throw AssertionError("expected JmapException")
+        } catch (e: JmapException) {
+            assertTrue(e.message!!.contains("403"))
+            assertNull("an HTTP status is not a JMAP method error", e.errorType)
+            assertNull("Mailbox/get does not report the HTTP status either", e.httpCode)
+        }
+    }
+
     @Test fun getVacationResponse_parsesSingleton() = runBlocking {
         server.enqueue(MockResponse().setBody(VACATION_GET_JSON))
         val vr = client.getVacationResponse(vacationSession(), "acc1", BasicAuth("u", "p"))
@@ -1834,6 +1872,15 @@ class JmapClientTest {
               "methodResponses": [
                 ["Email/query", {"accountId":"acc1","queryState":"q1"}, "q0"],
                 ["Email/get", {"accountId":"acc1","state":"e1","notFound":[],"list":[]}, "g0"]
+              ],
+              "sessionState": "abc"
+            }
+        """
+
+        const val FORBIDDEN_ERROR_JSON = """
+            {
+              "methodResponses": [
+                ["error", {"type":"forbidden"}, "c0"]
               ],
               "sessionState": "abc"
             }

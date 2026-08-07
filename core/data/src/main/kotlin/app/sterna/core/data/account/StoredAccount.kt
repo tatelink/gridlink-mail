@@ -88,9 +88,12 @@ data class StoredAccount(
 
     /**
      * True for a DELEGATED (shared) account: one the login only reaches through someone else's
-     * grant. The rule reads what discovery already persisted — the JMAP session marks such an
-     * account `isPersonal: false` and [AccountStore.reconcileLinkedAccounts] stores it pointing at
-     * the login it borrows via [loginId] — so labelling it in the UI costs no extra request.
+     * grant. The rule reads what discovery already persisted, and nothing else: it is [loginId]
+     * alone — [AccountStore.reconcileLinkedAccounts] stores a discovered sub-account pointing at
+     * the login it borrows — so labelling it in the UI costs no extra request. The session's
+     * `isPersonal` flag is NOT consulted (and is read nowhere in the app): on Stalwart a genuinely
+     * shared mailbox and an account merely visible through a calendar share both come back
+     * `isPersonal: false`, so it separates nothing (#129).
      *
      * Stricter than [isLinked] on one edge only: a blank [loginId] names no login, so it is read as
      * absent (standalone). [isLinked] is left alone deliberately — it gates behaviour (push

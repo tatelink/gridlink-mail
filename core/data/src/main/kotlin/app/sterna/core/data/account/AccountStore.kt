@@ -3,6 +3,7 @@ package app.sterna.core.data.account
 import android.content.Context
 import android.util.Base64
 import app.sterna.core.data.crypto.KeystoreCrypto
+import app.sterna.core.jmap.JmapException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -133,6 +134,44 @@ fun diffLinkedAccounts(
         toAdd = subs.filter { it.jmapAccountId != primary.jmapAccountId && it.jmapAccountId !in trackedJmapIds },
         prunedIds = (revokedIds + duplicateIds).distinct(),
     )
+}
+
+/**
+ * Codeberg #129: which of a session's [discovered] mail accounts may become accounts at all.
+ *
+ * A read-only CALENDAR share is enough for the server to list the sharer's account in the session
+ * WITH the mail capability, while refusing every mail request made for it. The sub-account minted
+ * from such an entry can never fetch anything, and its name — the sharer's address — is turned into
+ * a fabricated `delegated` identity, so someone else's address shows up in the composer's From
+ * picker.
+ *
+ * [probes] is the raw outcome of one `Mailbox/get` per non-primary candidate, keyed by JMAP account
+ * id, exactly as the caller's `runCatching` produced it: the failure itself, never a verdict, so
+ * that reading "is this a refusal" is done HERE and nowhere else. `Result<*>` on purpose — the
+ * success value is deliberately never read, because the number of mailboxes an account returns is
+ * exactly the criterion this rule rejects (see below), and a `Result<List<Mailbox>>` would promise
+ * the opposite.
+ *
+ * Discarded on ONE piece of evidence: a [JmapException] whose `errorType` is `forbidden` — the
+ * server saying this account is not the caller's to read. Kept in every other case: a probe that
+ * succeeded with no mailbox at all, a timeout, a dropped connection, a 429, an unreadable answer,
+ * any other `errorType`, or no probe at all. The asymmetry is deliberate — a sub-account wrongly
+ * kept shows an empty folder list, while a sub-account wrongly dropped is pruned from the store
+ * with its whole cache (see [diffLinkedAccounts]), so every doubt goes to keeping.
+ *
+ * The head of [discovered] is the login's own primary account (see JmapSession.mailAccountIds). It
+ * is kept unconditionally and must never be probed: [diffLinkedAccounts] pins the connection to it,
+ * so dropping it would make every real sub-account look revoked.
+ *
+ * Input order is preserved, primary first, which is what the store's reconcile means by "the head".
+ */
+fun retainReachableMailAccounts(
+    discovered: List<DiscoveredMailAccount>,
+    probes: Map<String, Result<*>>,
+): List<DiscoveredMailAccount> = discovered.filterIndexed { index, candidate ->
+    if (index == 0) return@filterIndexed true
+    val failure = probes[candidate.jmapAccountId]?.exceptionOrNull() ?: return@filterIndexed true
+    (failure as? JmapException)?.errorType != "forbidden"
 }
 
 /**

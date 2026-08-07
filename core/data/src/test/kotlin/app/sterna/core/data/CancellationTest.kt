@@ -14,8 +14,9 @@ import org.junit.Test
 import java.io.IOException
 
 /**
- * [getOrElseUnlessCancelled]: what a `runCatching` around suspending work may and may not
- * recover from (Codeberg #99).
+ * [getOrElseUnlessCancelled] and [rethrowIfCancelled]: what a `runCatching` around suspending work
+ * may and may not recover from (Codeberg #99, then #129 for the Result that is kept rather than
+ * unwrapped).
  *
  * The trap it exists for: `runCatching` catches [CancellationException] too, so a cancelled
  * coroutine emerges looking like a plain failure and the recovery branch runs for a caller that
@@ -63,6 +64,62 @@ class CancellationTest {
         }
 
         assertFalse("a cancelled caller gets no fallback", fellBack)
+    }
+
+    // ---- rethrowIfCancelled: the same rule for a Result that is kept, not unwrapped (#129) ----
+
+    @Test fun aKeptResultPassesAnOrdinaryFailureStraightBack() {
+        val boom = IOException("Mailbox/get failed: HTTP 429 Too Many Requests")
+
+        val probe = runCatching { throw boom }.rethrowIfCancelled()
+
+        assertEquals(boom, probe.exceptionOrNull())
+    }
+
+    @Test fun aKeptResultPassesASuccessStraightBack() {
+        val probe = runCatching { listOf("Inbox") }.rethrowIfCancelled()
+
+        assertEquals(listOf("Inbox"), probe.getOrNull())
+    }
+
+    /**
+     * The #129 shape: the sub-account probe stores its Result instead of unwrapping it, so a
+     * swallowed cancellation would be filed as "this account failed, so keep it" and the reconcile
+     * would go on to write for a connect() that was stopped.
+     */
+    @Test fun aKeptCancellationIsRethrownInsteadOfBeingFiledAsAFailedProbe() {
+        var filed: Result<List<String>>? = null
+
+        try {
+            filed = runCatching { throw CancellationException("left the screen") }.rethrowIfCancelled()
+            fail("the cancellation must propagate, not become a probe outcome")
+        } catch (expected: CancellationException) {
+            assertEquals("left the screen", expected.message)
+        }
+
+        assertEquals("a cancelled probe must produce no verdict at all", null, filed)
+    }
+
+    /**
+     * And the discarded-Result shape beside it: `runCatching { … }` whose value nobody reads
+     * (best-effort work). Swallowed, the cancellation lets the caller return normally — which is
+     * how `ConnectViewModel` would write `Connected` for a screen the user has just left.
+     */
+    @Test fun aCancelledBestEffortBlockStopsTheCallerInsteadOfReturningNormally() = runTest {
+        var reportedConnected = false
+
+        val job = launch {
+            runCatching {
+                delay(1_000) // the sub-account probe, mid-flight
+            }.rethrowIfCancelled()
+            reportedConnected = true // never reached: the job was stopped
+        }
+        runCurrent()
+
+        job.cancelAndJoin()
+
+        assertFalse("a left screen must not be told it is Connected", reportedConnected)
+        assertTrue(job.isCancelled)
     }
 
     /**

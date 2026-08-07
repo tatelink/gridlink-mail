@@ -17,6 +17,7 @@ import app.sterna.core.data.account.MailEndpoint
 import app.sterna.core.data.account.MailProtocol
 import app.sterna.core.data.account.OAuthCredentials
 import app.sterna.core.data.account.StoredIdentity
+import app.sterna.core.data.account.retainReachableMailAccounts
 import app.sterna.core.data.filter.FilterRule
 import app.sterna.core.data.filter.FilterScriptStatus
 import app.sterna.core.data.filter.SieveCodec
@@ -51,6 +52,7 @@ import app.sterna.core.data.db.MailboxDao
 import app.sterna.core.data.db.MailboxIdRole
 import app.sterna.core.data.getOrElseUnlessCancelled
 import app.sterna.core.data.pgp.PgpEngine
+import app.sterna.core.data.rethrowIfCancelled
 import app.sterna.core.data.settings.SettingsRepository
 import app.sterna.core.data.settings.SortOrder
 import app.sterna.core.jmap.BasicAuth
@@ -4756,13 +4758,30 @@ class MailRepository(
      * stale sub-accounts leave the drawer. Best-effort and off the sync hot path — it runs only on
      * a session (re)fetch in connect(), and reconcile itself writes nothing when the account set
      * is unchanged.
+     *
+     * Codeberg #129: an account the session advertises as mail-capable is not necessarily one the
+     * server will serve mail for — a read-only CALENDAR share puts the sharer's account in the
+     * session, mail capability and all, and refuses every Mailbox/get for it. So each NON-PRIMARY
+     * candidate is probed with one Mailbox/get (its own runCatching: a refusal for one must teach
+     * nothing about the others) and [retainReachableMailAccounts] holds the whole keep/discard
+     * decision. The early return above stays in front of that: a login with no sub-account still
+     * costs no extra request.
      */
-    private fun reconcileLinkedAccounts(credentials: AccountCredentials, session: JmapSession) {
+    private suspend fun reconcileLinkedAccounts(
+        credentials: AccountCredentials,
+        session: JmapSession,
+        auth: JmapAuth,
+    ) {
         val mailAccountIds = session.mailAccountIds()
         val loginId = accountStore.account(credentials.id)?.loginKey() ?: credentials.id
         if (mailAccountIds.size <= 1 && accountStore.linkedAccounts(loginId).isEmpty()) return
         val discovered = mailAccountIds.map { DiscoveredMailAccount(it, session.accounts[it]?.name.orEmpty()) }
-        val pruned = runCatching { accountStore.reconcileLinkedAccounts(loginId, discovered) }.getOrDefault(emptyList())
+        val probes = discovered.drop(1).associate { candidate ->
+            candidate.jmapAccountId to
+                runCatching { client.getMailboxes(session, candidate.jmapAccountId, auth) }.rethrowIfCancelled()
+        }
+        val reachable = retainReachableMailAccounts(discovered, probes)
+        val pruned = runCatching { accountStore.reconcileLinkedAccounts(loginId, reachable) }.getOrDefault(emptyList())
         pruned.forEach { prunedId ->
             // App-layer teardown first (notification baselines); each step best-effort so one
             // failure never leaves the rest of a revoked account behind.
@@ -4786,15 +4805,22 @@ class MailRepository(
      * sub-accounts instead of waiting for the first inbox connect(). Best-effort: any failure, or
      * a cached session belonging to another login, is a no-op — the connect() hook reconciles
      * later anyway.
+     *
+     * "Any failure" stops at CANCELLATION. Since #129 this suspends (the sub-account probe), and a
+     * `runCatching` that swallowed the cancellation would return normally to `ConnectViewModel`,
+     * whose very next line writes `ConnectState.Connected` — onto a screen the user has just left,
+     * with its own `catch (cancelled: CancellationException)` never reached. So the cancellation is
+     * re-thrown ([rethrowIfCancelled]) and only real failures stay silent.
      */
-    fun reconcileLinkedAccountsAfterAdd(id: String) {
+    suspend fun reconcileLinkedAccountsAfterAdd(id: String) {
         runCatching {
             val credentials = accountStore.credentials(id) ?: return
-            val session = context
+            val cached = context
                 ?.takeIf { it.credentials.server == credentials.server && it.credentials.username == credentials.username }
-                ?.session ?: return
-            reconcileLinkedAccounts(credentials, session)
-        }
+                ?: return
+            // The cached context's own auth, so the #129 probe costs no token work of its own.
+            reconcileLinkedAccounts(credentials, cached.session, cached.auth)
+        }.rethrowIfCancelled()
     }
 
     /**
@@ -5970,7 +5996,7 @@ class MailRepository(
         val auth = jmapAuth(credentials)
         val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
         val accountId = jmapAccountIdFor(credentials, session)
-        reconcileLinkedAccounts(credentials, session)
+        reconcileLinkedAccounts(credentials, session, auth)
         // Codeberg #32: the server is authoritative for the addresses the user may send
         // as. Refresh them into the account so the composer's From picker reflects the
         // server, on every client. Best-effort — a fetch failure must not break connect.
