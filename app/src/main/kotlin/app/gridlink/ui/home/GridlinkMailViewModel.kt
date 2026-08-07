@@ -60,6 +60,15 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     private val store = application.container.accountStore
     private val repo = application.container.mailRepository
 
+    /**
+     * The same store upstream's reader writes to, deliberately.
+     *
+     * 🔴 Not a Gridlink-only copy of the allowlist. A sender the user trusted in one reader is a
+     * sender they trusted, and two lists would mean allowing images twice and revoking them twice,
+     * with the half they forgot still fetching.
+     */
+    private val settings = application.container.settingsRepository
+
     /** Which account's mailbox is on screen. Set by the host from the app's own routing. */
     private val accountId = MutableStateFlow<String?>(null)
 
@@ -168,27 +177,29 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
      * the next emission, which is the same behaviour every list in this app has and is why the
      * mapper takes the date rather than reading the clock itself.
      */
-    val mail: StateFlow<GridlinkMailContent> = combine(rows, opened, primed) { emails, open, ready ->
-        val zone = ZoneId.systemDefault()
-        val mapped = GridlinkMailMapping.map(
-            emails = emails,
-            labels = LABELS,
-            zone = zone,
-            today = LocalDate.now(zone),
+    val mail: StateFlow<GridlinkMailContent> =
+        combine(rows, opened, primed, settings.imageAllowlist) { emails, open, ready, allowed ->
+            val zone = ZoneId.systemDefault()
+            val mapped = GridlinkMailMapping.map(
+                emails = emails,
+                labels = LABELS,
+                zone = zone,
+                today = LocalDate.now(zone),
+            )
+            GridlinkMailContent(
+                humans = mapped.humans,
+                bundle = mapped.bundle,
+                loading = !ready,
+                open = open,
+                imageAllowlist = allowed,
+            )
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(SUBSCRIPTION_GRACE_MS),
+            // 🔴 Loading, not empty. The very first frame draws before Room has answered, and an
+            // empty list there would flash "Inbox zero" at somebody with four hundred messages.
+            initialValue = GridlinkMailContent(humans = emptyList(), bundle = null, loading = true),
         )
-        GridlinkMailContent(
-            humans = mapped.humans,
-            bundle = mapped.bundle,
-            loading = !ready,
-            open = open,
-        )
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(SUBSCRIPTION_GRACE_MS),
-        // 🔴 Loading, not empty. The very first frame draws before Room has answered, and an empty
-        // list there would flash "Inbox zero" at somebody with four hundred messages.
-        initialValue = GridlinkMailContent(humans = emptyList(), bundle = null, loading = true),
-    )
 
     // ---------------------------------------------------------------------------------------
     // Folders
@@ -437,10 +448,16 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 )
                 return@launch
             }
+            val readable = readableBody(body.email)
             opened.value = GridlinkOpenMessage(
                 id = emailId,
-                html = readableBody(body.email),
+                html = readable.content,
                 attachment = attachmentOf(body.email),
+                plainText = readable.plainText,
+                // 🔴 Handed over even when the body is plain text. A text part cannot reference a
+                // cid:, so the map is simply unused there, and branching on it would only add a way
+                // for the two to get out of step.
+                inlineImages = body.inlineImages,
             )
         }
     }
@@ -484,6 +501,31 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
+    /**
+     * Remember, or forget, that this sender's remote images may load.
+     *
+     * 🔴 Lowercased here and nowhere else matters: the thread view asks whether an address is in the
+     * set, and mail addresses arrive in whatever case the sender's client felt like. Writing
+     * `News@Example.com` and later asking about `news@example.com` would silently never match, which
+     * looks exactly like the setting not sticking.
+     *
+     * ⚠️ There is no per-account scoping. The allowlist says "I trust this sender", which is a fact
+     * about the sender rather than about which of your mailboxes they wrote to.
+     */
+    fun setImagesAllowed(sender: String, allowed: Boolean) {
+        val address = sender.trim().lowercase()
+        if (address.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                settings.setImageAllowed(address, allowed)
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                Log.w(TAG, "image allowlist write failed", t)
+            }
+        }
+    }
+
     private companion object {
         const val TAG = "GridlinkMail"
 
@@ -507,37 +549,30 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
 }
 
 /**
- * The message body, as the Gridlink thread view can actually render it.
+ * The message body, and which kind of body it is.
  *
- * ## 🔴 Why the plain-text part wins
- * The thread renders through `AnnotatedString.fromHtml`, which is a rich-text mapper and not a
- * browser: no tables, no images, and (the part that bites) no `<style>` handling — the CSS inside a
- * marketing email's style block comes out as visible body text. Real HTML mail through it is not
- * "slightly off", it is unreadable. Almost every such message is `multipart/alternative` and carries
- * a text part written for exactly this situation, so that is what is used when it exists.
+ * ## 🔴 This used to prefer the plain-text part, and the reason is gone
+ * The thread view rendered through `AnnotatedString.fromHtml`, a rich-text mapper with no `<style>`
+ * handling, so a marketing email's CSS came out as visible body text and real HTML mail was not
+ * "slightly off" but unreadable. Preferring the text part was the mitigation. The thread view now
+ * renders in a WebView with remote content blocked (`GridlinkMessageBody`), so the mitigation is
+ * worse than the thing it was mitigating: the text alternative of an HTML newsletter is usually a
+ * stub telling you to view it in a browser, and half the time it is not there at all.
  *
- * ⚠️ When only HTML exists, the head, style, script and comment blocks are cut out and the rest is
- * handed over. That is a mitigation, not a renderer: a table-based newsletter will still come out as
- * a column of stacked cells. The real answer is a WebView with remote content blocked until asked
- * for, which is a privacy decision with a UI attached and belongs in its own change, exactly as the
- * note on `GridlinkThreadBody` says.
+ * So HTML wins when it exists, and it is handed over WHOLE. The `<style>` and `<head>` blocks that
+ * used to be cut out are what a browser needs to lay the message out, and the CSP plus a
+ * JavaScript-free WebView is what makes it safe to keep them.
  */
-internal fun readableBody(email: Email): String {
-    email.textContent()?.takeIf { it.isNotBlank() }?.let { return plainToHtml(it) }
-    val html = email.htmlContent()
-    if (html.isNullOrBlank()) return plainToHtml(email.preview.orEmpty())
-    return html
-        .replace(COMMENT, "")
-        .replace(NON_BODY_BLOCK, "")
+internal fun readableBody(email: Email): GridlinkBody {
+    email.htmlContent()?.takeIf { it.isNotBlank() }?.let { return GridlinkBody(it, plainText = false) }
+    email.textContent()?.takeIf { it.isNotBlank() }?.let { return GridlinkBody(it, plainText = true) }
+    // Neither part came back. The preview is a snippet the list already had, which is not a body,
+    // but it beats an empty panel under a subject line.
+    return GridlinkBody(email.preview.orEmpty(), plainText = true)
 }
 
-/** Plain text as the minimal HTML the renderer needs: escaped, with the line breaks kept. */
-private fun plainToHtml(text: String): String = text
-    .replace("&", "&amp;")
-    .replace("<", "&lt;")
-    .replace(">", "&gt;")
-    .replace("\r\n", "\n")
-    .replace("\n", "<br>")
+/** A body and the one fact about it the renderer cannot work out for itself. */
+internal data class GridlinkBody(val content: String, val plainText: Boolean)
 
 /**
  * The one attachment the row can name.
@@ -565,8 +600,3 @@ private fun formatBytes(bytes: Long): String = when {
     bytes < 1024 * 1024 -> "${bytes / 1024} KB"
     else -> "%.1f MB".format(bytes / 1024.0 / 1024.0)
 }
-
-/** `<head>`, `<style>` and `<script>` blocks, whose CONTENT would otherwise render as body text. */
-private val NON_BODY_BLOCK = Regex("(?is)<(script|style|head)\\b[^>]*>.*?</\\1\\s*>")
-
-private val COMMENT = Regex("(?s)<!--.*?-->")

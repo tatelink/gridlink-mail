@@ -1,5 +1,7 @@
 package app.gridlink.ui.message
 
+import app.gridlink.ui.emailhtml.reflowFormatFlowed
+import app.gridlink.ui.emailhtml.wrapEmoji
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

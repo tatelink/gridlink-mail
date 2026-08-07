@@ -139,6 +139,7 @@ fun GridlinkHomeHost(
             mail = mail,
             onMailAction = viewModel::act,
             onOpenMail = viewModel::open,
+            onAllowImages = viewModel::setImagesAllowed,
             folders = folders,
             onFolderEdit = viewModel::editFolder,
             onOpenFolder = viewModel::openFolder,

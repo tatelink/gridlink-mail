@@ -237,13 +237,23 @@ internal object GridlinkSampleBodies {
                 "<p>Store: 0449 BELMONT. Contact preference: email.</p>" +
                 "<p>Responses go through the Guest Relations portal, not by replying here.</p>"
             ),
+        // 🔴 The one sample body that reaches off the network, and it is here on purpose: it is what
+        // exercises the blocked-images banner. A banner nothing in the gallery can raise is a banner
+        // nobody looks at again until a real message raises it wrong.
+        //
+        // Both halves of what a real billing email does. The masthead is an image somebody meant you
+        // to see, and the 1x1 is the open tracker somebody meant you not to notice. Neither loads
+        // until the reader says so, which is the entire point.
         "fill-duke" to (
-            "<p>Your July statement is ready for the account ending <b>7714</b>.</p>" +
+            "<p><img src=\"https://www.duke-energy.com/-/media/images/email/masthead.png\" " +
+                "alt=\"Duke Energy\" width=\"480\"></p>" +
+                "<p>Your July statement is ready for the account ending <b>7714</b>.</p>" +
                 "<p>Amount due \$2,914.66<br>" +
                 "Due date 08/18</p>" +
                 "<p>Usage is up 11% on July last year, which tracks the temperatures rather than " +
                 "anything at the meter.</p>" +
-                "<p><a href=\"https://www.duke-energy.com/\">View your statement</a></p>"
+                "<p><a href=\"https://www.duke-energy.com/\">View your statement</a></p>" +
+                "<img src=\"https://track.duke-energy.com/o.gif?m=2210447\" width=\"1\" height=\"1\">"
             ),
         "fill-rgarza" to (
             "<p>Numbers for the P7 review are attached. I cut it by store and then by day part, " +
