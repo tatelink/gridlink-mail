@@ -27,13 +27,11 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -190,8 +188,17 @@ fun GridlinkMessageListScreen(
      */
     mail: GridlinkMailContent? = null,
     initiallyExpanded: Boolean = false,
-    /** Screen-capture hook: lets the gallery open straight into a selection without a long-press. */
-    initiallySelected: Set<String> = emptySet(),
+    /**
+     * The ticked rows. Hoisted, and owned by [GridlinkScaffold].
+     *
+     * 🔴 This used to be private state in here, which was wrong for one reason that only shows up in
+     * use: the scaffold swaps whole composables per tab, so this screen LEAVES composition the moment
+     * the user taps Calendar or Folders, taking eleven ticked messages with it silently. Held one
+     * level up, a selection survives a look at the calendar, and back is answerable from anywhere in
+     * the app rather than only from the list that happens to own it.
+     */
+    selectedIds: Set<String> = emptySet(),
+    onSelectedIdsChange: (Set<String>) -> Unit = {},
     /** Screen-capture hook: opens with the search pill already unfolded. */
     initialSearchExpanded: Boolean = false,
     /**
@@ -312,25 +319,6 @@ fun GridlinkMessageListScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    // 🔴 Saved, not merely remembered. The note that used to sit here said a listSaver was "worth
-    // adding when this screen owns real state". §7 made it load-bearing before that happened. The
-    // brief requires the selection to survive the fold, neither activity declares `configChanges`,
-    // so unfolding recreates the activity: without this, selecting eleven messages and opening the
-    // phone to deal with them clears all eleven at the hinge, silently, with the toolbar folding
-    // away as if the user had cancelled.
-    //
-    // A Set has no built-in Saver because a Bundle has no set type. It survives as a list and comes
-    // back as a set, which is lossless here (these are ids, so order was never information).
-    // ⚠️ The saver wraps the MutableState, not the Set. `rememberSaveable { mutableStateOf(x) }`
-    // auto-wraps only when it is left to pick the saver itself; hand it one and it is handed the
-    // state holder, so a saver written over `Set<String>` type-checks nowhere useful.
-    var selectedIds by rememberSaveable(
-        initiallySelected,
-        saver = listSaver<MutableState<Set<String>>, String>(
-            save = { it.value.toList() },
-            restore = { mutableStateOf(it.toSet()) },
-        ),
-    ) { mutableStateOf(initiallySelected) }
     val selecting = selectedIds.isNotEmpty()
 
     // 🔴 The message lists are STATE, not constants read out of the sample object.
@@ -406,11 +394,13 @@ fun GridlinkMessageListScreen(
     // gesture, and the reason long-press is the only way IN. Unticking the last row exits.
     fun onRowTap(message: GridlinkMessage) {
         if (selecting) {
-            selectedIds = if (message.id in selectedIds) {
-                selectedIds - message.id
-            } else {
-                selectedIds + message.id
-            }
+            onSelectedIdsChange(
+                if (message.id in selectedIds) {
+                    selectedIds - message.id
+                } else {
+                    selectedIds + message.id
+                },
+            )
         } else {
             // Marked read on the tap, not on the way back. The dot clears while the row is still
             // visible under the opening thread, which is the frame that makes the two feel like one
@@ -472,7 +462,7 @@ fun GridlinkMessageListScreen(
         removedIds = removedIds + ids
         // A row cannot stay ticked after leaving the inbox, and letting it would strand the action
         // bar open over a selection with nothing in it. Cheap: a set of ids, no rows rebuilt.
-        selectedIds = selectedIds - ids
+        onSelectedIdsChange(selectedIds - ids)
         scope.launch {
             // Marked read on the way out. Filing something unread and having it still count against
             // the unread badge from inside the archive is the behaviour every mail client gets wrong
@@ -559,7 +549,7 @@ fun GridlinkMessageListScreen(
                 onAction(ids, GridlinkMailAction.MARK_READ)
                 // Cleared, so the bar morphs back. The alternative is a selection still ticked over
                 // rows that no longer respond to the action you just used, which reads as a no-op.
-                selectedIds = emptySet()
+                onSelectedIdsChange(emptySet())
             }
         }
     }
@@ -767,18 +757,20 @@ fun GridlinkMessageListScreen(
                                 // just tapped.
                                 onToggle = {
                                     if (selecting) {
-                                        selectedIds = if (bundleSelected) {
-                                            selectedIds - bundleIds
-                                        } else {
-                                            selectedIds + bundleIds
-                                        }
+                                        onSelectedIdsChange(
+                                            if (bundleSelected) {
+                                                selectedIds - bundleIds
+                                            } else {
+                                                selectedIds + bundleIds
+                                            },
+                                        )
                                     } else {
                                         bundleExpanded = !bundleExpanded
                                     }
                                 },
                                 gutter = gutter,
                                 selected = bundleSelected,
-                                onLongClick = { selectedIds = selectedIds + bundleIds },
+                                onLongClick = { onSelectedIdsChange(selectedIds + bundleIds) },
                             )
                         }
                     }
@@ -825,7 +817,7 @@ fun GridlinkMessageListScreen(
                                                     selectedIds.isEmpty(),
                                                 gutter = gutter,
                                                 onLongClick = {
-                                                    selectedIds = selectedIds + child.id
+                                                    onSelectedIdsChange(selectedIds + child.id)
                                                 },
                                             )
                                         }
@@ -878,7 +870,7 @@ fun GridlinkMessageListScreen(
                                             selectedIds.isEmpty(),
                                         gutter = gutter,
                                         onLongClick = {
-                                            selectedIds = selectedIds + message.id
+                                            onSelectedIdsChange(selectedIds + message.id)
                                         },
                                     )
                                 }

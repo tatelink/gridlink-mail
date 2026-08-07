@@ -26,12 +26,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -607,6 +609,42 @@ fun GridlinkRoot(
     ownDomain: String = GridlinkSample.OWN_DOMAIN,
 ) {
     var destination by rememberSaveable(initialDestination) { mutableStateOf(initialDestination) }
+
+    // The ticked messages, held HERE and not in the list that draws them.
+    //
+    // 🔴 Two separate reasons, and the screen only gets both if the state lives at this level.
+    //
+    // Saved, not merely remembered, because the selection has to survive the fold and neither
+    // activity declares `configChanges`: unfolding recreates the activity, and without a saver
+    // selecting eleven messages and opening the phone to deal with them clears all eleven at the
+    // hinge, silently, with the toolbar folding away as if the user had cancelled.
+    //
+    // Owned by the scaffold, and not by the list that draws it, because `when (destination)` below
+    // swaps whole composables with no `SaveableStateHolder` under it: a selection held one level down
+    // is destroyed the instant the destination changes, silently. Tate asked for back to work
+    // "from any screen", and a selection that cannot outlive the screen it was made on cannot be
+    // answered from another one.
+    //
+    // ⚠️ Worth knowing before trusting that sentence: today the destination CANNOT change while a
+    // selection is live. The nav pill morphs into the selection action bar, and the menu panel does
+    // not navigate, so the inbox list is the only screen a selection can currently exist on. The
+    // hoist and the `destination` line in the back handler below are a guarantee held in advance, not
+    // a path anybody can walk right now. They are here so that the day the pill stays live during a
+    // selection, this behaves the way it was asked to instead of losing eleven ticks to a tab tap.
+    //
+    // A Set has no built-in Saver because a Bundle has no set type. It survives as a list and comes
+    // back as a set, which is lossless here (these are ids, so order was never information).
+    // ⚠️ The saver wraps the MutableState, not the Set. `rememberSaveable { mutableStateOf(x) }`
+    // auto-wraps only when it is left to pick the saver itself; hand it one and it is handed the
+    // state holder, so a saver written over `Set<String>` type-checks nowhere useful.
+    var selectedIds by rememberSaveable(
+        initiallySelected,
+        saver = listSaver<MutableState<Set<String>>, String>(
+            save = { it.value.toList() },
+            restore = { mutableStateOf(it.toSet()) },
+        ),
+    ) { mutableStateOf(initiallySelected) }
+
     // Not `rememberSaveable`: a request holds contacts and attachments, which is a parcelable
     // saver's worth of work for state that a real build will own outside the UI anyway.
     //
@@ -1067,6 +1105,31 @@ fun GridlinkRoot(
                 }
             }
 
+            // Back with messages ticked drops the selection and lands on the list, from wherever the
+            // user happens to be. Tate: "when multiple mail messages are selected, from any
+            // screen, the back swipe should unselect and return to messages list".
+            //
+            // 🔴 Registered AFTER the two handlers above, and that ordering is the behaviour. Back
+            // callbacks fire most-recently-added first, and composition order is addition order, so
+            // this one wins over closing an open thread. That is the right precedence: a selection is
+            // a mode the user is IN, and the way out of a mode is the first thing back should offer.
+            //
+            // A plain BackHandler on purpose. Predictive back scrubs a screen off the edge, and
+            // nothing here is going anywhere: the tick marks clear and the toolbar morphs back in
+            // place. Dragging the list halfway off to say so would be describing the wrong action.
+            //
+            // ⚠️ Deliberately does NOT close an open thread as well. On one pane a selection cannot
+            // coexist with one (a tap toggles a row while selecting, so nothing can be opened), and
+            // on two panes the list is already on screen beside it, so there is nothing to return to.
+            //
+            // The `destination` line is the "from any screen" half, and see the ⚠️ on [selectedIds]
+            // before believing it can fire: nothing can currently change the destination while rows
+            // are ticked. It costs one assignment and it is the half that would be forgotten.
+            BackHandler(enabled = selectedIds.isNotEmpty() && composing == null) {
+                selectedIds = emptySet()
+                destination = GridlinkDestination.INBOX
+            }
+
             /** What the thread's action buttons do, wherever the thread is being drawn. */
             val threadActions: (GridlinkMessage) -> (GridlinkThreadAction) -> Unit = { message ->
                 { action ->
@@ -1264,7 +1327,8 @@ fun GridlinkRoot(
                                 }
                             },
                             initiallyExpanded = initiallyExpanded,
-                            initiallySelected = initiallySelected,
+                            selectedIds = selectedIds,
+                            onSelectedIdsChange = { selectedIds = it },
                             initialSearchExpanded = initialSearchExpanded,
                             initialSwipeId = initialSwipeId,
                             initialSwipeFraction = initialSwipeFraction,
