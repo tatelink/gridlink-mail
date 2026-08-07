@@ -92,7 +92,7 @@
     <string name="settings_push_status_connecting">Push: connecting…</string>
     <string name="settings_push_status_periodic">Checked every 30 minutes</string>
     <string name="settings_push_status_not_watched">Checked when you open the app</string>
-    <string name="settings_account_notifications_unwatched_note">This account is not being watched. Turn on “Push for all accounts” to get notifications for it.</string>
+    <string name="settings_account_notifications_unwatched_note">This account is not being watched. Turn on “Push for all accounts” to fetch its new mail in the background and be notified about it.</string>
     <string name="up_picker_title">Deliver notifications through</string>
     <string name="inbox_delete_folder_recursive_title">Also delete subfolders?</string>
     <string name="inbox_delete_folder_recursive_body">\"%1$s\" contains subfolders. They will all be deleted, along with their messages.</string>
@@ -555,7 +555,7 @@
     <string name="settings_account_section">Account</string>
     <string name="settings_display_name_label">Display name</string>
     <string name="settings_account_colour_section">Colour</string>
-    <string name="settings_account_notifications_section">Sync and notifications</string>
+    <string name="settings_account_notifications_section">Notifications</string>
     <string name="settings_account_notifications_title">Sync new mail</string>
     <string name="settings_account_notifications_subtitle">Fetches this account\'s new mail in the background and notifies you. When off, its mail arrives only when you open the app or pull to refresh.</string>
     <string name="settings_account_colour_auto">Auto</string>

@@ -79,7 +79,7 @@
     <string name="settings_push_status_connecting">Push: conectando…</string>
     <string name="settings_push_status_periodic">Comprobación cada 30 minutos</string>
     <string name="settings_push_status_not_watched">Se comprueba al abrir la aplicación</string>
-    <string name="settings_account_notifications_unwatched_note">Esta cuenta no se está vigilando. Activa «Push para todas las cuentas» para recibir sus notificaciones.</string>
+    <string name="settings_account_notifications_unwatched_note">Esta cuenta no se está vigilando. Activa «Push para todas las cuentas» para obtener su correo nuevo en segundo plano y que te avise.</string>
     <string name="up_picker_title">Entregar las notificaciones mediante</string>
     <string name="inbox_delete_folder_recursive_title">¿Eliminar también las subcarpetas?</string>
     <string name="inbox_delete_folder_recursive_body">«%1$s» contiene subcarpetas. Se eliminarán todas junto con sus mensajes.</string>
@@ -782,7 +782,7 @@
     <string name="settings_text_size_normal">Normal</string>
     <string name="settings_text_size_large">Grande</string>
     <string name="settings_text_size_huge">Enorme</string>
-    <string name="settings_account_notifications_section">Sincronización y notificaciones</string>
+    <string name="settings_account_notifications_section">Notificaciones</string>
     <string name="settings_account_notifications_title">Sincronizar el correo nuevo</string>
     <string name="settings_account_notifications_subtitle">Obtiene el correo nuevo de esta cuenta en segundo plano y te avisa. Si está desactivado, su correo solo llega cuando abres la aplicación o deslizas para actualizar.</string>
     <string name="settings_group_app">Aplicación</string>

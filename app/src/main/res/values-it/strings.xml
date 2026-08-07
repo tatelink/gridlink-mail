@@ -79,7 +79,7 @@
     <string name="settings_push_status_connecting">Push: connessione in corso…</string>
     <string name="settings_push_status_periodic">Controllo ogni 30 minuti</string>
     <string name="settings_push_status_not_watched">Controllato all’apertura dell’app</string>
-    <string name="settings_account_notifications_unwatched_note">Questo account non è monitorato. Attiva «Push per tutti gli account» per riceverne le notifiche.</string>
+    <string name="settings_account_notifications_unwatched_note">Questo account non è monitorato. Attiva «Push per tutti gli account» per recuperare la sua nuova posta in secondo piano ed esserne avvisato.</string>
     <string name="up_picker_title">Recapita le notifiche tramite</string>
     <string name="inbox_delete_folder_recursive_title">Eliminare anche le sottocartelle?</string>
     <string name="inbox_delete_folder_recursive_body">"%1$s" contiene sottocartelle. Verranno eliminate tutte insieme ai loro messaggi.</string>
@@ -782,7 +782,7 @@
     <string name="settings_text_size_normal">Normale</string>
     <string name="settings_text_size_large">Grande</string>
     <string name="settings_text_size_huge">Molto grande</string>
-    <string name="settings_account_notifications_section">Sincronizzazione e notifiche</string>
+    <string name="settings_account_notifications_section">Notifiche</string>
     <string name="settings_account_notifications_title">Sincronizza la nuova posta</string>
     <string name="settings_account_notifications_subtitle">Recupera la nuova posta di questo account in secondo piano e ti avvisa. Se è disattivata, la sua posta arriva solo quando apri l’app o trascini verso il basso per aggiornare.</string>
     <string name="settings_group_app">App</string>

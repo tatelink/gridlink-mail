@@ -79,7 +79,7 @@
     <string name="settings_push_status_connecting">Push : connexion en cours…</string>
     <string name="settings_push_status_periodic">Vérification toutes les 30 minutes</string>
     <string name="settings_push_status_not_watched">Relevé à l’ouverture de l’application</string>
-    <string name="settings_account_notifications_unwatched_note">Ce compte n’est pas surveillé. Activez « Push pour tous les comptes » pour en recevoir les notifications.</string>
+    <string name="settings_account_notifications_unwatched_note">Ce compte n’est pas surveillé. Activez « Push pour tous les comptes » pour récupérer ses nouveaux messages en arrière-plan et en être prévenu.</string>
     <string name="up_picker_title">Acheminer les notifications via</string>
     <string name="inbox_delete_folder_recursive_title">Supprimer aussi les sous-dossiers ?</string>
     <string name="inbox_delete_folder_recursive_body">« %1$s » contient des sous-dossiers. Ils seront tous supprimés, ainsi que leurs messages.</string>
@@ -784,7 +784,7 @@
     <string name="settings_text_size_normal">Normale</string>
     <string name="settings_text_size_large">Grande</string>
     <string name="settings_text_size_huge">Très grande</string>
-    <string name="settings_account_notifications_section">Synchronisation et notifications</string>
+    <string name="settings_account_notifications_section">Notifications</string>
     <string name="settings_account_notifications_title">Synchroniser les nouveaux messages</string>
     <string name="settings_account_notifications_subtitle">Récupère les nouveaux messages de ce compte en arrière-plan et vous prévient. Désactivé, ses messages n’arrivent que lorsque vous ouvrez l’application ou que vous tirez pour actualiser.</string>
     <string name="settings_group_app">Application</string>

@@ -79,7 +79,7 @@
     <string name="settings_push_status_connecting">Push: Verbindung wird aufgebaut…</string>
     <string name="settings_push_status_periodic">Abruf alle 30 Minuten</string>
     <string name="settings_push_status_not_watched">Wird beim Öffnen der App geprüft</string>
-    <string name="settings_account_notifications_unwatched_note">Dieses Konto wird nicht überwacht. Aktiviere „Push für alle Konten“, um Benachrichtigungen dafür zu erhalten.</string>
+    <string name="settings_account_notifications_unwatched_note">Dieses Konto wird nicht überwacht. Aktiviere „Push für alle Konten“, um seine neuen E-Mails im Hintergrund abzurufen und darüber benachrichtigt zu werden.</string>
     <string name="up_picker_title">Benachrichtigungen zustellen über</string>
     <string name="inbox_delete_folder_recursive_title">Auch Unterordner löschen?</string>
     <string name="inbox_delete_folder_recursive_body">„%1$s“ enthält Unterordner. Sie werden alle mitsamt ihren Nachrichten gelöscht.</string>
@@ -776,7 +776,7 @@
     <string name="settings_text_size_normal">Normal</string>
     <string name="settings_text_size_large">Groß</string>
     <string name="settings_text_size_huge">Sehr groß</string>
-    <string name="settings_account_notifications_section">Synchronisierung und Benachrichtigungen</string>
+    <string name="settings_account_notifications_section">Benachrichtigungen</string>
     <string name="settings_account_notifications_title">Neue E-Mails synchronisieren</string>
     <string name="settings_account_notifications_subtitle">Ruft neue E-Mails dieses Kontos im Hintergrund ab und benachrichtigt dich. Ist die Option aus, kommen dessen E-Mails erst an, wenn du die App öffnest oder zum Aktualisieren nach unten ziehst.</string>
     <string name="settings_group_app">App</string>

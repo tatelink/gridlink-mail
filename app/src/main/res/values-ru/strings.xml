@@ -79,7 +79,7 @@
     <string name="settings_push_status_connecting">Push: подключение…</string>
     <string name="settings_push_status_periodic">Проверка каждые 30 минут</string>
     <string name="settings_push_status_not_watched">Проверяется при открытии приложения</string>
-    <string name="settings_account_notifications_unwatched_note">Эта учётная запись не отслеживается. Включите «Push для всех аккаунтов», чтобы получать для неё уведомления.</string>
+    <string name="settings_account_notifications_unwatched_note">Эта учётная запись не отслеживается. Включите «Push для всех аккаунтов», чтобы загружать её новые письма в фоновом режиме и получать уведомления о них.</string>
     <string name="up_picker_title">Доставлять уведомления через</string>
     <string name="inbox_delete_folder_recursive_title">Удалить также вложенные папки?</string>
     <string name="inbox_delete_folder_recursive_body">«%1$s» содержит вложенные папки. Все они будут удалены вместе с письмами.</string>
@@ -791,7 +791,7 @@
     <string name="settings_text_size_normal">Обычный</string>
     <string name="settings_text_size_large">Крупный</string>
     <string name="settings_text_size_huge">Очень крупный</string>
-    <string name="settings_account_notifications_section">Синхронизация и уведомления</string>
+    <string name="settings_account_notifications_section">Уведомления</string>
     <string name="settings_account_notifications_title">Синхронизировать новые письма</string>
     <string name="settings_account_notifications_subtitle">Загружает новые письма этой учётной записи в фоновом режиме и уведомляет вас. Если выключено, её письма приходят только при открытии приложения или при обновлении жестом сверху вниз.</string>
     <string name="settings_group_app">Приложение</string>

@@ -79,7 +79,7 @@
     <string name="settings_push_status_connecting">Push: verbinden…</string>
     <string name="settings_push_status_periodic">Controle elke 30 minuten</string>
     <string name="settings_push_status_not_watched">Gecontroleerd bij het openen van de app</string>
-    <string name="settings_account_notifications_unwatched_note">Dit account wordt niet bewaakt. Schakel ‘Push voor alle accounts’ in om er meldingen voor te krijgen.</string>
+    <string name="settings_account_notifications_unwatched_note">Dit account wordt niet bewaakt. Schakel ‘Push voor alle accounts’ in om de nieuwe e-mail ervan op de achtergrond op te halen en er een melding van te krijgen.</string>
     <string name="up_picker_title">Meldingen bezorgen via</string>
     <string name="inbox_delete_folder_recursive_title">Ook submappen verwijderen?</string>
     <string name="inbox_delete_folder_recursive_body">"%1$s" bevat submappen. Ze worden allemaal verwijderd, samen met hun berichten.</string>
@@ -779,7 +779,7 @@
     <string name="settings_text_size_normal">Normaal</string>
     <string name="settings_text_size_large">Groot</string>
     <string name="settings_text_size_huge">Zeer groot</string>
-    <string name="settings_account_notifications_section">Synchronisatie en meldingen</string>
+    <string name="settings_account_notifications_section">Meldingen</string>
     <string name="settings_account_notifications_title">Nieuwe e-mail synchroniseren</string>
     <string name="settings_account_notifications_subtitle">Haalt nieuwe e-mail van dit account op de achtergrond op en waarschuwt je. Staat dit uit, dan komt de e-mail pas binnen wanneer je de app opent of omlaag trekt om te vernieuwen.</string>
     <string name="settings_group_app">App</string>

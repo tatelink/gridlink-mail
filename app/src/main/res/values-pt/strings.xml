@@ -79,7 +79,7 @@
     <string name="settings_push_status_connecting">Push: a ligar…</string>
     <string name="settings_push_status_periodic">Verificação a cada 30 minutos</string>
     <string name="settings_push_status_not_watched">Verificado ao abrir a aplicação</string>
-    <string name="settings_account_notifications_unwatched_note">Esta conta não está a ser monitorizada. Ative «Push para todas as contas» para receber as suas notificações.</string>
+    <string name="settings_account_notifications_unwatched_note">Esta conta não está a ser monitorizada. Ative «Push para todas as contas» para obter os seus novos e-mails em segundo plano e ser notificado sobre eles.</string>
     <string name="up_picker_title">Entregar as notificações através de</string>
     <string name="inbox_delete_folder_recursive_title">Eliminar também as subpastas?</string>
     <string name="inbox_delete_folder_recursive_body">"%1$s" contém subpastas. Serão todas eliminadas, juntamente com as suas mensagens.</string>
@@ -784,7 +784,7 @@
     <string name="settings_text_size_huge">Enorme</string>
 
     <!-- Per-account notifications -->
-    <string name="settings_account_notifications_section">Sincronização e notificações</string>
+    <string name="settings_account_notifications_section">Notificações</string>
     <string name="settings_account_notifications_title">Sincronizar novos e-mails</string>
     <string name="settings_account_notifications_subtitle">Obtém os novos e-mails desta conta em segundo plano e notifica-o. Se estiver desativado, os e-mails só chegam quando abre a aplicação ou puxa para atualizar.</string>
     <string name="settings_group_app">App</string>

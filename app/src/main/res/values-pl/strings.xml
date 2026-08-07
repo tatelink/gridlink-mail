@@ -79,7 +79,7 @@
     <string name="settings_push_status_connecting">Push: łączenie…</string>
     <string name="settings_push_status_periodic">Sprawdzanie co 30 minut</string>
     <string name="settings_push_status_not_watched">Sprawdzane przy otwarciu aplikacji</string>
-    <string name="settings_account_notifications_unwatched_note">To konto nie jest monitorowane. Włącz „Push dla wszystkich kont”, aby otrzymywać dla niego powiadomienia.</string>
+    <string name="settings_account_notifications_unwatched_note">To konto nie jest monitorowane. Włącz „Push dla wszystkich kont”, aby pobierać jego nową pocztę w tle i otrzymywać o niej powiadomienia.</string>
     <string name="up_picker_title">Dostarczaj powiadomienia przez</string>
     <string name="inbox_delete_folder_recursive_title">Usunąć także podfoldery?</string>
     <string name="inbox_delete_folder_recursive_body">„%1$s” zawiera podfoldery. Wszystkie zostaną usunięte razem z wiadomościami.</string>
@@ -788,7 +788,7 @@
     <string name="settings_text_size_normal">Normalny</string>
     <string name="settings_text_size_large">Duży</string>
     <string name="settings_text_size_huge">Bardzo duży</string>
-    <string name="settings_account_notifications_section">Synchronizacja i powiadomienia</string>
+    <string name="settings_account_notifications_section">Powiadomienia</string>
     <string name="settings_account_notifications_title">Synchronizuj nową pocztę</string>
     <string name="settings_account_notifications_subtitle">Pobiera nową pocztę tego konta w tle i powiadamia o niej. Gdy opcja jest wyłączona, poczta pojawia się dopiero po otwarciu aplikacji lub pociągnięciu w dół, aby odświeżyć.</string>
     <string name="settings_group_app">Aplikacja</string>

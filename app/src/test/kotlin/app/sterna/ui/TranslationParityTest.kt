@@ -92,6 +92,13 @@ class TranslationParityTest {
      * about what turning it off costs. The English text is pinned here, whole, so that the honest
      * wording cannot be quietly walked back to the display-only one it replaced.
      *
+     * The SECTION heading is the exception, and it is pinned to "Notifications" on purpose: a
+     * heading is not a displayed state, it names where the setting lives, and it can say
+     * "Notifications" without promising anything as long as the switch inside it says "Sync new
+     * mail". It was widened to "Sync and notifications" once and had to come back: the account
+     * screen already has a "Sync" section, and one heading being the prefix of the other left the
+     * reader unable to tell which one governed what.
+     *
      * Whole-value equality on purpose: `contains` is blind to anything a mutation APPENDS, and that
      * blindness has cost this repo three defects already.
      */
@@ -111,42 +118,120 @@ class TranslationParityTest {
      * ENGLISH text under it. For a label being reworded that is the likely accident — copy the new
      * English into the eight files, translate seven of them — and it ships as a screen where one
      * language silently reverts to the old, wrong promise.
+     *
+     * One pair reads exactly as the English does and is legitimate, so it is written down as the
+     * value it must have, not as a key the rule skips (see [TRANSLATED]). The difference matters:
+     * an exemption would let this language carry WHATEVER the English says, which is the accident
+     * itself; a pinned value only lets it carry that one word. So the rule below is absolute again
+     * — `emptyMap()` — and a language named in [TRANSLATED] is held to its own text, English or
+     * not.
+     *
+     * Not checked here: a key present in [ENGLISH] and absent from a translation, which is the
+     * first rule's job.
      */
     @Test
     fun `no language leaves the account switch in English`() {
         val english = valuesOf(File(res, "values/strings.xml"))
         val copied = translations().associate { file ->
+            val locale = file.parentFile.name
             val theirs = valuesOf(file)
-            file.parentFile.name to ENGLISH.keys.filter { theirs[it] != null && theirs[it] == english[it] }.toSet()
+            val pinned = TRANSLATED[locale].orEmpty()
+            locale to ENGLISH.keys.mapNotNull { key ->
+                val text = theirs[key] ?: return@mapNotNull null
+                val expected = pinned[key]
+                when {
+                    expected != null && text != expected ->
+                        "$key: this language is pinned to <$expected> and the file says <$text>"
+                    expected == null && text == english[key] ->
+                        "$key: still the English text, untranslated — <$text>"
+                    else -> null
+                }
+            }
         }.filterValues { it.isNotEmpty() }
-        assertEquals("the English text left untranslated in", emptyMap<String, Set<String>>(), copied)
+        assertEquals("the English text left untranslated in", emptyMap<String, List<String>>(), copied)
     }
 
     /**
-     * The subtitle makes TWO statements, and a translation that keeps only the first is wrong in a
-     * way no parity rule notices: (a) the switch drives the background fetch, and (b) with it off
-     * the mail still arrives, on opening the app or pulling to refresh. Drop (b) and the setting
-     * reads as "off means no mail", which it is not.
+     * TWO labels of this switch make TWO statements each, and a translation that keeps only the
+     * first is wrong in a way no parity rule notices.
      *
-     * (b) cannot be checked by meaning here, so it is checked by shape: the subtitle has to be at
+     * The subtitle: (a) the switch drives the background fetch, and (b) with it off the mail still
+     * arrives, on opening the app or pulling to refresh. Drop (b) and the setting reads as "off
+     * means no mail", which it is not. The unwatched note: (a) turning "Push for all accounts" on
+     * is what fetches this account's mail in the background, and (b) it is also what notifies. Drop
+     * (a) and the note is back to promising a display setting, which is the defect this rule exists
+     * for — a reader who turns the option off to get fewer notifications stops the fetch instead.
+     *
+     * (b) cannot be checked by meaning here, so it is checked by shape: each label has to be at
      * least two sentences long, each one long enough to be one (see [sentencesOf] — a dot count
      * alone would take "z. B." for a second sentence), plus a floor on the whole text.
      */
     @Test
     fun `every language keeps both halves of the account switch explanation`() {
         val files = listOf(File(res, "values/strings.xml")) + translations()
-        val truncated = files.mapNotNull { file ->
-            val text = valuesOf(file)[SUBTITLE].orEmpty()
-            val sentences = sentencesOf(text)
-            when {
-                sentences.size < 2 ->
-                    "${file.parentFile.name}: ${sentences.size} sentence(s), so it cannot say both " +
-                        "what the switch fetches and what still arrives when it is off — <$text>"
-                text.length < 60 -> "${file.parentFile.name}: ${text.length} characters is too short to say both — <$text>"
-                else -> null
+        val truncated = files.flatMap { file ->
+            val values = valuesOf(file)
+            TWO_HALVES.mapNotNull { key ->
+                val text = values[key].orEmpty()
+                val sentences = sentencesOf(text)
+                when {
+                    sentences.size < 2 ->
+                        "${file.parentFile.name}/$key: ${sentences.size} sentence(s), so it cannot " +
+                            "make both of the statements this label owes — <$text>"
+                    text.length < 60 ->
+                        "${file.parentFile.name}/$key: ${text.length} characters is too short to " +
+                            "say both — <$text>"
+                    else -> null
+                }
             }
         }
-        assertEquals("the account switch subtitle says only half of it in", emptyList<String>(), truncated)
+        assertEquals("the account switch explanation says only half of it in", emptyList<String>(), truncated)
+    }
+
+    /**
+     * THE SHAPE RULE ABOVE IS AN HONEST PROXY FOR THE SUBTITLE AND AN EMPTY ONE FOR THE NOTE, AND
+     * THAT WAS MEASURED, NOT GUESSED.
+     *
+     * The subtitle's two statements ARE its two sentences, so counting them says something. The
+     * note's first sentence is a bare observation ("This account is not being watched.") that
+     * carries NEITHER half; both live inside the second one. So the wrong text — the pre-#140 note
+     * that spoke only of notifications — clears two sentences and 95 to 109 characters in all nine
+     * languages. Shape added nothing for that key, and only English was really held, by the
+     * whole-value equality of [ENGLISH], which reads `values/strings.xml` and nothing else.
+     *
+     * What this rule adds is a REQUIREMENT OF PRESENCE on the eight translations, where nothing
+     * distinguished the good text from the bad one: each language has to name half (a), the
+     * background fetch, in its own words (see [BACKGROUND_FETCH]), in BOTH labels.
+     *
+     * `contains` here is a FLOOR, not a pin: it is blind to anything a rewrite appends, and the
+     * pinning job belongs to [ENGLISH]. The falsification this rule is answerable to is the return
+     * of a translation to its text from before the fix — put the `values-fr` note of `cda6648c`
+     * back and this test, and only this test, has to go red.
+     *
+     * Not checked on purpose: the ORDER of the two halves, and the wording of half (b). Both are
+     * left as stated debt rather than pretended coverage.
+     */
+    @Test
+    fun `every language says the switch fetches in the background, not only that it notifies`() {
+        val files = listOf(File(res, "values/strings.xml")) + translations()
+        val silent = files.flatMap { file ->
+            val locale = file.parentFile.name
+            val values = valuesOf(file)
+            val marker = BACKGROUND_FETCH[locale] ?: return@flatMap listOf(
+                "$locale: no background-fetch marker is written for this language, so its copy of " +
+                    "${TWO_HALVES.joinToString(" and ")} is unchecked — add one to BACKGROUND_FETCH",
+            )
+            TWO_HALVES.mapNotNull { key ->
+                val text = values[key].orEmpty()
+                if (marker in text) {
+                    null
+                } else {
+                    "$locale/$key: expected the words for the background fetch, <$marker>, and the " +
+                        "label does not have them, so it promises only the notification — <$text>"
+                }
+            }
+        }
+        assertEquals("the background fetch goes unsaid in", emptyList<String>(), silent)
     }
 
     /**
@@ -203,12 +288,62 @@ class TranslationParityTest {
 
         const val SUBTITLE = "settings_account_notifications_subtitle"
 
-        /** The three labels of the per-account switch, in English, whole. */
+        /** The note shown under the switch when the account is not among the watched ones. */
+        const val UNWATCHED_NOTE = "settings_account_notifications_unwatched_note"
+
+        /**
+         * The labels that owe the reader TWO statements, not one. Both are about the same flag, so
+         * both are checked by the same shape rule.
+         */
+        val TWO_HALVES = listOf(SUBTITLE, UNWATCHED_NOTE)
+
+        /**
+         * The words each language uses for half (a) — the fetch that happens in the background —
+         * as they stand in BOTH labels of [TWO_HALVES] today. Checked against the resources when
+         * written: every one of the eighteen values carries its language's marker verbatim.
+         *
+         * A fragment, not a sentence, and deliberately the shortest one that cannot be said by
+         * accident while talking about notifications alone ("w tle", "фоновом режиме"). Rewording
+         * a label around a different phrase is allowed and means editing this map ON PURPOSE — the
+         * one thing that must not happen is the phrase disappearing while nobody notices.
+         */
+        val BACKGROUND_FETCH = mapOf(
+            "values" to "in the background",
+            "values-de" to "im Hintergrund",
+            "values-es" to "en segundo plano",
+            "values-fr" to "arrière-plan",
+            "values-it" to "in secondo piano",
+            "values-nl" to "de achtergrond",
+            "values-pl" to "w tle",
+            "values-pt" to "em segundo plano",
+            "values-ru" to "фоновом режиме",
+        )
+
+        /** The four labels of the per-account switch, in English, whole. */
         val ENGLISH = mapOf(
-            "settings_account_notifications_section" to "Sync and notifications",
+            "settings_account_notifications_section" to "Notifications",
             "settings_account_notifications_title" to "Sync new mail",
             SUBTITLE to "Fetches this account\\'s new mail in the background and notifies you. " +
                 "When off, its mail arrives only when you open the app or pull to refresh.",
+            UNWATCHED_NOTE to "This account is not being watched. Turn on “Push for all accounts” " +
+                "to fetch its new mail in the background and be notified about it.",
+        )
+
+        /**
+         * The translations that read exactly as the English does and are right anyway, written as
+         * the value each one owes: French for "Notifications" is "Notifications".
+         *
+         * What is pinned is that word, not the fact of being equal to English. Rewording the
+         * heading therefore means editing TWO maps — this one and [ENGLISH] — and forgetting this
+         * one is the failure the rule catches, because French would then carry the new English
+         * text instead of "Notifications".
+         *
+         * What is NOT pinned, and cannot be from here: that this string is the one the section
+         * heading actually shows. This file reads XML as text; it never touches a call site. A
+         * rename or a heading wired to another key leaves this map green and says nothing.
+         */
+        val TRANSLATED = mapOf(
+            "values-fr" to mapOf("settings_account_notifications_section" to "Notifications"),
         )
 
         /** Repo root, found by walking up from the module's working directory. */
