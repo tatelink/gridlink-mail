@@ -107,6 +107,21 @@ object PushController {
         pushAllAccounts || accountId == currentId
 
     /**
+     * Whether the "this account is not being watched" note under the per-account notifications
+     * toggle is telling the truth (issue A8). Being unwatched is only half of it: the note names ONE
+     * action — turn on "Push for all accounts" — and that is the whole action only while
+     * [notificationsEnabled], the account's own flag, is still on. With that flag already off,
+     * watching the account would still fetch nothing until it is ticked back on, so the note would
+     * promise a one-step fix for a two-step state. Hence the third argument: the note appears where
+     * it is exact and stays quiet elsewhere. The toggle itself is left live in that state — ticking
+     * it moves the screen into the state the note describes, and the note comes back saying what is
+     * genuinely left to do. Pure, so the decision is unit-tested rather than read off a
+     * `@Composable` nothing in this module can call.
+     */
+    fun shouldShowUnwatchedNote(isLinked: Boolean, isWatched: Boolean, notificationsEnabled: Boolean): Boolean =
+        !isLinked && !isWatched && notificationsEnabled
+
+    /**
      * The one line the service writes to logcat when an arm finishes: what was ASKED FOR and what
      * it came away with, never one standing in for the other. [logins] is the number of login groups
      * the arm tried to connect (one connection per login, issue #31); [held] is how many connection

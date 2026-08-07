@@ -1543,10 +1543,13 @@ private fun AccountDetailScreen(
             }
             SettingsSection(stringResource(R.string.settings_account_notifications_section)) {
                 // An account that is neither the current one nor covered by "Push for all accounts"
-                // is watched by nothing (issue A8): its toggle would change nothing. Grey it and point
-                // to the setting that would actually start watching it, instead of pretending it works.
-                // Re-read each recomposition (no remember) so returning from the push-all setting settles.
-                val notificationsInert = !account.isLinked && !viewModel.isWatched(accountId)
+                // is watched by nothing (issue A8): its toggle changes nothing until push-all is on.
+                // Point to that setting instead of pretending the toggle works — but only where the
+                // note is exact, i.e. while this account's own flag is on and push-all is the single
+                // thing missing. With that flag already off the note would promise one action for a
+                // two-action state, so it stays quiet and the toggle stays LIVE (greying it out here
+                // used to demand a step and forbid it at once): ticking it brings the note back,
+                // saying what is genuinely left to do.
                 SettingSwitch(
                     title = stringResource(R.string.settings_account_notifications_title),
                     subtitle = stringResource(R.string.settings_account_notifications_subtitle),
@@ -1555,9 +1558,11 @@ private fun AccountDetailScreen(
                         notificationsEnabled = it
                         viewModel.setNotificationsEnabled(accountId, it)
                     },
-                    enabled = !notificationsInert,
                 )
-                if (notificationsInert) {
+                // isWatched is re-read each recomposition (no remember): neither the current account
+                // nor the push-all flag is observable, so returning from the push-all setting is what
+                // has to settle this line.
+                if (PushController.shouldShowUnwatchedNote(account.isLinked, viewModel.isWatched(accountId), notificationsEnabled)) {
                     Text(
                         stringResource(R.string.settings_account_notifications_unwatched_note),
                         style = MaterialTheme.typography.bodySmall,

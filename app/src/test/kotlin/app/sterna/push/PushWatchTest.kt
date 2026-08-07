@@ -14,6 +14,8 @@ import java.io.File
  * is watched by nothing — [PushController.isWatched] is the pure decision behind greying the toggle
  * and showing [PushStatus.NotWatched] instead of a 30-minute poll that never runs. Linked
  * sub-accounts are handled by the caller (they stay [PushStatus.Periodic]) and are not this function.
+ * [PushController.shouldShowUnwatchedNote] is the same question asked for the note under the toggle,
+ * which promises a single action and so may only appear where a single action is enough.
  *
  * The second part covers [isCarriedByOpenConnection] (issue #61): once an account IS watched, the
  * status line still has to find the connection that carries it, and connections are keyed by login,
@@ -50,6 +52,143 @@ class PushWatchTest {
 
     @Test fun `no current account and push-all off watches nothing`() {
         assertFalse(PushController.isWatched("a", currentId = null, pushAllAccounts = false))
+    }
+
+    // --- the unwatched note promises ONE action, so it may only appear when one is enough ---------
+    //
+    // Same issue A8, one step further into the screen. The note under the toggle says "turn on Push
+    // for all accounts" and nothing else, which is the whole truth only while this account's own
+    // notifications flag is still on. With that flag already off the state needs TWO actions, the
+    // note promised one, and the toggle carrying the second was greyed out at the same time: the
+    // screen asked for something and forbade doing it. [PushController.shouldShowUnwatchedNote] is
+    // the pure decision that keeps the note away from that state; the greying is gone, so ticking
+    // the toggle moves the screen into the state the note describes and the note comes back.
+    //
+    // Expected values are written out, never recomputed from the same expression as the function.
+
+    /** The one state the note describes exactly: nothing watches this account, but it wants mail. */
+    @Test fun `an unwatched account with notifications on is told what to turn on`() {
+        assertTrue(
+            PushController.shouldShowUnwatchedNote(
+                isLinked = false, isWatched = false, notificationsEnabled = true,
+            ),
+        )
+    }
+
+    /** The defect: two actions needed, one promised — the note lies, so it stays away. */
+    @Test fun `an unwatched account whose own toggle is off is not promised a one-step fix`() {
+        assertFalse(
+            PushController.shouldShowUnwatchedNote(
+                isLinked = false, isWatched = false, notificationsEnabled = false,
+            ),
+        )
+    }
+
+    /** Witness: a watched account has nothing to turn on, whatever its own flag says. */
+    @Test fun `a watched account never shows the unwatched note`() {
+        assertFalse(
+            PushController.shouldShowUnwatchedNote(
+                isLinked = false, isWatched = true, notificationsEnabled = true,
+            ),
+        )
+    }
+
+    /** Witness: a linked sub-account is carried by its login (issue #31), not by push-all. */
+    @Test fun `a linked sub-account never shows the unwatched note`() {
+        assertTrue(
+            "a linked account is watched through its login, so both watched states must stay silent",
+            !PushController.shouldShowUnwatchedNote(
+                isLinked = true, isWatched = false, notificationsEnabled = true,
+            ) &&
+                !PushController.shouldShowUnwatchedNote(
+                    isLinked = true, isWatched = true, notificationsEnabled = true,
+                ),
+        )
+    }
+
+    /**
+     * The parameter ORDER, which the named calls above are blind to: three arguments of the same
+     * type, so permuting the declaration would leave them green while the positional call site in
+     * SettingsScreen starts reading the account's own flag as "is linked". One `true` among two
+     * `false`s, passed positionally, plus two witnesses that pin where the `true` may not sit: any
+     * permutation that moves it out of the third slot turns one of the three red.
+     *
+     * Swapping the first two parameters with each other is the one permutation nothing here turns
+     * red, and it does not need to: the body negates both and ANDs them, so that swap is symmetric
+     * and changes no answer. Said rather than left to be rediscovered as a hole.
+     */
+    @Test fun `the unwatched note reads its arguments in the declared order`() {
+        assertTrue(PushController.shouldShowUnwatchedNote(false, false, true))
+        assertFalse(PushController.shouldShowUnwatchedNote(false, true, false))
+        assertFalse(PushController.shouldShowUnwatchedNote(true, false, false))
+    }
+
+    /**
+     * SOURCE RULE, and the weakest test of this section — same reason as the [PushService] ones far
+     * below: the call site is a `@Composable` in a screen that needs a Context, a ViewModel and a
+     * Compose runtime, and this module has no Robolectric, so the wiring is pinned by reading it.
+     * Statements, in order, comments and blanks removed, never a substring: a `contains` check is
+     * blind to anything APPENDED to the line it looks at, which is exactly how `enabled = …` would
+     * come back.
+     *
+     * Two things are pinned here and both were defects. The `SettingSwitch(…)` call is read WHOLE,
+     * so re-adding an `enabled = !watched`-style argument — the greying that made the note's own
+     * instruction impossible to follow — turns this red. And the note's condition is read whole,
+     * with its three arguments, so dropping the account's own flag from it (the original one-action
+     * promise) is visible too.
+     *
+     * The window runs one statement PAST the condition, as far as the `Text(` it guards, so the
+     * note cannot be smothered by a second condition nested inside the first — which would leave
+     * every statement above it untouched and the note permanently invisible.
+     *
+     * Its weakness, stated: it reads a WINDOW of statements after the section marker, so it says
+     * nothing about code further down that section (the status line and below), and nothing about
+     * the values those arguments carry at runtime. In particular `viewModel.isWatched(accountId)`
+     * is pinned as TEXT: [AccountsViewModel.isWatched] could be made to return a constant and
+     * nothing in this module would notice — the known call-site gap this class documents at the
+     * top, not a new one. It also breaks on innocent reformatting — that is the price of reading
+     * text instead of running it, and why the decision itself lives in a pure function that the
+     * tests above execute.
+     */
+    @Test fun `the notifications section leaves the toggle live and asks the note for all three`() {
+        assertEquals(
+            listOf(
+                "SettingSwitch(",
+                "title = stringResource(R.string.settings_account_notifications_title),",
+                "subtitle = stringResource(R.string.settings_account_notifications_subtitle),",
+                "checked = notificationsEnabled,",
+                "onCheckedChange = {",
+                "notificationsEnabled = it",
+                "viewModel.setNotificationsEnabled(accountId, it)",
+                "},",
+                ")",
+                "if (PushController.shouldShowUnwatchedNote(account.isLinked, " +
+                    "viewModel.isWatched(accountId), notificationsEnabled)) {",
+                "Text(",
+            ),
+            notificationsSectionStatements(11),
+        )
+    }
+
+    /**
+     * The first [count] statements of the account screen's Notifications section, trimmed, with
+     * comments and blank lines dropped. Bounded by a window rather than by a closing brace: this is
+     * a deeply nested Compose file where the section's own `}` shares its indentation with a dozen
+     * others. Fails loudly if the marker is not there exactly once, so a renamed or duplicated
+     * section can never turn this rule into a no-op.
+     */
+    private fun notificationsSectionStatements(count: Int): List<String> {
+        val marker = "SettingsSection(stringResource(R.string.settings_account_notifications_section)) {"
+        val lines = File(
+            repoRoot,
+            "app/src/main/kotlin/app/sterna/ui/settings/SettingsScreen.kt",
+        ).readText().lines()
+        val hits = lines.withIndex().filter { it.value.trim() == marker }.map { it.index }
+        assertEquals("expected exactly one notifications section in SettingsScreen, found $hits", 1, hits.size)
+        return lines.drop(hits.single() + 1)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("//") && !it.startsWith("*") }
+            .take(count)
     }
 
     // --- issue #61: resolving an account to the connection that carries it -----------------------
