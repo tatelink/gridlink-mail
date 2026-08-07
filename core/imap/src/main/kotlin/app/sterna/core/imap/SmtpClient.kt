@@ -14,6 +14,62 @@ import javax.net.ssl.SSLSocketFactory
 
 class SmtpException(message: String) : Exception(message)
 
+/** The password-based SASL mechanisms this client can speak, in order of preference. */
+internal enum class SmtpAuthMechanism { PLAIN, LOGIN }
+
+/**
+ * The SASL mechanism names advertised by an EHLO response, upper-cased, in the order the server
+ * listed them; empty when the response carries no `AUTH` capability at all.
+ *
+ * [ehloLines] is the complete response (every `250-` continuation plus the final `250 ` line), each
+ * one as it came off the wire. Two real spellings exist and both are handled: the RFC 4954 form
+ * `250-AUTH PLAIN LOGIN` and the historical form `250-AUTH=PLAIN LOGIN`. Comparison downstream is
+ * on whole tokens, which is why the list is tokenised here: a server offering `PLAIN-MD5` must not
+ * read as offering `PLAIN`.
+ */
+internal fun advertisedAuthMechanisms(ehloLines: List<String>): List<String> {
+    val mechanisms = mutableListOf<String>()
+    for (raw in ehloLines) {
+        // Drop the reply code and its separator ("250-" / "250 ") when there is one.
+        val hasCode = raw.length > 4 && raw.take(3).all { it.isDigit() } && (raw[3] == '-' || raw[3] == ' ')
+        val capability = (if (hasCode) raw.substring(4) else raw).trim()
+        val keyword = capability.substringBefore(' ')
+        if (!keyword.equals("AUTH", ignoreCase = true) && !keyword.startsWith("AUTH=", ignoreCase = true)) continue
+        // "AUTH=PLAIN" packs the first mechanism into the keyword itself.
+        val listed = keyword.substringAfter('=', "") + " " + capability.substringAfter(' ', "")
+        mechanisms += listed.split(' ', '\t').filter { it.isNotBlank() }.map { it.uppercase() }
+    }
+    return mechanisms
+}
+
+/**
+ * Which mechanism to authenticate with, given what the server [advertised].
+ *
+ * `PLAIN` first (autistici/inventati's submission service rejects `LOGIN` outright, Codeberg #145),
+ * then `LOGIN`. A server that advertises **nothing** gets `LOGIN` tried at it exactly as this client
+ * always has: that is what makes mail keep flowing for servers whose EHLO is silent about AUTH.
+ * `null` means the server did say what it offers and none of it can be spoken here.
+ */
+internal fun chooseAuthMechanism(advertised: List<String>): SmtpAuthMechanism? = when {
+    advertised.isEmpty() -> SmtpAuthMechanism.LOGIN
+    advertised.any { it.equals("PLAIN", ignoreCase = true) } -> SmtpAuthMechanism.PLAIN
+    advertised.any { it.equals("LOGIN", ignoreCase = true) } -> SmtpAuthMechanism.LOGIN
+    else -> null
+}
+
+/**
+ * The SASL PLAIN initial client response (base64), RFC 4616: `base64(NUL + user + NUL + password)`.
+ * ONE base64 blob, not the two separate ones AUTH LOGIN sends.
+ *
+ * `Base64.getEncoder()` on purpose, the same choice [xoauth2Payload] makes: `getMimeEncoder()` (what
+ * `OutgoingMime` uses for message bodies) wraps at 76 characters and would break the payload of a
+ * long password on the wire.
+ */
+internal fun saslPlainPayload(username: String, password: String): String {
+    val nul = Char(0) // SASL PLAIN field separator (NUL)
+    return Base64.getEncoder().encodeToString("$nul$username$nul$password".toByteArray(Charsets.UTF_8))
+}
+
 /** A file or inline attachment to include in an outgoing message. */
 data class OutgoingAttachment(
     val name: String,
@@ -66,10 +122,24 @@ class SmtpClient {
         var reader = BufferedReader(InputStreamReader(socket.inputStream, Charsets.UTF_8))
         var out: OutputStream = socket.outputStream
 
+        /**
+         * The lines of the response [read] last returned, continuations included — the EHLO
+         * capabilities, which [read] itself throws away. Local to this send: a field would mix
+         * the capabilities of two accounts sharing one client.
+         */
+        val lastResponse = mutableListOf<String>()
+
         fun read(): String {
+            lastResponse.clear()
             var line = reader.readLine() ?: throw SmtpException("Connection closed")
+            lastResponse += line
             // Skip continuation lines ("250-..."), keep reading until "250 ...".
-            while (line.length >= 4 && line[3] == '-') line = reader.readLine() ?: break
+            // ⚠ The RETURN VALUE is the final line and nothing else: `expect` below compares a
+            // prefix on it, fifteen times per send. The accumulator only observes.
+            while (line.length >= 4 && line[3] == '-') {
+                line = reader.readLine() ?: break
+                lastResponse += line
+            }
             return line
         }
 
@@ -87,6 +157,7 @@ class SmtpClient {
         expect("220", "greeting")
         write("EHLO ${localHost()}")
         expect("250", "EHLO")
+        var advertisedAuth = advertisedAuthMechanisms(lastResponse)
 
         if (config.security == MailSecurity.STARTTLS) {
             write("STARTTLS")
@@ -97,9 +168,13 @@ class SmtpClient {
             out = socket.outputStream
             write("EHLO ${localHost()}")
             expect("250", "EHLO (TLS)")
+            // RFC 3207: what was advertised in the clear is void. Only this EHLO counts, and it is
+            // exactly where a server that offered no AUTH before encryption finally lists one.
+            advertisedAuth = advertisedAuthMechanisms(lastResponse)
         }
 
-        // AUTH: XOAUTH2 (OAuth bearer) when a token is present, else plain AUTH LOGIN.
+        // AUTH: XOAUTH2 (OAuth bearer) when a token is present, else the best password mechanism
+        // the server actually offers (Codeberg #145 — inventati.org refuses LOGIN outright).
         if (config.accessToken != null) {
             write("AUTH XOAUTH2 ${xoauth2Payload(config.username, config.accessToken)}")
             val resp = read()
@@ -110,12 +185,26 @@ class SmtpClient {
                 throw SmtpException("AUTH XOAUTH2: $resp")
             }
         } else {
-            write("AUTH LOGIN")
-            expect("334", "AUTH")
-            write(base64(config.username))
-            expect("334", "AUTH user")
-            write(base64(config.password))
-            expect("235", "AUTH password")
+            when (chooseAuthMechanism(advertisedAuth)) {
+                SmtpAuthMechanism.PLAIN -> {
+                    // One command, initial response included; the server answers 235 or refuses.
+                    write("AUTH PLAIN ${saslPlainPayload(config.username, config.password)}")
+                    expect("235", "AUTH PLAIN")
+                }
+                SmtpAuthMechanism.LOGIN -> {
+                    write("AUTH LOGIN")
+                    expect("334", "AUTH")
+                    write(base64(config.username))
+                    expect("334", "AUTH user")
+                    write(base64(config.password))
+                    expect("235", "AUTH password")
+                }
+                // ⛔ The offered list, never the command: an exception is stored in the outbox and
+                // shown on screen, so a base64 credential in it would leak twice over.
+                null -> throw SmtpException(
+                    "AUTH: no supported mechanism, server offers ${advertisedAuth.joinToString(" ")}",
+                )
+            }
         }
 
         // Envelope
