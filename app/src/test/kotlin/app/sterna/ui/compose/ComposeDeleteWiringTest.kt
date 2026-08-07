@@ -118,6 +118,89 @@ class ComposeDeleteWiringTest {
         )
     }
 
+    /**
+     * ⭐ The body of this confirmation must SCROLL, because Material's `text` slot is a
+     * height-bounded box with no scrolling of its own: a bare `Text` in it is CLIPPED — not
+     * ellipsised, not scrollable, just cut, with nothing on screen saying more text existed.
+     *
+     * Measured, 2026-08-07, Moto G (Android 9, 720×1280), `font_scale 2.0`, `de`: the body stopped
+     * at "…getippt hast, wird". What went off screen is "nicht gespeichert." — the sentence that
+     * says anything typed since the composer opened is NOT saved (#127). A reader who cannot see
+     * it confirms the delete believing her keystrokes are kept, and they are not: silent loss, on
+     * the one dialog whose whole job is to warn about it. German also stacks the two action
+     * labels, which eats another line of body.
+     *
+     * Shortening the string (commit 00e7b35a) lowered the odds of the cut; it did not remove it.
+     * This is the Kotlin half, and it is the same defect [app.sterna.ui.SenderRuleDialogFitTest]
+     * closed on the two per-sender rule dialogs — same instrument, and three rules, each one put
+     * here by a mutation that survived the two before it:
+     *
+     *  1. the slot draws exactly ONE `Text`, and it is the one holding
+     *     `R.string.compose_delete_draft_body`. Counting the modifier line anywhere in the slot
+     *     was green over a `Column { Text(body); Text("", modifier = …scroll…) }`: the modifier
+     *     lands on a sibling, the body is bare, the cut is back. That shape is exactly what a
+     *     second sentence added to this slot would grow into;
+     *  2. that `Text` carries the WHOLE line
+     *     `modifier = Modifier.verticalScroll(rememberScrollState()),`, counted to exactly 1 by
+     *     line equality. Never `"verticalScroll" in body`: a substring is blind to any mutation
+     *     that LENGTHENS the line, and `verticalScroll(rememberScrollState(), enabled = false)`
+     *     scrolls nothing;
+     *  3. nothing else bounds the text — `maxLines`, `overflow`, and `softWrap`. The first two clip
+     *     the sentence again under a scroll that has nothing left to scroll. `softWrap = false` is
+     *     worse and survived rules 1 and 2 untouched: the body stops wrapping, becomes one single
+     *     line clipped at the dialog's edge ("Wandert in den Papierkorb ode…"), in all nine
+     *     languages and at every font size, and a vertical scroll cannot reach what overflowed
+     *     sideways.
+     *
+     * SOURCE LINT, like every other rule in this file: it reads `ComposeScreen.kt` as text and
+     * proves NOTHING about what the screen does. There is no Robolectric and no `compose-ui-test`
+     * here; only the bench can say the sentence is whole.
+     */
+    @Test fun `the confirmation body scrolls instead of being clipped`() {
+        val slot = bodySlot()
+        val texts = callArguments(slot, "Text")
+        assertEquals(
+            "the confirmation's body slot must draw exactly ONE Text, the one holding " +
+                "R.string.compose_delete_draft_body. With a second one the scroll modifier can sit " +
+                "on a sibling — Column { Text(body); Text(\"\", modifier = …verticalScroll…) } — " +
+                "while the sentence itself is drawn bare and cut exactly as before, and every rule " +
+                "below still counts the modifier it can see. Slot was:\n$slot",
+            1,
+            texts.size,
+        )
+        val body = texts.single()
+        assertTrue(
+            "the one Text of the body slot must be the one drawing " +
+                "R.string.compose_delete_draft_body — this rule pins a modifier onto THAT Text, " +
+                "and must fail loudly rather than pin it onto something it never located. Text " +
+                "was:\n$body",
+            "R.string.compose_delete_draft_body" in body,
+        )
+        val lines = body.lines().map { it.trim() }
+        assertEquals(
+            "the confirmation body must be bounded NOWHERE ELSE. A maxLines or an overflow beside " +
+                "the scroll cuts the last sentence off again — at font_scale 2.0 in German the " +
+                "body already ends at \"…getippt hast, wird\" — and the scroll then hides a cut " +
+                "instead of preventing one. softWrap = false is worse still: the body stops " +
+                "wrapping altogether, comes out as ONE line clipped at the dialog's edge " +
+                "(\"Wandert in den Papierkorb ode…\") in all nine languages and at EVERY font " +
+                "size, and a vertical scroll reaches nothing that overflowed sideways. Text " +
+                "was:\n$body",
+            emptyList<String>(),
+            lines.filter { BOUNDS.any { bound -> bound in it } },
+        )
+        assertEquals(
+            "the confirmation body must carry exactly '$SCROLL_MODIFIER' on its own line. Without " +
+                "it, Material's bounded text slot cuts the German body at font_scale 2.0 mid-word " +
+                "(measured: \"…getippt hast, wird\", Moto G, 720×1280) with no ellipsis and no " +
+                "hint on screen — and what is lost is \"nicht gespeichert.\", the sentence warning " +
+                "that everything typed since the composer opened is not saved. The reader then " +
+                "confirms the delete believing her keystrokes are kept (#127). Text was:\n$body",
+            1,
+            lines.count { it == SCROLL_MODIFIER },
+        )
+    }
+
     @Test fun `the draft is taken inside the navigation guard, not before it`() {
         // Ordering, and it is the reader's precedent: the mutating step belongs INSIDE
         // navigateOnce. takeEditingDraft() hands the row over exactly once, so consuming it
@@ -172,6 +255,37 @@ class ComposeDeleteWiringTest {
         }
         return balanced(code, code.indexOf('{', at), '{', '}')
     }
+
+    /**
+     * The `text = { … }` slot of the confirmation dialog, braces balanced.
+     *
+     * Anchored, and it has to be: `indexOf("text = ")` also matches inside `context = …`, so the
+     * day a `val context = LocalContext.current` appears in this block the extraction would start
+     * there, find no closing comma at depth 0 and silently assert over the whole rest of the
+     * dialog. [SLOT] therefore refuses a `text` preceded by a word character or a dot, and this
+     * function fails LOUDLY on none and on more than one rather than picking.
+     */
+    private fun bodySlot(): String {
+        val dialog = confirmationBlock()
+        val found = SLOT.findAll(dialog).toList()
+        check(found.size == 1) {
+            "the confirmation must declare exactly one 'text = {' slot, found ${found.size} — this " +
+                "rule reads that slot and has nothing to read if it moved or was renamed. Dialog " +
+                "was:\n$dialog"
+        }
+        val slot = balanced(dialog, found.single().range.last, '{', '}')
+        check("confirmButton" !in slot) {
+            "the confirmation's 'text = {' slot does not close before the next slot — the braces " +
+                "did not balance and this rule is reading the rest of the dialog. Read:\n$slot"
+        }
+        return slot
+    }
+
+    /** The argument text of every `name(…)` call in [text], parentheses balanced. */
+    private fun callArguments(text: String, name: String): List<String> =
+        Regex("""\b${Regex.escape(name)}\(""").findAll(text)
+            .map { balanced(text, it.range.last, '(', ')') }
+            .toList()
 
     /** The `name = …` argument of [text], up to the comma that closes it (brackets balanced). */
     private fun argument(text: String, name: String): String {
@@ -235,6 +349,19 @@ class ComposeDeleteWiringTest {
         private const val OFFERED = "draftDeleteOffered("
         private const val CONFIRMATION = "if (pendingDraftDelete) {"
         private const val SAVE_GUARD = "if (draftSaveAllowed(pgpMode))"
+
+        /**
+         * Material's body slot of the confirmation — the height-bounded box that clips. The
+         * lookbehind is the whole point: without it this also matches inside `context = `.
+         */
+        private val SLOT = Regex("""(?<![\w.])text = \{""")
+
+        /** The whole line, as this repo's other source lints pin theirs. */
+        private const val SCROLL_MODIFIER =
+            "modifier = Modifier.verticalScroll(rememberScrollState()),"
+
+        /** Everything that can bound a `Text` back into a cut, scroll or no scroll. */
+        private val BOUNDS = listOf("maxLines", "overflow", "softWrap")
 
         private const val APP_SOURCES = "app/src/main/kotlin"
         private const val COMPOSE_SCREEN_PATH = "$APP_SOURCES/app/sterna/ui/compose/ComposeScreen.kt"

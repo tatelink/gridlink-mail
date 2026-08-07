@@ -525,7 +525,18 @@ fun ComposeScreen(
         AlertDialog(
             onDismissRequest = { pendingDraftDelete = false },
             title = { Text(stringResource(R.string.compose_delete_draft_title)) },
-            text = { Text(stringResource(R.string.compose_delete_draft_body)) },
+            // Material's text slot is a height-bounded box with no scrolling of its own: a bare
+            // Text in it is CUT, without an ellipsis and without anything on screen saying so. At
+            // font_scale 2.0 in German (Moto G, 720×1280) the body stopped at "…getippt hast,
+            // wird", losing "nicht gespeichert." — the sentence that says what was typed since the
+            // composer opened is not saved (#127). Same modifier, same reason, as the two
+            // per-sender rule dialogs.
+            text = {
+                Text(
+                    stringResource(R.string.compose_delete_draft_body),
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     pendingDraftDelete = false

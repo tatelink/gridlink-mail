@@ -35,7 +35,7 @@
     <string name="compose_discard_message_encrypted">Dit bericht is versleuteld en kan daarom niet als concept worden bewaard: een concept wordt precies zoals je het schreef op de mailserver opgeslagen, leesbaar voor iedereen met toegang. Als je nu weggaat, wordt het bericht verwijderd.</string>
     <string name="compose_discard_message_encrypted_draft">Dit bericht is versleuteld, dus je wijzigingen kunnen niet als concept worden bewaard: een concept wordt precies zoals je het schreef op de mailserver opgeslagen, leesbaar voor iedereen met toegang. Als je nu weggaat, gaan alleen de wijzigingen verloren; het al opgeslagen concept blijft in Concepten.</string>
     <string name="compose_delete_draft_title">Dit concept verwijderen?</string>
-    <string name="compose_delete_draft_body">Dezelfde verwijdering als in de lijst: het concept gaat naar de Prullenbak, of wordt definitief verwijderd als dit account geen Prullenbak heeft. Wat je sinds het openen hebt getypt, wordt niet opgeslagen.</string>
+    <string name="compose_delete_draft_body">Gaat naar de Prullenbak, of wordt verwijderd als dit account er geen heeft. Wat je sinds het openen hebt getypt, wordt niet opgeslagen.</string>
     <string name="compose_discard_title_outbox">Wijzigingen niet opslaan?</string>
     <string name="compose_discard_title_changes">Wijzigingen niet opslaan?</string>
     <string name="compose_discard_message_outbox">Je wijzigingen gaan verloren, het bericht niet: dat blijft in Postvak uit staan, of gaat naar Concepten als je het opslaat.</string>

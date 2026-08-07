@@ -35,7 +35,7 @@
     <string name="compose_discard_message_encrypted">Diese Nachricht ist verschlüsselt und kann deshalb nicht als Entwurf behalten werden: Ein Entwurf wird genau so, wie du ihn geschrieben hast, auf dem Mailserver gespeichert und ist für alle mit Zugriff lesbar. Wenn du jetzt gehst, wird die Nachricht verworfen.</string>
     <string name="compose_discard_message_encrypted_draft">Diese Nachricht ist verschlüsselt, deshalb können deine Änderungen nicht als Entwurf behalten werden: Ein Entwurf wird genau so, wie du ihn geschrieben hast, auf dem Mailserver gespeichert und ist für alle mit Zugriff lesbar. Wenn du jetzt gehst, gehen nur die Änderungen verloren; der bereits gespeicherte Entwurf bleibt in den Entwürfen.</string>
     <string name="compose_delete_draft_title">Diesen Entwurf löschen?</string>
-    <string name="compose_delete_draft_body">Dieselbe Löschung wie in der Liste: Der Entwurf wandert in den Papierkorb oder wird endgültig entfernt, wenn dieses Konto keinen Papierkorb hat. Was du seit dem Öffnen getippt hast, wird nicht gespeichert.</string>
+    <string name="compose_delete_draft_body">Wandert in den Papierkorb oder wird gelöscht, wenn dieses Konto keinen hat. Was du seit dem Öffnen getippt hast, wird nicht gespeichert.</string>
     <string name="compose_discard_title_outbox">Änderungen verwerfen?</string>
     <string name="compose_discard_title_changes">Änderungen verwerfen?</string>
     <string name="compose_discard_message_outbox">Deine Änderungen werden verworfen, die Nachricht aber nicht: Sie bleibt im Postausgang oder wandert in die Entwürfe, wenn du sie speicherst.</string>
