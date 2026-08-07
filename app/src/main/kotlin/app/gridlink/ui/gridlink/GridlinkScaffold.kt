@@ -892,6 +892,12 @@ fun GridlinkRoot(
         } else {
             val row = mail.humans.firstOrNull { it.id == id }
                 ?: mail.bundle?.messages?.firstOrNull { it.id == id }
+                // 🔴 The open FOLDER is a source too, not just the inbox. A message tapped in
+                // Archive or Sent is not in either list above, so without this the id resolves to
+                // nothing, `detail` stays null, and the tap does nothing at all with no error
+                // anywhere. Safe to read here because opening a message from a folder leaves
+                // [openFolderId] set, so the list it came from is still loaded behind the thread.
+                ?: folders?.open?.messages?.firstOrNull { it.id == id }
             val fetched = mail.open?.takeIf { it.id == id }
             row?.copy(
                 body = fetched?.html.orEmpty(),
@@ -1120,6 +1126,7 @@ fun GridlinkRoot(
                             destination = GridlinkDestination.INBOX
                             openId = message.id
                             filedOpenId = null
+                            onOpenMail(message.id)
                             // Already at 1 in a compact window, because the card that was tapped is
                             // itself fully in. The thread replaces it in place, which is the same swap
                             // the reading pane does when you tap a different row.
@@ -1139,6 +1146,7 @@ fun GridlinkRoot(
                             destination = GridlinkDestination.INBOX
                             openId = message.id
                             filedOpenId = null
+                            onOpenMail(message.id)
                             if (!twoPane) scope.launch { progress.snapTo(1f) }
                         },
                         // Swaps the card in place, exactly as tapping a different row in the reading pane
@@ -1163,6 +1171,10 @@ fun GridlinkRoot(
                             destination = GridlinkDestination.INBOX
                             openId = message.id
                             filedOpenId = null
+                            // The same call the inbox rows make, and just as required here: the row
+                            // carries headers only, so without it the thread opens to a blank page
+                            // and the message stays unread on the server.
+                            onOpenMail(message.id)
                             if (!twoPane) scope.launch { progress.snapTo(1f) }
                         },
                         embedded = embedded,

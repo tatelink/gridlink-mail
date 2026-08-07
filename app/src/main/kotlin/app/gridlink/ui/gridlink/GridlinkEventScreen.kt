@@ -235,7 +235,7 @@ fun GridlinkEventScreen(
                     // tab on a phone with no map app, and would ask Google a question on behalf of a
                     // reader who only tapped an address. `geo:` stays on the device unless something
                     // is there to answer it.
-                    onClick = { openMap(context, where) },
+                    onClick = { leaveOnce { openMap(context, where) } },
                 )
             }
 
@@ -353,13 +353,18 @@ private fun durationLabel(start: LocalTime, end: LocalTime): String {
  * and an unhandled implicit intent is an `ActivityNotFoundException` that takes the app down. Nothing
  * happening is the right failure for a tap on an address.
  */
-private fun openMap(context: android.content.Context, place: String) {
+private fun openMap(context: android.content.Context, place: String): Boolean {
     val uri = Uri.parse("geo:0,0?q=" + Uri.encode(place))
     val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    try {
+    return try {
         context.startActivity(intent)
+        true
     } catch (t: android.content.ActivityNotFoundException) {
         android.util.Log.w("GridlinkEvent", "no map app for $uri", t)
+        // 🔴 Reported, not swallowed. [rememberLeaveOnce] closes its latch on a true, so returning
+        // one here would deaden the address on a device with no map app: the first tap does nothing
+        // visible, and every tap after it does nothing at all.
+        false
     }
 }
 
