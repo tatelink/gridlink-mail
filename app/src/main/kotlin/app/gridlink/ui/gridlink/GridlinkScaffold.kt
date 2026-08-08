@@ -956,10 +956,13 @@ fun GridlinkRoot(
      * from [GridlinkEventFormScreen]'s `initial`), so the shadow map lands on the right event.
      */
     fun updateEvent(edited: GridlinkEvent) {
+        // The event that seeded the form, captured before anything can close it: the writer diffs
+        // the two to decide which fields the edit actually touched.
+        val before = editingEvent ?: return
         savingEvent = true
         saveError = null
         scope.launch {
-            val failure = runCatching { calendarWriter.update(edited) }
+            val failure = runCatching { calendarWriter.update(before, edited) }
                 .getOrElse { t ->
                     if (t is CancellationException) throw t
                     t.message ?: "Couldn't save that event."
@@ -1368,11 +1371,12 @@ fun GridlinkRoot(
                         // the screen out and back for what is one appointment becoming another.
                         onOpenEvent = { openEventId = it.id },
                         onWrite = { composing = gridlinkWriteTo(it) },
-                        // 🔴 Absent, not disabled, when the writer cannot edit: the real CalDAV
-                        // writer says so ([GridlinkCalendarWriter.canUpdate]), and a button that is
-                        // always grey on a synced calendar is a promise being broken daily. The
+                        // 🔴 Absent, not disabled, when the writer cannot edit THIS event: the
+                        // real CalDAV writer says so per event ([GridlinkCalendarWriter.canUpdate],
+                        // which is how a repeating event's day shows no Edit while a one-off does),
+                        // and a grey button on an uneditable event is a promise being broken. The
                         // object, not its id, for the contact card's reason above.
-                        onEdit = if (calendarWriter.canUpdate) {
+                        onEdit = if (calendarWriter.canUpdate(current.event)) {
                             { editingEvent = it }
                         } else {
                             null

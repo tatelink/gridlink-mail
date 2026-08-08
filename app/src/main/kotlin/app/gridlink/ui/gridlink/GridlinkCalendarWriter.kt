@@ -41,24 +41,31 @@ interface GridlinkCalendarWriter {
     suspend fun save(event: GridlinkEvent): String?
 
     /**
-     * 🔴 Whether [update] works, which decides whether the event card SHOWS an Edit button at all.
+     * 🔴 Whether [update] works for THIS event, which decides whether its card SHOWS an Edit
+     * button at all.
      *
-     * The real CalDAV writer answers false, on [app.gridlink.dav.DavRepository]'s own documented
-     * boundary: editing a server event needs the conflict story contacts got (etags, no-op
-     * detection) plus recurrence exceptions, and half of that story is how a calendar loses an
-     * appointment quietly. Until that lands, an Edit button on a synced event would be a promise
-     * the engine cannot keep, and hiding it is more honest than greying it.
+     * Per event, not per writer, because editability is a property of the event: the real CalDAV
+     * writer can rewrite a one-off appointment in place but not an occurrence of a repeating one
+     * (moving the master's DTSTART would move the whole series), and the mapping layer says which
+     * is which through [GridlinkEvent.handle]. An Edit button on an event the engine cannot edit
+     * would be a promise it cannot keep, and hiding it is more honest than greying it.
      */
-    val canUpdate: Boolean
+    fun canUpdate(event: GridlinkEvent): Boolean
 
     /**
-     * Replace the event carrying this id, returning why it could not be done, or null when it was.
+     * Replace [before] with [edited], returning why it could not be done, or null when it was.
      *
-     * Unreachable from the UI while [canUpdate] is false, but implemented rather than left to
+     * Both copies arrive because a real writer diffs them: only the fields where the two differ
+     * are rewritten on the server, so an untouched form saves as a wire no-op and everything the
+     * form does not model survives. [before] is the event that SEEDED the form — diffing against
+     * anything else (the server's copy, a re-mapped occurrence) false-marks fields the form
+     * materialized, like the end time it invents for an event that had none.
+     *
+     * Unreachable from the UI while [canUpdate] says no, but implemented rather than left to
      * throw: a writer that crashes on a path "that cannot happen" is one refactor away from
      * crashing in production.
      */
-    suspend fun update(event: GridlinkEvent): String?
+    suspend fun update(before: GridlinkEvent, edited: GridlinkEvent): String?
 }
 
 /**
@@ -78,8 +85,9 @@ object GridlinkMemoryCalendarWriter : GridlinkCalendarWriter {
 
     override suspend fun save(event: GridlinkEvent): String? = null
 
-    // Editing memory is as safe as writing it: there is no server copy to diverge from.
-    override val canUpdate: Boolean get() = true
+    // Editing memory is as safe as writing it: there is no server copy to diverge from, so every
+    // event is editable and there is nothing to diff [before] against.
+    override fun canUpdate(event: GridlinkEvent): Boolean = true
 
-    override suspend fun update(event: GridlinkEvent): String? = null
+    override suspend fun update(before: GridlinkEvent, edited: GridlinkEvent): String? = null
 }

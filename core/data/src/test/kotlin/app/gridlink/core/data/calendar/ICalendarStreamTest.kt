@@ -299,6 +299,101 @@ class ICalendarStreamTest {
     }
 
     @Test
+    fun `notes, category and reminders survive the parse and ride the occurrence`() {
+        val event = ICalendarStream.parse(
+            wrap(
+                """
+                BEGIN:VEVENT
+                UID:detailed
+                SUMMARY:Vendor visit
+                DTSTART:20260610T140000Z
+                DESCRIPTION:Bring the badge
+                CATEGORIES:Errands\, urgent,Second
+                BEGIN:VALARM
+                ACTION:DISPLAY
+                DESCRIPTION:Reminder
+                TRIGGER:-PT30M
+                END:VALARM
+                BEGIN:VALARM
+                ACTION:DISPLAY
+                DESCRIPTION:Reminder
+                TRIGGER:PT0S
+                END:VALARM
+                BEGIN:VALARM
+                ACTION:DISPLAY
+                DESCRIPTION:An absolute trigger is not an offset
+                TRIGGER;VALUE=DATE-TIME:20260610T000000Z
+                END:VALARM
+                BEGIN:VALARM
+                ACTION:DISPLAY
+                DESCRIPTION:Counted from the end, not the start
+                TRIGGER;RELATED=END:-PT5M
+                END:VALARM
+                BEGIN:VALARM
+                ACTION:DISPLAY
+                DESCRIPTION:After the event is not a reminder before it
+                TRIGGER:PT15M
+                END:VALARM
+                END:VEVENT
+                """.trimIndent(),
+            ),
+            eastern,
+        ).single()
+
+        assertEquals("Bring the badge", event.description)
+        // The first CATEGORIES value only, and the escaped comma keeps it ONE label: a
+        // quote-aware-only split would file this event under "Errands\".
+        assertEquals("Errands, urgent", event.category)
+        // Zero is "at time of event" and kept; the absolute, end-relative and after-the-start
+        // triggers are not reminders and are dropped rather than misfiled.
+        assertEquals(listOf(0, 30), event.reminders)
+
+        val occurrence = ICalendarStream.occurrences(
+            listOf(event.copy(href = "/cal/detailed.ics")),
+            LocalDate.parse("2026-06-01")..LocalDate.parse("2026-06-30"),
+            eastern,
+        ).single()
+        assertEquals("Bring the badge", occurrence.description)
+        assertEquals("Errands, urgent", occurrence.category)
+        assertEquals(listOf(0, 30), occurrence.reminders)
+        // A one-off master with a known file: the one shape that is safe to rewrite in place.
+        assertEquals("/cal/detailed.ics", occurrence.editHref)
+    }
+
+    @Test
+    fun `a repeating event's day hands out no edit href`() {
+        val events = ICalendarStream.parse(
+            wrap(
+                """
+                BEGIN:VEVENT
+                UID:weekly-standup
+                SUMMARY:Standup
+                RRULE:FREQ=WEEKLY;BYDAY=MO
+                DTSTART;VALUE=DATE:20260601
+                END:VEVENT
+                BEGIN:VEVENT
+                UID:weekly-standup
+                RECURRENCE-ID;VALUE=DATE:20260608
+                SUMMARY:Standup (moved)
+                DTSTART;VALUE=DATE:20260609
+                END:VEVENT
+                """.trimIndent(),
+            ),
+            eastern,
+        ).map { it.copy(href = "/cal/weekly.ics") }
+
+        val occurrences = ICalendarStream.occurrences(
+            events,
+            LocalDate.parse("2026-06-01")..LocalDate.parse("2026-06-30"),
+            eastern,
+        )
+        assertTrue(occurrences.isNotEmpty())
+        // Even with the href known: a rule's day must not rewrite the master (that moves the whole
+        // series), and an override's file also holds the master. No href, no Edit button.
+        assertTrue(occurrences.all { it.editHref == null })
+    }
+
+    @Test
     fun `nothing usable yields no events rather than an exception`() {
         assertTrue(ICalendarStream.parse(null, eastern).isEmpty())
         assertTrue(ICalendarStream.parse("not a calendar at all", eastern).isEmpty())

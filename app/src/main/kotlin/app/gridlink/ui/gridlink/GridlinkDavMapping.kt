@@ -45,6 +45,13 @@ object GridlinkDavMapping {
             ?.substringAfter('@', "")
             ?.takeIf { it.isNotBlank() }
             ?: ownDomain,
+        notes = occurrence.description?.takeIf { it.isNotBlank() },
+        category = occurrence.category?.takeIf { it.isNotBlank() },
+        reminders = occurrence.reminders.distinct().sorted(),
+        // The edit ticket, prefixed like every id so nothing downstream can mistake it for a
+        // fixture's. Empty (no Edit button) exactly when the occurrence says editing is unsafe:
+        // a repeating event's day, a detached override, or a row whose raw no longer reads.
+        handle = occurrence.editHref?.let { PREFIX + it }.orEmpty(),
     )
 
     /**

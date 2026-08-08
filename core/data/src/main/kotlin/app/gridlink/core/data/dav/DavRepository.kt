@@ -3,6 +3,7 @@ package app.gridlink.core.data.dav
 import app.gridlink.core.data.account.AccountStore
 import app.gridlink.core.data.account.AuthType
 import app.gridlink.core.data.calendar.CalendarOccurrence
+import app.gridlink.core.data.calendar.EventField
 import app.gridlink.core.data.calendar.ICalendar
 import app.gridlink.core.data.calendar.ICalendarStream
 import app.gridlink.core.data.contacts.ContactEdit
@@ -32,6 +33,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 
 /**
@@ -75,17 +77,17 @@ data class DavWriteOutcome(
  * not the network happened to be reachable when it opened.
  *
  * ## Writing
- * [createEvent] adds an event; [createContact] and [updateContact] write the address book. Contact
- * writes go over JMAP for Contacts (RFC 9610) when the server offers it, and fall back to CardDAV
- * when it does not — routing on what the server IS, never on an error a request came back with.
- * Contact edits carry `If-Match` on the stored etag over DAV (a 412 becomes a resync plus a plain
- * sentence), and are property-group patches over JMAP, so a card's unedited fields survive either
- * way.
+ * [createEvent] and [updateEvent] write the calendar; [createContact] and [updateContact] write the
+ * address book. Contact writes go over JMAP for Contacts (RFC 9610) when the server offers it, and
+ * fall back to CardDAV when it does not — routing on what the server IS, never on an error a
+ * request came back with. Edits carry `If-Match` on the stored etag over DAV (a 412 becomes a
+ * resync plus a plain sentence), and contact edits are property-group patches over JMAP, so an
+ * item's unedited fields survive either way.
  *
  * ## What this deliberately does NOT do
- * It cannot edit or delete an event, and it cannot delete a contact. Event editing needs the same
- * conflict story contacts got, plus recurrence exceptions; half of that story is how a calendar
- * loses an appointment quietly.
+ * It cannot delete an event or a contact, and [updateEvent] refuses repeating events: editing one
+ * needs an answer to "this day or the whole series", the form does not ask that question yet, and
+ * guessing is how a calendar loses an appointment quietly.
  */
 class DavRepository(
     private val client: DavClient,
@@ -247,6 +249,115 @@ class DavRepository(
         if (rows.isEmpty()) {
             // The upload succeeded, so the event IS on the server; only the local copy is missing.
             // Saying "saved but not shown" beats both lying about it and implying it was lost.
+            return DavWriteOutcome(
+                error = "Saved to the server, but this device could not read it back. Sync to see it.",
+            )
+        }
+        eventDao.deleteForFile(accountId, written.href, DavMappers.hrefPrefix(written.href))
+        eventDao.upsertAll(rows)
+        return DavWriteOutcome(href = written.href)
+    }
+
+    /**
+     * Change one non-repeating event on the server, then refresh the local copy.
+     *
+     * [updateContact]'s contract, brought to the calendar: only the fields in [touched] are
+     * rewritten ([ICalendar.patchEvent] leaves every other byte of the stored `.ics` alone), the
+     * PUT carries `If-Match` on the stored etag (a 412 becomes a resync plus a plain sentence),
+     * and an untouched form saves as a wire no-op. Like [createEvent], the cached rows are rebuilt
+     * from the SAME text that was uploaded, so the local copy is what the next sync would produce.
+     *
+     * Repeating events are refused out loud rather than half-handled: editing one instance needs
+     * an answer to "this day or the whole series", and the form does not ask that question yet.
+     *
+     * @param touched which field groups the edit actually changed; the caller diffs, this writes.
+     * @param start null means the event is all-day, matching [createEvent].
+     */
+    suspend fun updateEvent(
+        accountId: String,
+        href: String,
+        touched: Set<EventField>,
+        title: String,
+        date: LocalDate,
+        start: LocalTime?,
+        end: LocalTime?,
+        location: String? = null,
+        description: String? = null,
+        category: String? = null,
+        reminders: List<Int> = emptyList(),
+    ): DavWriteOutcome {
+        if (accountStore.account(accountId)?.syncSelection?.calendar != true) {
+            return DavWriteOutcome(error = "Turn on calendar sync for this account to save events")
+        }
+        val dav = when (val access = access(accountId)) {
+            is Access.Refused -> return DavWriteOutcome(error = access.reason)
+            is Access.Ready -> access.dav
+        }
+        val row = eventDao.byHref(accountId, href)
+            ?: return DavWriteOutcome(error = "This event isn't synced to this device yet. Sync first.")
+        if (row.rrule != null || row.recurrenceId != null) {
+            return DavWriteOutcome(error = "Repeating events can't be edited on this device yet.")
+        }
+        if (touched.isEmpty()) return DavWriteOutcome(href = href)
+
+        val displayZone = zone()
+        val allDay = start == null
+        val startLdt = LocalDateTime.of(date, start ?: LocalTime.MIDNIGHT)
+        val endLdt = if (allDay) {
+            // An all-day event that stays all-day keeps its stored span. The form edits the day an
+            // event starts, never how many days it covers, so a three-day conference moved a week
+            // must still be three days long — collapsing it to one because the end never crossed
+            // the form would be a silent loss.
+            val spanDays = DavMappers.toParsed(row, displayZone)
+                ?.takeIf { it.allDay }
+                ?.let { parsed ->
+                    parsed.end?.let { ChronoUnit.DAYS.between(parsed.start.toLocalDate(), it.toLocalDate()) }
+                }
+                ?.coerceAtLeast(1L) ?: 1L
+            LocalDateTime.of(date.plusDays(spanDays), LocalTime.MIDNIGHT)
+        } else {
+            // Same roll-forward createEvent does: an end at or before the start is the form's way
+            // of spelling "ends tomorrow".
+            end?.let {
+                val day = if (it <= start) date.plusDays(1) else date
+                LocalDateTime.of(day, it)
+            }
+        }
+
+        val patched = ICalendar.patchEvent(
+            raw = row.raw,
+            uid = row.uid,
+            touched = touched,
+            summary = title,
+            start = startLdt,
+            end = endLdt,
+            allDay = allDay,
+            zone = displayZone,
+            location = location,
+            description = description,
+            category = category,
+            reminders = reminders,
+        ) ?: return DavWriteOutcome(error = "This event could not be read for editing. Sync first.")
+
+        val written = try {
+            client.update(row.collectionUrl, href, dav, DavKind.CALENDAR, patched, row.etag)
+        } catch (e: DavException) {
+            if (e.code == 412) {
+                // Someone else edited this event since our sync. Pull their version so the user is
+                // looking at the truth when they try again; merging silently would pick a winner
+                // for them.
+                syncCalendars(accountId)
+                return DavWriteOutcome(
+                    error = "Someone changed this event on another device. " +
+                        "The newer copy has been synced; try again.",
+                )
+            }
+            return DavWriteOutcome(error = describe(e))
+        }
+
+        val item = DavItem(href = written.href, etag = written.etag, data = patched)
+        val rows = DavMappers.events(accountId, row.collectionUrl, item, displayZone)
+        if (rows.isEmpty()) {
             return DavWriteOutcome(
                 error = "Saved to the server, but this device could not read it back. Sync to see it.",
             )

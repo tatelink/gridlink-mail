@@ -6,9 +6,11 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.gridlink.container
 import app.gridlink.core.data.calendar.CalendarOccurrence
+import app.gridlink.core.data.calendar.EventField
 import app.gridlink.core.data.contacts.ContactEdit
 import app.gridlink.core.data.dav.DavSyncOutcome
 import app.gridlink.core.data.db.AddressBookContactEntity
+import app.gridlink.ui.gridlink.DEFAULT_DURATION_MINUTES
 import app.gridlink.ui.gridlink.GridlinkCalendarContent
 import app.gridlink.ui.gridlink.GridlinkCalendarWriter
 import app.gridlink.ui.gridlink.GridlinkContactContent
@@ -187,10 +189,6 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
                 start = event.start,
                 end = event.end,
                 location = event.location,
-                // ⚠️ These three go up in the .ics (DESCRIPTION, CATEGORIES, VALARM) and any other
-                // client shows them, but THIS device's read path does not surface them yet: the
-                // cached row is rebuilt from entity columns that have no notes/category/reminder
-                // fields. Displaying them from a synced account is a schema migration away.
                 description = event.notes,
                 category = event.category,
                 reminders = event.reminders,
@@ -203,13 +201,59 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
             return outcome.error
         }
 
-        // 🔴 False on [DavRepository]'s own documented boundary: it cannot edit an event yet
-        // (recurrence exceptions plus the etag conflict story contacts got), and half of that
-        // story is how a calendar loses an appointment quietly. This hides Edit on synced events.
-        override val canUpdate: Boolean get() = false
+        // The handle is [GridlinkDavMapping.event]'s answer to "can this one be rewritten in
+        // place": empty for a repeating event's day, a detached override, or a row whose raw no
+        // longer reads, and those are exactly the events that must not show Edit.
+        override fun canUpdate(event: GridlinkEvent): Boolean = event.handle.isNotEmpty()
 
-        override suspend fun update(event: GridlinkEvent): String? =
-            "This account's calendar cannot edit events yet."
+        override suspend fun update(before: GridlinkEvent, edited: GridlinkEvent): String? {
+            val id = accountId.value ?: return "No account is signed in."
+            // 🔴 Diffed against [before] — the event that SEEDED the form — never against server
+            // truth. A multi-day all-day event's occurrence carries the day being looked at, not
+            // the event's start date, so a server-truth diff would mark TIME touched on an
+            // untouched form and silently shift the event to the viewed day.
+            val touched = buildSet {
+                if (edited.title != before.title) add(EventField.TITLE)
+                // 🔴 The form materializes a missing end as start + DEFAULT_DURATION_MINUTES, so
+                // an end equal to that materialization is the form echoing its own invention, not
+                // the user picking a time.
+                val expectedEnd = before.end
+                    ?: before.start?.plusMinutes(DEFAULT_DURATION_MINUTES)
+                if (edited.date != before.date ||
+                    edited.start != before.start ||
+                    (edited.end != before.end && edited.end != expectedEnd)
+                ) {
+                    add(EventField.TIME)
+                }
+                if (edited.location.orEmpty() != before.location.orEmpty()) add(EventField.LOCATION)
+                if (edited.notes.orEmpty() != before.notes.orEmpty()) add(EventField.NOTES)
+                if (edited.category.orEmpty() != before.category.orEmpty()) add(EventField.CATEGORY)
+                if (edited.reminders.distinct().sorted() != before.reminders.distinct().sorted()) {
+                    add(EventField.REMINDERS)
+                }
+            }
+            val outcome = repo.updateEvent(
+                accountId = id,
+                // The handle wears [GridlinkDavMapping.PREFIX] over the DAV href, exactly as
+                // contact ids do; the repository stores rows under the bare href.
+                href = edited.handle.removePrefix(GridlinkDavMapping.PREFIX),
+                touched = touched,
+                title = edited.title,
+                date = edited.date,
+                start = edited.start,
+                end = edited.end,
+                location = edited.location,
+                description = edited.notes,
+                category = edited.category,
+                reminders = edited.reminders,
+            )
+            if (outcome.succeeded) {
+                Log.i(TAG, "updated event ${outcome.href}")
+            } else {
+                Log.w(TAG, "update event failed: ${outcome.error}")
+            }
+            return outcome.error
+        }
     }
 
     /**
