@@ -28,10 +28,16 @@ private val EVENT_DATE = DateTimeFormatter.ofPattern("EEE d MMM", Locale.US)
  * clock would put a 3 PM default on a calendar showing a day in July that has already happened. Nine
  * is also simply where a working day starts, which is the right guess for most events.
  */
-private val DEFAULT_START: LocalTime = LocalTime.of(9, 0)
+internal val DEFAULT_START: LocalTime = LocalTime.of(9, 0)
 
-/** How long an appointment lasts when nobody says. */
-private const val DEFAULT_DURATION_MINUTES = 60L
+/**
+ * How long an appointment lasts when nobody says.
+ *
+ * Internal, with [DEFAULT_START], because the real writer's diff needs the SAME constant: the form
+ * materializes a missing end as start plus this, and a diff working from a private copy that
+ * drifted would mark TIME touched on every event that never had an end.
+ */
+internal const val DEFAULT_DURATION_MINUTES = 60L
 
 /**
  * A reminder offset, worded for the card and the picker rows: "At time of event", "10 minutes
@@ -156,6 +162,9 @@ fun GridlinkEventFormScreen(
                     notes = notes.text.trim().takeIf { it.isNotBlank() },
                     category = category.text.trim().takeIf { it.isNotBlank() },
                     reminders = reminders,
+                    // Verbatim, like the id: the ticket the writer issued must come back to it
+                    // unchanged, and a new event has none until a writer gives it one.
+                    handle = initial?.handle.orEmpty(),
                 ),
             )
         },

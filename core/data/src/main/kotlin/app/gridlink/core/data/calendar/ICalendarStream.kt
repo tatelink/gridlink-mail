@@ -34,6 +34,17 @@ data class ParsedCalendarEvent(
     /** Set only on a detached override: the date of the instance this VEVENT replaces. */
     val recurrenceId: LocalDate?,
     val organizerEmail: String?,
+    /** Free text (DESCRIPTION), unescaped. */
+    val description: String? = null,
+    /** The first CATEGORIES value; the rest are dropped, matching what the app models. */
+    val category: String? = null,
+    /** Reminder offsets in minutes before the start, from the VALARMs' relative TRIGGERs. */
+    val reminders: List<Int> = emptyList(),
+    /**
+     * The server file this event came out of, when the caller knows it. Null straight out of
+     * [parse] — a payload does not know its own href — and filled in by the repository layer.
+     */
+    val href: String? = null,
 ) {
     /** How long the event runs, or null when it had no DTEND and no DURATION. */
     val duration: Duration?
@@ -55,6 +66,18 @@ data class CalendarOccurrence(
     val summary: String?,
     val location: String?,
     val organizerEmail: String?,
+    val description: String? = null,
+    val category: String? = null,
+    val reminders: List<Int> = emptyList(),
+    /**
+     * The href an edit of this occurrence may rewrite, or null when editing is not safe.
+     *
+     * 🔴 Set ONLY for a non-recurring master with a known [ParsedCalendarEvent.href]. A recurring
+     * event's occurrence is one day out of a rule, and rewriting the master's DTSTART to that day
+     * would move the whole series; a detached override's file-href points at a file that also holds
+     * the master. Null is how this stays honest: no href, no Edit button, nothing to lose.
+     */
+    val editHref: String? = null,
 )
 
 /**
@@ -94,13 +117,17 @@ object ICalendarStream {
 
             var depth = 0
             var current: MutableList<ContentLine>? = null
+            var alarms: MutableList<Int>? = null
             for (line in lines) {
                 val component = line.value.trim().uppercase()
                 when {
-                    line.name == "BEGIN" && component == "VEVENT" -> { current = ArrayList(); depth = 0 }
+                    line.name == "BEGIN" && component == "VEVENT" -> {
+                        current = ArrayList(); alarms = ArrayList(); depth = 0
+                    }
                     line.name == "END" && component == "VEVENT" -> {
-                        current?.let { build(it, zones, fallbackZone)?.let(out::add) }
+                        current?.let { build(it, alarms.orEmpty(), zones, fallbackZone)?.let(out::add) }
                         current = null
+                        alarms = null
                     }
                     // A VALARM sits inside the VEVENT and has its own TRIGGER, DESCRIPTION and
                     // (in some exporters) DTSTART. Reading those as the event's own would move the
@@ -108,6 +135,12 @@ object ICalendarStream {
                     line.name == "BEGIN" && current != null -> depth++
                     line.name == "END" && current != null -> depth--
                     current != null && depth == 0 -> current.add(line)
+                    // The one nested line worth keeping: a direct child component's TRIGGER is a
+                    // reminder offset. Only VALARM puts a TRIGGER at this depth, and only a relative
+                    // "before the start" one reads as a reminder; the rest return null and are
+                    // dropped rather than misfiled.
+                    current != null && depth == 1 && line.name == "TRIGGER" ->
+                        triggerMinutes(line)?.let { alarms?.add(it) }
                 }
             }
             out
@@ -198,12 +231,18 @@ object ICalendarStream {
         summary = event.summary,
         location = event.location,
         organizerEmail = event.organizerEmail,
+        description = event.description,
+        category = event.category,
+        reminders = event.reminders,
+        // See [CalendarOccurrence.editHref]: only a one-off master is safe to rewrite in place.
+        editHref = event.href?.takeIf { event.rrule == null && event.recurrenceId == null },
     )
 
     // ---- Building one event -------------------------------------------------------------------
 
     private fun build(
         lines: List<ContentLine>,
+        reminders: List<Int>,
         zones: Map<String, ZoneId>,
         fallbackZone: ZoneId,
     ): ParsedCalendarEvent? {
@@ -244,7 +283,35 @@ object ICalendarStream {
                 ?.value?.toLocalDate(),
             organizerEmail = first("ORGANIZER")?.value?.trim()
                 ?.replaceFirst(Regex("(?i)^mailto:"), "")?.trim()?.takeIf { it.isNotEmpty() },
+            description = text(first("DESCRIPTION")?.value),
+            // The first value only. CATEGORIES is legally a comma-list, but the app models one
+            // label per event, and [splitStructured] (backslash-aware, not quote-aware) is what
+            // keeps "Errands\, urgent" one category rather than two.
+            category = first("CATEGORIES")?.value
+                ?.let { ContentLines.splitStructured(it, ',').firstOrNull() }
+                ?.let(::text),
+            reminders = reminders.distinct().sorted(),
         )
+    }
+
+    /**
+     * A VALARM TRIGGER as "minutes before the start", or null when it is not one.
+     *
+     * Null for an absolute trigger (`VALUE=DATE-TIME`), an end-relative one (`RELATED=END`), and a
+     * positive offset (an alarm AFTER the event is not a reminder before it). Zero (`PT0S`) is "at
+     * time of event" and IS kept: [duration] treats zero as unusable for an event's length, which is
+     * right there and wrong here, so this reads the sign and digits itself.
+     */
+    private fun triggerMinutes(line: ContentLine): Int? {
+        if (line.param("VALUE").equals("DATE-TIME", true)) return null
+        if (line.param("RELATED").equals("END", true)) return null
+        val m = DURATION.find(line.value.trim().uppercase()) ?: return null
+        val (sign, w, d, h, min, s) = m.destructured
+        fun n(x: String) = x.toLongOrNull() ?: 0L
+        val seconds = n(w) * 7 * 24 * 3600 + n(d) * 24 * 3600 + n(h) * 3600 + n(min) * 60 + n(s)
+        if (seconds == 0L) return 0
+        if (sign != "-") return null
+        return (seconds / 60).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     }
 
     private data class Dated(val value: LocalDateTime, val dateOnly: Boolean)

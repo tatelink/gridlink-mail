@@ -413,6 +413,16 @@ data class GridlinkEvent(
      * Sorted ascending for display; the order carries no meaning to a server.
      */
     val reminders: List<Int> = emptyList(),
+    /**
+     * The writer's opaque edit ticket, or empty when this event cannot be edited in place.
+     *
+     * [GridlinkAttachment.id]'s idea: the mapping layer that made the event knows what its writer
+     * needs to find it again (for CalDAV, the server file's href), the screens just carry it. The
+     * form copies it through an edit verbatim, and [GridlinkCalendarWriter.canUpdate] reads
+     * whether it is empty — which is how a repeating event's occurrence, whose master must not be
+     * rewritten to one day of the rule, ends up with no Edit button.
+     */
+    val handle: String = "",
 ) {
     val allDay: Boolean get() = start == null
 }

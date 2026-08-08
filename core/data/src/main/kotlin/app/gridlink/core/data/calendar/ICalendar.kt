@@ -54,6 +54,15 @@ data class ParsedEvent(
 data class Attendee(val email: String, val cn: String?, val raw: String)
 
 /**
+ * The groups of an event an edit can have touched, [ICalendar.patchEvent]'s unit of rewriting.
+ *
+ * The calendar's counterpart to `ContactCardGroup`, and the same contract: a group not in the
+ * touched set is never rewritten, so everything this app does not model (ORGANIZER, ATTENDEE,
+ * X- properties, a second VEVENT in the same file) survives an edit byte for byte.
+ */
+enum class EventField { TITLE, TIME, LOCATION, NOTES, CATEGORY, REMINDERS }
+
+/**
  * A small, dependency-free RFC 5545 reader. It unfolds, finds the first VEVENT, and pulls the
  * properties the invite card uses. It is deliberately defensive: any malformed input, unknown
  * time zone, or unparseable date yields a graceful fallback or a null result, never an exception.
@@ -345,6 +354,211 @@ object ICalendar {
         lines += "END:VEVENT"
         lines += "END:VCALENDAR"
         return lines.joinToString("\r\n") { fold(it) } + "\r\n"
+    }
+
+    // ---- Editing a stored event ---------------------------------------------------------------
+
+    /**
+     * Rewrite the touched fields of ONE event inside a stored `.ics` file, leaving every other
+     * byte alone.
+     *
+     * `VCardWrite.patch`'s idiom, ported: physical lines are grouped into logical lines (a leading
+     * space or tab continues the previous one, so a removed property takes its folded
+     * continuations along), the target VEVENT's touched property lines are dropped, and the
+     * replacements are inserted before its END. Everything outside the target — VCALENDAR
+     * properties, VTIMEZONEs, other VEVENTs in the same file, and every property this app does not
+     * model — rides through verbatim.
+     *
+     * ## Which VEVENT
+     * The one whose UID equals [uid] and which carries no RECURRENCE-ID: an override is a
+     * different appointment wearing the same UID, and rewriting it under the master's identity
+     * would reschedule the wrong day. Returns null when no such VEVENT exists, which the caller
+     * must treat as "cannot edit", never as "nothing to do".
+     *
+     * ## What each touched field rewrites
+     * [EventField.TIME] replaces DTSTART and DTEND together, drops a DURATION (a kept DURATION
+     * would quietly disagree with the new DTEND), and bumps SEQUENCE (RFC 5546's signal that the
+     * schedule itself changed). New times are written in [buildEvent]'s exact spellings — UTC
+     * instants, or `VALUE=DATE` with an exclusive end — safe here because only non-recurring
+     * events are ever patched. [EventField.REMINDERS] replaces ALL VALARM blocks; a reminder set
+     * is edited as a whole. [EventField.CATEGORY] rewrites the whole CATEGORIES line, so extra
+     * comma-separated values beyond the first are a documented loss on a category edit. A blank
+     * value for a touched optional field writes no line, which is how iCalendar spells "cleared".
+     *
+     * @param summary the event's CURRENT title (touched or not): a rebuilt VALARM needs it for the
+     *   DESCRIPTION a DISPLAY alarm is required to carry.
+     */
+    fun patchEvent(
+        raw: String,
+        uid: String,
+        touched: Set<EventField>,
+        summary: String,
+        start: LocalDateTime,
+        end: LocalDateTime?,
+        allDay: Boolean,
+        zone: ZoneId,
+        location: String?,
+        description: String?,
+        category: String?,
+        reminders: List<Int>,
+    ): String? {
+        if (touched.isEmpty()) return raw
+        val terminator = if ("\r\n" in raw) "\r\n" else "\n"
+
+        val logicals = ArrayList<MutableList<String>>()
+        for (line in raw.split("\r\n", "\r", "\n")) {
+            if ((line.startsWith(" ") || line.startsWith("\t")) && logicals.isNotEmpty()) {
+                logicals.last().add(line)
+            } else {
+                logicals.add(mutableListOf(line))
+            }
+        }
+
+        fun nameOf(logical: List<String>): String {
+            val first = logical.first()
+            val cut = first.indexOfFirst { it == ':' || it == ';' }
+            if (cut < 0) return ""
+            return first.substring(0, cut).trim().uppercase()
+        }
+
+        // The value after the first colon OUTSIDE quotes, across continuations. The quote guard is
+        // for parameters like TZID="A:B", whose colon is not the name/value separator.
+        fun valueOf(logical: List<String>): String {
+            val text = logical.first() + logical.drop(1).joinToString("") { it.drop(1) }
+            var inQuote = false
+            for (i in text.indices) {
+                when (text[i]) {
+                    '"' -> inQuote = !inQuote
+                    ':' -> if (!inQuote) return text.substring(i + 1)
+                }
+            }
+            return ""
+        }
+
+        fun componentOf(logical: List<String>): String = valueOf(logical).trim().uppercase()
+
+        // Pass one: find the target VEVENT's bounds, and its SEQUENCE while there. The UID is
+        // compared as the parser reads it (trimmed, not unescaped), so the two agree on identity.
+        var begin = -1
+        var seenUid = ""
+        var isOverride = false
+        var depth = 0
+        var sequence = 0
+        var targetBegin = -1
+        var targetEnd = -1
+        var targetSequence = 0
+        for ((i, logical) in logicals.withIndex()) {
+            val name = nameOf(logical)
+            when {
+                name == "BEGIN" && componentOf(logical) == "VEVENT" -> {
+                    begin = i; seenUid = ""; isOverride = false; depth = 0; sequence = 0
+                }
+                begin < 0 -> Unit
+                name == "END" && componentOf(logical) == "VEVENT" -> {
+                    if (targetBegin < 0 && seenUid == uid.trim() && !isOverride) {
+                        targetBegin = begin
+                        targetEnd = i
+                        targetSequence = sequence
+                    }
+                    begin = -1
+                }
+                name == "BEGIN" -> depth++
+                name == "END" -> depth--
+                depth > 0 -> Unit
+                name == "UID" -> seenUid = valueOf(logical).trim()
+                name == "RECURRENCE-ID" -> isOverride = true
+                name == "SEQUENCE" -> sequence = valueOf(logical).trim().toIntOrNull() ?: 0
+            }
+        }
+        if (targetBegin < 0) return null
+
+        val removeNames = buildSet {
+            if (EventField.TITLE in touched) add("SUMMARY")
+            if (EventField.TIME in touched) {
+                add("DTSTART"); add("DTEND"); add("DURATION"); add("SEQUENCE")
+            }
+            if (EventField.LOCATION in touched) add("LOCATION")
+            if (EventField.NOTES in touched) add("DESCRIPTION")
+            if (EventField.CATEGORY in touched) add("CATEGORIES")
+        }
+
+        val replacements = buildList {
+            if (EventField.TITLE in touched) add("SUMMARY:${escapeText(summary)}")
+            if (EventField.TIME in touched) {
+                if (allDay) {
+                    val from = start.toLocalDate()
+                    // buildEvent's exclusive-end rule, verbatim; see its doc for why the minimum
+                    // written span is one whole day.
+                    val until = (end?.toLocalDate() ?: from).let { if (it > from) it else from.plusDays(1) }
+                    add("DTSTART;VALUE=DATE:${DATE_ONLY.format(from)}")
+                    add("DTEND;VALUE=DATE:${DATE_ONLY.format(until)}")
+                } else {
+                    add("DTSTART:${UTC_DATE_TIME.format(start.atZone(zone))}")
+                    end?.takeIf { it.isAfter(start) }?.let {
+                        add("DTEND:${UTC_DATE_TIME.format(it.atZone(zone))}")
+                    }
+                }
+                add("SEQUENCE:${targetSequence + 1}")
+            }
+            if (EventField.LOCATION in touched) {
+                location?.takeIf { it.isNotBlank() }?.let { add("LOCATION:${escapeText(it)}") }
+            }
+            if (EventField.NOTES in touched) {
+                description?.takeIf { it.isNotBlank() }?.let { add("DESCRIPTION:${escapeText(it)}") }
+            }
+            if (EventField.CATEGORY in touched) {
+                category?.takeIf { it.isNotBlank() }?.let { add("CATEGORIES:${escapeText(it)}") }
+            }
+            if (EventField.REMINDERS in touched) {
+                reminders.distinct().sorted().forEach { minutes ->
+                    add("BEGIN:VALARM")
+                    add("ACTION:DISPLAY")
+                    add("DESCRIPTION:${escapeText(summary)}")
+                    add("TRIGGER:${if (minutes == 0) "PT0S" else "-PT${minutes}M"}")
+                    add("END:VALARM")
+                }
+            }
+        }
+
+        // Pass two: rebuild. Inside the target, touched properties are dropped at the event's own
+        // level ONLY — a VALARM's DESCRIPTION is the alarm's text, not the event's notes, so lines
+        // inside a kept nested component always ride through.
+        val out = ArrayList<String>()
+        var d = 0
+        var droppingAlarm = 0
+        for ((i, logical) in logicals.withIndex()) {
+            if (i < targetBegin || i > targetEnd) { out.addAll(logical); continue }
+            if (i == targetBegin) { out.addAll(logical); d = 0; droppingAlarm = 0; continue }
+            if (i == targetEnd) {
+                // Before the event's END, so a replacement lands inside the event it belongs to.
+                replacements.forEach { out.addAll(fold(it).split("\r\n")) }
+                out.addAll(logical)
+                continue
+            }
+            val name = nameOf(logical)
+            if (droppingAlarm > 0) {
+                when (name) {
+                    "BEGIN" -> droppingAlarm++
+                    "END" -> droppingAlarm--
+                }
+                continue
+            }
+            when {
+                name == "BEGIN" -> {
+                    if (d == 0 && componentOf(logical) == "VALARM" && EventField.REMINDERS in touched) {
+                        droppingAlarm = 1
+                    } else {
+                        d++
+                        out.addAll(logical)
+                    }
+                }
+                name == "END" -> { d--; out.addAll(logical) }
+                d > 0 -> out.addAll(logical)
+                name in removeNames -> Unit
+                else -> out.addAll(logical)
+            }
+        }
+        return out.joinToString(terminator)
     }
 
     private fun organizerLine(event: ParsedEvent): String? {
