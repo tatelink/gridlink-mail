@@ -22,7 +22,7 @@ Konta, powiadomienia i szyfrowanie:
 
 * Dodanie konta wyłącznie za pomocą adresu i hasła (automatyczne wykrywanie), logowanie OAuth 2.0 bez hasła albo ręczna konfiguracja IMAP/SMTP z ustawieniami dostawców
 * Powiadomienia push o nowej poczcie bez Google i bez FCM, przez JMAP EventSource, IMAP IDLE lub UnifiedPush, grupowane według kont, z godzinami ciszy
-* Szyfrowanie OpenPGP przez OpenKeychain, zarówno w JMAP, jak i w IMAP/SMTP. Odszyfrowana treść nigdy nie jest zapisywana na dysku
+* Szyfrowanie OpenPGP przez OpenKeychain, zarówno w JMAP, jak i w IMAP/SMTP. Odszyfrowana treść nigdy nie jest zapisywana na dysku; otwarty załącznik jest zapisywany w pamięci własnej aplikacji do czasu wyczyszczenia pamięci podręcznej
 * Zdalne obrazy i piksele śledzące domyślnie zablokowane, a parametry śledzące można usunąć z odnośników przed ich otwarciem
 * Dane logowania szyfrowane w Android KeyStore, blokada aplikacji odciskiem palca lub kodem PIN
 

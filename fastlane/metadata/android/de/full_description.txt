@@ -22,7 +22,7 @@ Konten, Benachrichtigungen und Verschlüsselung:
 
 * Konto anlegen mit nur Adresse und Passwort (automatische Erkennung), passwortfreie OAuth-2.0-Anmeldung oder manuelle IMAP/SMTP-Einrichtung mit Voreinstellungen für Anbieter
 * Push-Benachrichtigungen für neue Mail ohne Google und ohne FCM, über JMAP EventSource, IMAP IDLE oder UnifiedPush, nach Konto gruppiert und mit Ruhezeiten
-* OpenPGP-Verschlüsselung über OpenKeychain, sowohl bei JMAP als auch bei IMAP/SMTP. Entschlüsselte Inhalte werden nie auf den Datenträger geschrieben
+* OpenPGP-Verschlüsselung über OpenKeychain, sowohl bei JMAP als auch bei IMAP/SMTP. Entschlüsselte Inhalte werden nie auf den Datenträger geschrieben; ein geöffneter Anhang wird im App-eigenen Speicher abgelegt, bis der Zwischenspeicher geleert wird
 * Externe Bilder und Zählpixel sind standardmäßig blockiert, und Tracking-Parameter lassen sich aus Links entfernen, bevor diese geöffnet werden
 * Zugangsdaten im Android-KeyStore verschlüsselt, App-Sperre per Biometrie oder PIN
 

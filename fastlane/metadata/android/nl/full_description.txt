@@ -22,7 +22,7 @@ Accounts, meldingen en versleuteling:
 
 * Voeg een account toe met alleen uw adres en wachtwoord (automatische detectie), wachtwoordloze OAuth 2.0-aanmelding, of handmatige IMAP/SMTP-instelling met voorinstellingen per aanbieder
 * Pushmeldingen voor nieuwe post zonder Google en zonder FCM, via JMAP EventSource, IMAP IDLE of UnifiedPush, gegroepeerd per account en met stille uren
-* OpenPGP-versleuteling via OpenKeychain, zowel bij JMAP als bij IMAP/SMTP. Ontsleutelde inhoud wordt nooit naar schijf geschreven
+* OpenPGP-versleuteling via OpenKeychain, zowel bij JMAP als bij IMAP/SMTP. Ontsleutelde inhoud wordt nooit naar schijf geschreven; een bijlage die u opent wordt naar de eigen opslag van de app geschreven totdat de cache wordt geleegd
 * Externe afbeeldingen en telpixels standaard geblokkeerd, en volgparameters kunnen uit koppelingen worden verwijderd voordat die openen
 * Inloggegevens versleuteld met de Android KeyStore, appvergrendeling met biometrie of pincode
 

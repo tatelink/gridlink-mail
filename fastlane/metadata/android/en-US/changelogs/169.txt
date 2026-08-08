@@ -3,6 +3,7 @@ Deleting mail
 - Before emptying a folder or destroying mail, Sterna asks the server where those messages are now, and leaves out anything that has moved in the meantime (JMAP). When the answer does not come, it gives up rather than guessing.
 - On IMAP, a delete that cannot confirm the server's message numbering is refused instead of risked, so it cannot fall on the wrong message.
 - Accounts with hundreds of folders no longer run into a database limit when cached folders are purged.
+- Bulk actions taken on search results now act on the whole selection instead of the part already cached, and say what they could not do.
 
 Accounts
 
@@ -14,12 +15,13 @@ Reading
 - A pure black dark theme, for OLED screens (Settings → Appearance).
 - Unread messages carry a background of their own, not just bold text.
 - Sender initials can be turned off in the message list (Settings → Appearance).
+- The list of address suggestions in the composer sizes itself to the space left below the field, so it no longer covers the keyboard on a small screen.
 
 Settings
 
 - The per-account switch under Notifications says what it really does: turning it off stops fetching that account's mail in the background, not just the notification about it.
 - The note about an account that is not being watched no longer appears when that account's own switch is off, and that switch can be ticked again.
-- "Messages to sync" means what the screen says: the counts are 100, 1 000 and 10 000, and a change takes effect at once.
+- "Messages to sync" means what the screen says: the counts are 100, 1 000 and 10 000, and a change is applied by the next sync instead of needing the account cache cleared.
 
 Writing
 

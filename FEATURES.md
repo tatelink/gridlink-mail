@@ -170,7 +170,9 @@ The categories further down list the full feature set; this is the order of work
 - ✅ OpenPGP via OpenKeychain: read (decrypt + verify signatures) and send
   (sign and/or encrypt, PGP/MIME) on both JMAP and IMAP/SMTP. Per-account setup
   in Settings; a lock toggle in the composer. Decrypted content is never written
-  to disk (not cached, not search-indexed); the message subject is not encrypted.
+  to disk (not cached, not search-indexed), except an attachment you open, which
+  is written to the app's own storage until the cache is cleared. The message
+  subject is not encrypted.
   User guide: [ENCRYPTION.md](ENCRYPTION.md).
 - 💡 S/MIME (longer-term)
 

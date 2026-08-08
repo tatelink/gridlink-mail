@@ -22,7 +22,7 @@ Cuentas, notificaciones y cifrado:
 
 * Añada una cuenta solo con su dirección y su contraseña (detección automática), inicio de sesión OAuth 2.0 sin contraseña, o configuración manual de IMAP/SMTP con ajustes predefinidos por proveedor
 * Notificaciones push de correo nuevo sin Google y sin FCM, mediante JMAP EventSource, IMAP IDLE o UnifiedPush, agrupadas por cuenta y con horas de silencio
-* Cifrado OpenPGP a través de OpenKeychain, tanto en JMAP como en IMAP/SMTP. El contenido descifrado nunca se escribe en el disco
+* Cifrado OpenPGP a través de OpenKeychain, tanto en JMAP como en IMAP/SMTP. El contenido descifrado nunca se escribe en el disco; un adjunto que abra se escribe en el almacenamiento propio de la aplicación hasta que se vacía la caché
 * Imágenes remotas y píxeles de rastreo bloqueados por defecto, y los parámetros de seguimiento pueden quitarse de los enlaces antes de abrirlos
 * Credenciales cifradas con el Android KeyStore, bloqueo de la aplicación por biometría o PIN
 

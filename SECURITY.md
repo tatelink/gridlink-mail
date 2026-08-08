@@ -171,7 +171,9 @@ Out of scope:
 - **Decrypted content is never persisted**: plaintext of an encrypted message is held in
   an in-memory cache only, never written to the Room body cache and never added to the
   local search index (which indexes headers only). An encrypted message in the outbox
-  stores only its ciphertext entity; the plaintext body is cleared at rest.
+  stores only its ciphertext entity; the plaintext body is cleared at rest. Attachments
+  are the exception: an attachment you open is written to the app's own storage until
+  the cache is cleared.
 - The message **subject is not encrypted** (sent in the clear, matching common OpenPGP
   practice); protected headers are out of scope for now.
 

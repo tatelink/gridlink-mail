@@ -22,7 +22,7 @@ Accounts, notifications and encryption:
 
 * Add an account with just your email and password (autodiscovery), password-free OAuth 2.0 sign-in, or manual IMAP/SMTP setup with provider presets
 * Push notifications for new mail with no Google and no FCM, over JMAP EventSource, IMAP IDLE or UnifiedPush, grouped per account and with quiet hours
-* OpenPGP encryption through OpenKeychain, on both JMAP and IMAP/SMTP. Decrypted content is never written to disk
+* OpenPGP encryption through OpenKeychain, on both JMAP and IMAP/SMTP. Decrypted content is never written to disk; an attachment you open is written to the app's own storage until the cache is cleared
 * Remote images and tracking pixels blocked by default, and tracking parameters can be stripped from links before they open
 * Credentials encrypted with the Android KeyStore, app lock with biometrics or a PIN
 

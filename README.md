@@ -140,7 +140,8 @@ Running your own server, with a free certificate or one you issued yourself? See
 **🔒 Encryption**
 - **OpenPGP** (via [OpenKeychain](https://f-droid.org/packages/org.sufficientlysecure.keychain/)):
   read and send signed and/or encrypted mail (PGP/MIME) on both JMAP and
-  IMAP/SMTP. Decrypted content is never written to disk. See the
+  IMAP/SMTP. Decrypted content is never written to disk; an attachment you open
+  is written to the app's own storage until the cache is cleared. See the
   [encryption guide](ENCRYPTION.md) to get started.
 
 **🔔 Notifications & server power**

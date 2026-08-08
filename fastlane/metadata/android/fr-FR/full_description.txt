@@ -22,7 +22,7 @@ Comptes, notifications et chiffrement :
 
 * Ajout d'un compte avec simplement votre adresse et votre mot de passe (découverte automatique), connexion OAuth 2.0 sans mot de passe, ou configuration IMAP/SMTP manuelle avec préréglages
 * Notifications de nouveaux messages sans Google ni FCM, via JMAP EventSource, IMAP IDLE ou UnifiedPush, groupées par compte et avec heures calmes
-* Chiffrement OpenPGP via OpenKeychain, en JMAP comme en IMAP/SMTP. Le contenu déchiffré n'est jamais écrit sur le disque
+* Chiffrement OpenPGP via OpenKeychain, en JMAP comme en IMAP/SMTP. Le contenu déchiffré n'est jamais écrit sur le disque ; une pièce jointe ouverte est écrite dans l'espace de stockage de l'application jusqu'au vidage du cache
 * Images distantes et pixels espions bloqués par défaut, et les paramètres de pistage peuvent être retirés des liens avant leur ouverture
 * Identifiants chiffrés dans l'AndroidKeyStore, verrouillage de l'application par biométrie ou code
 
