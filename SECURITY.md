@@ -12,8 +12,10 @@ the hardening below concentrates there.
 
 Please report security issues **privately** rather than opening a public issue:
 
-- Open a confidential/security advisory on the project repository, or
-- email the maintainer listed in the repository metadata.
+- **Preferred:** open a private security advisory at
+  <https://github.com/tatelink/gridlink-mail/security/advisories/new>. Private vulnerability
+  reporting is enabled, so this is visible only to the maintainer until a fix ships.
+- Otherwise email **brandon@gridlink.me**.
 
 Include a description, affected version (see `versionName` in `app/build.gradle.kts`),
 and a proof-of-concept if you have one (e.g. a crafted `.eml`, a server response, or an
