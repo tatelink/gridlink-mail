@@ -1,0 +1,27 @@
+Suppression du courrier
+
+- Avant de vider un dossier ou de détruire du courrier, Sterna demande au serveur où sont ces messages, et laisse de côté ceux qui ont bougé entre-temps (JMAP). Quand la réponse ne vient pas, il renonce au lieu de deviner.
+- En IMAP, une suppression qui ne peut pas confirmer la numérotation des messages du serveur est refusée plutôt que risquée : elle ne peut plus tomber sur le mauvais message.
+- Les comptes qui ont des centaines de dossiers ne butent plus sur une limite de la base de données quand les dossiers en cache sont purgés.
+
+Comptes
+
+- Un compte partagé qui ne porte pas de courrier, un partage d'agenda par exemple, n'est plus ajouté comme compte à part entière. Un compte déjà ajouté par une version antérieure reste tant qu'on ne s'en déconnecte pas pour le rajouter, ce qui efface aussi son cache local.
+- L'envoi utilise désormais le mécanisme d'authentification SMTP que le serveur annonce, PLAIN avant LOGIN, au lieu de toujours demander LOGIN.
+
+Lecture
+
+- Un thème sombre en noir pur, pour les écrans OLED (Réglages → Apparence).
+- Les messages non lus ont un fond à eux, et pas seulement un texte en gras.
+- Les initiales de l'expéditeur peuvent être retirées de la liste des messages (Réglages → Apparence).
+
+Réglages
+
+- L'interrupteur de compte, dans Notifications, dit ce qu'il fait vraiment : l'éteindre arrête la relève du courrier de ce compte en arrière-plan, pas seulement la notification.
+- La note qui signale un compte non surveillé ne s'affiche plus quand l'interrupteur de ce compte est éteint, et cet interrupteur se laisse à nouveau cocher.
+- « Messages à synchroniser » dit ce que l'écran affiche : les nombres sont 100, 1 000 et 10 000, et un changement prend effet tout de suite.
+
+Écriture
+
+- La demande de confirmation affichée à la fermeture d'un brouillon est plus courte et défile, pour que ses boutons restent atteignables en grande police.
+- L'œil qui montre ou masque un mot de passe n'apparaît que s'il y a quelque chose à révéler.
