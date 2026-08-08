@@ -59,6 +59,8 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -705,16 +707,25 @@ fun gridlinkAccentFill(accent: Color): Brush = Brush.linearGradient(
  * fill, white glyph, real halo — because it is the only thing down there that creates something
  * rather than navigating to it.
  *
- * ## 🔴 The glyph does NOT follow the tab any more
- * It used to: a pencil on mail, a plus on Calendar and Contacts, crossfading between them. Brandon
- * killed it — "having a 'write' button is confusing" — and he is right about why. A landmark that
- * changes its face is no longer a landmark; you have to read it before you trust it, every time,
- * which is the opposite of what a fixed button in a fixed place is for. It is always a "+" now, and
- * what the "+" makes is decided by the tab you are on and stated in [GridlinkDestination.composeLabel].
+ * ## 🔴 The glyph does NOT follow the tab, and neither does the label
+ * The glyph used to: a pencil on mail, a plus on Calendar and Contacts, crossfading between them.
+ * Brandon killed it — "having a 'write' button is confusing" — and he is right about why. A
+ * landmark that changes its face is no longer a landmark; you have to read it before you trust it,
+ * every time, which is the opposite of what a fixed button in a fixed place is for. It is always a
+ * "+" now, and what the "+" makes is decided by the tab you are on and stated in
+ * [GridlinkDestination.composeLabel].
  *
- * That is also why there is no [AnimatedContent] left in here. With one glyph there is nothing to
- * cross-fade, and a crossfade between two identical icons is a flicker charged to nobody's benefit.
- * The only thing that changes on a tab switch is the content description, which is not drawn.
+ * The label came later — "the + needs a text descriptor like edit, reply, etc so its not
+ * confusing" — and it is "New" on every tab for the glyph's exact reason: "Write" here would put
+ * the confusing word back, and a label that rewrote itself on a tab switch would be the pencil
+ * problem again in text. The full per-tab meaning still reaches screen readers through
+ * [contentDescription], which outranks the visible text.
+ *
+ * ## Why it delegates to [GridlinkDetailAccentButton] instead of drawing itself
+ * "Like edit, reply" is the whole spec: the detail screens' accent circle already puts a 20dp
+ * glyph over an 11sp label inside the same 64dp, same fill, same halo. Two hand-matched copies
+ * would drift the first time one was touched, and this one deliberately keeps the accent fill —
+ * a second color would spend a new palette signal on what the label already says.
  *
  * ## Where it sits is the scaffold's business, not this button's
  * It takes a [modifier] and uses it, and it does not position itself. [GridlinkScaffold] slides it
@@ -726,27 +737,12 @@ fun GridlinkComposeButton(
     modifier: Modifier = Modifier,
     destination: GridlinkDestination = GridlinkDestination.INBOX,
 ) {
-    val colors = GridlinkTheme.colors
-    Box(
-        modifier = modifier
-            .size(GridlinkDimens.composeButton)
-            // Stronger than the pill's halo. This is the loudest thing on the screen on purpose.
-            .gridlinkGlow(
-                colors.actionGlow?.copy(alpha = 0.40f),
-                radiusMultiplier = 0.95f,
-            )
-            .clip(CircleShape)
-            .background(gridlinkAccentFill(colors.accent))
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = Icons.Outlined.Add,
-            contentDescription = destination.composeLabel,
-            tint = colors.onAccent,
-            modifier = Modifier.size(26.dp),
-        )
-    }
+    GridlinkDetailAccentButton(
+        icon = Icons.Outlined.Add,
+        label = "New",
+        onClick = onClick,
+        modifier = modifier.semantics { contentDescription = destination.composeLabel },
+    )
 }
 
 /**
