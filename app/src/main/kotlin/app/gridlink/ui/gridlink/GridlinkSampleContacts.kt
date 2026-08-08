@@ -23,6 +23,14 @@ import app.gridlink.core.jmap.model.ContactCardPhoto
  * asserted for anyone: Jeff is on gridlink.me and is marked Personal, which is the most the mail
  * sample actually establishes.
  *
+ * ## 🔴 No address in this file may be a real mailbox
+ * The repo is public. Every local part here is invented, including the ones on gridlink.me, and
+ * that is load-bearing rather than incidental: a real address committed to a public repo is a
+ * harvested address, permanently, and this project's own domain has already been through one
+ * mailbox compromise. Jeff is "Jeff Harlan" at an invented local part for exactly that reason,
+ * and the display name has to keep matching [GridlinkSample] sender strings or
+ * [forSender] silently stops resolving him. Change one, change both.
+ *
  * ## Why the sort key is the surname and the display name is not
  * A phonebook sorted by the first name puts Dana Locklear under D and Devon Hinton under D and
  * leaves L and H empty, which makes the A-Z rail a list of letters that mostly do nothing. Sorting
@@ -160,7 +168,7 @@ object GridlinkSampleContacts {
         GridlinkContact("moore", "Andre", "Moore", "Kitchen Manager, 0459 Randolph Rd", "a.moore@gridlink.me"),
         GridlinkContact("nakamura", "Grace", "Nakamura", "Regional Trainer", "g.nakamura@hrbenefits.com"),
         GridlinkContact("okafor", "Curtis", "Okafor", "Overnight Cleaning Lead", "c.okafor@sitecare.com"),
-        GridlinkContact("parnell", "Jeff", "Parnell", "Personal", "jeff@gridlink.me"),
+        GridlinkContact("harlan", "Jeff", "Harlan", "Personal", "jeff.harlan@gridlink.me"),
         GridlinkContact("payroll", "", "Payroll", "Pay runs and corrections", "payroll@hrbenefits.com"),
         GridlinkContact("perez", "Tomas", "Perez", "Kitchen Manager, 0797 Midtown", "t.perez@gridlink.me"),
         GridlinkContact("powerbi", "", "Power BI Service", "Automated report delivery", "no-reply@microsoft.com"),

@@ -51,7 +51,7 @@ object GridlinkSample {
         ),
         GridlinkMessage(
             id = "jeff-dogs",
-            sender = "Jeff",
+            sender = "Jeff Harlan",
             domain = "gridlink.me",
             subject = "did you feed the dogs",
             timestamp = "6:22 AM",
@@ -178,7 +178,7 @@ object GridlinkSample {
         ),
         GridlinkMessage(
             id = "fill-jeff-store",
-            sender = "Jeff",
+            sender = "Jeff Harlan",
             domain = "gridlink.me",
             subject = "are we still doing the thing saturday",
             timestamp = "7:48 AM",
