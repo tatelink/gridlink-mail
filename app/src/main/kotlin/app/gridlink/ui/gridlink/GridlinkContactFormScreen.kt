@@ -59,14 +59,15 @@ import kotlinx.coroutines.withContext
  * the debug gallery keeps it in memory. The form stays open, Save disabled, until the answer
  * comes back, and a refusal lands in the form's own hint line.
  *
- * ## 🔴 Why "Last name or company" is the required field and not the first name
- * [GridlinkSampleContacts.GridlinkContact.letter] is `family.first().uppercaseChar()`, and it is
- * what the A-Z index and the section headers are built from. A contact with a blank family name
- * would take that `first()` on an empty string and crash the address book on the frame it was
- * added. The field is also doing double duty on purpose: an organization in this model is a
- * contact with an empty given name and the company filed in the family slot, which is how "Dalton
- * Energy" files under D beside the people. Labelling it for both is more honest than a separate
- * "is this a company" switch.
+ * ## 🔴 Last name and Company are separate fields, and one of them is required
+ * Tate's rule, verbatim: "Last Name is a field, and Company is a field. They don't crossover."
+ * So the family field is labelled Last name and only ever holds a surname, and a company goes in
+ * Company — the form never files one in the other's slot. What is still required is *something to
+ * file under*: [GridlinkSampleContacts.GridlinkContact.letter] is built from
+ * [GridlinkSampleContacts.GridlinkContact.filedUnder] (surname, else given name, else company),
+ * and a card where every one of those is blank would take `first()` on an empty string and crash
+ * the address book on the frame it was added. A last name or a company satisfies that, so Save
+ * asks for one of the two and never asks the user to fake one inside the other.
  *
  * ## ⚠️ The email is required on NEW cards only
  * A new row that cannot be mailed is a mistake worth catching at the point of making it. But on a
@@ -94,6 +95,8 @@ fun GridlinkContactFormScreen(
     saving: Boolean = false,
     /** Why the last save did not happen, in the caller's words. Outranks the advice hints. */
     failure: String? = null,
+    /** Draw as §7's reading pane: editing swaps only the right pane. See [GridlinkFormScreen]. */
+    embedded: Boolean = false,
 ) {
     var photo by remember { mutableStateOf(initial?.photo) }
     var given by remember { mutableStateOf(TextFieldValue(initial?.given.orEmpty())) }
@@ -156,7 +159,7 @@ fun GridlinkContactFormScreen(
     while (customValueFocus.size < customs.size) customValueFocus.add(FocusRequester())
     LaunchedEffect(Unit) { givenFocus.requestFocus() }
 
-    val filed = family.text.isNotBlank()
+    val filed = family.text.isNotBlank() || company.text.isNotBlank()
     // Validated with the composer's own matcher rather than a second one written here. Two regexes
     // for the same question drift, and the failure is invisible: a contact the address book accepts
     // and the composer will not send to.
@@ -178,6 +181,7 @@ fun GridlinkContactFormScreen(
         confirmLabel = if (saving) "Saving" else "Save",
         confirmEnabled = filed && !misspelled && !needsEmail && !saving,
         hint = hint,
+        embedded = embedded,
         onConfirm = {
             onSave(
                 ContactEdit(
@@ -233,7 +237,7 @@ fun GridlinkContactFormScreen(
             capitalization = KeyboardCapitalization.Words,
             imeAction = ImeAction.Next,
             onImeAction = { companyFocus.requestFocus() },
-            label = "Last name or company",
+            label = "Last name",
             contained = true,
         )
 

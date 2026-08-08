@@ -99,7 +99,10 @@ class GridlinkBook(
                 if (addedContacts.isEmpty() && editedContacts.isEmpty()) {
                     it
                 } else {
-                    (it + addedContacts).sortedWith(compareBy({ c -> c.family.lowercase() }, { c -> c.given.lowercase() }))
+                    // 🔴 filedUnder, not family: a form-created company-only card has a blank
+                    // family, and sorting it by that blank would park it at the top of A while its
+                    // section letter says it belongs under the company.
+                    (it + addedContacts).sortedWith(compareBy({ c -> c.filedUnder.lowercase() }, { c -> c.given.lowercase() }))
                 }
             }
 

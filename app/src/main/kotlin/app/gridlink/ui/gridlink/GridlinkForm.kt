@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -84,6 +85,21 @@ import app.gridlink.ui.theme.GridlinkType
  * a full-screen thing you type into, opened by the same button, closed by the same X — so they are
  * built the same way rather than being a second answer to a question already answered.
  *
+ * ## What [embedded] changes, and why
+ * True means the form is §7's reading pane — Tate's rule for editing a contact in two panes:
+ * "Editing it will cause only the right pane to change." The differences all follow
+ * [GridlinkDetailFrame]'s embedded conventions, because the pane the form replaces is drawn by that
+ * frame and the glass must not jump when view swaps to edit:
+ * - No [GridlinkBackground] and no systemBars inset — the scaffold painted one backdrop across both
+ *   panes and its Row already took the bars. 🔴 The ime inset is still needed (the keyboard covers
+ *   the pane's lower half), but as `ime.exclude(systemBars)`: the ime inset is measured from the
+ *   bottom of the display and contains the gesture bar the scaffold already padded for, so applying
+ *   it whole would double-count that band.
+ * - The header collapses to the frame's paneFloor spacer, and the title moves INSIDE the glass over
+ *   a hairline, exactly where the detail pane draws its own. The X rides the title row's far end.
+ * - The baseline row stops one compose button short of the window edge — the scaffold parks its "+"
+ *   there in two panes, and Save must not land under it (the collision the detail frame documents).
+ *
  * ## Why Save stays on the baseline instead of moving into the header
  * The composer moves send up to a 44dp circle when the keyboard is up, because its panel is a
  * message body that needs every remaining pixel. A form is four or five rows: with the ime inset
@@ -120,6 +136,8 @@ fun GridlinkFormScreen(
      * finished yet is not a warning.
      */
     hint: String? = null,
+    /** Draw as §7's reading pane rather than a standing screen — see the class KDoc. */
+    embedded: Boolean = false,
     fields: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = GridlinkTheme.colors
@@ -129,30 +147,49 @@ fun GridlinkFormScreen(
     // `enabled = false` rather than skipping the call: BackHandler is a composable, and one that
     // appears and disappears with a nullable would break the rule against conditional composition.
     BackHandler(enabled = onClose != null) { onClose?.invoke() }
-    GridlinkBackground(modifier = modifier) {
+    val body: @Composable () -> Unit = {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                // The composer's line, and the reasoning is written out there: `union`, never the two
-                // insets applied one after the other, because the ime inset is measured from the
-                // bottom of the display and already contains the gesture bar.
-                .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.ime)),
+                .windowInsetsPadding(
+                    if (embedded) {
+                        // The scaffold's Row already took systemBars for the whole window; only the
+                        // keyboard's extra height belongs to the pane. See the class KDoc for why
+                        // this is exclude and not the ime inset whole.
+                        WindowInsets.ime.exclude(WindowInsets.systemBars)
+                    } else {
+                        // The composer's line, and the reasoning is written out there: `union`,
+                        // never the two insets applied one after the other, because the ime inset is
+                        // measured from the bottom of the display and already contains the gesture
+                        // bar.
+                        WindowInsets.systemBars.union(WindowInsets.ime)
+                    },
+                ),
         ) {
-            GridlinkFormHeader(title = title, onClose = onClose)
+            if (embedded) {
+                // The detail frame's paneFloor spacer, so the form's glass starts on the same line
+                // as the list column's panel beside it. See [LocalGridlinkPaneHeaderHeight].
+                val paneFloor = LocalGridlinkPaneHeaderHeight.current
+                if (paneFloor > 0.dp) {
+                    Spacer(Modifier.height(paneFloor))
+                }
+            } else {
+                GridlinkFormHeader(title = title, onClose = onClose)
 
-            hint?.let { text ->
-                Text(
-                    text = text,
-                    style = GridlinkType.metadata,
-                    color = colors.textSecondary,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(
-                            start = GridlinkSpacing.chrome + GridlinkSpacing.rowHorizontal,
-                            end = GridlinkSpacing.chrome + GridlinkSpacing.rowHorizontal,
-                            bottom = GridlinkSpacing.s12,
-                        ),
-                )
+                hint?.let { text ->
+                    Text(
+                        text = text,
+                        style = GridlinkType.metadata,
+                        color = colors.textSecondary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                start = GridlinkSpacing.chrome + GridlinkSpacing.rowHorizontal,
+                                end = GridlinkSpacing.chrome + GridlinkSpacing.rowHorizontal,
+                                bottom = GridlinkSpacing.s12,
+                            ),
+                    )
+                }
             }
 
             val panelShape = RoundedCornerShape(GridlinkRadii.card)
@@ -165,13 +202,69 @@ fun GridlinkFormScreen(
                     .background(colors.listSurface, panelShape)
                     .border(GridlinkDimens.hairline, colors.surfaceBorder, panelShape),
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .gridlinkEdgeFade(fadeTop = false),
-                    content = fields,
-                )
+                Column(modifier = Modifier.fillMaxSize()) {
+                    if (embedded) {
+                        // The pane's title inside the glass over a hairline, at the detail pane's
+                        // exact metrics, with the X on its far end — the pane has no header row to
+                        // hold either. The hint slides in under the hairline, where the standing
+                        // screen's above-the-glass slot would have put it.
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(
+                                    start = GridlinkSpacing.rowHorizontal,
+                                    end = GridlinkSpacing.rowHorizontal,
+                                    top = GridlinkSpacing.s16,
+                                    bottom = GridlinkSpacing.s12,
+                                ),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = title,
+                                style = GridlinkType.threadTitle,
+                                color = colors.textPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            onClose?.let {
+                                GridlinkCircleButton(
+                                    icon = Icons.Outlined.Close,
+                                    label = "Discard",
+                                    onClick = it,
+                                )
+                            }
+                        }
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(GridlinkDimens.hairline)
+                                .background(colors.divider),
+                        )
+                        hint?.let { text ->
+                            Text(
+                                text = text,
+                                style = GridlinkType.metadata,
+                                color = colors.textSecondary,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(
+                                        start = GridlinkSpacing.rowHorizontal,
+                                        end = GridlinkSpacing.rowHorizontal,
+                                        top = GridlinkSpacing.s12,
+                                    ),
+                            )
+                        }
+                    }
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .gridlinkEdgeFade(fadeTop = false),
+                        content = fields,
+                    )
+                }
             }
 
             // The nav-pill baseline, at the composer's paddings so the two line up.
@@ -181,7 +274,14 @@ fun GridlinkFormScreen(
                     .padding(
                         start = GridlinkSpacing.chrome,
                         top = GridlinkSpacing.s16,
-                        end = GridlinkSpacing.chrome,
+                        // 🔴 In the pane, one compose button short of the window: the scaffold parks
+                        // its "+" at the bottom-right in two panes, and Save must stay reachable.
+                        // Same collision, same fix as [GridlinkDetailFrame]'s action row.
+                        end = if (embedded) {
+                            GridlinkSpacing.chrome + GridlinkDimens.composeButton + GridlinkSpacing.s16
+                        } else {
+                            GridlinkSpacing.chrome
+                        },
                         bottom = GridlinkSpacing.chrome,
                     ),
                 horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s16),
@@ -196,6 +296,12 @@ fun GridlinkFormScreen(
                 )
             }
         }
+    }
+    if (embedded) {
+        // No backdrop: the scaffold painted one across both panes, same as the detail frame.
+        Box(modifier = modifier) { body() }
+    } else {
+        GridlinkBackground(modifier = modifier) { body() }
     }
 }
 

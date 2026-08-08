@@ -54,8 +54,9 @@ object GridlinkMemoryContactWriter : GridlinkContactWriter {
  * The display shape of a saved edit, for the in-memory paths where nothing echoes one back.
  *
  * The inverse of [GridlinkContact.editSeed], and the round trip matters: save-then-reopen must
- * show the form the values it just confirmed. An organization edit (no given name, no company)
- * files whole under [GridlinkContact.family], exactly as the fixtures spell one.
+ * show the form the values it just confirmed. Last name and Company are separate fields that
+ * never cross over (Tate's rule), so [family] is mapped verbatim even when blank — a card
+ * with only a company still files, because [GridlinkContact.filedUnder] falls back to it.
  */
 internal fun gridlinkContactOf(edit: ContactEdit, id: String): GridlinkContact {
     val n = edit.normalized()
