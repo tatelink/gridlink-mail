@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
@@ -334,6 +335,13 @@ fun GridlinkSearchPill(
         onQueryChange("")
         keyboard?.hide()
     }
+
+    // Back closes an open search before anything under it moves. Composed inside the list content,
+    // so it registers after the scaffold's selection and detail handlers and wins over both: an
+    // expanded search is the most recently entered mode on the screen, and back peels modes off
+    // innermost-first. The drawer still beats this (it is composed later still), which is right —
+    // it is drawn over the top of everything, search included.
+    BackHandler(enabled = expanded) { close() }
 
     Box(
         modifier = modifier

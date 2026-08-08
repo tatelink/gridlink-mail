@@ -60,6 +60,43 @@ data class GridlinkMailContent(
      * actions already use.
      */
     val imageAllowlist: Set<String> = emptySet(),
+    /**
+     * The server search the pill's text asked for, or null when the pill is empty.
+     *
+     * Rides in here rather than as its own screen parameter because it is mail, and everything
+     * about how mail reaches a screen (null means "nobody is supplying mail", the sample fallback,
+     * the @Immutable equality) applies to it unchanged. A gallery run with no account never has
+     * one of these; the list filters its fixtures locally instead, which is honest there because
+     * the fixtures are the whole mailbox.
+     */
+    val search: GridlinkSearchContent? = null,
+)
+
+/**
+ * One search, from the account's whole mailbox, as the list draws it.
+ *
+ * Transient by design: nothing here is cached, and the repository's own doc says why — a search
+ * result is an answer to a question, not mail the account holds. [query] is what the answer is FOR,
+ * and the screen must check it against what the pill currently says: emissions trail keystrokes,
+ * and results for "invoi" drawn under a pill that says "invoice" are stale the moment a newer
+ * answer differs.
+ */
+@Immutable
+data class GridlinkSearchContent(
+    /** The trimmed text this answer (or in-flight question) is about. Never blank. */
+    val query: String,
+    /** The hits, newest first, each already wearing the day section its date earns. */
+    val results: List<GridlinkMessage> = emptyList(),
+    /** True from the keystroke until the server answers: the skeleton draws, not "No results". */
+    val searching: Boolean = false,
+    /**
+     * False when the answer may not be the whole answer (the server stopped at the cap, a folder
+     * refused, the folder cache was empty). The footer says "there may be more" instead of letting
+     * a capped page read as everything. See [MailSearchResult.complete]'s doc for the three ways.
+     */
+    val complete: Boolean = true,
+    /** The search itself failed (offline, server error). Distinct from an honest empty answer. */
+    val failed: Boolean = false,
 )
 
 /**

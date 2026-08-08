@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -39,6 +40,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
@@ -202,6 +205,15 @@ fun GridlinkMessageListScreen(
     /** Screen-capture hook: opens with the search pill already unfolded. */
     initialSearchExpanded: Boolean = false,
     /**
+     * What the pill says, reported upward on every keystroke.
+     *
+     * Whoever supplies [mail] answers through [GridlinkMailContent.search]; this screen never asks
+     * the server anything itself. The default no-op is the sample's whole wiring: with [mail] null
+     * the fixtures are filtered locally below, which is honest there and only there, because the
+     * fixtures ARE the whole mailbox.
+     */
+    onSearchQuery: (String) -> Unit = {},
+    /**
      * Screen-capture hook: which row opens mid-swipe. A message id, or [GRIDLINK_BUNDLE_SWIPE_ID]
      * for the bundle row itself. §6a's deliverable is three frames taken *during* the gesture, and
      * `adb input swipe` cannot hold a drag still at a given fraction of a row it cannot measure.
@@ -312,10 +324,16 @@ fun GridlinkMessageListScreen(
     onCompose: () -> Unit = {},
 ) {
     var bundleExpanded by rememberSaveable(initiallyExpanded) { mutableStateOf(initiallyExpanded) }
-    // ⚠️ The mock does not filter on this yet. It is held so the pill is a real input rather than a
-    // picture of one; wiring it to the list waits on JMAP's own search, since filtering the visible
-    // page client-side would quietly search a subset and look like it searched everything.
+    // The pill's text. What it searches is [mail]'s null test, like everything else on this screen:
+    // a real account reports every keystroke upward and draws the server's answer from
+    // [GridlinkMailContent.search] — filtering the visible page client-side would quietly search a
+    // subset and look like it searched everything — while the sample filters its own fixtures.
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    // Process death restores the text, but nobody upstream heard it typed, so the restored screen
+    // would otherwise sit on a query with no answer coming. Harmless when there is no upstream.
+    LaunchedEffect(Unit) {
+        if (searchQuery.isNotBlank()) onSearchQuery(searchQuery)
+    }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
@@ -612,6 +630,14 @@ fun GridlinkMessageListScreen(
     // that still shows a collapsed bundle, which is a visible list.
     val hasMail = humans.any(::isPresent) || !bundleGone
 
+    // Search replaces the list wholesale rather than filtering it in place: hits come from the
+    // whole account, so most of them are not IN this list to be filtered toward. `selecting`
+    // cannot normally be true alongside a query (the pill is hidden while a selection is open,
+    // so nothing can be typed during one), but a selection restored beside a restored query must
+    // win: its header, gutter and toolbar all assume the inbox rows are what is on screen.
+    val activeQuery = searchQuery.trim()
+    val searchActive = activeQuery.isNotEmpty() && !selecting
+
     val chrome = LocalGridlinkChrome.current
     val pullState = rememberPullToRefreshState()
     // ⚠️ Local, not derived from `chrome.sync`. A sync started from somewhere else should light the
@@ -647,7 +673,10 @@ fun GridlinkMessageListScreen(
             {
                 GridlinkSearchPill(
                     query = searchQuery,
-                    onQueryChange = { searchQuery = it },
+                    onQueryChange = {
+                        searchQuery = it
+                        onSearchQuery(it)
+                    },
                     initiallyExpanded = initialSearchExpanded,
                 )
             }
@@ -669,8 +698,10 @@ fun GridlinkMessageListScreen(
                     // Off while loading, on the same principle that turns it off on an empty list:
                     // there are no rows to drag. It is also already refreshing, and a pull that
                     // starts a second fetch on top of the first is a gesture that can only make
-                    // things worse.
-                    enabled = hasMail && !awaitingMail,
+                    // things worse. Off during a search too: the indicator lives with the inbox
+                    // list (composed out below), so the gesture would sync silently, over results
+                    // a sync does not update.
+                    enabled = hasMail && !awaitingMail && !searchActive,
                     onRefresh = {
                         scope.launch {
                             refreshing = true
@@ -698,6 +729,27 @@ fun GridlinkMessageListScreen(
             // server has actually said there is nothing.
             if (awaitingMail) {
                 GridlinkListSkeleton()
+                return@Box
+            }
+
+            // Before the empty check: an account whose inbox WINDOW is empty can still hold years
+            // of searchable mail, and "Nothing to read" over live results would be answering the
+            // wrong question.
+            if (searchActive) {
+                GridlinkSearchResults(
+                    query = activeQuery,
+                    search = if (mail != null) {
+                        mail.search
+                    } else {
+                        gridlinkSampleSearch(activeQuery, humans, robots)
+                    },
+                    gutter = gutter,
+                    currentId = currentId,
+                    // Not [onRowTap]: its local mark-read edits the inbox copies, and a hit from
+                    // elsewhere in the account is not in them. The results list clears its own
+                    // dot, and the durable mark-read rides on the open, as it always does.
+                    onOpenMessage = onOpenMessage,
+                )
                 return@Box
             }
 
@@ -888,6 +940,145 @@ fun GridlinkMessageListScreen(
                 modifier = Modifier.align(Alignment.TopCenter),
             )
         }
+    }
+}
+
+/**
+ * The sample mailbox's answer to the pill, built where a real account's arrives from the server.
+ *
+ * A local filter, which is the thing the real path must never do — and honest here for exactly the
+ * reason it is forbidden there: these fixtures are the entire mailbox, so filtering them really is
+ * searching everything, and [GridlinkSearchContent.complete] stays true because it is true.
+ */
+private fun gridlinkSampleSearch(
+    query: String,
+    humans: List<GridlinkMessage>,
+    robots: List<GridlinkMessage>,
+): GridlinkSearchContent = GridlinkSearchContent(
+    query = query,
+    results = (humans + robots).filter { message ->
+        message.sender.contains(query, ignoreCase = true) ||
+            message.subject.contains(query, ignoreCase = true) ||
+            message.body.contains(query, ignoreCase = true)
+    },
+)
+
+/**
+ * What draws in the list panel while the pill has text: the answer, or the truthful state of not
+ * having one yet.
+ *
+ * ## The staleness gate is the whole design
+ * Emissions trail keystrokes, so the supplied [search] is routinely an answer to text the pill no
+ * longer says. Its [GridlinkSearchContent.query] names what it is FOR, and anything that is not for
+ * [query] draws as "still looking" rather than as results — hits for "invoi" sitting under a pill
+ * that says "invoice" would be wrong in the worst way, which is almost-right.
+ *
+ * ## What the rows deliberately do not do
+ * No swipes, no long-press, no selection. A result row is a way to FIND a message, and the thread
+ * it opens has every action; a swipe here would also need [GridlinkMessageListScreen.removedIds]-style
+ * exit choreography over a list that a newer answer can replace wholesale at any emission.
+ */
+@Composable
+private fun GridlinkSearchResults(
+    query: String,
+    search: GridlinkSearchContent?,
+    gutter: Dp,
+    currentId: String?,
+    onOpenMessage: (GridlinkMessage) -> Unit,
+) {
+    val current = search?.takeIf { it.query == query }
+    if (current == null || current.searching) {
+        // The same admission the first load makes, for the same reason: rows are coming, their
+        // shape is known, and their content is not.
+        GridlinkListSkeleton()
+        return
+    }
+    if (current.failed) {
+        GridlinkSearchStatus("Search could not reach the server. It will run again if you keep typing.")
+        return
+    }
+    if (current.results.isEmpty()) {
+        GridlinkSearchStatus("No results for “$query”")
+        return
+    }
+
+    // Read-dots cleared on tap, locally, because these rows are transient copies: [onRowTap]'s
+    // edit path only reaches the inbox lists, and nothing re-emits a search answer when a message
+    // inside it is opened. Keyed on the answer so a re-search starts from what the server said.
+    var readIds by remember(current) { mutableStateOf(emptySet<String>()) }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .gridlinkEdgeFade(),
+        flingBehavior = rememberGridlinkFlingBehavior(),
+        contentPadding = PaddingValues(
+            top = GridlinkDimens.listFade,
+            bottom = GridlinkDimens.listFade,
+        ),
+    ) {
+        // Every section INCLUDING automated, unlike the inbox timeline. Real hits never carry
+        // AUTOMATED (the view model re-states their day section, same as the folder list), but the
+        // sample's robots keep it, and a results list has no bundle row to hide them in.
+        GridlinkSection.entries.forEach { section ->
+            val inSection = current.results.filter { it.section == section }
+            if (inSection.isEmpty()) return@forEach
+            item(key = "search-label-${section.name}") {
+                GridlinkSectionLabel(section.label, gutter = gutter)
+            }
+            items(
+                count = inSection.size,
+                key = { index -> "search-${inSection[index].id}" },
+            ) { index ->
+                val message = inSection[index]
+                Column {
+                    GridlinkMessageRow(
+                        message = if (message.id in readIds) message.copy(unread = false) else message,
+                        onClick = {
+                            readIds = readIds + message.id
+                            onOpenMessage(message)
+                        },
+                        current = message.id == currentId,
+                        gutter = gutter,
+                    )
+                    GridlinkRowDivider(startInset = GridlinkSpacing.rowHorizontal + gutter)
+                }
+            }
+        }
+        if (!current.complete) {
+            // The repository's own caveat, surfaced instead of swallowed: a capped page, a folder
+            // that refused, or an unsynced folder cache all mean this list may not be the whole
+            // answer, and a list that ends in silence claims it is.
+            item(key = "search-incomplete") {
+                GridlinkSearchStatus(
+                    "There may be more than what is shown. Try narrowing the search.",
+                    fill = false,
+                )
+            }
+        }
+    }
+}
+
+/** One quiet line where rows would be: the no-results, failed and may-be-more states. */
+@Composable
+private fun GridlinkSearchStatus(text: String, fill: Boolean = true) {
+    Box(
+        modifier = if (fill) {
+            Modifier.fillMaxSize()
+        } else {
+            Modifier
+                .fillMaxWidth()
+                .padding(vertical = GridlinkSpacing.chrome)
+        },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = GridlinkSpacing.chrome),
+            style = GridlinkType.metadata,
+            color = GridlinkTheme.colors.textSecondary,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 

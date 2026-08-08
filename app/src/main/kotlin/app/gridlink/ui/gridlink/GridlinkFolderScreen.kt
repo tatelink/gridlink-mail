@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -204,6 +205,11 @@ fun GridlinkFolderScreen(
     var creating by remember(initialCreateUnder) {
         mutableStateOf(initialCreateUnder?.let { GridlinkCreateTarget(it.takeIf { id -> id != "root" }) })
     }
+
+    // Back cancels the inline field before it does anything else — same move as tapping Cancel,
+    // not a discard of the whole screen. Composed in the tab's content, so it registers after the
+    // scaffold's handlers and wins while the field is up.
+    BackHandler(enabled = creating != null) { creating = null }
     // Ids for folders that do not exist on any server. A counter and not a name hash: two folders
     // called the same thing in different branches are legal, and a hash would collide them into one
     // LazyColumn key, which silently swaps their contents as you scroll.
