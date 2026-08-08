@@ -258,9 +258,15 @@ private fun GridlinkContactRow(
         ) {
             Text(
                 text = buildAnnotatedString {
-                    if (!contact.organization) append("${contact.given} ")
+                    // The heavy word is always the letter's word, and [GridlinkContact.filedUnder]
+                    // is the letter's word. The given name leads it only when it is not itself the
+                    // thing being filed under (a person with no surname files under the given name,
+                    // so writing it light AND heavy would print "Cher Cher").
+                    if (!contact.organization && contact.family.isNotEmpty()) {
+                        append("${contact.given} ")
+                    }
                     withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
-                        append(contact.family)
+                        append(contact.filedUnder)
                     }
                 },
                 style = GridlinkType.senderName.copy(fontWeight = FontWeight.Normal),

@@ -29,6 +29,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -1360,11 +1361,54 @@ fun GridlinkRoot(
             val readingPane: (@Composable () -> Unit)? =
                 if (twoPane) {
                     {
-                        val current = detail
-                        if (current == null) {
-                            GridlinkThreadPlaceholder(label = paneLabel)
+                        // Brandon's rule for editing in two panes: "Editing it will cause only the
+                        // right pane to change." So while a contact edit is open the pane holds the
+                        // form instead of the card, and Save puts the card back — [updateContact]
+                        // nulls [editingContact] on success, no extra wiring. Gated on the contacts
+                        // tab so switching tabs mid-edit shows that tab's own detail rather than a
+                        // contact form beside a calendar.
+                        // The new-contact form lives here too — Brandon: "new contact should also
+                        // stay in the right pane in unfolded mode. no need for full screen, it
+                        // looks weird stretched out." Same CONTACTS gate as the edit form below,
+                        // and it wins over an open edit because it is the later tap: the "+" is
+                        // still reachable while the pane holds the edit form, and the edit form's
+                        // Edit button is not reachable while the pane holds this.
+                        val paneCreating = destination == GridlinkDestination.CONTACTS &&
+                            creating == GridlinkCreation.Contact
+                        val editing =
+                            if (destination == GridlinkDestination.CONTACTS) editingContact else null
+                        if (paneCreating) {
+                            GridlinkContactFormScreen(
+                                title = "New contact",
+                                initial = null,
+                                onClose = { creating = null; saveContactError = null },
+                                onSave = ::saveContact,
+                                saving = savingContact,
+                                failure = saveContactError,
+                                embedded = true,
+                            )
+                        } else if (editing != null) {
+                            // Keyed so tapping a different row and then Edit starts a fresh form:
+                            // the form seeds its fields once from [initial], and without the key a
+                            // recomposition with a different contact would keep the old typing.
+                            key(editing.id) {
+                                GridlinkContactFormScreen(
+                                    title = "Edit contact",
+                                    initial = editing.editSeed,
+                                    onClose = { editingContact = null; saveContactError = null },
+                                    onSave = { updateContact(editing, it) },
+                                    saving = savingContact,
+                                    failure = saveContactError,
+                                    embedded = true,
+                                )
+                            }
                         } else {
-                            detailScreen(current, true)
+                            val current = detail
+                            if (current == null) {
+                                GridlinkThreadPlaceholder(label = paneLabel)
+                            } else {
+                                detailScreen(current, true)
+                            }
                         }
                     }
                 } else {
@@ -1588,6 +1632,11 @@ fun GridlinkRoot(
                 // The two "+" forms, in the same overlay slot the composer uses and for the same reason:
                 // they are full-screen things drawn over whichever list opened them, not destinations,
                 // so nothing about the nav pill or the back stack changes while one is up.
+                //
+                // 🔴 The contact branch is compact-only, exactly like the edit form below it: in two
+                // panes the SAME [creating] state renders the form inside [readingPane] instead, so
+                // rendering it here too would stretch it back over the whole window. The event form
+                // has no in-pane counterpart yet, so it stays full screen in both layouts.
                 when (val current = creating) {
                     is GridlinkCreation.Event -> GridlinkNewEventScreen(
                         date = current.date,
@@ -1600,14 +1649,16 @@ fun GridlinkRoot(
                         failure = saveError,
                     )
 
-                    GridlinkCreation.Contact -> GridlinkContactFormScreen(
-                        title = "New contact",
-                        initial = null,
-                        onClose = { creating = null; saveContactError = null },
-                        onSave = ::saveContact,
-                        saving = savingContact,
-                        failure = saveContactError,
-                    )
+                    GridlinkCreation.Contact -> if (!twoPane) {
+                        GridlinkContactFormScreen(
+                            title = "New contact",
+                            initial = null,
+                            onClose = { creating = null; saveContactError = null },
+                            onSave = ::saveContact,
+                            saving = savingContact,
+                            failure = saveContactError,
+                        )
+                    }
 
                     null -> Unit
                 }
@@ -1615,15 +1666,21 @@ fun GridlinkRoot(
                 // The edit form, over whatever card opened it, in the same overlay slot as the "+"
                 // forms. Seeded from the card's own edit derivation so an untouched save is a no-op
                 // on the wire; see [GridlinkContact.editSeed].
-                editingContact?.let { editing ->
-                    GridlinkContactFormScreen(
-                        title = "Edit contact",
-                        initial = editing.editSeed,
-                        onClose = { editingContact = null; saveContactError = null },
-                        onSave = { updateContact(editing, it) },
-                        saving = savingContact,
-                        failure = saveContactError,
-                    )
+                //
+                // 🔴 Compact only. In two panes the SAME state renders the form inside [readingPane]
+                // instead — "Editing it will cause only the right pane to change" — so rendering it
+                // here too would cover both panes with the very overlay that rule bans.
+                if (!twoPane) {
+                    editingContact?.let { editing ->
+                        GridlinkContactFormScreen(
+                            title = "Edit contact",
+                            initial = editing.editSeed,
+                            onClose = { editingContact = null; saveContactError = null },
+                            onSave = { updateContact(editing, it) },
+                            saving = savingContact,
+                            failure = saveContactError,
+                        )
+                    }
                 }
 
                 composing?.let { request ->
