@@ -4,6 +4,8 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,14 +33,17 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -143,9 +149,10 @@ fun GridlinkCalendarScreen(
     var anchor by remember(start) { mutableStateOf(start) }
     var selectedDate by remember(start) { mutableStateOf(start) }
 
-    // The agenda ignores the anchor and always starts at today. It has no steppers, so the anchor
-    // could only reach it as a leftover from whichever view you were last paging — arriving at
-    // "upcoming" and being shown next September is not what the word means.
+    // The agenda ignores the anchor and always centres on today. It has no steppers and no paging
+    // swipe, so the anchor could only reach it as a leftover from whichever view you were last
+    // paging, and a four-week window parked around next September answers no question anyone
+    // opened an agenda to ask.
     val range = remember(view, anchor, today) {
         if (view == GridlinkCalendarView.AGENDA) view.rangeAround(today) else view.rangeAround(anchor)
     }
@@ -199,10 +206,12 @@ fun GridlinkCalendarScreen(
                 // "Calendar" cannot truncate; the date it displaces is on the line below.
                 title = if (onePane) "Calendar" else view.title(anchor),
                 unread = 0,
+                // The agenda used to say "upcoming" here, which was true when its window ran
+                // forward from today. It now includes the week just past, so "upcoming" would
+                // miscount out loud; "events" is what every view can honestly say.
                 subline = when {
                     book.calendarLoading -> "Loading"
                     !countable -> "Not synced this far out"
-                    view == GridlinkCalendarView.AGENDA -> "${inRange.size} upcoming"
                     else -> "${inRange.size} events"
                 },
             )
@@ -238,6 +247,14 @@ fun GridlinkCalendarScreen(
             }
         },
     ) {
+        // The same move the steppers make, handed to the views as a swipe. Brandon: "calendar
+        // needs to be able to swipe up and down on monthly view to move forward and backward. on
+        // 3-day view swiping needs to be available left and right to move, same for week." The
+        // axis differs per view because the free axis differs: the month grid does not scroll, so
+        // it can spend vertical on paging; the time grids scroll vertically through the hours, so
+        // paging takes the horizontal they were not using. No swipe on the agenda, for the same
+        // reason it has no steppers: it is one fixed window that scrolls.
+        val onPage: (Boolean) -> Unit = { forward -> anchor = view.step(anchor, forward) }
         when (view) {
             GridlinkCalendarView.MONTH -> GridlinkMonthView(
                 month = YearMonth.from(anchor),
@@ -247,6 +264,7 @@ fun GridlinkCalendarScreen(
                 onOpenEvent = onOpenEvent,
                 currentId = currentId,
                 forceSplit = forceSplit,
+                onPage = onPage,
             )
 
             GridlinkCalendarView.THREE_DAY -> GridlinkTimeGrid(
@@ -255,6 +273,7 @@ fun GridlinkCalendarScreen(
                 today = today,
                 onOpenEvent = onOpenEvent,
                 currentId = currentId,
+                onPage = onPage,
             )
 
             GridlinkCalendarView.WEEK -> GridlinkTimeGrid(
@@ -263,10 +282,13 @@ fun GridlinkCalendarScreen(
                 today = today,
                 onOpenEvent = onOpenEvent,
                 currentId = currentId,
+                onPage = onPage,
             )
 
             GridlinkCalendarView.AGENDA -> GridlinkAgendaView(
                 events = inRange,
+                from = range.first,
+                until = range.second,
                 today = today,
                 onOpenEvent = onOpenEvent,
                 currentId = currentId,
@@ -313,10 +335,11 @@ private fun GridlinkCalendarView.rangeAround(anchor: LocalDate): Pair<LocalDate,
             val start = anchor.minusDays(anchor.sundayIndex().toLong())
             start to start.plusDays(6)
         }
-        // The agenda runs forward, not around. "Upcoming" is what an agenda is for, and showing the
-        // three weeks you have already lived through above the thing you were looking for is the
-        // single most common way agenda views get made useless.
-        GridlinkCalendarView.AGENDA -> anchor to anchor.plusYears(1)
+        // Brandon: "a continuous list including the last week, plus up to 3 weeks in the future".
+        // A fixed four-week window, not "everything from here on": the far future is what the
+        // month view is for, and the week just behind you is the answer to "what was that thing
+        // on Tuesday", which a forward-only agenda could never give.
+        GridlinkCalendarView.AGENDA -> anchor.minusWeeks(1) to anchor.plusWeeks(3)
     }
 
 private fun GridlinkCalendarView.step(anchor: LocalDate, forward: Boolean): LocalDate {
@@ -342,6 +365,54 @@ private fun GridlinkCalendarView.title(anchor: LocalDate): String = when (this) 
             start.format(RANGE_END)
         }
         "$startText – ${end.format(RANGE_END)}"
+    }
+}
+
+/**
+ * Travel a paging swipe needs before it turns a page. Short enough to flick one-handed, long
+ * enough that a sloppy tap on a day tile, which is also a press-and-drift, never pages the month
+ * out from under the finger that meant to select a day.
+ */
+private val PAGE_SWIPE_DISTANCE = 56.dp
+
+/**
+ * The paging swipe, one modifier for both axes. Brandon: "calendar needs to be able to swipe up
+ * and down on monthly view to move forward and backward. on 3-day view swiping needs to be
+ * available left and right to move, same for week."
+ *
+ * One direction rule for both: dragging toward the start edge (up, or left) pulls the future in,
+ * which is the direction every scrolling list already moves toward its end. Decided once on
+ * release from the TOTAL travel rather than per-frame, so a long wobbly drag pages once instead of
+ * machine-gunning through months.
+ *
+ * ⚠️ A raw drag detector, not a pager. The time grids scroll vertically inside themselves, and a
+ * horizontal detector on their parent only ever receives the drags that scroller declined, which
+ * is exactly the split wanted; a Pager would demand to own the layout too. [onPage] arrives as
+ * [State] because the detector coroutine outlives recomposition and must fire the current lambda,
+ * not the one captured when the pointerInput first launched.
+ */
+private fun Modifier.gridlinkPageSwipe(
+    vertical: Boolean,
+    onPage: State<(forward: Boolean) -> Unit>,
+): Modifier = pointerInput(vertical) {
+    val distance = PAGE_SWIPE_DISTANCE.toPx()
+    var travel = 0f
+    val settle: () -> Unit = {
+        when {
+            travel <= -distance -> onPage.value(true)
+            travel >= distance -> onPage.value(false)
+        }
+    }
+    if (vertical) {
+        detectVerticalDragGestures(
+            onDragStart = { travel = 0f },
+            onDragEnd = settle,
+        ) { _, amount -> travel += amount }
+    } else {
+        detectHorizontalDragGestures(
+            onDragStart = { travel = 0f },
+            onDragEnd = settle,
+        ) { _, amount -> travel += amount }
     }
 }
 
@@ -493,12 +564,23 @@ private fun GridlinkMonthView(
     onOpenEvent: (GridlinkEvent) -> Unit,
     currentId: String?,
     forceSplit: Boolean?,
+    onPage: (forward: Boolean) -> Unit,
 ) {
     val colors = GridlinkTheme.colors
     val book = LocalGridlinkBook.current
     val selectedEvents = remember(selected, book) { book.eventsOn(selected) }
+    val page = rememberUpdatedState(onPage)
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    // The swipe sits on the whole view, not just the grid: the header row, the divider and an
+    // empty day list all page too, so "swipe anywhere on the month" is true rather than mostly
+    // true. The one carve-out makes itself: a day list with events in it is a LazyColumn, which
+    // consumes its own vertical drags, and a list you can scroll is exactly the place a vertical
+    // page-turn underneath it would be a bug.
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .gridlinkPageSwipe(vertical = true, onPage = page),
+    ) {
         val split = forceSplit ?: (maxWidth >= MONTH_SPLIT_WIDTH)
         if (split) {
             Row(Modifier.fillMaxSize()) {
@@ -919,6 +1001,7 @@ private fun GridlinkTimeGrid(
     today: LocalDate,
     onOpenEvent: (GridlinkEvent) -> Unit,
     currentId: String?,
+    onPage: (forward: Boolean) -> Unit,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
@@ -929,8 +1012,17 @@ private fun GridlinkTimeGrid(
     }
     val hourHeight = GridlinkDimens.calendarHourHeight
     val hours = GRID_END_HOUR - GRID_START_HOUR
+    val page = rememberUpdatedState(onPage)
 
-    Column(Modifier.fillMaxSize()) {
+    // Horizontal, because vertical is taken: the hour grid underneath scrolls through the day,
+    // and the scroller consumes those drags before this detector could see them. Left and right
+    // are what the grid was not using, and they are also the axis the columns themselves lie
+    // along, so the gesture moves the thing it appears to push.
+    Column(
+        Modifier
+            .fillMaxSize()
+            .gridlinkPageSwipe(vertical = false, onPage = page),
+    ) {
         // Day headers, fixed. They must not scroll with the hours: a time grid where the column
         // labels leave the screen is a grid where you no longer know which day you are reading.
         Row(
@@ -1264,48 +1356,65 @@ private fun GridlinkEventBlock(
 }
 
 /**
- * The agenda: every upcoming event as one continuous list, grouped by day.
+ * The agenda: a fixed four-week window as one continuous list, every day present.
  *
- * 🔴 Empty days are skipped, not rendered as "nothing scheduled". An agenda's whole reason to exist
- * next to three grid views is that it collapses the gaps; a scroll through fourteen blank Tuesdays
- * is the month view with worse density.
+ * Brandon: "agenda needs to be a continuous list including the last week, plus up to 3 weeks in
+ * the future. empty days need to be represented as well." So this is a diary page rather than a
+ * filtered list: each day in [from]..[until] gets its header whether or not anything is on it, and
+ * an empty day says so in one quiet line. This reverses the earlier design, which skipped empty
+ * days for density; the point of showing them is that on an agenda the gap IS information — a
+ * free Thursday is something you go looking for — and density is the month view's job.
+ *
+ * 🔴 The list OPENS at today, a third of the way down, not at the top. The top is last week;
+ * opening there would greet every launch with seven days already lived through, and the view would
+ * read as a history. The week behind stays one scroll UP away, which is exactly the gesture
+ * "what was that thing on Tuesday" reaches for.
  */
 @Composable
 private fun GridlinkAgendaView(
     events: List<GridlinkEvent>,
+    from: LocalDate,
+    until: LocalDate,
     today: LocalDate,
     onOpenEvent: (GridlinkEvent) -> Unit,
     currentId: String?,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
-    val byDay = remember(events) {
-        events
-            .sortedWith(compareBy({ it.date }, { it.start != null }, { it.start }))
-            .groupBy { it.date }
+    val byDay = remember(events, from, until) {
+        generateSequence(from) { it.plusDays(1) }
+            .takeWhile { it <= until }
+            .map { date ->
+                date to events
+                    .filter { it.date == date }
+                    .sortedWith(compareBy({ it.start != null }, { it.start }))
+            }
             .toList()
     }
-
-    if (byDay.isEmpty()) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                text = "Nothing upcoming",
-                style = GridlinkType.metadata,
-                color = colors.textSecondary,
-            )
+    // Where today's header lands in the flattened list: one header per day plus its rows, an
+    // empty day spending one row on its "Nothing scheduled" line. Only the INITIAL position —
+    // the items are keyed, so once the list is up, later data arriving re-anchors on the same
+    // day header instead of yanking the scroll.
+    val todayIndex = remember(byDay, today) {
+        var index = 0
+        for ((date, dayEvents) in byDay) {
+            if (date >= today) break
+            index += 1 + maxOf(dayEvents.size, 1)
         }
-        return
+        index
     }
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = todayIndex)
 
     LazyColumn(
+        state = listState,
         flingBehavior = rememberGridlinkFlingBehavior(),
         modifier = Modifier
             .fillMaxSize()
-            .gridlinkEdgeFade(),
-        contentPadding = PaddingValues(
-            top = GridlinkDimens.listFade,
-            bottom = GridlinkDimens.listFade,
-        ),
+            // 🔴 Bottom only, same reasoning as the month day list: the list opens scrolled to
+            // today, so today's header sits at the very top edge, and a top fade would render the
+            // one header the view exists to show permanently half transparent.
+            .gridlinkEdgeFade(fadeTop = false),
+        contentPadding = PaddingValues(bottom = GridlinkDimens.listFade),
     ) {
         byDay.forEach { (date, dayEvents) ->
             item(key = "day-$date") {
@@ -1331,13 +1440,30 @@ private fun GridlinkAgendaView(
                     }
                 }
             }
-            items(dayEvents.size, key = { dayEvents[it].id }) { index ->
-                GridlinkAgendaRow(
-                    event = dayEvents[index],
-                    accent = gridlinkSenderBarColor(mode, dayEvents[index].domain),
-                    onClick = { onOpenEvent(dayEvents[index]) },
-                    current = dayEvents[index].id == currentId,
-                )
+            if (dayEvents.isEmpty()) {
+                // The same words the month day list uses for the same fact, in metadata style so
+                // a run of free days reads as texture rather than as a column of claims. One line,
+                // not a full row height: an empty day should be visible and cheap to scroll past.
+                item(key = "empty-$date") {
+                    Text(
+                        text = "Nothing scheduled",
+                        style = GridlinkType.metadata,
+                        color = colors.textSecondary,
+                        modifier = Modifier.padding(
+                            horizontal = GridlinkSpacing.rowHorizontal,
+                            vertical = GridlinkSpacing.s4,
+                        ),
+                    )
+                }
+            } else {
+                items(dayEvents.size, key = { dayEvents[it].id }) { index ->
+                    GridlinkAgendaRow(
+                        event = dayEvents[index],
+                        accent = gridlinkSenderBarColor(mode, dayEvents[index].domain),
+                        onClick = { onOpenEvent(dayEvents[index]) },
+                        current = dayEvents[index].id == currentId,
+                    )
+                }
             }
         }
     }
