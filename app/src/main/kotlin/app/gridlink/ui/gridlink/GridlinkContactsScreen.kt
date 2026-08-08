@@ -368,7 +368,15 @@ private fun GridlinkContactRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = contact.role,
+                // The second line must earn its height: the role when the card has one, else the
+                // e-mail address, else a phone number. On a real book most cards carry no TITLE or
+                // ORG (80 of the first account's 113), so a role-only line left most of the list
+                // as bare names over blank space — which reads as a failed sync, not a design.
+                // In a mail app the address is not a poor substitute; it is the datum the whole
+                // card exists to hold.
+                text = contact.role
+                    .ifEmpty { contact.email }
+                    .ifEmpty { contact.phones.firstOrNull().orEmpty() },
                 style = GridlinkType.metadata,
                 color = colors.textSecondary,
                 maxLines = 1,
