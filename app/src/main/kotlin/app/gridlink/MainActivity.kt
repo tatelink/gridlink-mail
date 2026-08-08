@@ -23,6 +23,7 @@ import app.gridlink.core.data.settings.PreviewLines
 import app.gridlink.core.data.settings.ThemeMode
 import app.gridlink.ui.AppNavHost
 import app.gridlink.ui.gridlink.GridlinkIntroOverlay
+import app.gridlink.ui.gridlink.LocalGridlinkIntroPlaying
 import app.gridlink.ui.gridlink.rememberGridlinkIntroMode
 import app.gridlink.ui.message.NavFadeGuard
 import app.gridlink.ui.components.LocalListDensity
@@ -121,18 +122,23 @@ class MainActivity : AppCompatActivity() {
                     // already finished stays finished across the hinge.
                     var introPlaying by rememberSaveable { mutableStateOf(playIntro) }
                     Box(modifier = Modifier.fillMaxSize()) {
-                        AppNavHost(
-                            pendingMailto = pendingMailto.value,
-                            onMailtoConsumed = {
-                                pendingMailto.value = null
-                                stripMailtoPayload()
-                            },
-                            pendingEmailOpen = pendingEmailOpen.value,
-                            onEmailOpenConsumed = {
-                                pendingEmailOpen.value = null
-                                stripEmailOpenPayload()
-                            },
-                        )
+                        // The keyboard would rise OVER the overlay (see LocalGridlinkIntroPlaying),
+                        // so the screens underneath get told the intro is up and hold their focus
+                        // grabs until it is gone.
+                        CompositionLocalProvider(LocalGridlinkIntroPlaying provides introPlaying) {
+                            AppNavHost(
+                                pendingMailto = pendingMailto.value,
+                                onMailtoConsumed = {
+                                    pendingMailto.value = null
+                                    stripMailtoPayload()
+                                },
+                                pendingEmailOpen = pendingEmailOpen.value,
+                                onEmailOpenConsumed = {
+                                    pendingEmailOpen.value = null
+                                    stripEmailOpenPayload()
+                                },
+                            )
+                        }
                         if (introPlaying) {
                             // Gridlink's palette, which the nav host provides for itself further
                             // down but nothing provides up here. See [rememberGridlinkIntroMode] for

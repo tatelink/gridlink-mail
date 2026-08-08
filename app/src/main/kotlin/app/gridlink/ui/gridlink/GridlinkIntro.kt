@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -745,3 +746,18 @@ fun GridlinkIntroOverlay(
         }
     }
 }
+
+/**
+ * Whether [GridlinkIntroOverlay] is currently covering the app.
+ *
+ * 🔴 The overlay covers the APP, not the screen: the IME is its own window and the system stacks it
+ * above ours, so a screen that self-focuses a text field on first composition raises the keyboard
+ * over the intro. The screen composes under the overlay while the choreography plays, its
+ * `LaunchedEffect` fires, and the keyboard slides up across the mark, which is how the setup screen
+ * hid the launch animation on the Fold. Anything that opens the keyboard unprompted must wait for
+ * this to turn false before requesting focus.
+ *
+ * Default false, so previews, the gallery harness and every host that never plays an intro keep
+ * their immediate focus behaviour without providing anything.
+ */
+val LocalGridlinkIntroPlaying = compositionLocalOf { false }

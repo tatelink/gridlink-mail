@@ -110,7 +110,10 @@ fun GridlinkSetupScreen(
     val passwordFocus = remember { FocusRequester() }
     // The address, not the server: the server is the field most people will leave alone, and opening
     // the keyboard on an optional field asks the user to decide about it before they have read it.
-    LaunchedEffect(Unit) { emailFocus.requestFocus() }
+    // 🔴 And not while the intro is covering the app: the keyboard is a window ABOVE the intro
+    // overlay, so an immediate focus grab raises it over the launch animation (it did, on the Fold).
+    val introPlaying = LocalGridlinkIntroPlaying.current
+    LaunchedEffect(introPlaying) { if (!introPlaying) emailFocus.requestFocus() }
 
     val addressed = gridlinkTypedRecipient(email.text) != null
     val authed = password.text.isNotEmpty()
