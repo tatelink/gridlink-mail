@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import android.content.Context
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -8,8 +9,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,6 +25,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,8 +47,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -53,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
+import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContactSection
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
 import app.gridlink.ui.theme.GridlinkRadii
@@ -99,7 +108,35 @@ fun GridlinkContactsScreen(
     currentId: String? = null,
 ) {
     val book = LocalGridlinkBook.current
-    val sections = book.sections
+    val context = LocalContext.current
+    val preview = LocalInspectionMode.current
+    // Brandon: "contacts single pane needs a way to change sorting easily, by first name last name,
+    // lastname firstname". A device preference rather than per-launch state — flipping it every
+    // visit would make it a chore, which is the opposite of "easily" — read once here and written
+    // through on toggle. SharedPreferences directly, on MessageScreen's GPU-sentinel precedent: one
+    // key does not earn a DataStore.
+    var sort by remember {
+        mutableStateOf(if (preview) GridlinkContactSort.LAST_FIRST else loadContactSort(context))
+    }
+    // LAST_FIRST is the book's own order, already sectioned and cached. FIRST_LAST regroups the same
+    // list by the word the eye now leads with. Done here rather than in [GridlinkBook] because the
+    // order only matters to this screen: the book's other consumers (pickers, domain lookups) never
+    // show a sorted list.
+    val sections = remember(book, sort) {
+        when (sort) {
+            GridlinkContactSort.LAST_FIRST -> book.sections
+            GridlinkContactSort.FIRST_LAST -> book.contacts
+                .sortedWith(
+                    compareBy(
+                        { it.firstNameKey.lowercase() },
+                        { it.filedUnder.lowercase() },
+                    ),
+                )
+                .groupBy { it.firstNameKey.first().uppercaseChar() }
+                .toSortedMap()
+                .map { (letter, people) -> GridlinkContactSection(letter, people) }
+        }
+    }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
@@ -126,74 +163,111 @@ fun GridlinkContactsScreen(
         scope.launch { listState.scrollToItem(target) }
     }
 
-    GridlinkScaffold(
-        modifier = modifier,
-        destination = destination,
-        onSelectDestination = onSelectDestination,
-        onCompose = onCompose,
-        sidePane = sidePane,
-        header = {
-            GridlinkHeader(
-                title = "Contacts",
-                unread = 0,
-                // Same reasoning as the folder tree's "N mailboxes": the second line summarises the
-                // screen, and a phonebook's summary is how many entries are in it. "Loading" while
-                // the first read is out, for the folder tree's reason as well: a count of zero is a
-                // claim that the account has nobody in it, which is a different thing from not
-                // having looked.
-                subline = if (book.contactsLoading) "Loading" else "${book.contacts.size} people and teams",
-            )
-        },
-    ) {
-        LazyColumn(
-            state = listState,
-            flingBehavior = rememberGridlinkFlingBehavior(),
-            modifier = Modifier
-                .fillMaxSize()
-                .gridlinkEdgeFade(),
-            contentPadding = PaddingValues(
-                top = GridlinkDimens.listFade,
-                bottom = GridlinkDimens.listFade,
-            ),
-        ) {
-            sections.forEach { section ->
-                item(key = "heading-${section.letter}") {
-                    GridlinkSectionLabel(section.letter.toString())
+    // One pill used by whichever seat currently owns it, never both.
+    val sortPill: @Composable () -> Unit = {
+        GridlinkSortPill(
+            sort = sort,
+            onToggle = {
+                sort = sort.other
+                if (!preview) saveContactSort(context, sort)
+                // The whole book just reshuffled, so wherever the list was is now a different
+                // run of names. Top is the one position that still means something.
+                scope.launch { listState.scrollToItem(0) }
+            },
+        )
+    }
+
+    // Measured, not guessed from the configuration, for [GridlinkModalDrawer]'s reasons. On a
+    // folded phone the chrome row cannot hold the hamburger, the title, the count AND the pill —
+    // the title is the row's designed flex victim, so it is "Cont..." that gives way, which is the
+    // same defect Brandon just reported on the calendar. Same cure, too: below this width the pill
+    // moves down into its own line above the panel, where there is (his words) "plenty of vertical
+    // room".
+    BoxWithConstraints(modifier = modifier) {
+        val pillFitsChrome = maxWidth >= SORT_PILL_CHROME_MIN_WIDTH
+        GridlinkScaffold(
+            destination = destination,
+            onSelectDestination = onSelectDestination,
+            onCompose = onCompose,
+            sidePane = sidePane,
+            header = {
+                GridlinkHeader(
+                    title = "Contacts",
+                    unread = 0,
+                    // Same reasoning as the folder tree's "N mailboxes": the second line summarises
+                    // the screen, and a phonebook's summary is how many entries are in it. "Loading"
+                    // while the first read is out, for the folder tree's reason as well: a count of
+                    // zero is a claim that the account has nobody in it, which is a different thing
+                    // from not having looked.
+                    subline = if (book.contactsLoading) "Loading" else "${book.contacts.size} people and teams",
+                )
+            },
+            trailing = if (pillFitsChrome) sortPill else null,
+            belowHeader = if (pillFitsChrome) null else {
+                {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        // At the end, where the pill lives on every wider window, so folding does
+                        // not also teleport it to the other side of the screen.
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        sortPill()
+                    }
                 }
-                itemsIndexed(
-                    items = section.contacts,
-                    key = { _, contact -> contact.id },
-                ) { index, contact ->
-                    Column {
-                        GridlinkContactRow(
-                            contact = contact,
-                            onClick = { onOpenContact(contact) },
-                            current = contact.id == currentId,
-                        )
-                        // No rule under the last row of a letter: the next thing down is a section
-                        // label, which already separates. A hairline there reads as an orphaned
-                        // line floating above a heading.
-                        if (index != section.contacts.lastIndex) {
-                            GridlinkRowDivider(
-                                // Stops where the rail starts. Run full width and the hairline
-                                // passes under the resting alphabet, striking through three or four
-                                // letters at a time — which reads as the letters being crossed out.
-                                modifier = Modifier.padding(end = RAIL_RESTING),
-                                startInset = GridlinkSpacing.rowHorizontal +
-                                    GridlinkDimens.senderBarWidth,
+            },
+        ) {
+            LazyColumn(
+                state = listState,
+                flingBehavior = rememberGridlinkFlingBehavior(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .gridlinkEdgeFade(),
+                contentPadding = PaddingValues(
+                    top = GridlinkDimens.listFade,
+                    bottom = GridlinkDimens.listFade,
+                ),
+            ) {
+                sections.forEach { section ->
+                    item(key = "heading-${section.letter}") {
+                        GridlinkSectionLabel(section.letter.toString())
+                    }
+                    itemsIndexed(
+                        items = section.contacts,
+                        key = { _, contact -> contact.id },
+                    ) { index, contact ->
+                        Column {
+                            GridlinkContactRow(
+                                contact = contact,
+                                sort = sort,
+                                onClick = { onOpenContact(contact) },
+                                current = contact.id == currentId,
                             )
+                            // No rule under the last row of a letter: the next thing down is a
+                            // section label, which already separates. A hairline there reads as an
+                            // orphaned line floating above a heading.
+                            if (index != section.contacts.lastIndex) {
+                                GridlinkRowDivider(
+                                    // Stops where the rail starts. Run full width and the hairline
+                                    // passes under the resting alphabet, striking through three or
+                                    // four letters at a time — which reads as the letters being
+                                    // crossed out.
+                                    modifier = Modifier.padding(end = RAIL_RESTING),
+                                    startInset = GridlinkSpacing.rowHorizontal +
+                                        GridlinkDimens.senderBarWidth,
+                                )
+                            }
                         }
                     }
                 }
             }
-        }
 
-        GridlinkAlphabetRail(
-            populated = populated,
-            onScrubTo = ::jumpTo,
-            initialScrubLetter = initialScrubLetter,
-            modifier = Modifier.align(Alignment.CenterEnd),
-        )
+            GridlinkAlphabetRail(
+                populated = populated,
+                onScrubTo = ::jumpTo,
+                initialScrubLetter = initialScrubLetter,
+                modifier = Modifier.align(Alignment.CenterEnd),
+            )
+        }
     }
 }
 
@@ -211,6 +285,7 @@ fun GridlinkContactsScreen(
 @Composable
 private fun GridlinkContactRow(
     contact: GridlinkContact,
+    sort: GridlinkContactSort,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     /** True when the detail pane beside this list is showing this contact. */
@@ -258,15 +333,33 @@ private fun GridlinkContactRow(
         ) {
             Text(
                 text = buildAnnotatedString {
-                    // The heavy word is always the letter's word, and [GridlinkContact.filedUnder]
-                    // is the letter's word. The given name leads it only when it is not itself the
-                    // thing being filed under (a person with no surname files under the given name,
-                    // so writing it light AND heavy would print "Cher Cher").
+                    // The heavy word is always the letter's word, whichever order is on. Filed
+                    // "Last, First", [GridlinkContact.filedUnder] is the letter's word and the given
+                    // name leads it light; filed "First Last", the given name IS the letter's word,
+                    // so the weight moves onto it and the surname trails light. Either way the word
+                    // you scrubbed the rail to is the word that stands out. The given name appears
+                    // only when it is not itself the thing being filed under (a person with no
+                    // surname files under the given name, so writing it light AND heavy would print
+                    // "Cher Cher"), and org cards read identically in both orders.
                     if (!contact.organization && contact.family.isNotEmpty()) {
-                        append("${contact.given} ")
-                    }
-                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
-                        append(contact.filedUnder)
+                        when (sort) {
+                            GridlinkContactSort.LAST_FIRST -> {
+                                append("${contact.given} ")
+                                withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
+                                    append(contact.filedUnder)
+                                }
+                            }
+                            GridlinkContactSort.FIRST_LAST -> {
+                                withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
+                                    append(contact.given)
+                                }
+                                append(" ${contact.family}")
+                            }
+                        }
+                    } else {
+                        withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
+                            append(contact.filedUnder)
+                        }
                     }
                 },
                 style = GridlinkType.senderName.copy(fontWeight = FontWeight.Normal),
@@ -284,6 +377,113 @@ private fun GridlinkContactRow(
         }
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Sort order
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The two orders Brandon asked for, and there are deliberately no more than two: "by first name
+ * last name, lastname firstname". A toggle, not a menu.
+ */
+enum class GridlinkContactSort(
+    /** What the pill says. Reads as the order itself, not as an instruction. */
+    val label: String,
+) {
+    /** Phonebook order: the surname (or the company, for org cards) files the card. The default,
+     *  because it is what a phonebook does and what the app has always done. */
+    LAST_FIRST("Last, First"),
+
+    /** Reading order: the given name files the card. Org cards and surname-less people keep filing
+     *  under [GridlinkContact.filedUnder], which for them is the only word there is. */
+    FIRST_LAST("First Last"),
+    ;
+
+    val other: GridlinkContactSort
+        get() = if (this == LAST_FIRST) FIRST_LAST else LAST_FIRST
+}
+
+/**
+ * The word FIRST_LAST files a card under.
+ *
+ * 🔴 `given.ifEmpty { filedUnder }`, never `given` bare and never `family` at all: a company-only
+ * card has a blank given name with the whole name in `company`, and a surname-less person has the
+ * name in `given` already. [GridlinkContact.filedUnder] is the one derivation that has resolved all
+ * of that, so it is the fallback here for the same reason it is the sort key everywhere else.
+ */
+private val GridlinkContact.firstNameKey: String
+    get() = given.ifEmpty { filedUnder }
+
+private const val SORT_PREFS = "gridlink_contacts"
+private const val SORT_KEY = "sort"
+
+private fun loadContactSort(context: Context): GridlinkContactSort {
+    val stored = context.getSharedPreferences(SORT_PREFS, Context.MODE_PRIVATE)
+        .getString(SORT_KEY, null)
+    // firstOrNull, not valueOf: a value written by a build that later renamed the constant should
+    // fall back to the default, not crash the contacts screen forever.
+    return GridlinkContactSort.entries.firstOrNull { it.name == stored }
+        ?: GridlinkContactSort.LAST_FIRST
+}
+
+private fun saveContactSort(context: Context, sort: GridlinkContactSort) {
+    context.getSharedPreferences(SORT_PREFS, Context.MODE_PRIVATE)
+        .edit().putString(SORT_KEY, sort.name).apply()
+}
+
+/**
+ * The order toggle, in the chrome row's trailing seat.
+ *
+ * Dressed exactly as the inbox's collapsed search pill (44dp, 14% surface, 35% hairline): the seat
+ * is the same, so the treatment is the same, and the glass recipe already means "a control that
+ * stays out of the way until you want it". The label states the CURRENT order — the pill describes
+ * the list, and tapping it is how you get the other one. Labelling it with the order you would GET
+ * was the alternative, and that reading makes the pill disagree with the list it sits above.
+ */
+@Composable
+private fun GridlinkSortPill(
+    sort: GridlinkContactSort,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = GridlinkTheme.colors
+    val shape = RoundedCornerShape(GridlinkRadii.pill)
+    Row(
+        modifier = modifier
+            .height(SORT_PILL_HEIGHT)
+            .clip(shape)
+            .background(colors.surface.copy(alpha = 0.14f), shape)
+            .border(GridlinkDimens.hairline, colors.surfaceBorder.copy(alpha = 0.35f), shape)
+            .clickable(onClick = onToggle)
+            .padding(horizontal = GridlinkSpacing.s12),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s8),
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.SwapHoriz,
+            // The description carries the action; the visible label carries the state.
+            contentDescription = "Change name order",
+            tint = colors.textSecondary,
+            modifier = Modifier.size(18.dp),
+        )
+        Text(
+            text = sort.label,
+            style = GridlinkType.metadata,
+            color = colors.textSecondary,
+            maxLines = 1,
+        )
+    }
+}
+
+/** The collapsed search pill's height, so the two chrome-row pills read as siblings. */
+private val SORT_PILL_HEIGHT = 44.dp
+
+/**
+ * Below this window width the pill leaves the chrome row for its own line. 600dp is the compact
+ * boundary the platform uses for the same judgement; a folded Fold (~393dp) is well under it and an
+ * unfolded one (~754dp) is comfortably over, and those are the two windows that exist here.
+ */
+private val SORT_PILL_CHROME_MIN_WIDTH = 600.dp
 
 // ---------------------------------------------------------------------------------------------
 // The rail
