@@ -1,0 +1,54 @@
+# Draft for .github/workflows/ci.yml
+#
+# WHY A SECOND WORKFLOW: .forgejo/workflows/ci.yml is deliberately built from `run:` steps only,
+# because the self-hosted Forgejo runner sits on act + Docker 29.7.0, where copying any `uses:`
+# action into the job container fails. That constraint is specific to that runner. GitHub-hosted
+# runners have none of it, so this file uses normal actions and is far shorter.
+#
+# Keep both. They are not duplicates: they target different runners with different limitations.
+# If the build steps change, change them in both.
+
+name: CI
+
+# NOTE: `main` here is upstream Sterna, not this fork. The fork's work lands on
+# gridlink-* branches, which is also what the repo's default branch points at, so building only
+# `main` would mean CI never once ran against a Gridlink commit.
+on:
+  push:
+    branches: [main, 'gridlink-**']
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # The hosted image ships an Android SDK, but not necessarily platform 36 /
+      # build-tools 36.0.0, which this project pins. Install them explicitly.
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+
+      - name: Unit tests
+        run: ./gradlew :core:jmap:test --stacktrace
+
+      - name: Assemble debug APK
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: gridlink-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

@@ -1,0 +1,1 @@
+A fast, private JMAP and IMAP email client. No ads, no tracking, no Google.
