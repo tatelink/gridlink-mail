@@ -113,10 +113,10 @@ class DavException(message: String, val code: Int? = null) : Exception(message)
  * A CalDAV/CardDAV client: enough to discover a user's collections, keep a local mirror of them up
  * to date, and add new items to them.
  *
- * Reading is the whole of [discover] and [sync]. Writing is [create] alone: this can add an item,
- * and deliberately cannot yet change or delete one. Editing needs `If-Match` on the stored etag
- * plus an answer for the 412 that says somebody else got there first, and that conflict story is
- * its own piece of work rather than a flag on this one.
+ * Reading is the whole of [discover] and [sync]. Writing is [create] and [update]: add an item, or
+ * replace one under `If-Match` on its stored etag, where the 412 that says somebody else got there
+ * first is surfaced as its own failure for the caller to resolve (in practice: resync, then show
+ * the user the fresher card). Delete still deliberately does not exist here.
  *
  * ## The shape of a sync
  * [discover] finds the collections once (well-known → principal → home set → list). [sync] then
@@ -301,6 +301,57 @@ class DavClient internal constructor(
                 // A server MAY omit the etag (RFC 4791 §5.3.4) when it changed what it stored, e.g.
                 // added a VTIMEZONE. Null is honest: the next sync will fetch the item and record
                 // whatever the server actually kept, which beats storing an etag that is a guess.
+                etag = response.header("ETag")?.trim('"', ' ')?.takeIf { it.isNotBlank() },
+            )
+        }
+    }
+
+    /**
+     * Replace an existing item, guarded by the etag the last sync stored for it.
+     *
+     * ## 🔴 `If-Match: <etag>` is what makes this an edit and not a blind overwrite
+     * The mirror of [create]'s `If-None-Match: *`: the PUT only lands if the server still holds
+     * the version this device edited. If another client changed the item since the last sync, the
+     * server answers **412 Precondition Failed** and nothing is lost — the caller's move is to
+     * resync and let the user edit the fresher copy, not to retry. That is why the 412 gets its
+     * own message here instead of folding into "write failed".
+     *
+     * ⚠️ When [etag] is null (a server that omitted it on create, and no sync has recorded one
+     * since) the PUT goes unconditional, because `If-Match` with nothing to match is not a request
+     * that can be made. The window is real but small, and refusing the edit outright over a
+     * missing etag would be the worse trade.
+     *
+     * [href] is the item's percent-DECODED path exactly as the local mirror keys it; it is resolved
+     * against [collectionUrl] and re-encoded here, for the reason written on [resolve].
+     */
+    suspend fun update(
+        collectionUrl: String,
+        href: String,
+        credentials: DavCredentials,
+        kind: DavKind,
+        data: String,
+        etag: String?,
+    ): DavWriteResult = withContext(Dispatchers.IO) {
+        val collection = collectionUrl.toHttpUrlOrNull()
+            ?: throw DavException("Bad collection URL: $collectionUrl")
+        val target = resolve(collection, href)
+        val request = Request.Builder()
+            .url(target)
+            .put(data.toRequestBody(kind.contentType.toMediaType()))
+            .apply {
+                // Stored etags are kept unquoted; the wire wants the RFC 7232 quoted form back.
+                if (etag != null) header("If-Match", "\"$etag\"")
+            }
+            .header("Authorization", credentials.authorizationHeader())
+            .build()
+        http.newCall(request).execute().use { response ->
+            if (response.code == 412) {
+                throw DavException("This item changed on the server since the last sync", 412)
+            }
+            if (!response.isSuccessful) throw DavException(errorFor(response), response.code)
+            DavWriteResult(
+                url = target.toString(),
+                href = "/" + target.pathSegments.joinToString("/"),
                 etag = response.header("ETag")?.trim('"', ' ')?.takeIf { it.isNotBlank() },
             )
         }

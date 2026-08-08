@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -45,14 +46,12 @@ import app.gridlink.ui.theme.gridlinkSenderBarColor
 /**
  * One contact, opened from the Contacts tab.
  *
- * ## 🔴 Read-only, on purpose, and this is the whole reason
- * Brandon chose read-only over an edit mode when asked, and the reasoning is worth keeping: nothing
- * in this app talks to a server yet, so a Save button would write a change into memory, show a
- * success, and lose it on the next launch. That is not an unfinished feature, it is a screen that
- * lies about what it did. The card can be honest about everything it shows because everything it
- * shows is already true: a name, a role, an address, and the mail that actually arrived.
- *
- * Edit lands when there is a CardDAV or JMAP contacts store behind it to fail against.
+ * ## A card first, a mail history second
+ * This screen was read-only while nothing behind it could hold an edit; that store exists now
+ * ([GridlinkContactWriter], JMAP ContactCard with a CardDAV fallback), so the card leads with what
+ * a contact card holds — every address, every phone number, the employer, the note — and Edit is
+ * the accent action. Recent mail stays, but below the fields: this is a person's card that also
+ * shows their mail, not a mail query wearing a name.
  *
  * ## What is derived and what is invented
  * Nothing here is invented. The identity colour is [GridlinkContact.domain] through the same
@@ -61,10 +60,12 @@ import app.gridlink.ui.theme.gridlinkSenderBarColor
  * [GridlinkSampleContacts.forSender] rather than by address, which is what stops the card from
  * saying "no recent mail" about someone with four messages in the inbox.
  *
- * ## Why the actions are Copy, Share and Write, and not Find mail
- * Copy and Share are the two things you actually do with someone else's address, and both are real:
- * one uses the system clipboard, the other the system share sheet. Write opens the composer already
- * addressed to them, through the same [GridlinkComposeRequest] a reply uses.
+ * ## The field rows act, they don't just display
+ * Tapping an address opens the composer already addressed to it (each address, not just the
+ * primary — that is the point of listing them); tapping a number opens the dialler with it typed
+ * in, through [gridlinkDial], which shows the number rather than ringing it. Copy and Share keep
+ * their place in the pill, Write joins them there, and the accent slot goes to Edit — on a card,
+ * changing the card is the headline act.
  *
  * ⚠️ A "Find mail" button was considered and dropped. The search field is private state inside
  * [GridlinkMessageListScreen], so prefilling it means hoisting search state through the scaffold to
@@ -76,6 +77,7 @@ fun GridlinkContactScreen(
     onBack: () -> Unit,
     onOpenMessage: (GridlinkMessage) -> Unit,
     onWrite: (GridlinkContact) -> Unit,
+    onEdit: (GridlinkContact) -> Unit,
     modifier: Modifier = Modifier,
     embedded: Boolean = false,
 ) {
@@ -116,11 +118,17 @@ fun GridlinkContactScreen(
                     },
                     modifier = Modifier.weight(1f),
                 )
+                GridlinkDetailActionItem(
+                    label = "Write",
+                    icon = Icons.Outlined.Email,
+                    onClick = { onWrite(contact) },
+                    modifier = Modifier.weight(1f),
+                )
             }
             GridlinkDetailAccentButton(
                 icon = Icons.Outlined.Edit,
-                label = "Write",
-                onClick = { onWrite(contact) },
+                label = "Edit",
+                onClick = { onEdit(contact) },
             )
         },
     ) {
@@ -160,14 +168,18 @@ fun GridlinkContactScreen(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Text(
-                        text = contact.email,
-                        style = GridlinkType.metadata,
-                        color = colors.textSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = GridlinkSpacing.s4),
-                    )
+                    // Absent rather than blank: most real cards carry no address, and an empty
+                    // metadata line under the role reads as a rendering bug, not a fact.
+                    if (contact.email.isNotBlank()) {
+                        Text(
+                            text = contact.email,
+                            style = GridlinkType.metadata,
+                            color = colors.textSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = GridlinkSpacing.s4),
+                        )
+                    }
                 }
             }
 
@@ -177,6 +189,44 @@ fun GridlinkContactScreen(
                     .height(GridlinkDimens.hairline)
                     .background(colors.divider),
             )
+
+            // The card's fields, each row doing the thing you would want that value for. The
+            // company/title pair collapses into the header's role line when there is only one of
+            // them, so the row appears only when it adds something the header has not said.
+            val fields = buildList {
+                contact.allEmails.forEach { address ->
+                    add(GridlinkContactField("Email", address) { onWrite(contact.copy(email = address)) })
+                }
+                contact.phones.forEach { number ->
+                    add(GridlinkContactField("Phone", number) { leaveOnce { gridlinkDial(context, number) } })
+                }
+                if (contact.company.isNotBlank() && contact.company != contact.role) {
+                    add(GridlinkContactField("Company", contact.company, null))
+                }
+            }
+            if (fields.isNotEmpty()) {
+                GridlinkSectionLabel(text = "Details")
+                fields.forEachIndexed { index, field ->
+                    GridlinkContactFieldRow(field)
+                    if (index != fields.lastIndex) {
+                        GridlinkRowDivider(startInset = GridlinkSpacing.rowHorizontal)
+                    }
+                }
+            }
+
+            if (contact.note.isNotBlank()) {
+                GridlinkSectionLabel(text = "Note")
+                Text(
+                    text = contact.note,
+                    style = GridlinkType.body,
+                    color = colors.textPrimary,
+                    modifier = Modifier.padding(
+                        start = GridlinkSpacing.rowHorizontal,
+                        end = GridlinkSpacing.rowHorizontal,
+                        bottom = GridlinkSpacing.s16,
+                    ),
+                )
+            }
 
             GridlinkSectionLabel(text = "Recent mail")
 
@@ -235,6 +285,49 @@ internal fun gridlinkWriteTo(contact: GridlinkContact): GridlinkComposeRequest =
     ),
     focus = GridlinkComposeField.SUBJECT,
 )
+
+/** One field on the card: what it is, what it says, and what tapping it does (null: nothing). */
+private class GridlinkContactField(
+    val label: String,
+    val value: String,
+    val onClick: (() -> Unit)?,
+)
+
+/**
+ * One field row: the value in reading weight with its label small underneath, the same visual
+ * order as the identity block above it. The label is a caption, not a heading, because on a card
+ * you scan the values — `m.bell@gridlink.me` identifies itself, and "Email" merely confirms it.
+ */
+@Composable
+private fun GridlinkContactFieldRow(
+    field: GridlinkContactField,
+    modifier: Modifier = Modifier,
+) {
+    val colors = GridlinkTheme.colors
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .let { if (field.onClick != null) it.clickable(onClick = field.onClick) else it }
+            .padding(
+                horizontal = GridlinkSpacing.rowHorizontal,
+                vertical = GridlinkSpacing.s8,
+            ),
+    ) {
+        Text(
+            text = field.value,
+            style = GridlinkType.body,
+            color = colors.textPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = field.label,
+            style = GridlinkType.metadata,
+            color = colors.textSecondary,
+            modifier = Modifier.padding(top = GridlinkSpacing.s4),
+        )
+    }
+}
 
 /**
  * One message on a contact card.

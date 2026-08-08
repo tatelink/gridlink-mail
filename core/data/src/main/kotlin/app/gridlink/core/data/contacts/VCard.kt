@@ -20,6 +20,10 @@ data class ParsedContact(
     val organization: String?,
     val title: String?,
     val emails: List<String>,
+    /** Every TEL on the card, preferred number first, in the wire's own formatting. */
+    val phones: List<String> = emptyList(),
+    /** The card's NOTE, unescaped. Free text; may span lines. */
+    val note: String? = null,
 ) {
 
     /**
@@ -162,6 +166,8 @@ object VCard {
                 ?.let(ContentLines::unescapeText)?.trim()?.takeIf { it.isNotEmpty() },
             title = first("TITLE")?.let { text(it.value) },
             emails = emails(lines),
+            phones = phones(lines),
+            note = first("NOTE")?.let { text(it.value) },
         )
 
         // A card with nothing to file under and nothing to show is not a contact, it is noise.
@@ -185,6 +191,26 @@ object VCard {
             preferred to line.value.trim().removePrefix("mailto:").trim()
         }
         return addresses
+            .filter { it.second.isNotEmpty() }
+            .sortedByDescending { it.first }
+            .map { it.second }
+            .distinct()
+    }
+
+    /**
+     * Every TEL on the card, preferred number first — the same promotion rule as [emails],
+     * because the same two PREF spellings appear on the same account's cards. A `tel:` URI
+     * prefix (4.0's `TEL;VALUE=uri`) is stripped; the number itself is kept as written,
+     * because "+1 859-803-2727" formatted by a human reads better than any renormalisation.
+     */
+    private fun phones(lines: List<ContentLine>): List<String> {
+        val all = lines.filter { it.name == "TEL" }
+        val numbers = all.map { line ->
+            val preferred = line.paramValues("TYPE").any { it.equals("PREF", true) } ||
+                line.param("PREF") != null
+            preferred to line.value.trim().removePrefix("tel:").trim()
+        }
+        return numbers
             .filter { it.second.isNotEmpty() }
             .sortedByDescending { it.first }
             .map { it.second }

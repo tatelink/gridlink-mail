@@ -41,6 +41,18 @@ data class JmapSession(
     }
 
     /**
+     * The account to write contacts to: the primary contacts account when the server names
+     * one, else the first account advertising the contacts capability, else the mail account.
+     * The last fallback matters in practice: a server can advertise contacts at the session
+     * level while leaving accountCapabilities sparse, and on a single-account server (the
+     * common self-hosted case) the mail account IS the contacts account.
+     */
+    fun contactsAccountId(): String? =
+        primaryAccounts[Jmap.CONTACTS_CAPABILITY]
+            ?: accounts.entries.firstOrNull { Jmap.CONTACTS_CAPABILITY in it.value.accountCapabilities }?.key
+            ?: mailAccountId()
+
+    /**
      * The server's VAPID application key (RFC 9749), when advertised — passed to the
      * UnifiedPush registration; null for servers without VAPID (e.g. Stalwart today).
      */

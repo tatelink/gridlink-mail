@@ -1,6 +1,8 @@
 package app.gridlink.ui.gridlink
 
 import app.gridlink.core.data.calendar.CalendarOccurrence
+import app.gridlink.core.data.contacts.ContactEdit
+import app.gridlink.core.data.contacts.VCard
 import app.gridlink.core.data.db.AddressBookContactEntity
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 
@@ -60,8 +62,17 @@ object GridlinkDavMapping {
      * [GridlinkContact.letter] calls `family.first()`. The parser already promises a non-blank
      * `fileAsFamily`, and the belt-and-braces fallback below is here because the cost of being wrong
      * is not a missing row, it is the whole Contacts tab throwing on first sync.
+     *
+     * ## The raw card is re-parsed here, on purpose
+     * The entity's display columns are the parser's answers with fallbacks already applied, and the
+     * edit form must NOT seed from those: [GridlinkContact.edit] has to be the same derivation
+     * [app.gridlink.core.data.dav.DavRepository.updateContact] diffs against, or opening a card and
+     * saving it untouched would write a phantom name change for every card whose display name was
+     * promoted. One [VCard.parse] per row per emission over a phone-sized book is cheap; a second,
+     * slightly different reading of the same card is how no-op saves stop being no-ops.
      */
     fun contact(row: AddressBookContactEntity): GridlinkContact {
+        val parsed = VCard.parse(row.raw)
         val family = when {
             row.isOrganization -> row.displayName
             else -> row.fileAsFamily
@@ -76,6 +87,12 @@ object GridlinkDavMapping {
                 ?: row.organization?.takeIf { it.isNotBlank() && !row.isOrganization }
                 ?: "",
             email = row.primaryEmail,
+            emails = row.emails.split(',').map { it.trim() }.filter { it.isNotEmpty() },
+            phones = parsed?.phones.orEmpty(),
+            company = row.organization?.takeIf { !row.isOrganization }.orEmpty(),
+            jobTitle = row.title.orEmpty(),
+            note = parsed?.note.orEmpty(),
+            edit = parsed?.let(ContactEdit::from),
         )
     }
 }

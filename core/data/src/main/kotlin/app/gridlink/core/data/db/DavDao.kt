@@ -124,6 +124,13 @@ interface AddressBookContactDao {
     @Query("SELECT * FROM address_book_contacts WHERE accountId = :accountId AND href = :href")
     suspend fun byHref(accountId: String, href: String): AddressBookContactEntity?
 
+    /**
+     * Find a card by its vCard UID — how a contact just written over JMAP is found again after
+     * the sync that mirrors it back, since a JMAP write never learns the DAV href it landed at.
+     */
+    @Query("SELECT * FROM address_book_contacts WHERE accountId = :accountId AND uid = :uid LIMIT 1")
+    suspend fun byUid(accountId: String, uid: String): AddressBookContactEntity?
+
     @Query("SELECT COUNT(*) FROM address_book_contacts WHERE accountId = :accountId")
     fun observeCount(accountId: String): Flow<Int>
 
