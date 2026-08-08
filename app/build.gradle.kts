@@ -24,11 +24,18 @@ android {
         applicationId = "app.gridlink"
         minSdk = 26
         targetSdk = 36
-        versionCode = 166
-        versionName = "1.4.6"
+        // 🔴 Gridlink numbers its OWN releases and does not continue Sterna's line. Inheriting
+        // upstream's 1.4.6 shipped a second, different app claiming to be Sterna 1.4.6, which is
+        // the one version string guaranteed to confuse a bug report from either project.
+        //
+        // versionCode starts at 1000, not 1: it must stay strictly above upstream's 166 or the
+        // existing Obtainium-tracked install refuses the upgrade (Android rejects a downgrade),
+        // and the round number leaves headroom to renumber without colliding.
+        versionCode = 1000
+        versionName = "0.1.0"
         // Shown on the Settings About row. Bump alongside versionCode/versionName at each
         // release (a static literal, so builds stay reproducible — never derive from clock).
-        buildConfigField("String", "VERSION_DATE", "\"2026-08-01\"")
+        buildConfigField("String", "VERSION_DATE", "\"2026-08-08\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // The launcher/settings/notification label. Substituted verbatim into the manifest,
         // so without -PtestApp the merged manifest still reads android:label="@string/app_name"
