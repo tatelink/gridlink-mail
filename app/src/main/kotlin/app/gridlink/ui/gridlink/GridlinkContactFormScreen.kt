@@ -3,6 +3,8 @@ package app.gridlink.ui.gridlink
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -35,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import app.gridlink.core.data.contacts.ContactEdit
 import app.gridlink.core.jmap.model.ContactCardCustomField
 import app.gridlink.core.jmap.model.ContactCardPhoto
+import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
@@ -197,12 +200,15 @@ fun GridlinkContactFormScreen(
             onPick = { photoPicker.launch("image/*") },
             onRemove = { photo = null },
         )
-        GridlinkFormDivider()
 
+        // 🔴 No dividers anywhere below: in the contained language each field is its own box, so
+        // separation comes from the boxes' margins. A rule between two boxes would read as a third,
+        // squashed box.
         GridlinkFormTextRow(
             value = given,
             onValueChange = { given = it },
-            placeholder = "First name",
+            // The pill names the field, so the ghost text would only echo it.
+            placeholder = "",
             placeholderStyle = GridlinkType.senderName,
             style = GridlinkType.senderName,
             focusRequester = givenFocus,
@@ -211,13 +217,14 @@ fun GridlinkContactFormScreen(
             capitalization = KeyboardCapitalization.Words,
             imeAction = ImeAction.Next,
             onImeAction = { familyFocus.requestFocus() },
+            label = "First name",
+            contained = true,
         )
-        GridlinkFormDivider()
 
         GridlinkFormTextRow(
             value = family,
             onValueChange = { family = it },
-            placeholder = "Last name or company",
+            placeholder = "",
             placeholderStyle = GridlinkType.senderName,
             style = GridlinkType.senderName,
             focusRequester = familyFocus,
@@ -226,13 +233,14 @@ fun GridlinkContactFormScreen(
             capitalization = KeyboardCapitalization.Words,
             imeAction = ImeAction.Next,
             onImeAction = { companyFocus.requestFocus() },
+            label = "Last name or company",
+            contained = true,
         )
-        GridlinkFormDivider()
 
         GridlinkFormTextRow(
             value = company,
             onValueChange = { company = it },
-            placeholder = "Company",
+            placeholder = "",
             placeholderStyle = GridlinkType.body,
             style = GridlinkType.body,
             focusRequester = companyFocus,
@@ -241,13 +249,14 @@ fun GridlinkContactFormScreen(
             capitalization = KeyboardCapitalization.Words,
             imeAction = ImeAction.Next,
             onImeAction = { titleFocus.requestFocus() },
+            label = "Company",
+            contained = true,
         )
-        GridlinkFormDivider()
 
         GridlinkFormTextRow(
             value = jobTitle,
             onValueChange = { jobTitle = it },
-            placeholder = "Title",
+            placeholder = "",
             placeholderStyle = GridlinkType.body,
             style = GridlinkType.body,
             focusRequester = titleFocus,
@@ -256,20 +265,23 @@ fun GridlinkContactFormScreen(
             capitalization = KeyboardCapitalization.Sentences,
             imeAction = ImeAction.Next,
             onImeAction = { emailFocus.first().requestFocus() },
+            label = "Title",
+            contained = true,
         )
 
         emails.forEachIndexed { index, value ->
             // Keyed on position: rows are only ever appended, so position IS identity here, and
             // the requester list is parallel to it.
             key(index) {
-                GridlinkFormDivider()
                 GridlinkFormTextRow(
                     value = value,
                     onValueChange = { changed ->
                         emails[index] = changed
                         growTrailingRow(emails)
                     },
-                    placeholder = if (index == 0) "Email" else "Add email",
+                    // The first row wears the group's pill; the spares keep their ghost text,
+                    // which is the whole "type here to add another" affordance.
+                    placeholder = if (index == 0) "" else "Add email",
                     placeholderStyle = GridlinkType.body,
                     style = GridlinkType.body,
                     focusRequester = emailFocus[index],
@@ -287,20 +299,21 @@ fun GridlinkContactFormScreen(
                         if (index < emails.lastIndex) emailFocus[index + 1].requestFocus()
                         else phoneFocus.first().requestFocus()
                     },
+                    label = if (index == 0) "Email" else null,
+                    contained = true,
                 )
             }
         }
 
         phones.forEachIndexed { index, value ->
             key(index) {
-                GridlinkFormDivider()
                 GridlinkFormTextRow(
                     value = value,
                     onValueChange = { changed ->
                         phones[index] = changed
                         growTrailingRow(phones)
                     },
-                    placeholder = if (index == 0) "Phone" else "Add phone",
+                    placeholder = if (index == 0) "" else "Add phone",
                     placeholderStyle = GridlinkType.body,
                     style = GridlinkType.body,
                     focusRequester = phoneFocus[index],
@@ -313,13 +326,23 @@ fun GridlinkContactFormScreen(
                         if (index < phones.lastIndex) phoneFocus[index + 1].requestFocus()
                         else customLabelFocus.first().requestFocus()
                     },
+                    label = if (index == 0) "Phone" else null,
+                    contained = true,
                 )
             }
         }
 
+        // The group pill sits above the pairs rather than on the narrow label half, where
+        // "Custom fields" would not fit once the panel is at folded-phone width.
+        GridlinkFieldLabelPill(
+            text = "Custom fields",
+            modifier = Modifier.padding(
+                start = GridlinkSpacing.rowHorizontal,
+                top = GridlinkSpacing.s8,
+            ),
+        )
         customs.forEachIndexed { index, pair ->
             key(index) {
-                GridlinkFormDivider()
                 // Two fields on one row, label narrow and value wide, because a custom field IS
                 // its pair: "Office / Ballantyne" split across two full rows reads as two facts.
                 Row(Modifier.fillMaxWidth()) {
@@ -339,6 +362,7 @@ fun GridlinkContactFormScreen(
                         imeAction = ImeAction.Next,
                         onImeAction = { customValueFocus[index].requestFocus() },
                         modifier = Modifier.weight(0.38f),
+                        contained = true,
                     )
                     GridlinkFormTextRow(
                         value = pair.second,
@@ -359,16 +383,16 @@ fun GridlinkContactFormScreen(
                             else noteFocus.requestFocus()
                         },
                         modifier = Modifier.weight(0.62f),
+                        contained = true,
                     )
                 }
             }
         }
-        GridlinkFormDivider()
 
         GridlinkFormTextRow(
             value = note,
             onValueChange = { note = it },
-            placeholder = "Note",
+            placeholder = "",
             placeholderStyle = GridlinkType.body,
             style = GridlinkType.body,
             focusRequester = noteFocus,
@@ -380,6 +404,8 @@ fun GridlinkContactFormScreen(
             imeAction = ImeAction.Default,
             onImeAction = null,
             minHeight = 72.dp,
+            label = "Note",
+            contained = true,
         )
     }
 }
@@ -410,10 +436,11 @@ private fun growTrailingPairRow(rows: MutableList<Pair<TextFieldValue, TextField
  * The photo slot at the top of the form: the current picture (or nothing), one action to pick,
  * and Remove when there is something to remove.
  *
- * A row of the form's own species — same paddings, same divider rhythm — not a centred hero
- * circle. The whole leading area is one tap target for pick/replace, because "tap the picture to
- * change the picture" is the gesture every gallery app has already taught; Remove is a separate,
- * smaller target so a fat-finger cannot delete what it meant to replace.
+ * A contained box like the fields below it, but [GridlinkFieldBoxShape] with a border and 🔴 no
+ * underline: the underline promises a keyboard, and this row opens a picker. The whole leading
+ * area is one tap target for pick/replace, because "tap the picture to change the picture" is the
+ * gesture every gallery app has already taught; Remove is a separate, smaller target so a
+ * fat-finger cannot delete what it meant to replace.
  */
 @Composable
 private fun GridlinkContactPhotoRow(
@@ -425,7 +452,15 @@ private fun GridlinkContactPhotoRow(
     val colors = GridlinkTheme.colors
     val bitmap = rememberGridlinkContactPhoto(photo)
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(
+                horizontal = GridlinkSpacing.rowHorizontal,
+                vertical = GridlinkSpacing.s8,
+            )
+            .clip(GridlinkFieldBoxShape)
+            .background(colors.fieldFill)
+            .border(GridlinkDimens.hairline, colors.surfaceBorder, GridlinkFieldBoxShape),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
@@ -433,7 +468,7 @@ private fun GridlinkContactPhotoRow(
                 .weight(1f)
                 .clickable(onClick = onPick)
                 .padding(
-                    horizontal = GridlinkSpacing.rowHorizontal,
+                    horizontal = GridlinkSpacing.s16,
                     vertical = GridlinkSpacing.s12,
                 ),
             verticalAlignment = Alignment.CenterVertically,
@@ -465,7 +500,7 @@ private fun GridlinkContactPhotoRow(
                 modifier = Modifier
                     .clickable(onClick = onRemove)
                     .padding(
-                        horizontal = GridlinkSpacing.rowHorizontal,
+                        horizontal = GridlinkSpacing.s16,
                         vertical = GridlinkSpacing.s12,
                     ),
             )

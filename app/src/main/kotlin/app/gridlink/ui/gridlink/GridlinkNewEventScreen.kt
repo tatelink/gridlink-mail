@@ -133,45 +133,51 @@ fun GridlinkNewEventScreen(
             // pickers are dialogs: sending the ime action into one would open a modal from a keyboard
             // key, over a keyboard that is still up.
             onImeAction = { locationFocus.requestFocus() },
+            label = "Title",
+            contained = true,
         )
-        GridlinkFormDivider()
 
+        // 🔴 No dividers: contained boxes separate themselves by their margins, same as the
+        // contact form.
         GridlinkFormPickRow(
             label = "DATE",
             value = day.format(EVENT_DATE),
             onClick = { picking = GridlinkEventPicker.DATE },
+            contained = true,
+            active = picking == GridlinkEventPicker.DATE,
         )
-        GridlinkFormDivider()
 
         GridlinkFormToggleRow(
             label = "All day",
             checked = allDay,
             onToggle = { allDay = it },
+            contained = true,
         )
 
         // The times are removed rather than disabled when the event is all-day. A dimmed 9 AM under an
         // ON toggle asks the user to work out which of the two the app believes; nothing there says it
         // plainly.
         if (!allDay) {
-            GridlinkFormDivider()
             GridlinkFormPickRow(
                 label = "START",
                 value = start.compact(),
                 onClick = { picking = GridlinkEventPicker.START },
+                contained = true,
+                active = picking == GridlinkEventPicker.START,
             )
-            GridlinkFormDivider()
             GridlinkFormPickRow(
                 label = "END",
                 value = end.compact(),
                 onClick = { picking = GridlinkEventPicker.END },
+                contained = true,
+                active = picking == GridlinkEventPicker.END,
             )
         }
-        GridlinkFormDivider()
 
         GridlinkFormTextRow(
             value = location,
             onValueChange = { location = it },
-            placeholder = "Location",
+            placeholder = "",
             placeholderStyle = GridlinkType.body,
             style = GridlinkType.body,
             focusRequester = locationFocus,
@@ -182,6 +188,8 @@ fun GridlinkNewEventScreen(
             // button and not a field the ime can move to.
             imeAction = ImeAction.Done,
             onImeAction = null,
+            label = "Location",
+            contained = true,
         )
     }
 
