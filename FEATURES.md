@@ -77,10 +77,11 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Optional "mark as read when deleting" (Settings → Reading), so deleted mail doesn't sit unread in Trash
 - ✅ Unread shown by bold text (not a status dot)
 - ✅ Folder navigation drawer; view any mailbox *(M3)*
-- ✅ ⭐ Conversation threading, JMAP native `Thread` objects. The list collapses a thread into one row with a message-count badge (Settings → Reading → Conversation view, on by default; toggle off for a flat list); opening a row shows the thread view. Grouping is done in SQL (representative = latest message, unread if any in the thread)
+- ✅ ⭐ Conversation threading, JMAP native `Thread` objects. The list collapses a thread into one row with a message-count badge (Settings → Reading → Conversation view, on by default; toggle off for a flat list); opening a row shows the thread view. Grouping is done in SQL (representative = latest message, unread if any in the thread). Threads come from the server, so the setting groups messages on a **JMAP** account and leaves one row per message on an **IMAP** account; the switch says so and is never greyed out
+- ✅ Unarchive on reply (Settings → Reading), on **JMAP**: when a new reply arrives, the conversation's archived messages come back to the Inbox. IMAP has no server thread ids, so the setting does nothing there
 - ✅ Pull-to-refresh
-- ✅ Swipe actions (configurable) with an Undo snackbar for delete/archive; "Empty trash" (Trash overflow menu) destroys, behind the same held-back Undo, exactly the messages the folder held when you confirmed, mail filed there afterwards is not touched
-- ✅ Configurable swipe actions (left/right, in Settings → Reading)
+- ✅ Swipe actions (configurable) with an Undo snackbar for delete/archive; "Empty trash" (Trash overflow menu) destroys, behind the same held-back Undo, at most the messages the folder held when you confirmed, mail filed there afterwards is not touched
+- ✅ Configurable swipe actions (left/right, in Settings → Reading), fired at about half the distance the finger used to travel, and a quick flick triggers them on its own, as in K-9 and Thunderbird; a long press into multi-select gives a short haptic tick
 - ✅ Sort (newest/oldest, subject, sender, unread-first, starred-first) + Mark-all-read
 - ✅ Multi-select (long-press / select-all): bulk read/unread toggle (keeps the
   selection), archive (Unarchive → Inbox from the Archive folder), move-to-folder, delete
@@ -92,13 +93,15 @@ The categories further down list the full feature set; this is the order of work
   to the top when you ask for it and sorts normally the rest of the time; "Starred only" is a
   criterion of the advanced search, which gathers them across the whole account
 - ✅ Report spam / not-spam, message overflow, context-aware (Report spam ↔ Not spam)
+- ✅ One-gesture unsubscribe (RFC 2369 / RFC 8058), a reader banner appears when the sender publishes an unsubscribe address; Sterna shows the exact request or email it would send before sending it, does not send it twice while the message stays open, refuses a redirect that would turn the request into a page load, and blames the sender's host rather than the network when it fails. A list that offers only a web page is opened in a browser, after a warning that this can expose the reader's IP address
 
 ## Organisation & search
 
 - ✅ Mailbox listing
 - ✅ Server-side search, inline on the mailbox (search-as-you-type; JMAP query / IMAP SEARCH, with instant local-cache results); the search field names its scope (current folder, or "All inboxes"). In the unified inbox the search fans out to **every** account in parallel (not just the active one), merges + de-duplicates the results, and each result row carries its account name/address chip like the unified list
 - ✅ Unified inbox across multiple accounts (merged, date-sorted; per-row account; JMAP + IMAP), switching the active account refreshes the list; archive/delete from the unified inbox resolve the target folder on each message's own account
-- ✅ Richer search filters (from, subject, has-attachment, date), advanced panel in Search, JMAP Email/query AND filter; 💡 `SearchSnippet` highlights
+- ✅ Richer search filters (from, subject, has-attachment, date, starred-only), advanced panel in Search, JMAP Email/query AND filter; 💡 `SearchSnippet` highlights
+- ✅ Mail by sender (inbox ⋮ → By sender), gathers the cached mail from one address, shows how much there is, and deletes it in one go (to the Trash). The count and the delete cover every cached folder of the account except Sent, Drafts, Trash and Spam, and leave snoozed messages out of both. From that screen, or from a message being read, a server-side rule can be added that files this sender's future mail to the Trash, marked read; it asks first and says what it will do
 - ✅ Auto-create an Archive folder on first archive (when the account has none)
 - ✅ Folder management, create / rename / delete custom folders from the drawer, including nested subfolders (JMAP parentId / IMAP path), shown as a collapsible tree; 💡 subscribe + per-folder settings, drag-to-reorder
 - ✅ Quick filter: unread-only toggle on the current view
@@ -109,7 +112,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Compose and send (JMAP `EmailSubmission/set`, or SMTP submit + APPEND-to-Sent for IMAP)
 - ✅ Opens `mailto:` links (registered as an email app, from browsers and other apps); the link's addresses, subject, body, cc and bcc prefill compose
 - ✅ Reply / reply-all / forward with quoting (threaded via `inReplyTo`/`references`)
-- ✅ Save drafts (JMAP, or IMAP APPEND to Drafts); closing compose with unsaved edits prompts to save the draft, discard, or keep editing (intercepts the Close button and system back)
+- ✅ Save drafts (JMAP, or IMAP APPEND to Drafts); closing compose with unsaved edits prompts to save the draft, discard the changes, or cancel and keep editing (intercepts the Close button and system back). The prompt says it drops the *changes*, not the message, when a saved draft stays on the server; Save draft is greyed out on an empty composer (saving nothing would delete the draft); and the draft itself can be deleted from the composer, on confirmation, to the Trash
 - ✅ Attachments: pick & send, view/download/open incoming (JMAP blobs / IMAP multipart MIME + BODY-section fetch)
 - ✅ Inline images (`cid:`) rendered in the body (downloaded as data URIs)
 - 💡 Rich-text editor plus plain-text mode
@@ -130,8 +133,8 @@ The categories further down list the full feature set; this is the order of work
 
 - ✅ Encrypted account persistence (AndroidKeyStore)
 - ✅ Multiple accounts, add / switch / sign out, with migration
-- ✅ Multiple JMAP accounts under one login (RFC 8620 §1.6.2), when a single sign-in exposes several mail accounts (delegated / shared / team mailboxes), each is surfaced as its own account in the drawer switcher, with its own inbox, folders, unread count, mail cache and new-mail notifications, all sharing the one stored credential. Sending from a sub-account uses that account's own server identities. Discovered automatically on connect and pruned when access is revoked; one push subscription per login carries changes for every account it reaches. A login that exposes a single mail account behaves exactly as before
-- ✅ JMAP **and** IMAP/SMTP account setup (protocol picker; host/port/security), IMAP setup has quick-setup presets (Gmail, Yahoo, iCloud, Fastmail, Proton Bridge) that prefill host/port/security, with a reminder that most providers need an app-specific password (not the normal one); a rejected IMAP login repeats that hint. Password fields have a show/hide toggle. (Outlook/Microsoft uses OAuth instead of a password, see the XOAUTH2 item below.)
+- ✅ Multiple JMAP accounts under one login (RFC 8620 §1.6.2), when a single sign-in exposes several mail accounts (delegated / shared / team mailboxes), each is surfaced as its own account in the drawer switcher, with its own inbox, folders, unread count, mail cache and new-mail notifications, all sharing the one stored credential. Sending from a sub-account uses that account's own server identities. Discovered automatically on connect: Sterna asks the server for that account's mailboxes before adding it and leaves it out when the server refuses, so a share that carries no mail is not turned into an account, and an account the login stops exposing is dropped on the next connect. An account already added by an earlier version stays until you sign out of it and add it again. One push subscription per login carries changes for every account it reaches. A login that exposes a single mail account behaves exactly as before
+- ✅ JMAP **and** IMAP/SMTP account setup (protocol picker; host/port/security), IMAP setup has quick-setup presets (Gmail, Yahoo, iCloud, Fastmail, Proton Bridge, Yandex, Mail.ru) that prefill host/port/security, with a reminder that most providers need an app-specific password (not the normal one); a rejected IMAP login repeats that hint. Password fields have a show/hide toggle. (Outlook/Microsoft uses OAuth instead of a password, see the XOAUTH2 item below.)
 - ✅ Account management panel, per-account editable server settings (protocol-aware: JMAP URL, or IMAP/SMTP host/port/security; username, password), with a "Test connection" button that validates the (edited) settings before saving
 - ✅ Optional account display name (falls back to the address when unset)
 - ✅ Onboarding via `/.well-known/jmap` autodiscovery, enter just email + password; Sterna probes the email domain's well-known endpoint (and mail./jmap. subdomains, following redirects, which can legitimately land on another host, which is then given the credentials over HTTPS) to find the JMAP server, with a manual-server fallback; 💡 DNS SRV (`_jmap._tcp`)
@@ -159,7 +162,8 @@ The categories further down list the full feature set; this is the order of work
 - ✅ App lock, biometric / face, with screen PIN/pattern/password fallback
 - ✅ Per-sender "always load images" allowlist (add from a message's ⋮ menu, or add/remove individual senders + clear all in Settings → Privacy)
 - ✅ Visible no-telemetry stance, [PRIVACY.md](PRIVACY.md) + the README privacy section
-- ✅ Strip tracking parameters from tapped links (Settings → Privacy, on by default); ✅ confirm before opening external links (Settings → Privacy → Links, opt-in; dialog shows the destination)
+- ✅ Strip tracking parameters from tapped links (Settings → Privacy, on by default); ✅ confirm before opening external links (Settings → Privacy → Links, opt-in; dialog shows the destination, with a Copy button)
+- ✅ The composer asks the keyboard not to learn from what is being written (`IME_FLAG_NO_PERSONALIZED_LEARNING`), so names, addresses and medical or legal terms typed in a message do not end up in the keyboard's personal dictionary
 
 ## Encryption
 
@@ -183,6 +187,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Message-list density (compact / normal / spaced)
 - ✅ Row preview length (subject only / 1 / 3 / 5 lines)
 - ✅ Message text size (small / normal / large / huge), scales the message-body WebView (Settings → Reading → Message)
+- ✅ Reply bar toggle (Settings → Reading → Message), hides the Reply and Forward buttons at the bottom of a message; Reply stays in the toolbar at the top, Forward in its menu
 - ✅ Compact inbox top bar showing folder + account
 - ✅ About section in Settings, version (with release date), source code, license and author links
 - 💡 Home-screen widget(s) (unread count / inbox)
@@ -192,7 +197,7 @@ The categories further down list the full feature set; this is the order of work
 
 - ✅ ⭐ Vacation responder / auto-reply, JMAP `VacationResponse` (RFC 8621); per-account, server-side, Settings → Vacation responder (enable + subject + message + optional date range), IMAP/no-capability gated
 - ✅ On-device storage usage + Clear cache (Settings → Storage); ✅ server mailbox quota via JMAP `Quota` (RFC 9425) shown in Settings → Storage when supported
-- ✅ Server-side filters/rules where the server supports `SieveScript` (RFC 9661), form-based rule builder (condition → move/mark-read/star), compiled to Sieve and round-tripped via a JSON metadata comment
+- ✅ Server-side filters/rules where the server supports `SieveScript` (RFC 9661), form-based rule builder (condition → move/mark-read/star), compiled to Sieve and round-tripped via a JSON metadata comment. A script Sterna cannot read is never silently overwritten: the screen names the script that is actually running, says plainly when the rules are not being applied and offers to put them back, warns before replacing an unreadable script, and states what saving the filters costs while a vacation auto-reply is running. A rule that files mail into a nested folder names that folder in full
 - ✅ Calendar invite (`.ics`) preview, a `text/calendar` part is detected (captured on
   IMAP even without a filename; JMAP lists it already), the first `VEVENT` is parsed by a
   small dependency-free iCalendar reader (timezones, all-day, recurrence, `DURATION`), and
