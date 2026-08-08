@@ -207,14 +207,16 @@ private val INTRO_BLOCKS: List<IntroBlock> = buildList {
 /**
  * When each scene starts and how long it runs, in seconds.
  *
- * ## 🔴 Why these are not the exported numbers
- * The export is **8.2 seconds** (Drop 2.0, Travel 1.7, Settle 1.0, Form 1.5, Breathe 2.0). That is
- * right for something you watch once on a design tool's canvas and wrong for something that stands
- * between Tate and his inbox every single time he opens the app. [Intro] is the same five scenes
- * at roughly a fifth of the length, with the scenes overlapped rather than merely sped up: the light
- * sets off while the last blocks are still landing, and the merge begins before the node has
- * finished lighting. Playing the export at 5x instead would read as a stutter, because every scene
- * would still start on the frame the one before it ended.
+ * ## 🔴 These ARE the exported numbers
+ * The export runs **8.2 seconds**, with the scenes strictly sequential: Drop 2.0, Travel 1.7,
+ * Settle 1.0, Form 1.5, Breathe 2.0. The first shipped cut compressed the same five scenes to
+ * 1.85s with the scenes overlapped, on the theory that a launch screen owes the user its own
+ * absence; the first time Tate watched it on a device he called it far too fast, and he is the
+ * author of the composition. So [Intro] is now a transcription — every cue below is the export's
+ * own (`t0 = CUES.Drop + order * 0.15`, `pop(t0, 0.6)`, and so on) — and a future taste edit
+ * should start from the position that the pacing is his. Impatience is already served: the overlay
+ * is skippable by tap or by back, so length never again has to be traded against patience inside
+ * this table.
  *
  * ⚠️ A shorter cut for screen transitions is a second instance of this class, which is what the
  * class exists for. It is not here yet because there is no transition wired to it: the mark does not
@@ -251,36 +253,44 @@ data class GridlinkMarkChoreography(
 ) {
     companion object {
         /**
-         * The cold-start cut. About 1.85s of motion plus [GRIDLINK_INTRO_FADE_MS] of fade.
+         * The cold-start cut: the export's cue sheet, verbatim. 8.2s of motion plus
+         * [GRIDLINK_INTRO_FADE_MS] of fade, and a tap or back to skip all of it.
          *
-         * ⚠️ Every number is a judgement about how long a launch screen is allowed to be, not a
-         * transcription of anything. Shorten [total] and the fade starts over a mark that is still
-         * breathing, which is fine; shorten the cues and scenes start colliding.
+         * 🔴 Settle still has to FINISH before Form starts, and by a margin you can see. The whole
+         * animation is an argument that the node was chosen: the light went everywhere, sank into
+         * one block, and that block became the source the mark is built around. If the merge began
+         * while the node was still lighting, the strike would happen underneath the four finished
+         * shapes fading in over it and the argument would never be made. The export honours this
+         * with a 0.5s gap (Settle's light finishes at 4.2, Form starts at 4.7); an early compressed
+         * cut had them 0.14s apart and the beat was simply invisible. The timeline test pins it.
          */
         val Intro = GridlinkMarkChoreography(
             drop = 0f,
-            dropStagger = 0.045f,
-            dropDuration = 0.30f,
-            travel = 0.48f,
-            travelDuration = 0.50f,
-            // 🔴 Settle has to FINISH before Form starts, and by a margin you can see. The whole
-            // animation is an argument that the node was chosen: the light went everywhere, sank
-            // into one block, and that block became the source the mark is built around. If the
-            // merge begins while the node is still lighting, the strike happens underneath the
-            // four finished shapes fading in over it and the argument is never made — what is left
-            // is nine blocks that turn into a logo, which is a transition and not a story. An
-            // earlier cut had these 0.14s apart and the beat was simply invisible.
-            settle = 0.94f,
-            settleDuration = 0.24f,
-            form = 1.22f,
-            formDuration = 0.38f,
-            sweep = 1.22f,
-            sweepDuration = 0.38f,
-            // Lands inside [total] on purpose: the swell completes and the mark is at rest when the
-            // fade takes it, rather than being cut off part-way up.
-            breathe = 1.35f,
-            breatheDuration = 0.45f,
-            total = 1.85f,
+            // The export's `t0 = CUES.Drop + DROP_ORDER.indexOf(key) * 0.15`.
+            dropStagger = 0.15f,
+            // The export's `pop(t0, 0.6)`. Its fade-in (0.25), landing beat (t0 + 0.42) and squash
+            // window (0.22) are this times the ratios in [gridlinkMarkBlockFrame]: 0.45, 0.7, 0.37.
+            dropDuration = 0.6f,
+            // Scenes are sequential: Travel begins when Drop's 2.0s are up, so the last block
+            // (airborne 1.2..1.8) is down before the light sets off.
+            travel = 2.0f,
+            // The export runs the path over 1.6 of the scene's 1.7, leaving a beat of stillness
+            // at the node before Settle takes over.
+            travelDuration = 1.6f,
+            settle = 3.7f,
+            // The export's `nodeOn = enter(0, 1, CUES.Settle, 0.5)`.
+            settleDuration = 0.5f,
+            form = 4.7f,
+            // The export's merge, `Form .. Form + 1.2`.
+            formDuration = 1.2f,
+            sweep = 4.7f,
+            // And its ring, `Form .. Form + 1.1`.
+            sweepDuration = 1.1f,
+            // One full cosine swell (`bLen = 2.0`) landing exactly on [total]: the mark is at rest
+            // when the fade takes it, rather than being cut off part-way up.
+            breathe = 6.2f,
+            breatheDuration = 2.0f,
+            total = 8.2f,
         )
     }
 }
@@ -632,7 +642,7 @@ private const val GRIDLINK_INTRO_SKIP_FADE_MS = 110
  *
  * ⚠️ The day that override is persisted, this must read it from wherever it is persisted, or the
  * intro will flash the wrong palette at everyone who pinned one. Nothing will fail; it will just be
- * wrong for 1.85 seconds per launch.
+ * wrong for the whole length of the intro, every launch.
  */
 @Composable
 fun rememberGridlinkIntroMode(): GridlinkMode = remember { gridlinkModeForHour(LocalTime.now().hour) }
@@ -660,6 +670,18 @@ fun rememberGridlinkIntroMode(): GridlinkMode = remember { gridlinkModeForHour(L
 fun GridlinkIntroOverlay(
     onFinished: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * 🔴 The clock does not start until this is true, and what it exists to wait for is the SYSTEM
+     * SPLASH. On API 31+ the platform lays its splash window over the app while the app composes
+     * and draws underneath, which is exactly when this overlay's LaunchedEffect fires — so an
+     * ungated clock spends the first chunk of the choreography playing to a screen the user cannot
+     * see, and what they finally get shown is the tail end of a mark that assembled itself in
+     * private. That is precisely how it shipped, and Tate's review was that the animation
+     * looked "100x" too fast: he was watching the last second of it. [MainActivity] flips this
+     * from its splash-exit listener. While false, the overlay draws the choreography's frame zero:
+     * the backdrop, an empty lattice, nothing moving.
+     */
+    started: Boolean = true,
     choreography: GridlinkMarkChoreography = GridlinkMarkChoreography.Intro,
 ) {
     val clock = remember { Animatable(0f) }
@@ -670,7 +692,8 @@ fun GridlinkIntroOverlay(
     // composition that had moved on.
     val finish by rememberUpdatedState(onFinished)
 
-    LaunchedEffect(choreography) {
+    LaunchedEffect(choreography, started) {
+        if (!started) return@LaunchedEffect
         coroutineScope {
             val playing = launch {
                 clock.animateTo(
