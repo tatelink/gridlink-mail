@@ -46,6 +46,12 @@ class VCardWriteTest {
         emails = listOf("karen@acme.example"),
         phones = listOf("+1 704-232-8656"),
         note = "Prefers morning calls. Long note that the exporter folded across two physical lines for RFC 6350.",
+        // The card's own folded PHOTO, unfolded: the model reads photos now, so the edit that
+        // mirrors richCard must carry it or every diff against a fresh parse reports PHOTO.
+        photo = app.gridlink.core.jmap.model.ContactCardPhoto(
+            "image/jpeg",
+            "dGhpcyBpcyBub3QgYSByZWFsIHBob3RvIGJ1dCBpdCBpcyBsb25nIGVub3VnaCB0byBmb2xk",
+        ),
     )
 
     @Test
@@ -169,6 +175,56 @@ class VCardWriteTest {
         assertFalse(vcf.contains("\r\nN:"))
         // And the reader recognises its own on the way back in.
         assertTrue(VCard.parse(vcf)!!.isOrganization)
+    }
+
+    @Test
+    fun `a photo patch speaks the card's own vCard version`() {
+        val photo = app.gridlink.core.jmap.model.ContactCardPhoto("image/jpeg", "R0lGODlh")
+
+        // richCard says VERSION:3.0, so the new photo arrives in the 3.0 spelling…
+        val v3 = VCardWrite.patch(richCard, richEdit.copy(photo = photo), setOf(ContactCardGroup.PHOTO))
+        assertTrue(v3.contains("PHOTO;ENCODING=b;TYPE=JPEG:R0lGODlh"))
+        // …and the old folded PHOTO is gone, continuation line and all.
+        assertFalse(v3.contains("b25nIGVub3VnaCB0byBmb2xk"))
+
+        // A 4.0 card gets the data URI instead.
+        val v4Card = richCard.replace("VERSION:3.0", "VERSION:4.0")
+        val v4 = VCardWrite.patch(v4Card, richEdit.copy(photo = photo), setOf(ContactCardGroup.PHOTO))
+        assertTrue(v4.contains("PHOTO:data:image/jpeg;base64,R0lGODlh"))
+        assertFalse(v4.contains("ENCODING=b"))
+    }
+
+    @Test
+    fun `removing the photo removes the PHOTO lines`() {
+        val patched = VCardWrite.patch(richCard, richEdit.copy(photo = null), setOf(ContactCardGroup.PHOTO))
+        assertFalse(patched.contains("PHOTO"))
+        assertTrue(patched.contains("END:VCARD"))
+    }
+
+    @Test
+    fun `custom fields round-trip through build and parse`() {
+        val edit = ContactEdit(
+            given = "Karen",
+            family = "Caldwell",
+            customFields = listOf(
+                app.gridlink.core.jmap.model.ContactCardCustomField("Office", "Ballantyne, Suite 240"),
+                app.gridlink.core.jmap.model.ContactCardCustomField("Case portal ID", "HRB-4417"),
+            ),
+        )
+        val vcf = VCardWrite.build(edit, uid = "u-3")
+
+        // The structured separator is escaped inside the halves, so the comma survives the trip.
+        assertTrue(vcf.contains("X-GRIDLINK-FIELD:Office;Ballantyne\\, Suite 240"))
+        val reparsed = VCard.parse(vcf)!!
+        assertEquals(edit.customFields, reparsed.customFields)
+        assertTrue(edit.touchedSince(ContactEdit.from(reparsed)).isEmpty())
+    }
+
+    @Test
+    fun `a photo written by build survives its own parser`() {
+        val photo = app.gridlink.core.jmap.model.ContactCardPhoto("image/png", "R0lGODlh")
+        val vcf = VCardWrite.build(richEdit.copy(photo = photo), uid = "u-4")
+        assertEquals(photo, VCard.parse(vcf)!!.photo)
     }
 
     @Test

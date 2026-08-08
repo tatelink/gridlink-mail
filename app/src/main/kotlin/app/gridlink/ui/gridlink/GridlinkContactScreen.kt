@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
@@ -29,6 +31,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -141,7 +145,10 @@ fun GridlinkContactScreen(
             // The identity block. No avatar and no initials disc: §9's ban on them is about the
             // list, but the reason behind it is not, and a card that answers "who is this" twice
             // answers it worse. The bar is the answer everywhere else in the app, so it is the
-            // answer here.
+            // answer here. A real photograph is different in kind — it is card DATA the user put
+            // there, not decoration invented for them — so when the card carries one it sits at
+            // the header's trailing edge, and when it does not, nothing stands in for it.
+            val photoBitmap = rememberGridlinkContactPhoto(contact.photo)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -181,6 +188,22 @@ fun GridlinkContactScreen(
                         )
                     }
                 }
+                if (photoBitmap != null) {
+                    Image(
+                        bitmap = photoBitmap,
+                        contentDescription = "Contact photo",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .align(Alignment.CenterVertically)
+                            .padding(
+                                end = GridlinkSpacing.rowHorizontal,
+                                top = GridlinkSpacing.s16,
+                                bottom = GridlinkSpacing.s16,
+                            )
+                            .size(64.dp)
+                            .clip(RoundedCornerShape(GridlinkSpacing.s8)),
+                    )
+                }
             }
 
             Box(
@@ -202,6 +225,11 @@ fun GridlinkContactScreen(
                 }
                 if (contact.company.isNotBlank() && contact.company != contact.role) {
                     add(GridlinkContactField("Company", contact.company, null))
+                }
+                // User-defined fields, after the built-ins: the label is the user's own word for
+                // the value, so it renders exactly as typed, in the same caption slot "Email" uses.
+                contact.customFields.forEach { field ->
+                    add(GridlinkContactField(field.label, field.value, null))
                 }
             }
             if (fields.isNotEmpty()) {

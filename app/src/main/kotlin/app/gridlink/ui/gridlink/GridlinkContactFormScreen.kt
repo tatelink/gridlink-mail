@@ -1,5 +1,17 @@
 package app.gridlink.ui.gridlink
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -7,16 +19,28 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import app.gridlink.core.data.contacts.ContactEdit
+import app.gridlink.core.jmap.model.ContactCardCustomField
+import app.gridlink.core.jmap.model.ContactCardPhoto
+import app.gridlink.ui.theme.GridlinkSpacing
+import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The contact form: what the address book's "+" opens, and what a card's Edit opens.
@@ -68,6 +92,7 @@ fun GridlinkContactFormScreen(
     /** Why the last save did not happen, in the caller's words. Outranks the advice hints. */
     failure: String? = null,
 ) {
+    var photo by remember { mutableStateOf(initial?.photo) }
     var given by remember { mutableStateOf(TextFieldValue(initial?.given.orEmpty())) }
     var family by remember { mutableStateOf(TextFieldValue(initial?.family.orEmpty())) }
     var company by remember { mutableStateOf(TextFieldValue(initial?.company.orEmpty())) }
@@ -85,6 +110,33 @@ fun GridlinkContactFormScreen(
             add(TextFieldValue())
         }
     }
+    // Custom fields are label+value PAIRS, so the row and its spare grow as a unit: a label with
+    // no value yet must not spawn a second blank row, and neither half alone says the row is done.
+    val customs = remember {
+        mutableStateListOf<Pair<TextFieldValue, TextFieldValue>>().apply {
+            initial?.customFields.orEmpty().forEach {
+                add(TextFieldValue(it.label) to TextFieldValue(it.value))
+            }
+            add(TextFieldValue() to TextFieldValue())
+        }
+    }
+
+    // The picker hands back a Uri; the re-encode reads and compresses a possibly-huge image, so it
+    // runs off the main thread and the form simply shows the old state until it lands. GetContent
+    // rather than a permission dance: the SAF grants access to exactly the one picked document.
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val encoded = withContext(Dispatchers.Default) { gridlinkEncodeContactPhoto(context, uri) }
+                // A file that would not decode leaves the photo as it was: on a form, silently
+                // deleting the existing picture because the replacement was corrupt is worse than
+                // appearing to ignore the tap.
+                if (encoded != null) photo = encoded
+            }
+        }
+    }
 
     val givenFocus = remember { FocusRequester() }
     val familyFocus = remember { FocusRequester() }
@@ -93,8 +145,12 @@ fun GridlinkContactFormScreen(
     val noteFocus = remember { FocusRequester() }
     val emailFocus = remember { mutableStateListOf<FocusRequester>() }
     val phoneFocus = remember { mutableStateListOf<FocusRequester>() }
+    val customLabelFocus = remember { mutableStateListOf<FocusRequester>() }
+    val customValueFocus = remember { mutableStateListOf<FocusRequester>() }
     while (emailFocus.size < emails.size) emailFocus.add(FocusRequester())
     while (phoneFocus.size < phones.size) phoneFocus.add(FocusRequester())
+    while (customLabelFocus.size < customs.size) customLabelFocus.add(FocusRequester())
+    while (customValueFocus.size < customs.size) customValueFocus.add(FocusRequester())
     LaunchedEffect(Unit) { givenFocus.requestFocus() }
 
     val filed = family.text.isNotBlank()
@@ -129,11 +185,20 @@ fun GridlinkContactFormScreen(
                     emails = emails.map { it.text },
                     phones = phones.map { it.text },
                     note = note.text,
+                    photo = photo,
+                    customFields = customs.map { ContactCardCustomField(it.first.text, it.second.text) },
                 ),
             )
         },
         modifier = modifier,
     ) {
+        GridlinkContactPhotoRow(
+            photo = photo,
+            onPick = { photoPicker.launch("image/*") },
+            onRemove = { photo = null },
+        )
+        GridlinkFormDivider()
+
         GridlinkFormTextRow(
             value = given,
             onValueChange = { given = it },
@@ -246,9 +311,56 @@ fun GridlinkContactFormScreen(
                     imeAction = ImeAction.Next,
                     onImeAction = {
                         if (index < phones.lastIndex) phoneFocus[index + 1].requestFocus()
-                        else noteFocus.requestFocus()
+                        else customLabelFocus.first().requestFocus()
                     },
                 )
+            }
+        }
+
+        customs.forEachIndexed { index, pair ->
+            key(index) {
+                GridlinkFormDivider()
+                // Two fields on one row, label narrow and value wide, because a custom field IS
+                // its pair: "Office / Ballantyne" split across two full rows reads as two facts.
+                Row(Modifier.fillMaxWidth()) {
+                    GridlinkFormTextRow(
+                        value = pair.first,
+                        onValueChange = { changed ->
+                            customs[index] = changed to customs[index].second
+                            growTrailingPairRow(customs)
+                        },
+                        placeholder = if (index == 0) "Label" else "Add label",
+                        placeholderStyle = GridlinkType.body,
+                        style = GridlinkType.body,
+                        focusRequester = customLabelFocus[index],
+                        onFocused = {},
+                        singleLine = true,
+                        capitalization = KeyboardCapitalization.Words,
+                        imeAction = ImeAction.Next,
+                        onImeAction = { customValueFocus[index].requestFocus() },
+                        modifier = Modifier.weight(0.38f),
+                    )
+                    GridlinkFormTextRow(
+                        value = pair.second,
+                        onValueChange = { changed ->
+                            customs[index] = customs[index].first to changed
+                            growTrailingPairRow(customs)
+                        },
+                        placeholder = "Value",
+                        placeholderStyle = GridlinkType.body,
+                        style = GridlinkType.body,
+                        focusRequester = customValueFocus[index],
+                        onFocused = {},
+                        singleLine = true,
+                        capitalization = KeyboardCapitalization.Sentences,
+                        imeAction = ImeAction.Next,
+                        onImeAction = {
+                            if (index < customs.lastIndex) customLabelFocus[index + 1].requestFocus()
+                            else noteFocus.requestFocus()
+                        },
+                        modifier = Modifier.weight(0.62f),
+                    )
+                }
             }
         }
         GridlinkFormDivider()
@@ -281,5 +393,82 @@ private fun growTrailingRow(rows: MutableList<TextFieldValue>) {
     if (rows.last().text.isNotBlank()) rows.add(TextFieldValue())
     while (rows.size >= 2 && rows[rows.size - 2].text.isBlank() && rows.last().text.isBlank()) {
         rows.removeAt(rows.size - 1)
+    }
+}
+
+/** [growTrailingRow] for the custom label+value pairs: a pair is blank only when BOTH halves are. */
+private fun growTrailingPairRow(rows: MutableList<Pair<TextFieldValue, TextFieldValue>>) {
+    fun blank(pair: Pair<TextFieldValue, TextFieldValue>) =
+        pair.first.text.isBlank() && pair.second.text.isBlank()
+    if (!blank(rows.last())) rows.add(TextFieldValue() to TextFieldValue())
+    while (rows.size >= 2 && blank(rows[rows.size - 2]) && blank(rows.last())) {
+        rows.removeAt(rows.size - 1)
+    }
+}
+
+/**
+ * The photo slot at the top of the form: the current picture (or nothing), one action to pick,
+ * and Remove when there is something to remove.
+ *
+ * A row of the form's own species — same paddings, same divider rhythm — not a centred hero
+ * circle. The whole leading area is one tap target for pick/replace, because "tap the picture to
+ * change the picture" is the gesture every gallery app has already taught; Remove is a separate,
+ * smaller target so a fat-finger cannot delete what it meant to replace.
+ */
+@Composable
+private fun GridlinkContactPhotoRow(
+    photo: ContactCardPhoto?,
+    onPick: () -> Unit,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = GridlinkTheme.colors
+    val bitmap = rememberGridlinkContactPhoto(photo)
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .clickable(onClick = onPick)
+                .padding(
+                    horizontal = GridlinkSpacing.rowHorizontal,
+                    vertical = GridlinkSpacing.s12,
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap,
+                    contentDescription = "Contact photo",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(GridlinkSpacing.s8)),
+                )
+                Spacer(Modifier.width(GridlinkSpacing.s16))
+            }
+            Text(
+                text = if (photo == null) "Add photo" else "Replace photo",
+                style = GridlinkType.body,
+                // Placeholder grey while empty, exactly as the text rows read before they are
+                // typed into; primary once the row holds something.
+                color = if (photo == null) colors.textSecondary else colors.textPrimary,
+            )
+        }
+        if (photo != null) {
+            Text(
+                text = "Remove",
+                style = GridlinkType.body,
+                color = colors.textSecondary,
+                modifier = Modifier
+                    .clickable(onClick = onRemove)
+                    .padding(
+                        horizontal = GridlinkSpacing.rowHorizontal,
+                        vertical = GridlinkSpacing.s12,
+                    ),
+            )
+        }
     }
 }

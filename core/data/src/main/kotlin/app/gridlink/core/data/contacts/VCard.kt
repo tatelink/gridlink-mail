@@ -2,6 +2,8 @@ package app.gridlink.core.data.contacts
 
 import app.gridlink.core.data.text.ContentLine
 import app.gridlink.core.data.text.ContentLines
+import app.gridlink.core.jmap.model.ContactCardCustomField
+import app.gridlink.core.jmap.model.ContactCardPhoto
 
 /**
  * One parsed vCard, reduced to the fields the address book renders.
@@ -24,6 +26,11 @@ data class ParsedContact(
     val phones: List<String> = emptyList(),
     /** The card's NOTE, unescaped. Free text; may span lines. */
     val note: String? = null,
+    /** The embedded PHOTO, when the card carries one inline. A remote-URI photo parses as null:
+     *  nothing to show offline and nothing this app would re-upload. */
+    val photo: ContactCardPhoto? = null,
+    /** Gridlink's own X-GRIDLINK-FIELD properties: user-defined label/value pairs. */
+    val customFields: List<ContactCardCustomField> = emptyList(),
 ) {
 
     /**
@@ -107,10 +114,16 @@ data class ParsedContact(
 object VCard {
 
     /**
-     * Largest card payload we will read (1 MiB). A vCard is a few hundred bytes plus an optional
-     * photo; a megabyte of it is either broken or hostile, and reading it buys nothing.
+     * Largest card payload we will read (4 MiB). A vCard is a few hundred bytes plus an optional
+     * photo, and the photo is why this is not smaller: an iPhone-written card can carry close to
+     * a megabyte of base64, and a cap that drops the CARD over a large photo loses a contact,
+     * not a picture. Beyond this it is broken or hostile, and reading it buys nothing.
      */
-    const val MAX_SOURCE_CHARS = 1024 * 1024
+    const val MAX_SOURCE_CHARS = 4 * 1024 * 1024
+
+    /** Largest inline photo we will keep (base64 length ≈ 1.5 MB of image). Bigger parses as
+     *  no photo — which the diff upstream treats as "leave the PHOTO lines alone", not "delete". */
+    const val MAX_PHOTO_BASE64_CHARS = 2 * 1024 * 1024
 
     /** Parse the first card in [raw], or null if there is nothing usable. */
     fun parse(raw: String?): ParsedContact? = parseAll(raw).firstOrNull()
@@ -168,6 +181,14 @@ object VCard {
             emails = emails(lines),
             phones = phones(lines),
             note = first("NOTE")?.let { text(it.value) },
+            photo = photo(lines),
+            customFields = lines.filter { it.name == "X-GRIDLINK-FIELD" }.mapNotNull { line ->
+                val parts = ContentLines.splitStructured(line.value)
+                val label = parts.getOrNull(0)?.let(ContentLines::unescapeText)?.trim().orEmpty()
+                val value = parts.getOrNull(1)?.let(ContentLines::unescapeText)?.trim().orEmpty()
+                ContactCardCustomField(label, value)
+                    .takeIf { label.isNotEmpty() || value.isNotEmpty() }
+            },
         )
 
         // A card with nothing to file under and nothing to show is not a contact, it is noise.
@@ -215,6 +236,45 @@ object VCard {
             .sortedByDescending { it.first }
             .map { it.second }
             .distinct()
+    }
+
+    /**
+     * The card's inline PHOTO, in either of the spellings the live data mixes:
+     * `PHOTO:data:image/jpeg;base64,…` (4.0) or `PHOTO;ENCODING=b;TYPE=JPEG:…` (3.0, where
+     * `ENCODING=BASE64` is the 2.1 spelling of the same thing and also appears).
+     */
+    private fun photo(lines: List<ContentLine>): ContactCardPhoto? {
+        val line = lines.firstOrNull { it.name == "PHOTO" } ?: return null
+        val value = line.value.trim()
+        if (value.startsWith("data:", ignoreCase = true)) {
+            val comma = value.indexOf(',')
+            if (comma < 0) return null
+            val header = value.substring(5, comma)
+            if (!header.contains("base64", ignoreCase = true)) return null
+            val mediaType = header.substringBefore(';').trim().lowercase()
+                .takeIf { it.isNotEmpty() } ?: "image/jpeg"
+            return photoOf(mediaType, value.substring(comma + 1))
+        }
+        val encoding = line.param("ENCODING") ?: return null
+        if (!encoding.equals("b", true) && !encoding.equals("base64", true)) return null
+        // TYPE is a bare subtype in 3.0 (`TYPE=JPEG`); tolerate a full media type too.
+        val mediaType = line.param("TYPE")?.lowercase()
+            ?.let { if ('/' in it) it else "image/$it" } ?: "image/jpeg"
+        return photoOf(mediaType, value)
+    }
+
+    private fun photoOf(mediaType: String, base64: String): ContactCardPhoto? {
+        val cleaned = base64.filterNot { it.isWhitespace() }
+        if (cleaned.isEmpty() || cleaned.length > MAX_PHOTO_BASE64_CHARS) return null
+        return try {
+            // Decode once to validate: a corrupt PHOTO parses as no photo (which the diff treats
+            // as "leave it alone"), rather than riding along until an image decoder or a server
+            // rejects it somewhere the user can't see the cause.
+            java.util.Base64.getDecoder().decode(cleaned)
+            ContactCardPhoto(mediaType, cleaned)
+        } catch (_: IllegalArgumentException) {
+            null
+        }
     }
 
     private fun text(value: String): String? =

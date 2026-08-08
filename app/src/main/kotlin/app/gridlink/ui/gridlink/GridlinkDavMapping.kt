@@ -92,6 +92,8 @@ object GridlinkDavMapping {
             company = row.organization?.takeIf { !row.isOrganization }.orEmpty(),
             jobTitle = row.title.orEmpty(),
             note = parsed?.note.orEmpty(),
+            photo = parsed?.photo,
+            customFields = parsed?.customFields.orEmpty(),
             edit = parsed?.let(ContactEdit::from),
         )
     }

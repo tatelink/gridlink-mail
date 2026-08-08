@@ -1,6 +1,8 @@
 package app.gridlink.ui.gridlink
 
 import app.gridlink.core.data.contacts.ContactEdit
+import app.gridlink.core.jmap.model.ContactCardCustomField
+import app.gridlink.core.jmap.model.ContactCardPhoto
 
 /**
  * The address book the Contacts tab renders.
@@ -57,6 +59,11 @@ object GridlinkSampleContacts {
         val company: String = "",
         val jobTitle: String = "",
         val note: String = "",
+        /** The card's photograph, already encoded for the wire. Null means the card has none,
+         *  and the viewer renders nothing in its place — a photo is data, not decoration. */
+        val photo: ContactCardPhoto? = null,
+        /** User-defined labelled values, rendered after the built-in details. */
+        val customFields: List<ContactCardCustomField> = emptyList(),
         /**
          * The exact form seed for editing, when this row came off a real card. It is the SAME
          * derivation [app.gridlink.core.data.dav.DavRepository.updateContact] diffs against, which
@@ -95,6 +102,8 @@ object GridlinkSampleContacts {
                 emails = allEmails,
                 phones = phones,
                 note = note,
+                photo = photo,
+                customFields = customFields,
             )
     }
 
@@ -139,7 +148,17 @@ object GridlinkSampleContacts {
         GridlinkContact("powerbi", "", "Power BI Service", "Automated report delivery", "no-reply@microsoft.com"),
         GridlinkContact("quintero", "Elena", "Quintero", "Front of House Trainer", "e.quintero@hrbenefits.com"),
         GridlinkContact("randall", "Deshawn", "Randall", "Shift Lead, 0120 Pineville", "d.randall@gridlink.me"),
-        GridlinkContact("rivera", "Marisol", "Rivera", "Benefits Administrator", "m.rivera@hrbenefits.com"),
+        // The one fixture with a photo and custom fields, so both render paths are visible on the
+        // emulator without a live account. §9's override note above covers this too: the photo is
+        // a generated abstract landscape, not a person's face pretending to be Marisol.
+        GridlinkContact(
+            "rivera", "Marisol", "Rivera", "Benefits Administrator", "m.rivera@hrbenefits.com",
+            photo = ContactCardPhoto("image/jpeg", SAMPLE_PHOTO_BASE64),
+            customFields = listOf(
+                ContactCardCustomField("Office", "Ballantyne, Suite 240"),
+                ContactCardCustomField("Case portal ID", "HRB-4417"),
+            ),
+        ),
         GridlinkContact("sandoval", "Leah", "Sandoval", "Assistant Manager, 0797 Midtown", "l.sandoval@gridlink.me"),
         GridlinkContact("scheduling", "", "Scheduling", "Shift swaps and coverage", "scheduling@hrbenefits.com"),
         GridlinkContact("steritech", "", "Steritech", "Pest control", "service@steritech.com"),
@@ -240,6 +259,10 @@ object GridlinkSampleContacts {
         val sameDomain = all.filter { it.domain.equals(domain, ignoreCase = true) }
         return sameDomain.firstOrNull { it.given.isEmpty() } ?: sameDomain.firstOrNull()
     }
+
+    /** A 160×160 generated JPEG (hills under a pale sun), ~1.5 KB decoded. */
+    private const val SAMPLE_PHOTO_BASE64 =
+        "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"
 
     /** The same transform [GridlinkMessage.address] uses, so the two can be compared at all. */
     private fun flattenToLocalPart(name: String): String =
