@@ -26,6 +26,12 @@ data class ParsedContact(
     val phones: List<String> = emptyList(),
     /** The card's NOTE, unescaped. Free text; may span lines. */
     val note: String? = null,
+    /**
+     * Every ADR on the card, each flattened to one display line. Read-only on purpose: ADR
+     * belongs to no [app.gridlink.core.jmap.model.ContactCardGroup], so [VCardWrite.patch]
+     * passes the raw lines through untouched and showing them here risks nothing.
+     */
+    val addresses: List<String> = emptyList(),
     /** The embedded PHOTO, when the card carries one inline. A remote-URI photo parses as null:
      *  nothing to show offline and nothing this app would re-upload. */
     val photo: ContactCardPhoto? = null,
@@ -181,6 +187,7 @@ object VCard {
             emails = emails(lines),
             phones = phones(lines),
             note = first("NOTE")?.let { text(it.value) },
+            addresses = addresses(lines),
             photo = photo(lines),
             customFields = lines.filter { it.name == "X-GRIDLINK-FIELD" }.mapNotNull { line ->
                 val parts = ContentLines.splitStructured(line.value)
@@ -237,6 +244,32 @@ object VCard {
             .map { it.second }
             .distinct()
     }
+
+    /**
+     * Every ADR, each flattened to the one line a card row can show.
+     *
+     * ADR is structured: PO box; extended; street; locality; region; postal code; country. The
+     * street runs first (PO box and "extended" fold into it — exporters stuff suite numbers in
+     * both), then city, then "region postal" as one piece the way an envelope reads, then the
+     * country. A street holding embedded newlines (Apple writes multi-line streets as `\n`)
+     * flattens to comma-joins, because the display row is one line.
+     */
+    private fun addresses(lines: List<ContentLine>): List<String> =
+        lines.filter { it.name == "ADR" }.mapNotNull { line ->
+            val parts = ContentLines.splitStructured(line.value)
+                .map { ContentLines.unescapeText(it).trim() }
+            fun part(i: Int) = parts.getOrNull(i).orEmpty()
+            // A multi-line street ("123 Main St\nSuite 4") becomes its own comma pieces, so the
+            // one-line join below reads naturally instead of carrying a raw newline.
+            val street = listOf(part(0), part(1), part(2))
+                .flatMap { it.split('\n') }
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+            val regionPostal = listOf(part(4), part(5)).filter { it.isNotEmpty() }
+                .joinToString(" ")
+            val pieces = street + listOf(part(3), regionPostal, part(6)).filter { it.isNotEmpty() }
+            pieces.joinToString(", ").takeIf { it.isNotEmpty() }
+        }.distinct()
 
     /**
      * The card's inline PHOTO, in either of the spellings the live data mixes:

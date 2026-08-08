@@ -215,4 +215,59 @@ class VCardTest {
         assertEquals("Birthday", card.customFields[0].label)
         assertEquals("", card.customFields[0].value)
     }
+
+    // ------------------------------------------------------------------------------------------
+    // Grouped properties and addresses
+    // ------------------------------------------------------------------------------------------
+
+    @Test
+    fun `an Apple-grouped card gives up its emails, phone, photo and address`() {
+        // The `itemN.` spelling iOS and macOS exporters write. Before the group prefix was
+        // stripped in ContentLines.parse, every one of these lines was invisible: the card
+        // "synced" but showed no email, no phone, no photo — Brandon's exact report.
+        val card = VCard.parse(
+            """
+            BEGIN:VCARD
+            VERSION:3.0
+            FN:Dana Locklear
+            N:Locklear;Dana;;;
+            item1.EMAIL;type=INTERNET;type=pref:d.locklear@gridlink.me
+            item2.EMAIL;type=INTERNET:dana@example.com
+            item3.TEL;type=CELL:+1 704-555-0114
+            item4.ADR;type=WORK:;;9200 University City Blvd;Charlotte;NC;28223;USA
+            item5.PHOTO;ENCODING=b;TYPE=JPEG:$tinyB64
+            item1.X-ABLabel:_${'$'}!<Work>!${'$'}_
+            END:VCARD
+            """.trimIndent(),
+        )!!
+
+        assertEquals(listOf("d.locklear@gridlink.me", "dana@example.com"), card.emails)
+        assertEquals(listOf("+1 704-555-0114"), card.phones)
+        assertEquals("image/jpeg", card.photo!!.mediaType)
+        assertEquals(listOf("9200 University City Blvd, Charlotte, NC 28223, USA"), card.addresses)
+    }
+
+    @Test
+    fun `an address flattens to one line in envelope order`() {
+        val card = VCard.parse(
+            """
+            BEGIN:VCARD
+            VERSION:4.0
+            FN:HR Benefits Group
+            ADR;TYPE=WORK:;Suite 240;11220 Elm Ln;Charlotte;NC;28277;USA
+            END:VCARD
+            """.trimIndent(),
+        )!!
+        // Extended (the suite) rides with the street, then city, then region and postal as one
+        // piece the way an envelope reads.
+        assertEquals(listOf("Suite 240, 11220 Elm Ln, Charlotte, NC 28277, USA"), card.addresses)
+    }
+
+    @Test
+    fun `a multi-line street becomes comma pieces and a blank ADR is not an address`() {
+        val card = VCard.parse(
+            "BEGIN:VCARD\nVERSION:3.0\nFN:K C\nADR:;;123 Main St\\nSuite 4;Belmont;NC;;\nADR:;;;;;;\nEND:VCARD",
+        )!!
+        assertEquals(listOf("123 Main St, Suite 4, Belmont, NC"), card.addresses)
+    }
 }

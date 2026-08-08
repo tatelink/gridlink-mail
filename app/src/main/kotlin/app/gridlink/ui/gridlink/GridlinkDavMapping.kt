@@ -86,9 +86,15 @@ object GridlinkDavMapping {
             role = row.title?.takeIf { it.isNotBlank() }
                 ?: row.organization?.takeIf { it.isNotBlank() && !row.isOrganization }
                 ?: "",
-            email = row.primaryEmail,
-            emails = row.emails.split(',').map { it.trim() }.filter { it.isNotEmpty() },
+            // The fresh parse outranks the entity columns. The columns are the parser's answers
+            // frozen at sync time, and a row whose etag never changes never re-maps — so a parser
+            // fix (grouped `item1.EMAIL` lines, once invisible) only reaches the screen through
+            // the re-parse. Columns remain as the fallback for a raw payload that no longer reads.
+            email = if (parsed != null) parsed.primaryEmail else row.primaryEmail,
+            emails = parsed?.emails
+                ?: row.emails.split(',').map { it.trim() }.filter { it.isNotEmpty() },
             phones = parsed?.phones.orEmpty(),
+            addresses = parsed?.addresses.orEmpty(),
             company = row.organization?.takeIf { !row.isOrganization }.orEmpty(),
             jobTitle = row.title.orEmpty(),
             note = parsed?.note.orEmpty(),

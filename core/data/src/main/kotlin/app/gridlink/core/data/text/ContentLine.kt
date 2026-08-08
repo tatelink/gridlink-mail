@@ -103,7 +103,13 @@ object ContentLines {
         val value = line.substring(colon + 1)
         val segs = splitUnquoted(head, ';')
         if (segs.isEmpty()) return null
-        val name = segs[0].trim().uppercase()
+        // 🔴 vCard group prefixes (`item1.EMAIL`, Apple's favourite spelling) are stripped, so a
+        // grouped property answers to its own name. Without this every filter on `name == "EMAIL"`
+        // silently skips grouped lines — the card LOOKS parsed but is missing its emails — while
+        // the writer's removal pass (VCardWrite.propertyName) strips groups and deletes them, so
+        // the same lines were invisible to readers yet destroyed by edits. iCalendar has no groups
+        // and neither format allows `.` in a property name, so nothing legitimate is cut.
+        val name = segs[0].trim().substringAfterLast('.').trim().uppercase()
         if (name.isEmpty()) return null
         val params = LinkedHashMap<String, MutableList<String>>()
         for (j in 1 until segs.size) {

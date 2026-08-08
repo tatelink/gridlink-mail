@@ -224,6 +224,12 @@ fun GridlinkContactScreen(
                 contact.phones.forEach { number ->
                     add(GridlinkContactField("Phone", number) { leaveOnce { gridlinkDial(context, number) } })
                 }
+                // Same map handoff as an event's Where row, same `geo:` reasoning. Read-only
+                // display: the edit form has no address field, and ADR belongs to no
+                // ContactCardGroup, so a patched card keeps its ADR lines byte-for-byte.
+                contact.addresses.forEach { place ->
+                    add(GridlinkContactField("Address", place) { leaveOnce { openMap(context, place) } })
+                }
                 if (contact.company.isNotBlank() && contact.company != contact.role) {
                     add(GridlinkContactField("Company", contact.company, null))
                 }

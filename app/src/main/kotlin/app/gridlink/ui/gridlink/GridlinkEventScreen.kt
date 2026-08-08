@@ -400,7 +400,7 @@ private fun durationLabel(start: LocalTime, end: LocalTime): String {
  * and an unhandled implicit intent is an `ActivityNotFoundException` that takes the app down. Nothing
  * happening is the right failure for a tap on an address.
  */
-private fun openMap(context: android.content.Context, place: String): Boolean {
+internal fun openMap(context: android.content.Context, place: String): Boolean {
     val uri = Uri.parse("geo:0,0?q=" + Uri.encode(place))
     val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     return try {
