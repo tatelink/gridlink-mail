@@ -1,10 +1,14 @@
 package app.gridlink.ui.home
 
 import android.app.Application
+import android.content.Intent
 import android.util.Log
+import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.gridlink.container
+import app.gridlink.core.jmap.ContentTooLargeException
+import app.gridlink.core.jmap.DownloadLimits
 import app.gridlink.core.jmap.model.Email
 import app.gridlink.core.jmap.model.EmailBodyPart
 import app.gridlink.push.FetchAndNotify
@@ -60,6 +64,9 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     private val store = application.container.accountStore
     private val repo = application.container.mailRepository
 
+    /** Where a downloaded attachment lands before the viewer sees it. Upstream's cache, same cap. */
+    private val storage = application.container.storageRepository
+
     /**
      * The same store upstream's reader writes to, deliberately.
      *
@@ -88,6 +95,20 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
 
     /** The in-flight body fetch, so opening a second message abandons the first. */
     private var openJob: Job? = null
+
+    /**
+     * The open message's downloadable parts, in the order [attachmentsOf] numbered them.
+     *
+     * 🔴 This list and the chips on screen are the same list or the tap opens the wrong file:
+     * [GridlinkAttachment.id] is an index into THIS, so both must come from one call to
+     * [attachmentsOf] on one [Email]. It is kept here because the parts are `core:jmap` types and
+     * the UI is not allowed to hold them — the chip hands back its opaque id and this is what the
+     * id means.
+     */
+    private var openedParts: List<EmailBodyPart> = emptyList()
+
+    /** One attachment download at a time. Guards the tap, not the file: reopening later is free. */
+    private var openingAttachment = false
 
     /** Which mailbox the Folders tab has open, reported by the scaffold. Null when nothing is. */
     private val openFolderId = MutableStateFlow<String?>(null)
@@ -133,6 +154,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         // also have (two accounts on the same server routinely share ids).
         openJob?.cancel()
         opened.value = null
+        openedParts = emptyList()
         primed.value = false
         // The folder half of the same argument. An open mailbox id belongs to the account it was
         // tapped in, and two accounts on one server routinely share mailbox ids, so carrying it
@@ -434,6 +456,8 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         // Cleared first so the previous message's body cannot paint under the new one's header for
         // the frames before this one lands. [GridlinkOpenMessage.id] is the belt to this braces.
         opened.value = null
+        // With the message goes its parts: an id from the old chips must not index into these.
+        openedParts = emptyList()
         openJob = viewModelScope.launch {
             val body = try {
                 repo.openMessage(credentials, emailId, markRead = true)
@@ -449,10 +473,13 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 return@launch
             }
             val readable = readableBody(body.email)
+            // One call builds the chips AND the parts they index into. See [openedParts].
+            val parts = attachmentPartsOf(body.email)
+            openedParts = parts
             opened.value = GridlinkOpenMessage(
                 id = emailId,
                 html = readable.content,
-                attachment = attachmentOf(body.email),
+                attachments = attachmentsOf(parts),
                 plainText = readable.plainText,
                 // 🔴 Handed over even when the body is plain text. A text part cannot reference a
                 // cid:, so the map is simply unused there, and branching on it would only add a way
@@ -460,6 +487,77 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 inlineImages = body.inlineImages,
             )
         }
+    }
+
+    /**
+     * Download the tapped attachment and hand it to whatever on the phone can show it.
+     *
+     * The same journey upstream's reader makes: fetch the part (50 MB ceiling, refused before the
+     * round-trip when the size is announced), park it in the bounded attachment cache, and start a
+     * viewer chooser over a FileProvider uri. The app itself renders nothing — a PDF opens in the
+     * phone's PDF viewer, an image in its gallery — which is what makes "most common filetypes"
+     * true by construction instead of a format list this app has to maintain.
+     *
+     * Progress and failure go to [GridlinkOpenMessage.attachmentStatus], guarded by message id: a
+     * download that outlives the message it belongs to reports to nobody, for the body fetch's
+     * reason.
+     */
+    fun openAttachment(attachment: GridlinkAttachment) {
+        if (openingAttachment) return
+        val current = opened.value ?: return
+        val messageId = current.id
+        // The opaque id is an index into [openedParts]; anything else means a chip from a fixture
+        // or another message's list, and the only correct response to that is nothing.
+        val part = attachment.id.toIntOrNull()?.let { openedParts.getOrNull(it) } ?: return
+        val id = accountId.value ?: return
+        val credentials = store.credentials(id) ?: return
+        openingAttachment = true
+        val app = getApplication<Application>()
+        status(messageId, "Opening ${attachment.name}…")
+        viewModelScope.launch {
+            try {
+                val bytes = repo.downloadAttachment(credentials, part, messageId)
+                val file = storage.cacheAttachment(part.name, bytes)
+                val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
+                val view = Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(uri, part.type ?: "*/*")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                // A chooser, not a bare ACTION_VIEW: with no handler installed a bare intent throws
+                // and with several the picker is the right answer anyway. The chooser shows its own
+                // "no apps" sheet, so there is no failure branch to write here.
+                app.startActivity(
+                    Intent.createChooser(view, "Open with").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+                status(messageId, null)
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: ContentTooLargeException) {
+                // Our own refusal, said plainly. The constant is the ceiling the repository enforces.
+                status(
+                    messageId,
+                    "${attachment.name} is too big to open here " +
+                        "(over ${DownloadLimits.ATTACHMENT_MAX_BYTES / (1024 * 1024)} MB).",
+                )
+            } catch (t: Throwable) {
+                Log.w(TAG, "attachment open failed", t)
+                status(messageId, "Couldn't open ${attachment.name}.")
+            } finally {
+                // Released when the chooser is up or the attempt failed, not when the user comes
+                // back: the file is theirs to open again as often as they like.
+                openingAttachment = false
+            }
+        }
+    }
+
+    /**
+     * Put [text] on the open message's status line — IF the message it is about is still the one
+     * open. A stale write would caption the wrong message, under the right chips, convincingly.
+     */
+    private fun status(messageId: String, text: String?) {
+        opened.value = opened.value
+            ?.takeIf { it.id == messageId }
+            ?.copy(attachmentStatus = text)
+            ?: opened.value
     }
 
     /**
@@ -575,20 +673,29 @@ internal fun readableBody(email: Email): GridlinkBody {
 internal data class GridlinkBody(val content: String, val plainText: Boolean)
 
 /**
- * The one attachment the row can name.
- *
- * ⚠️ The first, and only the first: [GridlinkMessage.attachment] holds one file because the design's
- * thread view draws one chip. A message with three attachments therefore shows one and says nothing
- * about the other two, which is a real gap in the model rather than something to fix by inventing a
- * "+2" the chip has no room for.
+ * The message's downloadable parts, in the order their chips will draw. All of them: this held one
+ * for a while because the design's thread view drew one chip, and a message with three attachments
+ * showed one and said nothing about the other two.
  *
  * Parts with a Content-ID are skipped: those are the images the body references inline, and listing
  * a tracking pixel as an attachment is how a message with nothing attached grows a paperclip.
  */
-private fun attachmentOf(email: Email): GridlinkAttachment? {
-    val part = email.attachments.firstOrNull { it.cid.isNullOrBlank() } ?: return null
-    return GridlinkAttachment(name = part.displayName(), size = formatBytes(part.size))
-}
+private fun attachmentPartsOf(email: Email): List<EmailBodyPart> =
+    email.attachments.filter { it.cid.isNullOrBlank() }
+
+/**
+ * [parts] as their chips. The id is the part's INDEX in the list it came from, which is why both
+ * this and [GridlinkMailViewModel.openedParts] must be fed from the same [attachmentPartsOf] call —
+ * see the note there.
+ */
+private fun attachmentsOf(parts: List<EmailBodyPart>): List<GridlinkAttachment> =
+    parts.mapIndexed { index, part ->
+        GridlinkAttachment(
+            name = part.displayName(),
+            size = formatBytes(part.size),
+            id = index.toString(),
+        )
+    }
 
 /** A file name for a part that may not have one (an inline forward, a bare `application/pdf`). */
 private fun EmailBodyPart.displayName(): String =

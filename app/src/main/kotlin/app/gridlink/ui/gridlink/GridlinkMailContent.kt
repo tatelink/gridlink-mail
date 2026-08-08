@@ -79,8 +79,19 @@ data class GridlinkOpenMessage(
     /**
      * What is attached, now that the fetch has said. Empty is a real answer here, unlike the list's
      * [GridlinkMessage.attachmentPending], which means "there is one and I do not know what".
+     * Each carries the opaque [GridlinkAttachment.id] a tapped chip reports back, so the supplier
+     * can find the real part again.
      */
-    val attachment: GridlinkAttachment? = null,
+    val attachments: List<GridlinkAttachment> = emptyList(),
+    /**
+     * One line about the attachment being opened ("Opening invoice.pdf…", "Too big to open here"),
+     * or null when there is nothing to say — which is almost always.
+     *
+     * Lives on the open message rather than in its own flow because that is the only message it can
+     * be about: a download outliving the message it belongs to has nowhere to report, deliberately,
+     * for the same reason a slow body fetch is dropped rather than painted under the next message.
+     */
+    val attachmentStatus: String? = null,
     /** Why the body could not be fetched, in a sentence, or null. */
     val error: String? = null,
     /** True when [html] is really the plain-text part. See [GridlinkMessage.bodyIsPlainText]. */

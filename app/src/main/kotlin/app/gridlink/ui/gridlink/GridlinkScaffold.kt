@@ -608,6 +608,15 @@ fun GridlinkRoot(
      */
     onAllowImages: (sender: String, allowed: Boolean) -> Unit = { _, _ -> },
     /**
+     * Open the tapped attachment in a viewer, or null when nobody behind this screen can.
+     *
+     * 🔴 Nullable where the neighbours are no-ops, and the difference is drawn: the thread's chips
+     * are CLICKABLE only when this is non-null. A no-op default would render every sample chip as a
+     * button that highlights under the thumb and then does nothing, which is the exact thing the
+     * chip's own doc used to forbid. Null keeps the fixture chips the labels they have always been.
+     */
+    onOpenAttachment: ((GridlinkAttachment) -> Unit)? = null,
+    /**
      * The account's mailboxes, or null to draw [GridlinkSampleTree]'s. See [GridlinkFolderContent].
      */
     folders: GridlinkFolderContent? = null,
@@ -1071,7 +1080,7 @@ fun GridlinkRoot(
             val fetched = mail.open?.takeIf { it.id == id }
             row?.copy(
                 body = fetched?.html.orEmpty(),
-                attachment = fetched?.attachment,
+                attachments = fetched?.attachments.orEmpty(),
                 // The paperclip stops being a guess the moment the fetch answers. If it said there
                 // is nothing attached, there is nothing attached.
                 attachmentPending = row.attachmentPending && fetched == null,
@@ -1308,6 +1317,12 @@ fun GridlinkRoot(
                         imagesAlwaysAllowed = current.message.address.lowercase() in
                             (mail?.imageAllowlist ?: emptySet()),
                         onAlwaysAllowImages = { onAllowImages(current.message.address, it) },
+                        onOpenAttachment = onOpenAttachment,
+                        // Same id guard as the body merge above: a status line about a message that
+                        // is no longer the open one is a caption under the wrong chips.
+                        attachmentStatus = mail?.open
+                            ?.takeIf { it.id == current.message.id }
+                            ?.attachmentStatus,
                         embedded = embedded,
                     )
 
