@@ -3201,6 +3201,19 @@ class MailRepository(
     }
 
     /**
+     * Whether this account has a Trash at all — the half of [deleteWouldDestroy] that does NOT
+     * depend on a message's own folder.
+     *
+     * A caller holding a row whose `mailboxId` cannot be believed (drawn from the search index,
+     * frozen at crawl time) still has to know whether a delete has anywhere to go: with a Trash it
+     * moves there, without one there is nothing but destruction, and destruction is not decided on
+     * a supposition. Asking [deleteWouldDestroy] with a blanked folder would answer the same today
+     * and silently flip to "destroy" the day it treats an unknown folder as one.
+     */
+    suspend fun accountHasTrash(credentials: AccountCredentials): Boolean =
+        roleMailboxId(credentials, "trash") != null
+
+    /**
      * The IMAP numbering last observed for [mailboxId] — for a caller that must FREEZE it with a
      * user's confirmation and oppose it much later (the held-back destroy: the UI reads it here,
      * the worker carries it, `destroyAll` opposes it). Null on JMAP, where an id survives anything

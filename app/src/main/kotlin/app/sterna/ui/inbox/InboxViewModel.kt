@@ -1688,7 +1688,15 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         _selectedKeys.value = emptySet()
     }
 
-    /** Apply a bulk action to the selected messages; exits selection mode unless [clearAfter] is false. */
+    /**
+     * Apply a bulk action to the selected messages; exits selection mode unless [clearAfter] is
+     * false.
+     *
+     * Every selected key is resolved first ([resolveSelectionTargets]), rows drawn by a search
+     * included: asking the cache and then walking the ANSWER dropped every hit with no row in the
+     * local `emails` table, so from a search this acted on part of the selection and said nothing
+     * about the rest (bench, 2026-08-08).
+     */
     private fun bulk(
         clearAfter: Boolean = true,
         undoLabel: String? = null,
@@ -1697,21 +1705,32 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         val keys = _selectedKeys.value
         if (clearAfter) clearSelection()
         viewModelScope.launch {
-            var failed = 0
-            // For a reversible bulk op (move to Trash/Archive/folder), capture each message's
-            // source mailbox so the whole batch can be moved back — the same Undo a swipe of one
-            // message already offers, so bulk and swipe behave the same (Codeberg #23).
-            val undoEntries = mutableListOf<UndoEntry>()
+            val resolved = resolveSelectionTargets(
+                keys = keys,
+                cached = repo.cachedEmailsByIds(keys),
+                displayed = searchState.value.results,
+            )
+            // A key nothing resolves is an attempt that failed: it was never written, and it is
+            // counted as one — or a selection nothing at all resolved for lands on "nothing
+            // failed" and says nothing.
+            var failed = resolved.unresolved.size
+            // For a reversible bulk op (move to Trash/Archive/folder), capture each message the op
+            // wrote so the whole batch can be moved back — the same Undo a swipe of one message
+            // already offers, so bulk and swipe behave the same (Codeberg #23). Whether an Undo
+            // may be offered at all is [selectionUndoEntries]' decision, not this loop's: the
+            // source folder of a row that only exists on screen cannot be believed.
+            val undoCandidates = mutableListOf<UndoCandidate>()
             // The selection leaves the unfolded rows for the length of the batch and no longer:
             // this path's op is a snooze, which removes nothing at all — it writes a date — so a
             // mask left standing here was the one thing keeping the message off the screen, and
             // it kept it off for good, past the due date the chip had already counted it back in.
             hidingThreadMembers(keys) {
-                repo.cachedEmailsByIds(keys).forEach { email ->
+                resolved.targets.forEach { target ->
+                    val email = target.email
                     val credentials = credentialsFor(email)
                     if (credentials == null) { failed++; return@forEach }
                     runCatching { op(credentials, email.id) }
-                        .onSuccess { email.mailboxId?.let { mb -> undoEntries += UndoEntry(email.id, email.accountId, mb, null) } }
+                        .onSuccess { undoCandidates += UndoCandidate(target, null) }
                         .onFailure {
                             failed++
                             android.util.Log.w("SternaBulk", "bulk op failed for ${email.id}", it)
@@ -1725,12 +1744,16 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             // re-query so a full page repopulates the window from the server.
             repo.resetSyncState()
             refresh()
+            val undoEntries = selectionUndoEntries(undoCandidates)
             if (undoLabel != null && undoEntries.isNotEmpty()) {
                 _undo.value = UndoAction(undoEntries, undoLabel)
             }
-            // Don't fail silently: if nothing (or only some) went through, tell the user.
-            if (failed > 0) {
-                _message.value = getApplication<Application>().getString(R.string.status_action_failed)
+            // Don't fail silently — but partial and total are not the same news: a snooze that went
+            // through nine times out of ten used to report a total failure here.
+            when (bulkOutcome(attempted = keys.size, failed = failed)) {
+                BulkOutcome.NONE -> Unit
+                BulkOutcome.TOTAL -> _message.value = getApplication<Application>().getString(R.string.status_action_failed)
+                BulkOutcome.PARTIAL -> _message.value = getApplication<Application>().getString(R.string.status_action_partly_failed)
             }
         }
     }
@@ -1740,42 +1763,58 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
      * single repo call that itself batches per source folder — one `UID MOVE <set>` (IMAP)
      * or one `Email/set` (JMAP) instead of one server command per message. This is the fix
      * for large selections failing on IMAP (Codeberg #29). Everything #23 added is preserved:
-     * the members leaving the unfolded rows, an UndoEntry per surviving message for a reversible
+     * the members leaving the unfolded rows, an Undo entry per surviving message for a reversible
      * op, resetSyncState()+refresh() (a big move can empty the loaded window of a huge folder),
      * and the failure toast only when something actually failed.
+     *
+     * The batches receive the WHOLE selection ([resolveSelectionTargets]), rows drawn by a search
+     * included: asking the cache and then walking the ANSWER archived four of the ten results the
+     * user had selected and said nothing about the other six (bench, 2026-08-08).
+     *
+     * [attemptedBefore] and [failedBefore] are what a delegating caller handled or lost before
+     * getting here, so ONE honest message comes out instead of two toasts chasing each other on a
+     * `StateFlow`. They are counted separately on purpose: a delete that destroyed 99 messages and
+     * lost one has 100 attempts and 1 failure, and folding both into the same number would call
+     * that a total failure while the 99 destructions are on their way.
      */
     private fun bulkBatched(
         clearAfter: Boolean = true,
         undoLabel: String? = null,
         keys: Set<EmailKey>? = null,
+        attemptedBefore: Int = 0,
+        failedBefore: Int = 0,
         batchOp: suspend (AccountCredentials, List<String>) -> MailRepository.BulkResult,
     ) {
         val targetKeys = keys ?: _selectedKeys.value
         if (clearAfter) clearSelection()
         viewModelScope.launch {
-            val emails = repo.cachedEmailsByIds(targetKeys)
-            // Only the cached (acted-on) rows leave the search snapshot — never a row the
-            // batch below won't touch; the failed ones are restored once the batch settles.
-            dropSearchResults(emails.mapTo(mutableSetOf()) { it.emailKey() })
+            val resolved = resolveSelectionTargets(
+                keys = targetKeys,
+                cached = repo.cachedEmailsByIds(targetKeys),
+                displayed = searchState.value.results,
+            )
+            val targets = resolved.targets
+            // Only the acted-on rows leave the search snapshot — never a row the batch below won't
+            // touch; the failed ones are restored once the batch settles. That set is now wider on
+            // purpose: a hit with no cached row is acted on, so it must leave the screen too.
+            dropSearchResults(targets.mapTo(mutableSetOf()) { it.email.emailKey() })
             val failedKeys = mutableSetOf<EmailKey>()
-            val undoEntries = mutableListOf<UndoEntry>()
+            val undoCandidates = mutableListOf<UndoCandidate>()
             hidingThreadMembers(targetKeys) {
                 // AccountCredentials is a data class, so all of an account's messages group
                 // together — and each account's batch receives exactly ITS ids, never a
                 // colliding sibling's.
-                emails.groupBy { credentialsFor(it) }.forEach { (credentials, group) ->
-                    if (credentials == null) { failedKeys += group.map { it.emailKey() }; return@forEach }
-                    val result = runCatching { batchOp(credentials, group.map { it.id }) }
+                targets.groupBy { credentialsFor(it.email) }.forEach { (credentials, group) ->
+                    if (credentials == null) { failedKeys += group.map { it.email.emailKey() }; return@forEach }
+                    val result = runCatching { batchOp(credentials, group.map { it.email.id }) }
                         .getOrElse {
                             android.util.Log.w("SternaBulk", "batch op failed for ${credentials.id}", it)
-                            MailRepository.BulkResult(emptySet(), group.mapTo(mutableSetOf()) { e -> e.id })
+                            MailRepository.BulkResult(emptySet(), group.mapTo(mutableSetOf()) { e -> e.email.id })
                         }
-                    failedKeys += group.filter { it.id in result.failed }.map { it.emailKey() }
+                    failedKeys += group.filter { it.email.id in result.failed }.map { it.email.emailKey() }
                     if (undoLabel != null) {
-                        group.forEach { email ->
-                            if (email.id in result.succeeded) {
-                                email.mailboxId?.let { mb -> undoEntries += UndoEntry(email.id, email.accountId, mb, result.dest) }
-                            }
+                        group.forEach { target ->
+                            if (target.email.id in result.succeeded) undoCandidates += UndoCandidate(target, result.dest)
                         }
                     }
                 }
@@ -1785,44 +1824,76 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
             refresh()
             // After the full re-query settles: re-cache the touched conversations' members
             // under their new folders so their rows keep truthful, expandable chips.
-            completeThreadsAfterAction(emails)
+            completeThreadsAfterAction(targets.map { it.email })
+            // Whether an Undo may be offered is [selectionUndoEntries]' decision: a source folder
+            // read off a row that only exists on screen sends the message somewhere it never was
+            // and strips every other folder it is in, with no way back.
+            val undoEntries = selectionUndoEntries(undoCandidates)
             if (undoLabel != null && undoEntries.isNotEmpty()) {
                 _undo.value = UndoAction(undoEntries, undoLabel)
             }
             // Partial and total are not the same news: a select-all past the server's
             // maxObjectsInSet used to archive most of the selection and still say "Couldn't
-            // complete the action". The rows actually handed to the batches are `emails`, not the
-            // selection — a selected key with no cached row was never attempted (see [bulkOutcome]).
-            when (bulkOutcome(emails.size, failedKeys.size)) {
+            // complete the action". Counted over the WHOLE selection, on both sides: a key nothing
+            // resolved for was attempted and failed, or a batch that reached none of its messages
+            // would land on `failed <= 0 -> NONE` and stay silent (see [bulkOutcome]).
+            val failed = failedKeys.size + resolved.unresolved.size + failedBefore
+            when (bulkOutcome(attempted = targetKeys.size + attemptedBefore, failed = failed)) {
                 BulkOutcome.NONE -> Unit
-                BulkOutcome.TOTAL ->
-                    _message.value = getApplication<Application>().getString(R.string.status_action_failed)
-                BulkOutcome.PARTIAL ->
-                    _message.value = getApplication<Application>().getString(R.string.status_action_partly_failed)
+                BulkOutcome.TOTAL -> _message.value = getApplication<Application>().getString(R.string.status_action_failed)
+                BulkOutcome.PARTIAL -> _message.value = getApplication<Application>().getString(R.string.status_action_partly_failed)
             }
         }
     }
 
+    /**
+     * Delete the selection: the subset whose delete would permanently destroy (in Trash, or no
+     * Trash) is held back behind Undo exactly like a swipe delete — never destroyed inline — so
+     * bulk delete is consistent (Codeberg #23); the rest keeps the move-to-Trash bulk path.
+     *
+     * Which row is in which subset is [planSelectionDelete]'s decision, over the WHOLE selection
+     * ([resolveSelectionTargets]) and never from an untrusted row's folder: a search hit is not in
+     * the Trash (search excludes it), so it is moved there, and on a Trash-less account it is left
+     * alone rather than destroyed on a supposition. What is left alone is counted and announced
+     * once — by the delegate when there is something to move, here when there is not.
+     */
     fun deleteSelected() {
         val keys = _selectedKeys.value
         viewModelScope.launch {
-            val emails = repo.cachedEmailsByIds(keys)
-            // The subset whose delete would permanently destroy (in Trash, or no Trash) is held
-            // back behind Undo exactly like a swipe delete — never destroyed inline — so bulk
-            // delete is consistent (Codeberg #23); the rest keeps the move-to-Trash bulk path.
-            val (destroy, move) = emails.partition { e ->
-                credentialsFor(e)?.let { c -> runCatching { repo.deleteWouldDestroy(c, e) }.getOrDefault(false) } ?: false
-            }
+            val resolved = resolveSelectionTargets(
+                keys = keys,
+                cached = repo.cachedEmailsByIds(keys),
+                displayed = searchState.value.results,
+            )
+            val plan = planSelectionDelete(
+                targets = resolved.targets,
+                hasTrash = { email -> credentialsFor(email)?.let { c -> runCatching { repo.accountHasTrash(c) }.getOrDefault(false) } ?: false },
+                wouldDestroy = { email -> credentialsFor(email)?.let { c -> runCatching { repo.deleteWouldDestroy(c, email) }.getOrDefault(false) } ?: false },
+            )
             clearSelection()
-            if (destroy.isNotEmpty()) {
-                heldBackDestroy(destroy, getApplication<Application>().getString(R.string.status_message_deleted_forever))
+            val lost = resolved.unresolved.size + plan.untreated.size
+            if (plan.destroy.isNotEmpty()) {
+                heldBackDestroy(plan.destroy, getApplication<Application>().getString(R.string.status_message_deleted_forever))
             }
-            if (move.isNotEmpty()) {
+            if (plan.move.isNotEmpty()) {
                 // Mixed destroy+move: only the held-back destroy offers Undo (see deleteThread).
+                // The whole selection travels with the delegation — the destroyed messages were
+                // attempts too — so the single message it prints is about the whole delete.
                 bulkBatched(
-                    undoLabel = getApplication<Application>().getString(R.string.status_message_deleted).takeIf { destroy.isEmpty() },
-                    keys = move.mapTo(mutableSetOf()) { it.emailKey() },
+                    undoLabel = getApplication<Application>().getString(R.string.status_message_deleted).takeIf { plan.destroy.isEmpty() },
+                    keys = plan.move.mapTo(mutableSetOf()) { it.emailKey() },
+                    attemptedBefore = plan.destroy.size + lost,
+                    failedBefore = lost,
                 ) { c, batch -> repo.deleteAll(c, batch) }
+            } else {
+                // Nothing to move: delegating an empty batch just to speak would drop the sync
+                // cursors and re-query the whole folder for an action that wrote nothing. Say it
+                // here instead — one message either way, since the delegate never runs.
+                when (bulkOutcome(attempted = keys.size, failed = lost)) {
+                    BulkOutcome.NONE -> Unit
+                    BulkOutcome.TOTAL -> _message.value = getApplication<Application>().getString(R.string.status_action_failed)
+                    BulkOutcome.PARTIAL -> _message.value = getApplication<Application>().getString(R.string.status_action_partly_failed)
+                }
             }
         }
     }
@@ -1979,27 +2050,67 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Toggle read/unread for the selection — marks read if any are unread, else marks unread —
      * and keeps the selection (only the read state changes, the list view stays put).
+     *
+     * Every selected key is resolved first ([resolveSelectionTargets]), rows drawn by a search
+     * included: asking the cache and then walking the ANSWER dropped every hit with no row in the
+     * local `emails` table, so from a search the toggle acted on some of the selection, said
+     * nothing about the rest, and let the untouched rows vote on the direction (bench, 2026-08-08).
+     * The direction is unchanged: one unread anywhere in the selection means mark read.
+     *
+     * Nothing here reads the row's own `mailboxId` (only its account and its id travel to the
+     * server), so `folderTrusted` does not concern this path and a drawn row is as good as a
+     * cached one.
      */
     fun toggleSelectedRead() {
         val keys = _selectedKeys.value
         if (keys.isEmpty()) return
         viewModelScope.launch {
-            val emails = repo.cachedEmailsByIds(keys)
+            val resolved = resolveSelectionTargets(
+                keys = keys,
+                cached = repo.cachedEmailsByIds(keys),
+                displayed = searchState.value.results,
+            )
+            val emails = resolved.targets.map { it.email }
             val targetSeen = !emails.all { it.isSeen }
             patchThreadMembersSeen(emails.mapTo(mutableSetOf()) { it.emailKey() }, targetSeen)
+            // A key no row could be found for was never written: it counts as a failed attempt, or
+            // a selection nothing at all resolved for would land on "nothing failed" and say
+            // nothing. An account whose credentials are gone is the same kind of never-written.
+            var failed = resolved.unresolved.size
             emails.forEach { email ->
-                val credentials = credentialsFor(email) ?: return@forEach
+                val credentials = credentialsFor(email)
+                if (credentials == null) { failed++; return@forEach }
                 runCatching { repo.setRead(credentials, email.id, targetSeen) }
-                    .onFailure { reportActionFailed("setRead (selection)", it) }
+                    .onFailure { failed++; android.util.Log.w("SternaInbox", "setRead (selection) failed for ${email.id}", it) }
             }
             if (targetSeen) dismissReadNotifications(emails.map { it.emailKey() })
             // Reflect the new state immediately so the toggle icon flips without re-selecting.
             _selectionAllRead.value = targetSeen
+            // Partial and total are not the same news (the batched paths learned this the hard
+            // way): "Couldn't complete the action" over a selection where nine of ten went through
+            // is false. Counted over the WHOLE selection, unresolved keys included.
+            when (bulkOutcome(attempted = keys.size, failed = failed)) {
+                BulkOutcome.NONE -> Unit
+                BulkOutcome.TOTAL -> _message.value = getApplication<Application>().getString(R.string.status_action_failed)
+                BulkOutcome.PARTIAL -> _message.value = getApplication<Application>().getString(R.string.status_action_partly_failed)
+            }
         }
     }
 
+    /**
+     * Which way the toggle's icon points, over the same resolution the action uses — otherwise the
+     * icon speaks for the cached subset of a selection the action will act on whole.
+     *
+     * "All read" needs at least one target: `emptyList().all { }` is `true`, so a selection whose
+     * rows are none of them cached used to draw "mark unread" over messages nobody had read.
+     */
     private suspend fun refreshSelectionReadState(keys: Set<EmailKey>) {
-        _selectionAllRead.value = keys.isNotEmpty() && repo.cachedEmailsByIds(keys).all { it.isSeen }
+        val targets = resolveSelectionTargets(
+            keys = keys,
+            cached = repo.cachedEmailsByIds(keys),
+            displayed = searchState.value.results,
+        ).targets
+        _selectionAllRead.value = targets.isNotEmpty() && targets.all { it.email.isSeen }
     }
 
     // ---- inline search ----

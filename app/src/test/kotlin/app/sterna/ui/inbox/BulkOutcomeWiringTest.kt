@@ -40,11 +40,22 @@ class BulkOutcomeWiringTest {
             "bulkBatched must ask bulkOutcome() rather than re-deciding from failedKeys itself",
             "bulkOutcome(" in body,
         )
-        // The counts it feeds it: rows actually handed to the batches, and rejected keys. Not the
-        // selection size — a selected key with no cached row was never attempted.
-        assertTrue(
-            "bulkOutcome must be fed emails.size (attempted) and failedKeys.size (rejected)",
-            "bulkOutcome(emails.size, failedKeys.size)" in body,
+        // The counts it feeds it: the WHOLE selection handed in (plus whatever a delegating caller
+        // already lost), and everything that did not go through — the batch's rejects, the keys
+        // nothing resolved for, and the caller's losses. `emails.size` here was the report itself:
+        // a selection whose rows were none of them cached reached nothing and said nothing.
+        // Whole lines, never `in`: a substring rule accepts anything appended to what it matched.
+        // BulkSelectionWiringTest pins the same two lines; this one is the copy that fails loudly
+        // if the pairing below is ever reached through a different count.
+        assertEquals(
+            "bulkOutcome must be fed the whole selection (plus the caller's losses) and every " +
+                "failure, unresolved keys included",
+            listOf(
+                "val failed = failedKeys.size + resolved.unresolved.size + failedBefore",
+                "when (bulkOutcome(attempted = targetKeys.size + attemptedBefore, failed = failed)) {",
+            ),
+            body.lines().map { it.replace(Regex("""\s+"""), " ").trim() }
+                .filter { it.startsWith("val failed =") || it.startsWith("when (bulkOutcome(") },
         )
     }
 
