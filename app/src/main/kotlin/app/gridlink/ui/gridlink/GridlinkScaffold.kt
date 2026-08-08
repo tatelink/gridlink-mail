@@ -872,14 +872,20 @@ fun GridlinkRoot(
      * and contacts to preserve state that is deliberately gone at the next launch anyway.
      */
     var addedEvents by remember { mutableStateOf(emptyList<GridlinkEvent>()) }
+    /** In-memory event edits by id, [editedContacts]' counterpart for the event edit form. */
+    var editedEvents by remember { mutableStateOf(emptyMap<String, GridlinkEvent>()) }
     var addedContacts by remember { mutableStateOf(emptyList<GridlinkContact>()) }
     /** In-memory edits by contact id, [addedContacts]' counterpart for the edit form. */
     var editedContacts by remember { mutableStateOf(emptyMap<String, GridlinkContact>()) }
     // 🔴 [calendar] and [contacts] are keys too, not just constructor arguments. They change when a
     // sync lands, and a book remembered on the added lists alone would be the same object before and
     // after, so a calendar open on screen would keep drawing the pre-sync month forever.
-    val book = remember(addedEvents, addedContacts, editedContacts, calendar, contacts, ownDomain) {
-        GridlinkBook(addedEvents, addedContacts, editedContacts, calendar, contacts, ownDomain)
+    val book = remember(
+        addedEvents, editedEvents, addedContacts, editedContacts, calendar, contacts, ownDomain,
+    ) {
+        GridlinkBook(
+            addedEvents, editedEvents, addedContacts, editedContacts, calendar, contacts, ownDomain,
+        )
     }
 
     /**
@@ -929,6 +935,35 @@ fun GridlinkRoot(
                 addedEvents = addedEvents + event.copy(id = gridlinkNewId("event", addedEvents.size))
             }
             creating = null
+        }
+    }
+
+    /** The event being edited, or null. The object, not an id, for [editingContact]'s reason. */
+    var editingEvent by remember { mutableStateOf<GridlinkEvent?>(null) }
+
+    /**
+     * Save changes to an event: [updateContact]'s exact contract through
+     * [GridlinkCalendarWriter.update]. The edited copy keeps the original's id (the form seeds it
+     * from [GridlinkEventFormScreen]'s `initial`), so the shadow map lands on the right event.
+     */
+    fun updateEvent(edited: GridlinkEvent) {
+        savingEvent = true
+        saveError = null
+        scope.launch {
+            val failure = runCatching { calendarWriter.update(edited) }
+                .getOrElse { t ->
+                    if (t is CancellationException) throw t
+                    t.message ?: "Couldn't save that event."
+                }
+            savingEvent = false
+            if (failure != null) {
+                saveError = failure
+                return@launch
+            }
+            if (!calendarWriter.echoesIntoContent) {
+                editedEvents = editedEvents + (edited.id to edited)
+            }
+            editingEvent = null
         }
     }
 
@@ -1318,6 +1353,15 @@ fun GridlinkRoot(
                         // the screen out and back for what is one appointment becoming another.
                         onOpenEvent = { openEventId = it.id },
                         onWrite = { composing = gridlinkWriteTo(it) },
+                        // 🔴 Absent, not disabled, when the writer cannot edit: the real CalDAV
+                        // writer says so ([GridlinkCalendarWriter.canUpdate]), and a button that is
+                        // always grey on a synced calendar is a promise being broken daily. The
+                        // object, not its id, for the contact card's reason above.
+                        onEdit = if (calendarWriter.canUpdate) {
+                            { editingEvent = it }
+                        } else {
+                            null
+                        },
                         embedded = embedded,
                     )
 
@@ -1377,6 +1421,15 @@ fun GridlinkRoot(
                             creating == GridlinkCreation.Contact
                         val editing =
                             if (destination == GridlinkDestination.CONTACTS) editingContact else null
+                        // The calendar's own gate pair, the CONTACTS one's mirror: same tab gate,
+                        // same creating-over-editing priority, same reason for both.
+                        val creatingEvent = if (destination == GridlinkDestination.CALENDAR) {
+                            creating as? GridlinkCreation.Event
+                        } else {
+                            null
+                        }
+                        val eventEditing =
+                            if (destination == GridlinkDestination.CALENDAR) editingEvent else null
                         if (paneCreating) {
                             GridlinkContactFormScreen(
                                 title = "New contact",
@@ -1399,6 +1452,31 @@ fun GridlinkRoot(
                                     onSave = { updateContact(editing, it) },
                                     saving = savingContact,
                                     failure = saveContactError,
+                                    embedded = true,
+                                )
+                            }
+                        } else if (creatingEvent != null) {
+                            GridlinkEventFormScreen(
+                                title = "New event",
+                                date = creatingEvent.date,
+                                initial = null,
+                                onClose = { creating = null; saveError = null },
+                                onSave = ::saveEvent,
+                                saving = savingEvent,
+                                failure = saveError,
+                                embedded = true,
+                            )
+                        } else if (eventEditing != null) {
+                            // Keyed for the contact edit form's reason: seed once per event.
+                            key(eventEditing.id) {
+                                GridlinkEventFormScreen(
+                                    title = "Edit event",
+                                    date = eventEditing.date,
+                                    initial = eventEditing,
+                                    onClose = { editingEvent = null; saveError = null },
+                                    onSave = ::updateEvent,
+                                    saving = savingEvent,
+                                    failure = saveError,
                                     embedded = true,
                                 )
                             }
@@ -1633,21 +1711,25 @@ fun GridlinkRoot(
                 // they are full-screen things drawn over whichever list opened them, not destinations,
                 // so nothing about the nav pill or the back stack changes while one is up.
                 //
-                // 🔴 The contact branch is compact-only, exactly like the edit form below it: in two
+                // 🔴 Both branches are compact-only, exactly like the edit forms below: in two
                 // panes the SAME [creating] state renders the form inside [readingPane] instead, so
-                // rendering it here too would stretch it back over the whole window. The event form
-                // has no in-pane counterpart yet, so it stays full screen in both layouts.
+                // rendering it here too would stretch it back over the whole window.
                 when (val current = creating) {
-                    is GridlinkCreation.Event -> GridlinkNewEventScreen(
-                        date = current.date,
-                        // Abandoning the form takes the refusal with it, for the composer's reason:
-                        // it was news about one attempt, and a reopened form reporting it would be
-                        // showing history about an event nobody is trying to save any more.
-                        onClose = { creating = null; saveError = null },
-                        onSave = ::saveEvent,
-                        saving = savingEvent,
-                        failure = saveError,
-                    )
+                    is GridlinkCreation.Event -> if (!twoPane) {
+                        GridlinkEventFormScreen(
+                            title = "New event",
+                            date = current.date,
+                            initial = null,
+                            // Abandoning the form takes the refusal with it, for the composer's
+                            // reason: it was news about one attempt, and a reopened form reporting
+                            // it would be showing history about an event nobody is trying to save
+                            // any more.
+                            onClose = { creating = null; saveError = null },
+                            onSave = ::saveEvent,
+                            saving = savingEvent,
+                            failure = saveError,
+                        )
+                    }
 
                     GridlinkCreation.Contact -> if (!twoPane) {
                         GridlinkContactFormScreen(
@@ -1680,6 +1762,21 @@ fun GridlinkRoot(
                             saving = savingContact,
                             failure = saveContactError,
                         )
+                    }
+                    // The event edit form, the contact one's mirror in every particular, including
+                    // this gate: in two panes the same state renders inside [readingPane].
+                    editingEvent?.let { editing ->
+                        key(editing.id) {
+                            GridlinkEventFormScreen(
+                                title = "Edit event",
+                                date = editing.date,
+                                initial = editing,
+                                onClose = { editingEvent = null; saveError = null },
+                                onSave = ::updateEvent,
+                                saving = savingEvent,
+                                failure = saveError,
+                            )
+                        }
                     }
                 }
 

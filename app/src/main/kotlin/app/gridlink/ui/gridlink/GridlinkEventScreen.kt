@@ -22,6 +22,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Domain
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Email
+import androidx.compose.material.icons.automirrored.outlined.Label
+import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Icon
@@ -50,16 +53,13 @@ import java.util.Locale
 /**
  * One appointment, opened from any of the four calendar views.
  *
- * ## 🔴 Read-only, for the same reason the contact card is
- * Nothing in this fork talks to a calendar server, so Edit, Decline and "Add to my calendar" would
- * each write into memory, report success and lose it on the next launch. [GridlinkDetailFrame]'s own
- * documentation already anticipated this screen as the case where `bottom = null` earns its place.
- * It does not stay null here, but only because two of the actions turned out to be genuinely real:
- * Copy uses the system clipboard and Share uses the system share sheet, and both work today against
- * text this screen already has. Write is real for the same reason it is real on a contact card.
- *
- * Everything an edit control would have offered is absent rather than disabled. A greyed-out Decline
- * still tells the user this app declines invitations.
+ * ## 🔴 Edit appears exactly when a writer can honour it
+ * [onEdit] arrives null when [GridlinkCalendarWriter.canUpdate] says the account's calendar cannot
+ * edit events (the real CalDAV writer's answer until the repository grows a conflict story), and the
+ * button is then absent rather than disabled — a greyed-out Edit still tells the user this app edits
+ * appointments, it just won't today. Decline and "Add to my calendar" stay absent for the same
+ * reason they always were. Copy, Share and Write are real everywhere: clipboard, share sheet, and
+ * the composer respectively, all against data this screen already has.
  *
  * ## What the counterparty is, and why an internal event has none
  * [GridlinkEvent.domain] is the event's only statement about who it is with, and it is not
@@ -86,6 +86,8 @@ fun GridlinkEventScreen(
     onWrite: (GridlinkSampleContacts.GridlinkContact) -> Unit,
     modifier: Modifier = Modifier,
     embedded: Boolean = false,
+    /** Open the edit form over this event, or null when no writer can honour an edit (see KDoc). */
+    onEdit: ((GridlinkEvent) -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
@@ -149,15 +151,25 @@ fun GridlinkEventScreen(
                     },
                     modifier = Modifier.weight(1f),
                 )
+                // 🔴 In the pill now, with the contact card's own mail glyph, because Edit took the
+                // accent slot and its pencil. Present exactly when there is somebody to write to,
+                // absent otherwise rather than inert: the pill reflows to two items cleanly.
+                counterpart?.let { contact ->
+                    GridlinkDetailActionItem(
+                        label = "Write",
+                        icon = Icons.Outlined.Email,
+                        onClick = { onWrite(contact) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
-            // 🔴 Present exactly when there is somebody to write to, and absent otherwise rather than
-            // inert. The pill already fills the width on its own, so its geometry does not depend on
-            // this and the row does not reflow into a gap.
-            counterpart?.let { contact ->
+            // The accent slot holds Edit when a writer can honour it — the contact card's exact
+            // arrangement, so the two cards' bottoms read as one design.
+            onEdit?.let { edit ->
                 GridlinkDetailAccentButton(
                     icon = Icons.Outlined.Edit,
-                    label = "Write",
-                    onClick = { onWrite(contact) },
+                    label = "Edit",
+                    onClick = { edit(event) },
                 )
             }
         },
@@ -213,7 +225,9 @@ fun GridlinkEventScreen(
             // block above, and a rule ending it would be a line under nothing: the exact shape of a
             // screen that failed to load its second half. A short card is the honest answer for an
             // appointment that is a time and a title, and it should look deliberate.
-            if (event.location != null || sameDay.isNotEmpty() || !internal) {
+            val hasFacts = event.location != null || event.notes != null ||
+                event.category != null || event.reminders.isNotEmpty()
+            if (hasFacts || sameDay.isNotEmpty() || !internal) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -236,6 +250,39 @@ fun GridlinkEventScreen(
                     // reader who only tapped an address. `geo:` stays on the device unless something
                     // is there to answer it.
                     onClick = { leaveOnce { openMap(context, where) } },
+                )
+            }
+
+            // ⚠️ All three omitted when absent, per the Where rule above: a labelled "No notes" is a
+            // screen reading as failed-to-load. On a synced account they are absent for a quieter
+            // reason too — the read path does not carry them off the server yet — and rendering
+            // empty sections there would advertise the gap on every single appointment.
+            event.notes?.let { notes ->
+                GridlinkSectionLabel(text = "Notes")
+                Text(
+                    text = notes,
+                    style = GridlinkType.body,
+                    color = colors.textPrimary,
+                    modifier = Modifier.padding(
+                        start = GridlinkSpacing.rowHorizontal,
+                        end = GridlinkSpacing.rowHorizontal,
+                        bottom = GridlinkSpacing.s16,
+                    ),
+                )
+            }
+
+            event.category?.let { category ->
+                GridlinkSectionLabel(text = "Category")
+                GridlinkEventFact(text = category, icon = Icons.AutoMirrored.Outlined.Label)
+            }
+
+            if (event.reminders.isNotEmpty()) {
+                GridlinkSectionLabel(text = "Reminders")
+                GridlinkEventFact(
+                    // One fact, one glyph, a line per reminder: a repeated bell down the margin
+                    // would give three reminders the visual weight of three appointments.
+                    text = event.reminders.sorted().joinToString("\n") { gridlinkReminderLabel(it) },
+                    icon = Icons.Outlined.NotificationsNone,
                 )
             }
 
@@ -373,6 +420,10 @@ private fun GridlinkEvent.asPlainText(): String = buildString {
     appendLine(date.format(EVENT_DATE))
     appendLine(whenLabel())
     location?.let { appendLine(it) }
+    category?.let { appendLine(it) }
+    notes?.let { appendLine(it) }
+    // Not the reminders: they are this device's nudges, not facts about the appointment, and a
+    // pasted event saying "10 minutes before" reads as an instruction to whoever receives it.
 }.trimEnd()
 
 /**

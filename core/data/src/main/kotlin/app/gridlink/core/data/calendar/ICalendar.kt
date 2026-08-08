@@ -292,6 +292,13 @@ object ICalendar {
         location: String?,
         description: String?,
         nowMillis: Long,
+        /** A single CATEGORIES value, or null for none. */
+        category: String? = null,
+        /**
+         * Reminder offsets in minutes before the start; each becomes a DISPLAY VALARM with a
+         * relative TRIGGER. 0 means "at the time of the event" (`TRIGGER:PT0S`).
+         */
+        reminders: List<Int> = emptyList(),
     ): String {
         val lines = ArrayList<String>()
         lines += "BEGIN:VCALENDAR"
@@ -323,7 +330,18 @@ object ICalendar {
         lines += "SUMMARY:${escapeText(summary)}"
         location?.takeIf { it.isNotBlank() }?.let { lines += "LOCATION:${escapeText(it)}" }
         description?.takeIf { it.isNotBlank() }?.let { lines += "DESCRIPTION:${escapeText(it)}" }
+        category?.takeIf { it.isNotBlank() }?.let { lines += "CATEGORIES:${escapeText(it)}" }
         lines += "SEQUENCE:0"
+        // ACTION and TRIGGER are both REQUIRED in a VALARM (RFC 5545 §3.6.6), and DISPLAY alarms
+        // additionally require a DESCRIPTION. A relative TRIGGER with no RELATED parameter is
+        // relative to DTSTART, which is exactly what "n minutes before" means.
+        reminders.distinct().sorted().forEach { minutes ->
+            lines += "BEGIN:VALARM"
+            lines += "ACTION:DISPLAY"
+            lines += "DESCRIPTION:${escapeText(summary)}"
+            lines += "TRIGGER:${if (minutes == 0) "PT0S" else "-PT${minutes}M"}"
+            lines += "END:VALARM"
+        }
         lines += "END:VEVENT"
         lines += "END:VCALENDAR"
         return lines.joinToString("\r\n") { fold(it) } + "\r\n"

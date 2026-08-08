@@ -145,6 +145,9 @@ object GridlinkSampleTree {
             end = LocalTime.of(8, 30),
             location = "2043 Hillcrest",
             domain = "gridlink.me",
+            notes = "Yesterday's numbers, today's staffing, one callout each.",
+            category = "Operations",
+            reminders = listOf(10),
         ),
         GridlinkEvent(
             id = "sanivex-dish",
@@ -226,6 +229,10 @@ object GridlinkSampleTree {
             end = LocalTime.of(12, 0),
             location = "Store 604",
             domain = "verdantfs.example",
+            notes = "Re-check walk-in door gasket and the dish machine final rinse temp. " +
+                "Bring the corrected CAP paperwork from the 8/4 submission.",
+            category = "Audit",
+            reminders = listOf(30, 1440),
         ),
         GridlinkEvent(
             id = "recert-expires",
@@ -397,6 +404,15 @@ data class GridlinkEvent(
     val location: String? = null,
     /** Drives the event colour through the same hash the message rows use for the identity bar. */
     val domain: String = "gridlink.me",
+    /** Free text (iCalendar DESCRIPTION). Null and blank both mean "no notes section". */
+    val notes: String? = null,
+    /** Single label (iCalendar CATEGORIES). One, not a list: a manager files, not taxonomises. */
+    val category: String? = null,
+    /**
+     * Minutes before [start] to alert (iCalendar VALARM `TRIGGER:-PT<n>M`). 0 = at time of event.
+     * Sorted ascending for display; the order carries no meaning to a server.
+     */
+    val reminders: List<Int> = emptyList(),
 ) {
     val allDay: Boolean get() = start == null
 }
