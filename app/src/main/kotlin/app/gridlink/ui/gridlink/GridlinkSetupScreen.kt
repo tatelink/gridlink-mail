@@ -66,12 +66,15 @@ data class GridlinkSetupRequest(
  * control that either does nothing or bricks the thing you are installing, and there is no third
  * option. It is stated as a fact instead, which is what it is.
  *
- * ## Why IMAP and Outlook are a link and not a protocol picker
+ * ## Why "JMAP, IMAP or Outlook" is a link and not a protocol picker
  * This screen speaks JMAP, because that is what Gridlink's own server speaks and what the whole
  * four-tab front end was built against. Upstream's connect screen already handles IMAP endpoints,
  * OAuth device flows and Microsoft sign-in, and it handles them better than a second implementation
  * would. So it stays, one tap away on the baseline, rather than being reproduced badly here or
- * silently dropped — dropping it would mean this rename cost users a capability they had.
+ * silently dropped — dropping it would mean this rename cost users a capability they had. The link
+ * names JMAP as well because upstream's screen has a full JMAP form too (explicit server, API
+ * tokens), and a label reading only "IMAP or Outlook" told a JMAP user the app's own protocol was
+ * missing — which is exactly how Tate read it.
  */
 @Composable
 fun GridlinkSetupScreen(
@@ -141,7 +144,7 @@ fun GridlinkSetupScreen(
         },
         baselineLeading = {
             GridlinkTextButton(
-                label = "IMAP or Outlook",
+                label = "JMAP, IMAP or Outlook",
                 onClick = onAdvanced,
                 // Locked while a connect is in flight. Leaving mid-request would strand the
                 // coroutine's result on a screen nobody is looking at, and the user would land on
