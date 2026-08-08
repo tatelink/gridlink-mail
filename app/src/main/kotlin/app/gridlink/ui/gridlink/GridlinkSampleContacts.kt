@@ -1,5 +1,7 @@
 package app.gridlink.ui.gridlink
 
+import app.gridlink.core.data.contacts.ContactEdit
+
 /**
  * The address book the Contacts tab renders.
  *
@@ -48,6 +50,21 @@ object GridlinkSampleContacts {
         val family: String,
         val role: String,
         val email: String,
+        /** Every address on the card, in its order. Fixtures leave this empty; see [allEmails]. */
+        val emails: List<String> = emptyList(),
+        val phones: List<String> = emptyList(),
+        /** A person's employer. Blank on an organization card — there, [family] IS the company. */
+        val company: String = "",
+        val jobTitle: String = "",
+        val note: String = "",
+        /**
+         * The exact form seed for editing, when this row came off a real card. It is the SAME
+         * derivation [app.gridlink.core.data.dav.DavRepository.updateContact] diffs against, which
+         * is what makes an opened-untouched-saved card a no-op on the wire; deriving a seed from
+         * the display fields instead would make that same save spuriously read as a name change on
+         * any card whose display name was promoted (an `ORG == FN` company, a fallback surname).
+         */
+        val edit: ContactEdit? = null,
     ) {
         val organization: Boolean get() = given.isEmpty()
 
@@ -59,6 +76,26 @@ object GridlinkSampleContacts {
 
         /** The section this lands in. Uppercased once here so nothing downstream has to remember. */
         val letter: Char get() = family.first().uppercaseChar()
+
+        /** What the card actually lists, with the fixtures' single [email] as the one-line case. */
+        val allEmails: List<String>
+            get() = emails.ifEmpty { listOfNotNull(email.takeIf { it.isNotBlank() }) }
+
+        /**
+         * What the edit form opens with: [edit] verbatim for a real card, else the honest
+         * reconstruction from display fields that fixtures and typed recipients can offer. The
+         * fixture [role] rides in as the title because that is what every fixture role is.
+         */
+        val editSeed: ContactEdit
+            get() = edit ?: ContactEdit(
+                given = given,
+                family = family,
+                company = company,
+                title = jobTitle.ifEmpty { role },
+                emails = allEmails,
+                phones = phones,
+                note = note,
+            )
     }
 
     /** A letter and everyone filed under it. Empty letters are absent, not present-and-empty. */

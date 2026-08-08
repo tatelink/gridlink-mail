@@ -1,5 +1,7 @@
 package app.gridlink.core.jmap
 
+import app.gridlink.core.jmap.model.ContactCardGroup
+import app.gridlink.core.jmap.model.ContactCardWrite
 import app.gridlink.core.jmap.model.CrawlPage
 import app.gridlink.core.jmap.model.Email
 import app.gridlink.core.jmap.model.EmailAddress
@@ -10,6 +12,7 @@ import app.gridlink.core.jmap.model.EmailPage
 import app.gridlink.core.jmap.model.EmailQueryChangesResult
 import app.gridlink.core.jmap.model.EmailSetResult
 import app.gridlink.core.jmap.model.Identity
+import app.gridlink.core.jmap.model.JmapAddressBook
 import app.gridlink.core.jmap.model.JmapSession
 import app.gridlink.core.jmap.model.Mailbox
 import app.gridlink.core.jmap.model.PushSubscription
@@ -35,6 +38,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonArray
@@ -1261,6 +1265,172 @@ class JmapClient internal constructor(
         }
     }
 
+    /** True when the session speaks JMAP for Contacts (RFC 9610), at either level it can. */
+    fun supportsContacts(session: JmapSession): Boolean =
+        session.capabilities.containsKey(Jmap.CONTACTS_CAPABILITY) ||
+            session.accounts.values.any { Jmap.CONTACTS_CAPABILITY in it.accountCapabilities }
+
+    /**
+     * Fetch the account's address books (RFC 9610 §2), or an empty list if the
+     * server doesn't advertise the contacts capability.
+     */
+    suspend fun getAddressBooks(session: JmapSession, accountId: String, auth: JmapAuth): List<JmapAddressBook> =
+        withContext(Dispatchers.IO) {
+            if (!supportsContacts(session)) return@withContext emptyList()
+            val payload = buildJsonObject {
+                putJsonArray("using") {
+                    add(Jmap.CORE_CAPABILITY)
+                    add(Jmap.CONTACTS_CAPABILITY)
+                }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("AddressBook/get")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            put("ids", JsonNull)
+                        }
+                        add("ab0")
+                    }
+                }
+            }
+            decodeList(postJmap(session, auth, payload), "AddressBook/get", JmapAddressBook.serializer())
+        }
+
+    /**
+     * Find the JMAP id of the ContactCard carrying this vCard UID, or null if the server
+     * doesn't know it. The UID is the bridge between the CardDAV mirror this app syncs
+     * and the JMAP objects it writes: rows arrive over DAV keyed by href, but a JMAP
+     * update needs the server's own ContactCard id, and the UID is the one identifier
+     * both sides store verbatim.
+     */
+    suspend fun queryContactCardId(session: JmapSession, accountId: String, uid: String, auth: JmapAuth): String? =
+        withContext(Dispatchers.IO) {
+            val payload = buildJsonObject {
+                putJsonArray("using") {
+                    add(Jmap.CORE_CAPABILITY)
+                    add(Jmap.CONTACTS_CAPABILITY)
+                }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("ContactCard/query")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            putJsonObject("filter") { put("uid", uid) }
+                        }
+                        add("cq0")
+                    }
+                }
+            }
+            methodResponseArgs(postJmap(session, auth, payload), "ContactCard/query")["ids"]
+                ?.jsonArray?.firstOrNull()?.jsonPrimitive?.contentOrNull
+        }
+
+    /**
+     * Create a ContactCard (RFC 9610 §3) in the given address book. Returns the
+     * server-assigned card id, or throws [JmapException] with the server's reason.
+     */
+    suspend fun createContactCard(
+        session: JmapSession,
+        accountId: String,
+        addressBookId: String,
+        card: ContactCardWrite,
+        auth: JmapAuth,
+    ): String = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.CONTACTS_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("ContactCard/set")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("create") {
+                            putJsonObject("new") {
+                                put("@type", "Card")
+                                put("version", "1.0")
+                                put("uid", card.uid)
+                                putJsonObject("addressBookIds") { put(addressBookId, true) }
+                                // A create takes the same group shapes as a patch, minus the
+                                // nulls: an absent property and a removed one are the same thing
+                                // on an object that does not exist yet.
+                                ContactCardGroup.entries.forEach { group ->
+                                    val value = contactCardGroupValue(group, card)
+                                    if (value != JsonNull) put(contactCardGroupProperty(group), value)
+                                }
+                            }
+                        }
+                    }
+                    add("cs0")
+                }
+            }
+        }
+        val args = methodResponseArgs(postJmap(session, auth, payload), "ContactCard/set")
+        // Safe casts, not .jsonObject: RFC 8620 §5.3 makes `created` nullable and a refusing
+        // server (Stalwart included) sends an explicit null, which .jsonObject throws on.
+        (args["created"] as? JsonObject)?.get("new")?.jsonObject?.get("id")?.jsonPrimitive?.contentOrNull
+            ?: throw JmapException(
+                "Couldn't save the contact" + (setErrorDetail(args, "notCreated", "new")?.let { " ($it)" } ?: ""),
+            )
+    }
+
+    /**
+     * Update a ContactCard, patching ONLY the [touched] groups (RFC 8620 §5.3: an
+     * update names the properties it changes and the server keeps the rest). This is
+     * the whole reason the JMAP path is preferred over re-uploading a vCard: a photo,
+     * a postal address, or an email label this app has no model for survives an edit
+     * because the patch never mentions it.
+     */
+    suspend fun updateContactCard(
+        session: JmapSession,
+        accountId: String,
+        cardId: String,
+        card: ContactCardWrite,
+        touched: Set<ContactCardGroup>,
+        auth: JmapAuth,
+    ): Unit = withContext(Dispatchers.IO) {
+        if (touched.isEmpty()) return@withContext
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.CONTACTS_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("ContactCard/set")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("update") {
+                            putJsonObject(cardId) {
+                                touched.forEach { group ->
+                                    // JsonNull removes the property outright — how a cleared
+                                    // note or an emptied phone list is said in patch language.
+                                    put(contactCardGroupProperty(group), contactCardGroupValue(group, card))
+                                }
+                            }
+                        }
+                    }
+                    add("cs0")
+                }
+            }
+        }
+        val args = methodResponseArgs(postJmap(session, auth, payload), "ContactCard/set")
+        // `updated` is nullable the same way `created` is; see createContactCard.
+        if ((args["updated"] as? JsonObject)?.containsKey(cardId) != true) {
+            throw JmapException(
+                "Couldn't save the contact" + (setErrorDetail(args, "notUpdated", cardId)?.let { " ($it)" } ?: ""),
+            )
+        }
+    }
+
+    /** A SetError's human line: description when the server wrote one, else its type. */
+    private fun setErrorDetail(args: JsonObject, listKey: String, id: String): String? =
+        (args[listKey] as? JsonObject)?.get(id)?.jsonObject?.let {
+            it["description"]?.jsonPrimitive?.contentOrNull
+                ?: it["type"]?.jsonPrimitive?.contentOrNull
+        }
+
     /**
      * Send a plain-text email: create a draft (Email/set) and submit it
      * (EmailSubmission/set) in one request, moving it to Sent on success.
@@ -2108,6 +2278,75 @@ internal fun searchFilter(query: SearchQuery, excludeMailboxIds: List<String> = 
             }
         }
     }
+}
+
+/** The Card property a [ContactCardGroup] patches, by RFC 9553's own names. */
+private fun contactCardGroupProperty(group: ContactCardGroup): String = when (group) {
+    ContactCardGroup.NAME -> "name"
+    ContactCardGroup.ORGANIZATION -> "organizations"
+    ContactCardGroup.TITLE -> "titles"
+    ContactCardGroup.EMAILS -> "emails"
+    ContactCardGroup.PHONES -> "phones"
+    ContactCardGroup.NOTE -> "notes"
+}
+
+/**
+ * The JSContact value for a group, or [JsonNull] when the group is empty. In an update
+ * patch the null REMOVES the property (a cleared note has to be said, not left unsaid);
+ * a create just omits the property, which means the same thing on a card being born.
+ *
+ * NAME is never null: `name.full` is what every client renders, so it always travels,
+ * and the components ride along only when there is a person-shaped name to carry —
+ * an organization card is full-only, which is exactly how Stalwart stores its own.
+ */
+private fun contactCardGroupValue(group: ContactCardGroup, card: ContactCardWrite): JsonElement = when (group) {
+    ContactCardGroup.NAME -> buildJsonObject {
+        put("full", card.fullName)
+        if (card.given.isNotBlank() || card.family.isNotBlank()) {
+            putJsonArray("components") {
+                if (card.family.isNotBlank()) {
+                    addJsonObject {
+                        put("kind", "surname")
+                        put("value", card.family)
+                    }
+                }
+                if (card.given.isNotBlank()) {
+                    addJsonObject {
+                        put("kind", "given")
+                        put("value", card.given)
+                    }
+                }
+            }
+        }
+    }
+    ContactCardGroup.ORGANIZATION -> card.organization?.takeIf { it.isNotBlank() }?.let { org ->
+        buildJsonObject { putJsonObject("o1") { put("name", org) } }
+    } ?: JsonNull
+    ContactCardGroup.TITLE -> card.title?.takeIf { it.isNotBlank() }?.let { title ->
+        buildJsonObject {
+            putJsonObject("t1") {
+                put("name", title)
+                put("kind", "title")
+            }
+        }
+    } ?: JsonNull
+    ContactCardGroup.EMAILS -> card.emails.filter { it.isNotBlank() }.ifEmpty { null }?.let { list ->
+        buildJsonObject {
+            list.forEachIndexed { i, address ->
+                putJsonObject("e$i") { put("address", address) }
+            }
+        }
+    } ?: JsonNull
+    ContactCardGroup.PHONES -> card.phones.filter { it.isNotBlank() }.ifEmpty { null }?.let { list ->
+        buildJsonObject {
+            list.forEachIndexed { i, number ->
+                putJsonObject("p$i") { put("number", number) }
+            }
+        }
+    } ?: JsonNull
+    ContactCardGroup.NOTE -> card.note?.takeIf { it.isNotBlank() }?.let { note ->
+        buildJsonObject { putJsonObject("n1") { put("note", note) } }
+    } ?: JsonNull
 }
 
 /** JMAP UTCDate (RFC 8620 §1.4) from epoch millis. */

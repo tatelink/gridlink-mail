@@ -11,6 +11,9 @@ object Jmap {
     const val QUOTA_CAPABILITY = "urn:ietf:params:jmap:quota"
     const val SIEVE_CAPABILITY = "urn:ietf:params:jmap:sieve"
 
+    /** JMAP for Contacts (RFC 9610): AddressBook and ContactCard over the same session. */
+    const val CONTACTS_CAPABILITY = "urn:ietf:params:jmap:contacts"
+
     /** VAPID for JMAP WebPush (RFC 9749); advertises the server's application key. */
     const val WEBPUSH_VAPID_CAPABILITY = "urn:ietf:params:jmap:webpush-vapid"
 

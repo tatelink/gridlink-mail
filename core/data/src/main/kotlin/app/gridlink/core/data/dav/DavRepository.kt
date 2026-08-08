@@ -5,6 +5,9 @@ import app.gridlink.core.data.account.AuthType
 import app.gridlink.core.data.calendar.CalendarOccurrence
 import app.gridlink.core.data.calendar.ICalendar
 import app.gridlink.core.data.calendar.ICalendarStream
+import app.gridlink.core.data.contacts.ContactEdit
+import app.gridlink.core.data.contacts.VCard
+import app.gridlink.core.data.contacts.VCardWrite
 import app.gridlink.core.data.db.AddressBookContactDao
 import app.gridlink.core.data.db.AddressBookContactEntity
 import app.gridlink.core.data.db.CalendarEventDao
@@ -16,6 +19,13 @@ import app.gridlink.core.dav.DavCredentials
 import app.gridlink.core.dav.DavException
 import app.gridlink.core.dav.DavItem
 import app.gridlink.core.dav.DavKind
+import app.gridlink.core.dav.DavWriteResult
+import app.gridlink.core.jmap.BasicAuth
+import app.gridlink.core.jmap.Jmap
+import app.gridlink.core.jmap.JmapClient
+import app.gridlink.core.jmap.JmapException
+import app.gridlink.core.jmap.model.JmapSession
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.LocalDate
@@ -65,13 +75,16 @@ data class DavWriteOutcome(
  * not the network happened to be reachable when it opened.
  *
  * ## Writing
- * [createEvent] adds an event to the server and caches it in the same shape a sync would have. It
- * is the only write there is.
+ * [createEvent] adds an event; [createContact] and [updateContact] write the address book. Contact
+ * writes go over JMAP for Contacts (RFC 9610) when the server offers it, and fall back to CardDAV
+ * when it does not — routing on what the server IS, never on an error a request came back with.
+ * Contact edits carry `If-Match` on the stored etag over DAV (a 412 becomes a resync plus a plain
+ * sentence), and are property-group patches over JMAP, so a card's unedited fields survive either
+ * way.
  *
  * ## What this deliberately does NOT do
- * It cannot edit or delete an event, and it cannot create a contact at all; the new-contact form
- * still saves only in memory. Editing needs `If-Match` on the stored etag plus an answer for the
- * 412 that means somebody changed it first, and shipping half of a conflict story is how a calendar
+ * It cannot edit or delete an event, and it cannot delete a contact. Event editing needs the same
+ * conflict story contacts got, plus recurrence exceptions; half of that story is how a calendar
  * loses an appointment quietly.
  */
 class DavRepository(
@@ -82,6 +95,8 @@ class DavRepository(
     private val contactDao: AddressBookContactDao,
     /** The device's zone, injected so the whole class is testable without touching the clock. */
     private val zone: () -> ZoneId = { ZoneId.systemDefault() },
+    /** JMAP client for the contacts capability; null (tests, or a pure-DAV build) means DAV only. */
+    private val jmap: JmapClient? = null,
 ) {
 
     // ---- Reads -------------------------------------------------------------------------------
@@ -234,6 +249,177 @@ class DavRepository(
         eventDao.deleteForFile(accountId, written.href, DavMappers.hrefPrefix(written.href))
         eventDao.upsertAll(rows)
         return DavWriteOutcome(href = written.href)
+    }
+
+    /**
+     * Save a new contact to the server, then cache it locally.
+     *
+     * JMAP-first: when the account's session advertises `urn:ietf:params:jmap:contacts`, the card
+     * goes up as a ContactCard/set create into the default address book. Otherwise it is a vCard
+     * PUT into the first synced CardDAV address book. A JMAP failure is reported, not silently
+     * retried over DAV — the same card arriving twice under two UIDs is worse than an error.
+     */
+    suspend fun createContact(accountId: String, edit: ContactEdit): DavWriteOutcome {
+        if (accountStore.account(accountId)?.syncSelection?.contacts != true) {
+            return DavWriteOutcome(error = "Turn on contact sync for this account to save contacts")
+        }
+        val (dav, server) = when (val access = access(accountId)) {
+            is Access.Refused -> return DavWriteOutcome(error = access.reason)
+            is Access.Ready -> access.dav to access.server
+        }
+        val uid = UUID.randomUUID().toString()
+
+        jmapContacts(server, dav)?.let { (session, jmapAccountId) ->
+            val auth = BasicAuth(dav.username, dav.password)
+            val book = try {
+                jmap!!.getAddressBooks(session, jmapAccountId, auth)
+                    .let { books -> books.firstOrNull { it.isDefault } ?: books.firstOrNull() }
+            } catch (e: JmapException) {
+                return DavWriteOutcome(error = e.message ?: "The server refused the contact")
+            }
+            // No address book over JMAP is a routing fact, not an error: fall through to DAV.
+            if (book != null) {
+                try {
+                    jmap.createContactCard(session, jmapAccountId, book.id, edit.toCardWrite(uid), auth)
+                } catch (e: JmapException) {
+                    return DavWriteOutcome(error = e.message ?: "The server refused the contact")
+                }
+                return cacheAfterJmapWrite(accountId, uid)
+            }
+        }
+
+        // Same reasoning as createEvent: the last discovery's answer, not a fresh network trip.
+        val target = collectionDao.forKind(accountId, DavCollectionEntity.KIND_CONTACTS)
+            .firstOrNull()?.url
+            ?: return DavWriteOutcome(error = "No address book found on the server yet. Sync first.")
+        val vcf = VCardWrite.build(edit, uid)
+        val written = try {
+            client.create(target, "$uid.vcf", dav, DavKind.ADDRESS_BOOK, vcf)
+        } catch (e: DavException) {
+            return DavWriteOutcome(error = describe(e))
+        }
+        return cacheUploadedContact(accountId, target, written, vcf)
+    }
+
+    /**
+     * Change an existing contact on the server, then refresh the local copy.
+     *
+     * Only the property groups where [edit] differs from the stored card are written, on both
+     * paths: a JMAP update is a patch by construction, and the DAV path rewrites only the touched
+     * lines of the stored raw vCard ([VCardWrite.patch]), so PHOTO, ADR, and every property this
+     * app does not model survive an edit untouched. An untouched form saves as a wire no-op.
+     */
+    suspend fun updateContact(accountId: String, href: String, edit: ContactEdit): DavWriteOutcome {
+        if (accountStore.account(accountId)?.syncSelection?.contacts != true) {
+            return DavWriteOutcome(error = "Turn on contact sync for this account to save contacts")
+        }
+        val (dav, server) = when (val access = access(accountId)) {
+            is Access.Refused -> return DavWriteOutcome(error = access.reason)
+            is Access.Ready -> access.dav to access.server
+        }
+        val row = contactDao.byHref(accountId, href)
+            ?: return DavWriteOutcome(error = "This contact isn't synced to this device yet. Sync first.")
+        val parsed = VCard.parse(row.raw)
+            ?: return DavWriteOutcome(error = "This contact's card could not be read. Sync first.")
+        val touched = edit.touchedSince(ContactEdit.from(parsed))
+        if (touched.isEmpty()) return DavWriteOutcome(href = href)
+
+        // JMAP needs the card's UID to find it (the JMAP id is not the DAV href); a card without
+        // one, or one JMAP cannot find, is DAV's to edit. Routing on data, not error suppression.
+        val uid = parsed.uid
+        if (uid != null) {
+            jmapContacts(server, dav)?.let { (session, jmapAccountId) ->
+                val auth = BasicAuth(dav.username, dav.password)
+                val cardId = try {
+                    jmap!!.queryContactCardId(session, jmapAccountId, uid, auth)
+                } catch (e: JmapException) {
+                    return DavWriteOutcome(error = e.message ?: "The server refused the change")
+                }
+                if (cardId != null) {
+                    try {
+                        jmap.updateContactCard(
+                            session, jmapAccountId, cardId, edit.toCardWrite(uid), touched, auth,
+                        )
+                    } catch (e: JmapException) {
+                        return DavWriteOutcome(error = e.message ?: "The server refused the change")
+                    }
+                    // The write went through; refresh the DAV mirror so the row shows the result.
+                    syncContacts(accountId)
+                    return DavWriteOutcome(href = href)
+                }
+            }
+        }
+
+        val patched = VCardWrite.patch(row.raw, edit, touched)
+        val written = try {
+            client.update(row.collectionUrl, href, dav, DavKind.ADDRESS_BOOK, patched, row.etag)
+        } catch (e: DavException) {
+            if (e.code == 412) {
+                // Someone else edited this card since our sync. Pull their version so the user is
+                // looking at the truth when they try again; merging silently would pick a winner
+                // for them.
+                syncContacts(accountId)
+                return DavWriteOutcome(
+                    error = "Someone changed this contact on another device. " +
+                        "The newer copy has been synced; try again.",
+                )
+            }
+            return DavWriteOutcome(error = describe(e))
+        }
+        return cacheUploadedContact(accountId, row.collectionUrl, written, patched)
+    }
+
+    /**
+     * The session and account id for a JMAP contact write, or null when the write belongs to DAV.
+     *
+     * Null means "this server doesn't speak JMAP contacts as far as we can tell" — including a
+     * session fetch that failed, because a server we cannot ask is a server whose capabilities we
+     * do not know. Errors AFTER routing (the actual write) are never swallowed into a DAV retry.
+     */
+    private suspend fun jmapContacts(server: String, dav: DavCredentials): Pair<JmapSession, String>? {
+        val jmapClient = jmap ?: return null
+        val session = try {
+            jmapClient.fetchSession(Jmap.sessionUrlFor(server), BasicAuth(dav.username, dav.password))
+        } catch (c: CancellationException) {
+            throw c
+        } catch (e: Exception) {
+            return null
+        }
+        if (!jmapClient.supportsContacts(session)) return null
+        val accountId = session.contactsAccountId() ?: return null
+        return session to accountId
+    }
+
+    /** Cache a vCard the DAV path just uploaded, re-parsed from the SAME text (see [createEvent]). */
+    private suspend fun cacheUploadedContact(
+        accountId: String,
+        collectionUrl: String,
+        written: DavWriteResult,
+        vcf: String,
+    ): DavWriteOutcome {
+        val item = DavItem(href = written.href, etag = written.etag, data = vcf)
+        val rows = DavMappers.contacts(accountId, collectionUrl, item)
+        if (rows.isEmpty()) {
+            return DavWriteOutcome(
+                error = "Saved to the server, but this device could not read it back. Sync to see it.",
+            )
+        }
+        contactDao.deleteForFile(accountId, written.href, DavMappers.hrefPrefix(written.href))
+        contactDao.upsertAll(rows)
+        return DavWriteOutcome(href = written.href)
+    }
+
+    /**
+     * After a JMAP create, sync the DAV mirror and find the new card by its UID — a JMAP write
+     * never learns the DAV href the card landed at, and the href is this cache's key.
+     */
+    private suspend fun cacheAfterJmapWrite(accountId: String, uid: String): DavWriteOutcome {
+        syncContacts(accountId)
+        val row = contactDao.byUid(accountId, uid)
+            ?: return DavWriteOutcome(
+                error = "Saved to the server, but this device could not read it back. Sync to see it.",
+            )
+        return DavWriteOutcome(href = row.href)
     }
 
     /** Forget everything cached for one account (sign-out, or clearing its cache). */

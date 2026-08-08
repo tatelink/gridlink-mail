@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import app.gridlink.core.data.contacts.ContactEdit
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
@@ -567,6 +568,13 @@ fun GridlinkRoot(
      */
     calendarWriter: GridlinkCalendarWriter = GridlinkMemoryCalendarWriter,
     /**
+     * What the contact form's Save button does, for both a new card and an edit.
+     *
+     * Defaults to [GridlinkMemoryContactWriter] for exactly [calendarWriter]'s reason: a card kept
+     * for the run is honest in a build with no server, and refusal is reserved for send.
+     */
+    contactWriter: GridlinkContactWriter = GridlinkMemoryContactWriter,
+    /**
      * The account's mail, or null to draw [GridlinkSample]'s. See [GridlinkMailContent], including
      * the 🔴 on why null is not the same as an empty inbox.
      */
@@ -864,11 +872,13 @@ fun GridlinkRoot(
      */
     var addedEvents by remember { mutableStateOf(emptyList<GridlinkEvent>()) }
     var addedContacts by remember { mutableStateOf(emptyList<GridlinkContact>()) }
+    /** In-memory edits by contact id, [addedContacts]' counterpart for the edit form. */
+    var editedContacts by remember { mutableStateOf(emptyMap<String, GridlinkContact>()) }
     // 🔴 [calendar] and [contacts] are keys too, not just constructor arguments. They change when a
     // sync lands, and a book remembered on the added lists alone would be the same object before and
     // after, so a calendar open on screen would keep drawing the pre-sync month forever.
-    val book = remember(addedEvents, addedContacts, calendar, contacts, ownDomain) {
-        GridlinkBook(addedEvents, addedContacts, calendar, contacts, ownDomain)
+    val book = remember(addedEvents, addedContacts, editedContacts, calendar, contacts, ownDomain) {
+        GridlinkBook(addedEvents, addedContacts, editedContacts, calendar, contacts, ownDomain)
     }
 
     /**
@@ -918,6 +928,66 @@ fun GridlinkRoot(
                 addedEvents = addedEvents + event.copy(id = gridlinkNewId("event", addedEvents.size))
             }
             creating = null
+        }
+    }
+
+    /** The card being edited, or null. The object, not an id: it seeds the form, and the form must
+     *  not re-resolve it against a book a mid-edit sync could have just reshaped. */
+    var editingContact by remember { mutableStateOf<GridlinkContact?>(null) }
+
+    /** True while a contact save is on the wire — either form, they cannot both be open. */
+    var savingContact by remember { mutableStateOf(false) }
+
+    /** Why the last contact save was refused, shown on the form that still holds the edit. */
+    var saveContactError by remember { mutableStateOf<String?>(null) }
+
+    /** Save a new card: [saveEvent]'s exact contract, through [GridlinkContactWriter.create]. */
+    fun saveContact(edit: ContactEdit) {
+        savingContact = true
+        saveContactError = null
+        scope.launch {
+            val failure = runCatching { contactWriter.create(edit) }
+                .getOrElse { t ->
+                    if (t is CancellationException) throw t
+                    t.message ?: "Couldn't save that contact."
+                }
+            savingContact = false
+            if (failure != null) {
+                saveContactError = failure
+                return@launch
+            }
+            if (!contactWriter.echoesIntoContent) {
+                addedContacts = addedContacts +
+                    gridlinkContactOf(edit, gridlinkNewId("contact", addedContacts.size))
+            }
+            creating = null
+        }
+    }
+
+    /**
+     * Save changes to [contact]. When the writer echoes, the refreshed card arrives back through
+     * the address book content (the write path syncs before returning) and the overlay stays
+     * empty; the memory writer's copy shadows the original by id instead, see
+     * [GridlinkBook.editedContacts].
+     */
+    fun updateContact(contact: GridlinkContact, edit: ContactEdit) {
+        savingContact = true
+        saveContactError = null
+        scope.launch {
+            val failure = runCatching { contactWriter.update(contact.id, edit) }
+                .getOrElse { t ->
+                    if (t is CancellationException) throw t
+                    t.message ?: "Couldn't save that contact."
+                }
+            savingContact = false
+            if (failure != null) {
+                saveContactError = failure
+                return@launch
+            }
+            if (!contactWriter.echoesIntoContent) {
+                editedContacts = editedContacts + (contact.id to gridlinkContactOf(edit, contact.id))
+            }
+            editingContact = null
         }
     }
 
@@ -1222,6 +1292,9 @@ fun GridlinkRoot(
                             if (!twoPane) scope.launch { progress.snapTo(1f) }
                         },
                         onWrite = { composing = gridlinkWriteTo(it) },
+                        // The card, not its id: the form seeds from what was on screen when Edit
+                        // was tapped, and must not chase a book a sync could reshape mid-edit.
+                        onEdit = { editingContact = it },
                         embedded = embedded,
                     )
 
@@ -1527,16 +1600,30 @@ fun GridlinkRoot(
                         failure = saveError,
                     )
 
-                    GridlinkCreation.Contact -> GridlinkNewContactScreen(
-                        onClose = { creating = null },
-                        onSave = { contact ->
-                            addedContacts = addedContacts +
-                                contact.copy(id = gridlinkNewId("contact", addedContacts.size))
-                            creating = null
-                        },
+                    GridlinkCreation.Contact -> GridlinkContactFormScreen(
+                        title = "New contact",
+                        initial = null,
+                        onClose = { creating = null; saveContactError = null },
+                        onSave = ::saveContact,
+                        saving = savingContact,
+                        failure = saveContactError,
                     )
 
                     null -> Unit
+                }
+
+                // The edit form, over whatever card opened it, in the same overlay slot as the "+"
+                // forms. Seeded from the card's own edit derivation so an untouched save is a no-op
+                // on the wire; see [GridlinkContact.editSeed].
+                editingContact?.let { editing ->
+                    GridlinkContactFormScreen(
+                        title = "Edit contact",
+                        initial = editing.editSeed,
+                        onClose = { editingContact = null; saveContactError = null },
+                        onSave = { updateContact(editing, it) },
+                        saving = savingContact,
+                        failure = saveContactError,
+                    )
                 }
 
                 composing?.let { request ->

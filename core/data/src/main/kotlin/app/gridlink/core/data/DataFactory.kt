@@ -70,6 +70,9 @@ object DataFactory {
                 collectionDao = database.davCollectionDao(),
                 eventDao = database.calendarEventDao(),
                 contactDao = database.addressBookContactDao(),
+                // The shared JMAP client, for contact writes on servers that speak RFC 9610. A
+                // write is one small request, so mail's connection pool is the right one for it.
+                jmap = client,
             ),
         )
     }

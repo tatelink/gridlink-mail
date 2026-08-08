@@ -23,12 +23,13 @@ import java.time.LocalDate
  * `@Preview`, the two-pane harness and a signed-out launch all keep the sample, and a real account
  * with an empty calendar shows an empty calendar.
  *
- * ## What "saved" still means
- * ⚠️ [addedEvents] and [addedContacts] are memory, not a server. Something added from the new-event or
- * new-contact form appears immediately everywhere listed above and is gone on the next launch: the DAV
- * client behind [calendar] and [addressBook] is READ-ONLY, so "save" still has no destination. That is
- * the honest half of an unfinished job rather than a design, and writing back needs conditional PUT
- * and a conflict story before it can be trusted with an appointment.
+ * ## What "saved" means depends on the writer
+ * ⚠️ [addedEvents], [addedContacts] and [editedContacts] are memory: the copies a caller keeps when
+ * its writer does not echo saves back through [calendar] or [addressBook] (see
+ * [GridlinkCalendarWriter.echoesIntoContent]). In the app the writers are real — a CalDAV PUT, and
+ * for contacts JMAP ContactCard/set with a CardDAV fallback — the saved thing comes back through the
+ * content, and these lists stay empty. In the gallery they hold the run's additions, gone on the
+ * next launch, which is the honest scope of a build with no server behind it.
  *
  * ## Why a CompositionLocal rather than a parameter
  * The reads are seven levels down. `GridlinkSampleTree.eventsOn(...)` was being called from inside
@@ -45,6 +46,8 @@ import java.time.LocalDate
 class GridlinkBook(
     val addedEvents: List<GridlinkEvent> = emptyList(),
     val addedContacts: List<GridlinkContact> = emptyList(),
+    /** This run's in-memory edits, by [GridlinkContact.id]: the edited copy shadows the original. */
+    val editedContacts: Map<String, GridlinkContact> = emptyMap(),
     /** The account's real calendar, or null to fall back to [GridlinkSampleTree]. */
     val calendar: GridlinkCalendarContent? = null,
     /** The account's real address book, or null to fall back to [GridlinkSampleContacts]. */
@@ -85,16 +88,20 @@ class GridlinkBook(
      * Re-sorted rather than appended, so somebody added as "Arlen Voss" lands under V between the
      * existing names instead of at the bottom under whatever letter the list happened to end on. A
      * live book arrives already sorted by the database (NOCASE, so `de Vries` files with `De Vries`),
-     * and is left alone unless something was added to it.
+     * and is left alone unless something was added to it — or edited, since an edit can rename.
      */
     val contacts: List<GridlinkContact> =
-        (addressBook?.contacts ?: GridlinkSampleContacts.all).let {
-            if (addedContacts.isEmpty()) {
-                it
-            } else {
-                (it + addedContacts).sortedWith(compareBy({ c -> c.family.lowercase() }, { c -> c.given.lowercase() }))
+        (addressBook?.contacts ?: GridlinkSampleContacts.all)
+            .let { base ->
+                if (editedContacts.isEmpty()) base else base.map { editedContacts[it.id] ?: it }
             }
-        }
+            .let {
+                if (addedContacts.isEmpty() && editedContacts.isEmpty()) {
+                    it
+                } else {
+                    (it + addedContacts).sortedWith(compareBy({ c -> c.family.lowercase() }, { c -> c.given.lowercase() }))
+                }
+            }
 
     /**
      * [contacts], grouped for the A-Z list.
@@ -105,7 +112,7 @@ class GridlinkBook(
      * per emission of the flow, which is the same bargain.
      */
     val sections: List<GridlinkContactSection> =
-        if (addressBook == null && addedContacts.isEmpty()) {
+        if (addressBook == null && addedContacts.isEmpty() && editedContacts.isEmpty()) {
             GridlinkSampleContacts.sections
         } else {
             contacts.groupBy { it.letter }

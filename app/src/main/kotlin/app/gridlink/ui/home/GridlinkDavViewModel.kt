@@ -6,11 +6,13 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.gridlink.container
 import app.gridlink.core.data.calendar.CalendarOccurrence
+import app.gridlink.core.data.contacts.ContactEdit
 import app.gridlink.core.data.dav.DavSyncOutcome
 import app.gridlink.core.data.db.AddressBookContactEntity
 import app.gridlink.ui.gridlink.GridlinkCalendarContent
 import app.gridlink.ui.gridlink.GridlinkCalendarWriter
 import app.gridlink.ui.gridlink.GridlinkContactContent
+import app.gridlink.ui.gridlink.GridlinkContactWriter
 import app.gridlink.ui.gridlink.GridlinkDavMapping
 import app.gridlink.ui.gridlink.GridlinkEvent
 import kotlinx.coroutines.CancellationException
@@ -190,6 +192,46 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
                 Log.i(TAG, "created event ${outcome.href}")
             } else {
                 Log.w(TAG, "create event failed: ${outcome.error}")
+            }
+            return outcome.error
+        }
+    }
+
+    /**
+     * The contact form's Save button, wired to the server.
+     *
+     * Lives here for [calendarWriter]'s reason (the account id is this class's business, re-read at
+     * save time), and echoes for its reason too: both repository write paths land the finished card
+     * back in Room before returning — a JMAP write runs a contacts sync to mirror it, a DAV write
+     * caches what it uploaded — and [cards] is already watching.
+     */
+    val contactWriter: GridlinkContactWriter = object : GridlinkContactWriter {
+        override val echoesIntoContent: Boolean get() = true
+
+        override suspend fun create(edit: ContactEdit): String? {
+            val id = accountId.value ?: return "No account is signed in."
+            val outcome = repo.createContact(id, edit)
+            if (outcome.succeeded) {
+                Log.i(TAG, "created contact ${outcome.href}")
+            } else {
+                Log.w(TAG, "create contact failed: ${outcome.error}")
+            }
+            return outcome.error
+        }
+
+        override suspend fun update(contactId: String, edit: ContactEdit): String? {
+            val id = accountId.value ?: return "No account is signed in."
+            val outcome = repo.updateContact(
+                accountId = id,
+                // The book's ids wear [GridlinkDavMapping.PREFIX] over the DAV href, which is the
+                // identity the repository actually stores rows under.
+                href = contactId.removePrefix(GridlinkDavMapping.PREFIX),
+                edit = edit,
+            )
+            if (outcome.succeeded) {
+                Log.i(TAG, "updated contact ${outcome.href}")
+            } else {
+                Log.w(TAG, "update contact failed: ${outcome.error}")
             }
             return outcome.error
         }

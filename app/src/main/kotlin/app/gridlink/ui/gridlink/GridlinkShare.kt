@@ -2,6 +2,7 @@ package app.gridlink.ui.gridlink
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 
 /**
  * Hand a plain-text summary to the system share sheet, reporting whether anything took it.
@@ -30,6 +31,24 @@ internal fun gridlinkShare(
         putExtra(Intent.EXTRA_TEXT, text)
     }
     context.startActivity(Intent.createChooser(send, chooserTitle))
+    true
+} catch (e: Exception) {
+    false
+}
+
+/**
+ * Open the dialler with [number] typed in, reporting whether anything took it.
+ *
+ * ACTION_DIAL, not ACTION_CALL: the number is shown, not rung, so a mistap on a contact card costs
+ * nothing and no call permission enters the manifest. Same `: Boolean` shape as [gridlinkShare],
+ * for the same `leaveOnce` reason — a device with no dialler (a tablet) throws, and a latch that
+ * had already recorded "we left" would eat the next real tap.
+ */
+internal fun gridlinkDial(
+    context: Context,
+    number: String,
+): Boolean = try {
+    context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(number))))
     true
 } catch (e: Exception) {
     false
