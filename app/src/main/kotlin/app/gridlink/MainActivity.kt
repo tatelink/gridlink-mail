@@ -3,6 +3,7 @@ package app.gridlink
 import android.content.Intent
 import android.net.MailTo
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.compose.setContent
@@ -50,6 +51,28 @@ class MainActivity : AppCompatActivity() {
      */
     private var playIntro = false
 
+    /**
+     * Whether the system splash is out of the way, which is what the intro's clock waits for.
+     *
+     * 🔴 On API 31+ the platform draws its splash as a separate window OVER the app while the app
+     * composes and renders its first frames underneath. The intro overlay composes during exactly
+     * that covered stretch, so starting its clock on composition meant the opening scenes played
+     * to nobody and the user saw only the tail — which is how the first build shipped, and why the
+     * animation read as absurdly fast on a real launch. Registering [android.window.SplashScreen]'s
+     * exit listener does two things at once: it hands control of the splash's removal to us (we
+     * remove it with no exit animation, a clean cut onto the intro's own frame zero, whose backdrop
+     * the splash colour was already chosen to match), and it tells us the moment the user can
+     * actually see the screen, which is when the choreography is allowed to begin.
+     *
+     * ⚠️ True from the start everywhere the listener can never fire: below API 31 (no system
+     * splash), on recreations (`savedInstanceState != null` — rotation and the hinge re-show no
+     * splash, and a restored mid-play intro would otherwise wait forever on a signal that is not
+     * coming), and on launches that skip the intro anyway. The lesson behind the caution is the
+     * seedable-display-state deadlock from the sync work: a gate must never be able to outlive the
+     * thing it gates.
+     */
+    private val introReady = mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -66,6 +89,20 @@ class MainActivity : AppCompatActivity() {
             // requests to be somewhere specific, and a brand animation in front of either is the app
             // making the user wait through its logo to get to the thing they already asked for.
             playIntro = pendingMailto.value == null && pendingEmailOpen.value == null
+        }
+        if (playIntro && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            splashScreen.setOnExitAnimationListener { splash ->
+                // No exit animation: the splash colour matches the intro's backdrop, so a hard cut
+                // lands on frame zero of the choreography and the removal itself is invisible.
+                splash.remove()
+                introReady.value = true
+            }
+            // ⚠️ Belt and braces on the deadlock above: launch paths exist where the system decides
+            // not to show a splash at all (trampolines, some launcher edge cases), and then the
+            // listener never fires. Late is a recoverable failure; never is not.
+            window.decorView.postDelayed({ introReady.value = true }, INTRO_SPLASH_FALLBACK_MS)
+        } else {
+            introReady.value = true
         }
         val settings = application.container.settingsRepository
         setContent {
@@ -101,7 +138,10 @@ class MainActivity : AppCompatActivity() {
                             // down but nothing provides up here. See [rememberGridlinkIntroMode] for
                             // why resolving it a second time is safe and what would break it.
                             ProvideGridlinkTokens(mode = rememberGridlinkIntroMode()) {
-                                GridlinkIntroOverlay(onFinished = { introPlaying = false })
+                                GridlinkIntroOverlay(
+                                    onFinished = { introPlaying = false },
+                                    started = introReady.value,
+                                )
                             }
                         }
                     }
@@ -222,6 +262,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
+        /** How long a missing splash-exit signal is allowed to hold the intro before it plays anyway. */
+        private const val INTRO_SPLASH_FALLBACK_MS = 2000L
+
         const val EXTRA_OPEN_EMAIL_ID = "app.gridlink.OPEN_EMAIL_ID"
         const val EXTRA_OPEN_ACCOUNT_ID = "app.gridlink.OPEN_ACCOUNT_ID"
         const val EXTRA_OPEN_MAILBOX_ID = "app.gridlink.OPEN_MAILBOX_ID"

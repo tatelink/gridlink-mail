@@ -10,8 +10,8 @@ import org.junit.Test
  * 🔴 What is being defended here is the **last frame**. The overlay fades out onto the app, so if
  * the choreography's cues are ever edited such that the animation is still mid-merge when
  * [GridlinkMarkChoreography.total] arrives, the logo dissolves out of a pile of loose blocks — and
- * nothing crashes, no test that draws anything would notice, and it is 1.85 seconds long on a device
- * nobody is holding while the change is made. Shortening `total` by a tenth of a second, or nudging
+ * nothing crashes, no test that draws anything would notice, and it plays on a device nobody is
+ * holding while the change is made. Shortening `total` by a tenth of a second, or nudging
  * `form` later, is exactly the sort of taste edit somebody makes without replaying it.
  *
  * ⚠️ Deliberately not a screenshot test and deliberately not Robolectric. The drawing is
