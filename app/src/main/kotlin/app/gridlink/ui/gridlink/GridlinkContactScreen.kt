@@ -2,6 +2,7 @@ package app.gridlink.ui.gridlink
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -234,11 +235,10 @@ fun GridlinkContactScreen(
             }
             if (fields.isNotEmpty()) {
                 GridlinkSectionLabel(text = "Details")
-                fields.forEachIndexed { index, field ->
+                // No divider between rows: each field is its own contained box now, and the boxes'
+                // margins do the separating, the same language as the contact form.
+                fields.forEach { field ->
                     GridlinkContactFieldRow(field)
-                    if (index != fields.lastIndex) {
-                        GridlinkRowDivider(startInset = GridlinkSpacing.rowHorizontal)
-                    }
                 }
             }
 
@@ -322,9 +322,10 @@ private class GridlinkContactField(
 )
 
 /**
- * One field row: the value in reading weight with its label small underneath, the same visual
- * order as the identity block above it. The label is a caption, not a heading, because on a card
- * you scan the values — `m.bexley@gridlink.me` identifies itself, and "Email" merely confirms it.
+ * One field on the card: a [GridlinkFieldLabelPill] naming it, the value in a contained box below.
+ * The box is [GridlinkFieldBoxShape] with a hairline border and no underline — a card is read, not
+ * typed into, and the underline is reserved for the keyboard's fields. When the field does
+ * something on tap (write, dial), the whole box is the target.
  */
 @Composable
 private fun GridlinkContactFieldRow(
@@ -335,25 +336,33 @@ private fun GridlinkContactFieldRow(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .let { if (field.onClick != null) it.clickable(onClick = field.onClick) else it }
             .padding(
                 horizontal = GridlinkSpacing.rowHorizontal,
                 vertical = GridlinkSpacing.s8,
             ),
     ) {
-        Text(
-            text = field.value,
-            style = GridlinkType.body,
-            color = colors.textPrimary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = field.label,
-            style = GridlinkType.metadata,
-            color = colors.textSecondary,
-            modifier = Modifier.padding(top = GridlinkSpacing.s4),
-        )
+        GridlinkFieldLabelPill(field.label)
+        Spacer(Modifier.height(GridlinkSpacing.s8))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(GridlinkFieldBoxShape)
+                .background(colors.fieldFill)
+                .border(GridlinkDimens.hairline, colors.surfaceBorder, GridlinkFieldBoxShape)
+                .let { if (field.onClick != null) it.clickable(onClick = field.onClick) else it }
+                .padding(
+                    horizontal = GridlinkSpacing.s16,
+                    vertical = GridlinkSpacing.s12,
+                ),
+        ) {
+            Text(
+                text = field.value,
+                style = GridlinkType.body,
+                color = colors.textPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 

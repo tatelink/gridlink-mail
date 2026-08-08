@@ -1,6 +1,7 @@
 package app.gridlink.ui.gridlink
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -34,12 +35,20 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
@@ -52,6 +61,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.gridlink.ui.theme.GridlinkDimens
+import app.gridlink.ui.theme.GridlinkMotion
 import app.gridlink.ui.theme.GridlinkRadii
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
@@ -335,6 +345,59 @@ fun GridlinkFormDivider() {
 }
 
 /**
+ * The small tinted badge that names a field: "First name" over its entry box in a form, "Email"
+ * over a value on the contact card.
+ *
+ * 🔴 [GridlinkColors.fieldLabelFill] and never the full accent — the wash is what keeps a label
+ * from reading as a button. See the token's KDoc; the grammar argument lives there.
+ */
+@Composable
+fun GridlinkFieldLabelPill(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
+    val colors = GridlinkTheme.colors
+    val shape = RoundedCornerShape(GridlinkRadii.pill)
+    Text(
+        text = text,
+        style = GridlinkType.sectionLabel,
+        color = colors.fieldLabelText,
+        modifier = modifier
+            .clip(shape)
+            .background(colors.fieldLabelFill, shape)
+            .padding(horizontal = GridlinkSpacing.s12, vertical = GridlinkSpacing.s4),
+    )
+}
+
+/**
+ * Entry fields: rounded shoulders, square base, so the box visibly "stands on" its underline. The
+ * all-corner sibling below is for boxes that are read or tapped rather than typed into.
+ */
+private val GridlinkEntryFieldShape = RoundedCornerShape(
+    topStart = GridlinkRadii.field,
+    topEnd = GridlinkRadii.field,
+    bottomEnd = 0.dp,
+    bottomStart = 0.dp,
+)
+
+/**
+ * Display and action boxes: a picked date, a toggle, a value on the contact card. Fully rounded
+ * because nothing types into it — 🔴 the underline is reserved for keyboard entry, so a box that
+ * carries one is a promise the keyboard will come up.
+ */
+internal val GridlinkFieldBoxShape = RoundedCornerShape(GridlinkRadii.field)
+
+/** The 2dp base of an entry box. [color] animates between rest and the focused accent. */
+private fun Modifier.gridlinkFieldUnderline(color: Color): Modifier = drawBehind {
+    val stroke = GridlinkDimens.fieldUnderline.toPx()
+    drawRect(
+        color = color,
+        topLeft = Offset(0f, size.height - stroke),
+        size = Size(size.width, stroke),
+    )
+}
+
+/**
  * One typed field.
  *
  * ## Why this is a [BasicTextField] and not an [androidx.compose.material3.OutlinedTextField]
@@ -373,54 +436,109 @@ fun GridlinkFormTextRow(
      * assumed the rest would print the user's password on screen in a shoulder-surfable font.
      */
     visualTransformation: VisualTransformation = VisualTransformation.None,
+    /**
+     * A persistent [GridlinkFieldLabelPill] above the entry box. Only honoured when [contained]:
+     * the ruled layout has no slot for it.
+     */
+    label: String? = null,
+    /**
+     * Draw as a contained entry field — [GridlinkColors.fieldFill] box, 2dp underline that lights
+     * to the accent while focused, its own margins — instead of a ruled row on the panel. Opt-in
+     * so the composer's and setup screen's settled layouts do not move.
+     */
+    contained: Boolean = false,
 ) {
     val colors = GridlinkTheme.colors
-    BasicTextField(
-        value = value,
-        onValueChange = onValueChange,
-        singleLine = singleLine,
-        visualTransformation = visualTransformation,
-        textStyle = style.copy(color = colors.textPrimary),
-        cursorBrush = SolidColor(colors.accent),
-        keyboardOptions = KeyboardOptions(
-            capitalization = capitalization,
-            keyboardType = keyboardType,
-            imeAction = imeAction,
-        ),
-        keyboardActions = KeyboardActions(
-            // One handler covers whichever action this row asked for. [KeyboardActions] dispatches by
-            // the action the options declared, so wiring `onAny` avoids a when-block that would have
-            // to be kept in step with [imeAction] by hand.
-            onAny = { onImeAction?.invoke() },
-        ),
-        modifier = modifier
-            .fillMaxWidth()
-            .heightIn(min = minHeight)
-            .focusRequester(focusRequester)
-            .onFocusChanged { if (it.isFocused) onFocused() },
-        // 🔴 The row's padding lives in here and NOT in the modifier chain above. Everything passed
-        // in `modifier` sits outside the field's own pointer handling, so padding there would shrink
-        // what is tappable to the text itself, leaving a dead band at the top and bottom of every
-        // row. Inside the decoration box the padding is drawn by the field, so the whole row takes
-        // the tap.
-        decorationBox = { field ->
-            Box(
-                modifier = Modifier.padding(
-                    horizontal = GridlinkSpacing.rowHorizontal,
-                    vertical = GridlinkSpacing.s16,
-                ),
-            ) {
-                if (value.text.isEmpty()) {
-                    Text(
-                        text = placeholder,
-                        style = placeholderStyle,
-                        color = colors.textSecondary,
-                    )
-                }
-                field()
-            }
-        },
+    var focused by remember { mutableStateOf(false) }
+    val underline by animateColorAsState(
+        targetValue = if (focused) colors.accent else colors.fieldUnderline,
+        animationSpec = GridlinkMotion.standard(),
+        label = "fieldUnderline",
     )
+    // One editor, dressed by the branch below. The BasicTextField itself must never fork on
+    // [contained] — see the placeholder KDoc above for what swapping the focused composable costs.
+    val editor: @Composable (Modifier) -> Unit = { fieldModifier ->
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = singleLine,
+            visualTransformation = visualTransformation,
+            textStyle = style.copy(color = colors.textPrimary),
+            cursorBrush = SolidColor(colors.accent),
+            keyboardOptions = KeyboardOptions(
+                capitalization = capitalization,
+                keyboardType = keyboardType,
+                imeAction = imeAction,
+            ),
+            keyboardActions = KeyboardActions(
+                // One handler covers whichever action this row asked for. [KeyboardActions] dispatches by
+                // the action the options declared, so wiring `onAny` avoids a when-block that would have
+                // to be kept in step with [imeAction] by hand.
+                onAny = { onImeAction?.invoke() },
+            ),
+            modifier = fieldModifier
+                .heightIn(min = minHeight)
+                .focusRequester(focusRequester)
+                .onFocusChanged {
+                    focused = it.isFocused
+                    if (it.isFocused) onFocused()
+                },
+            // 🔴 The row's padding lives in here and NOT in the modifier chain above. Everything passed
+            // in `modifier` sits outside the field's own pointer handling, so padding there would shrink
+            // what is tappable to the text itself, leaving a dead band at the top and bottom of every
+            // row. Inside the decoration box the padding is drawn by the field, so the whole row takes
+            // the tap. The contained box's fill and underline ride the outer chain for the same
+            // reason: they must cover the full tappable area, padding included.
+            decorationBox = { field ->
+                Box(
+                    modifier = if (contained) {
+                        Modifier.padding(
+                            horizontal = GridlinkSpacing.s16,
+                            vertical = GridlinkSpacing.s12,
+                        )
+                    } else {
+                        Modifier.padding(
+                            horizontal = GridlinkSpacing.rowHorizontal,
+                            vertical = GridlinkSpacing.s16,
+                        )
+                    },
+                ) {
+                    if (value.text.isEmpty()) {
+                        Text(
+                            text = placeholder,
+                            style = placeholderStyle,
+                            color = colors.textSecondary,
+                        )
+                    }
+                    field()
+                }
+            },
+        )
+    }
+    if (contained) {
+        // The caller's modifier lands on the Column so a RowScope weight keeps working for the
+        // side-by-side custom-field pairs — same contract as the ruled branch, one wrapper up.
+        Column(
+            modifier = modifier.padding(
+                horizontal = GridlinkSpacing.rowHorizontal,
+                vertical = GridlinkSpacing.s8,
+            ),
+        ) {
+            label?.let {
+                GridlinkFieldLabelPill(it)
+                Spacer(Modifier.height(GridlinkSpacing.s8))
+            }
+            editor(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(GridlinkEntryFieldShape)
+                    .background(colors.fieldFill)
+                    .gridlinkFieldUnderline(underline),
+            )
+        }
+    } else {
+        editor(modifier.fillMaxWidth())
+    }
 }
 
 /**
@@ -441,23 +559,54 @@ fun GridlinkFormPickRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     trailing: (@Composable () -> Unit)? = null,
+    /** Draw as a contained field box with the label as a pill, like the typed rows around it. */
+    contained: Boolean = false,
+    /**
+     * True while this row's picker is open. The underline holds the accent for exactly that span —
+     * the same "this field has you" cue a typed row gets from keyboard focus, which a picker row
+     * otherwise has no way to give.
+     */
+    active: Boolean = false,
 ) {
     val colors = GridlinkTheme.colors
+    val underline by animateColorAsState(
+        targetValue = if (active) colors.accent else colors.fieldUnderline,
+        animationSpec = GridlinkMotion.standard(),
+        label = "pickUnderline",
+    )
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .then(
+                if (contained) {
+                    Modifier
+                        .padding(
+                            horizontal = GridlinkSpacing.rowHorizontal,
+                            vertical = GridlinkSpacing.s8,
+                        )
+                        .clip(GridlinkEntryFieldShape)
+                        .background(colors.fieldFill)
+                        .gridlinkFieldUnderline(underline)
+                } else {
+                    Modifier
+                },
+            )
             .clickable(onClick = onClick)
             .padding(
-                horizontal = GridlinkSpacing.rowHorizontal,
-                vertical = GridlinkSpacing.s16,
+                horizontal = if (contained) GridlinkSpacing.s16 else GridlinkSpacing.rowHorizontal,
+                vertical = if (contained) GridlinkSpacing.s12 else GridlinkSpacing.s16,
             ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = label,
-            style = GridlinkType.sectionLabel,
-            color = colors.textSecondary,
-        )
+        if (contained) {
+            GridlinkFieldLabelPill(label)
+        } else {
+            Text(
+                text = label,
+                style = GridlinkType.sectionLabel,
+                color = colors.textSecondary,
+            )
+        }
         Spacer(Modifier.width(GridlinkSpacing.s16))
         Text(
             text = value,
@@ -487,25 +636,49 @@ fun GridlinkFormToggleRow(
     checked: Boolean,
     onToggle: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Draw as a contained box: all corners rounded plus a hairline border, and 🔴 no underline —
+     * that is [GridlinkFieldBoxShape]'s promise that tapping this never raises a keyboard.
+     */
+    contained: Boolean = false,
 ) {
     val colors = GridlinkTheme.colors
     val shape = RoundedCornerShape(GridlinkRadii.pill)
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .then(
+                if (contained) {
+                    Modifier
+                        .padding(
+                            horizontal = GridlinkSpacing.rowHorizontal,
+                            vertical = GridlinkSpacing.s8,
+                        )
+                        .clip(GridlinkFieldBoxShape)
+                        .background(colors.fieldFill)
+                        .border(GridlinkDimens.hairline, colors.surfaceBorder, GridlinkFieldBoxShape)
+                } else {
+                    Modifier
+                },
+            )
             .clickable { onToggle(!checked) }
             .padding(
-                horizontal = GridlinkSpacing.rowHorizontal,
-                vertical = GridlinkSpacing.s16,
+                horizontal = if (contained) GridlinkSpacing.s16 else GridlinkSpacing.rowHorizontal,
+                vertical = if (contained) GridlinkSpacing.s12 else GridlinkSpacing.s16,
             ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = label,
-            style = GridlinkType.senderName,
-            color = colors.textPrimary,
-            modifier = Modifier.weight(1f),
-        )
+        if (contained) {
+            GridlinkFieldLabelPill(label)
+            Spacer(Modifier.weight(1f))
+        } else {
+            Text(
+                text = label,
+                style = GridlinkType.senderName,
+                color = colors.textPrimary,
+                modifier = Modifier.weight(1f),
+            )
+        }
         Box(
             modifier = Modifier
                 .clip(shape)
