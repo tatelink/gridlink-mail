@@ -164,6 +164,10 @@ object GridlinkSampleContacts {
         GridlinkContact("payroll", "", "Payroll", "Pay runs and corrections", "payroll@hrbenefits.example"),
         GridlinkContact("perez", "Tomas", "Perez", "Kitchen Manager, 2118 Ellsworth", "t.perez@gridlink.me"),
         GridlinkContact("powerbi", "", "Power BI Service", "Automated report delivery", "no-reply@microsoft.com"),
+        // Deliberately role-less: the shape of a real synced book, where most cards carry no
+        // TITLE or ORG (an email-only trusted-sender card carries nothing but its address).
+        // This is the fixture that keeps the list row's role→email fallback visible.
+        GridlinkContact("printshop", "", "Print Shop Counter", "", "orders@printellsworth.example"),
         GridlinkContact("quintero", "Elena", "Quintero", "Front of House Trainer", "e.quintero@hrbenefits.example"),
         GridlinkContact("randall", "Deshawn", "Randall", "Shift Lead, 2071 Kirkwood", "d.randall@gridlink.me"),
         // The one fixture with a photo, a company and custom fields, so every render path is
