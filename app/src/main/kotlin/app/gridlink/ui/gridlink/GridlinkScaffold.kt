@@ -597,6 +597,16 @@ fun GridlinkRoot(
      */
     onOpenMail: (String) -> Unit = {},
     /**
+     * What the search pill currently says, reported on every keystroke.
+     *
+     * Whoever supplies [mail] answers by filling [GridlinkMailContent.search]; the pacing (trim,
+     * debounce, cancellation) belongs entirely to that side. Defaults to a no-op because the
+     * sample needs no reporting: with [mail] null the list filters its own fixtures, which is
+     * honest there and only there — the fixtures are the whole mailbox, so a local filter really
+     * does search everything.
+     */
+    onSearchQuery: (String) -> Unit = {},
+    /**
      * Remember, or forget, that a sender's remote images may load.
      *
      * A parameter rather than a field on [GridlinkMailContent] because that class is `@Immutable`
@@ -1080,6 +1090,12 @@ fun GridlinkRoot(
                 // anywhere. Safe to read here because opening a message from a folder leaves
                 // [openFolderId] set, so the list it came from is still loaded behind the thread.
                 ?: folders?.open?.messages?.firstOrNull { it.id == id }
+                // 🔴 Search results are a source for the same reason the open folder is: a hit
+                // can live anywhere in the account, so it is routinely in none of the lists
+                // above, and without this tapping it would silently do nothing. Safe to read here
+                // because opening a hit leaves the pill's text (and so the results) in place
+                // behind the thread, exactly like the folder list it is standing in for.
+                ?: mail.search?.results?.firstOrNull { it.id == id }
             val fetched = mail.open?.takeIf { it.id == id }
             row?.copy(
                 body = fetched?.html.orEmpty(),
@@ -1225,11 +1241,31 @@ fun GridlinkRoot(
                 if (twoPane && detail != null) progress.snapTo(1f)
             }
 
+            // A screen-covering surface the back handlers below must not fire underneath. The three
+            // of them used to gate on `composing` alone and lean on registration order to lose to
+            // the forms' own handlers; order still does the day-to-day work, but it is a property of
+            // where things sit in this file, and a form moved during a refactor would silently
+            // reorder the ladder. The explicit gate makes the intent survive the move.
+            val formOpen = composing != null || creating != null ||
+                editingEvent != null || editingContact != null
+
+            // Back from any other tab returns to the Inbox before it leaves the app. Registered
+            // FIRST on purpose: back callbacks fire most-recently-added first, so being composed
+            // before every other handler makes this the last resort short of exiting — anything
+            // open on the tab (a detail, a selection, the drawer, a search) is peeled off by its
+            // own handler before this one can fire.
+            BackHandler(
+                enabled = destination != GridlinkDestination.INBOX &&
+                    detail == null && selectedIds.isEmpty() && !formOpen,
+            ) {
+                destination = GridlinkDestination.INBOX
+            }
+
             if (twoPane) {
                 // A plain BackHandler, because there is nothing to scrub. The list is not underneath the
                 // thread here, it is beside it, so a drag that reveals the list by degrees would be
                 // revealing something already fully visible. Back empties the reading pane.
-                BackHandler(enabled = detail != null && composing == null) { clearDetail(detail) }
+                BackHandler(enabled = detail != null && !formOpen) { clearDetail(detail) }
             } else {
                 // 🔴 PredictiveBackHandler, not BackHandler. The difference is the whole point of building
                 // the open as one scrubable value: this delivers the drag as a flow of progress, so the
@@ -1237,7 +1273,7 @@ fun GridlinkRoot(
                 // completion of the flow means committed; a CancellationException means the user let go and
                 // it should go back. The coroutine is still live inside that catch, which is what makes
                 // animating from it legal.
-                PredictiveBackHandler(enabled = detail != null && composing == null) { events ->
+                PredictiveBackHandler(enabled = detail != null && !formOpen) { events ->
                     val closing = detail
                     try {
                         events.collect { event -> progress.snapTo(1f - event.progress) }
@@ -1269,7 +1305,7 @@ fun GridlinkRoot(
             // The `destination` line is the "from any screen" half, and see the ⚠️ on [selectedIds]
             // before believing it can fire: nothing can currently change the destination while rows
             // are ticked. It costs one assignment and it is the half that would be forgotten.
-            BackHandler(enabled = selectedIds.isNotEmpty() && composing == null) {
+            BackHandler(enabled = selectedIds.isNotEmpty() && !formOpen) {
                 selectedIds = emptySet()
                 destination = GridlinkDestination.INBOX
             }
@@ -1570,6 +1606,7 @@ fun GridlinkRoot(
                             selectedIds = selectedIds,
                             onSelectedIdsChange = { selectedIds = it },
                             initialSearchExpanded = initialSearchExpanded,
+                            onSearchQuery = onSearchQuery,
                             initialSwipeId = initialSwipeId,
                             initialSwipeFraction = initialSwipeFraction,
                             demoRecycle = demoRecycle,

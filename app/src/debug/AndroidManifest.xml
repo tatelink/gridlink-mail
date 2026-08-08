@@ -17,9 +17,10 @@
           only at commit, so the thread snaps shut instead of following the finger, and nothing
           logs a warning to say why.
 
-          Set per-activity rather than on <application>, deliberately. This is a fork, the flag is
-          an app-wide behaviour change, and upstream Gridlink's MainActivity has not been audited for
-          it. Scoped here it cannot affect anything but the gallery, and it cannot ship at all.
+          The main manifest now sets this on <application> too (audited 2026-08-08: every back
+          consumer in the app is an androidx BackHandler/PredictiveBackHandler or a Dialog window,
+          nothing overrides onBackPressed or watches KEYCODE_BACK). Kept here as well so the
+          gallery keeps working if the app-wide flag is ever pulled back.
         -->
         <!--
           🔴 adjustResize, matching the real MainActivity. The gallery calls enableEdgeToEdge(), and

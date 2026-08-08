@@ -11,6 +11,7 @@ import app.gridlink.core.jmap.ContentTooLargeException
 import app.gridlink.core.jmap.DownloadLimits
 import app.gridlink.core.jmap.model.Email
 import app.gridlink.core.jmap.model.EmailBodyPart
+import app.gridlink.core.jmap.model.SearchQuery
 import app.gridlink.push.FetchAndNotify
 import app.gridlink.ui.gridlink.GridlinkAttachment
 import app.gridlink.ui.gridlink.GridlinkFolder
@@ -22,6 +23,7 @@ import app.gridlink.ui.gridlink.GridlinkMailContent
 import app.gridlink.ui.gridlink.GridlinkMailMapping
 import app.gridlink.ui.gridlink.GridlinkOpenFolder
 import app.gridlink.ui.gridlink.GridlinkOpenMessage
+import app.gridlink.ui.gridlink.GridlinkSearchContent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -29,9 +31,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -139,6 +143,9 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     /** The in-flight fetch for the open mailbox, so tapping a second folder abandons the first. */
     private var folderJob: Job? = null
 
+    /** What the search pill currently says, raw. Trimming and debouncing happen in the flow. */
+    private val searchQuery = MutableStateFlow("")
+
     /**
      * Point the mailbox at [id], or leave it where it is.
      *
@@ -163,6 +170,9 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         openFolderId.value = null
         folderFetched.value = emptySet()
         folderPrimed.value = false
+        // A search is a question asked OF an account. Results from the old one under a pill the
+        // new one owns would be mail the new mailbox cannot even open.
+        searchQuery.value = ""
     }
 
     /** Account id + inbox + how much of it to hold, as the cache query needs them. */
@@ -192,6 +202,76 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     }
 
     /**
+     * The pill's text turned into server answers, or null while the pill is empty.
+     *
+     * ## Why the debounce is a delay inside the flow and not a `debounce()` on the query
+     * The searching state has to appear on the FIRST keystroke, not after the quiet period: a pill
+     * that sits inert for half a second before admitting it heard you reads as broken. So every
+     * keystroke restarts this block (flatMapLatest cancels the old one, delay and all), the
+     * searching emission goes out immediately, and only a pause long enough to survive the delay
+     * reaches the network. One request per pause, zero per keystroke.
+     *
+     * 🔴 Results are NOT cached, deliberately, matching [MailRepository.search]'s own contract:
+     * they are transient answers, and clearing the pill drops them. What IS kept is the invariant
+     * that [GridlinkSearchContent.query] always names the text the answer belongs to, which is the
+     * only thing that lets the screen refuse to draw a stale answer under newer text.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val search: Flow<GridlinkSearchContent?> = searchQuery
+        .map { it.trim() }
+        .distinctUntilChanged()
+        .flatMapLatest { q ->
+            if (q.isEmpty()) {
+                flowOf(null)
+            } else {
+                flow {
+                    emit(GridlinkSearchContent(query = q, searching = true))
+                    delay(SEARCH_DEBOUNCE_MS)
+                    emit(runSearch(q))
+                }
+            }
+        }
+
+    /** One server search, mapped for the list. Failures come back as a value, never a throw. */
+    private suspend fun runSearch(q: String): GridlinkSearchContent {
+        val id = accountId.value
+        val credentials = id?.let { store.credentials(it) }
+            // No account behind the pill: nothing was looked at, and `failed` is what stops that
+            // being drawn as the confident "No results".
+            ?: return GridlinkSearchContent(query = q, complete = false, failed = true)
+        return try {
+            val hits = repo.search(credentials, SearchQuery(text = q), SEARCH_LIMIT)
+            val zone = ZoneId.systemDefault()
+            val today = LocalDate.now(zone)
+            GridlinkSearchContent(
+                query = q,
+                // The section is re-stated for [folderMail]'s reason: the mapper marks no-reply
+                // senders AUTOMATED for the inbox bundle, and a results list has no bundle row to
+                // put them in. Every hit gets the day heading its date earns.
+                results = hits.emails.map { email ->
+                    GridlinkMailMapping.message(email, LABELS, zone, today)
+                        .copy(section = GridlinkMailMapping.section(email, zone, today))
+                },
+                complete = hits.complete,
+            )
+        } catch (c: CancellationException) {
+            // The user kept typing. The replacement emission is already on its way.
+            throw c
+        } catch (t: Throwable) {
+            Log.w(TAG, "search failed", t)
+            GridlinkSearchContent(query = q, complete = false, failed = true)
+        }
+    }
+
+    /**
+     * Report what the search pill says, on every keystroke. The flow above owns the pacing, so
+     * this is deliberately dumb: no trimming, no comparison, no scheduling.
+     */
+    fun search(query: String) {
+        searchQuery.value = query
+    }
+
+    /**
      * The inbox, as the Gridlink screens take it.
      *
      * ⚠️ The calendar is read at MAP time, so "Today" is whatever day it is when a row is mapped and
@@ -200,7 +280,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
      * mapper takes the date rather than reading the clock itself.
      */
     val mail: StateFlow<GridlinkMailContent> =
-        combine(rows, opened, primed, settings.imageAllowlist) { emails, open, ready, allowed ->
+        combine(rows, opened, primed, settings.imageAllowlist, search) { emails, open, ready, allowed, found ->
             val zone = ZoneId.systemDefault()
             val mapped = GridlinkMailMapping.map(
                 emails = emails,
@@ -214,6 +294,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 loading = !ready,
                 open = open,
                 imageAllowlist = allowed,
+                search = found,
             )
         }.stateIn(
             scope = viewModelScope,
@@ -643,6 +724,18 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
          * enough that a backgrounded app is not holding a Room subscription open indefinitely.
          */
         const val SUBSCRIPTION_GRACE_MS = 5_000L
+
+        /**
+         * How long the pill has to be quiet before a request goes out. Short enough that a search
+         * feels attached to the typing, long enough that "invoice" is one request and not seven.
+         */
+        const val SEARCH_DEBOUNCE_MS = 400L
+
+        /**
+         * Upstream's SEARCH_LIMIT, for upstream's reason: a page the pill can show, with
+         * [GridlinkSearchContent.complete] carrying whether the server had more to say.
+         */
+        const val SEARCH_LIMIT = 200
     }
 }
 
