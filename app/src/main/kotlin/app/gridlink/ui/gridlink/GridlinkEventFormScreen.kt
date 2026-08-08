@@ -1,6 +1,5 @@
 package app.gridlink.ui.gridlink
 
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -12,7 +11,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
-import app.gridlink.ui.theme.GridlinkTheme
+import androidx.compose.ui.unit.dp
 import app.gridlink.ui.theme.GridlinkType
 import java.time.LocalDate
 import java.time.LocalTime
@@ -35,7 +34,29 @@ private val DEFAULT_START: LocalTime = LocalTime.of(9, 0)
 private const val DEFAULT_DURATION_MINUTES = 60L
 
 /**
- * The add-an-event form: what the calendar's "+" opens.
+ * A reminder offset, worded for the card and the picker rows: "At time of event", "10 minutes
+ * before", "1 day before". One wording everywhere, so the card never disagrees with the sheet
+ * that set it.
+ */
+fun gridlinkReminderLabel(minutes: Int): String = when {
+    minutes == 0 -> "At time of event"
+    minutes % 1440 == 0 -> (minutes / 1440).let { "$it day${if (it == 1) "" else "s"} before" }
+    minutes % 60 == 0 -> (minutes / 60).let { "$it hour${if (it == 1) "" else "s"} before" }
+    else -> "$minutes minutes before"
+}
+
+/** The same offset in pick-row space: "At event", "10 min", "1 hr", "1 day". */
+private fun gridlinkReminderShort(minutes: Int): String = when {
+    minutes == 0 -> "At event"
+    minutes % 1440 == 0 -> "${minutes / 1440} day"
+    minutes % 60 == 0 -> "${minutes / 60} hr"
+    else -> "$minutes min"
+}
+
+/**
+ * The event form: what the calendar's "+" opens, and since the calendar grew Edit, what Edit
+ * reopens seeded. The name/seed/embedded shape is [GridlinkContactFormScreen]'s, deliberately:
+ * two forms that behave differently would make one of them feel broken.
  *
  * ## What Save does
  * Hands the event to a [GridlinkCalendarWriter], which in the app is a real CalDAV PUT and in the
@@ -44,21 +65,26 @@ private const val DEFAULT_DURATION_MINUTES = 60L
  * closed optimistically would have nowhere to report a refusal, and "saved" would be a guess.
  *
  * ## Why the fields are in this order
- * Title, then when, then where. The title is the only required one and it takes the focus on open, so
- * the fastest possible event is type-a-name-and-save on the day you were already looking at. Putting
- * the date first would mean confirming a value that is already correct before reaching the one field
- * that is not.
+ * Title, then when, then where, then the rest. The title is the only required one and it takes the
+ * focus on open, so the fastest possible event is type-a-name-and-save on the day you were already
+ * looking at. Putting the date first would mean confirming a value that is already correct before
+ * reaching the one field that is not.
  */
 @Composable
-fun GridlinkNewEventScreen(
+fun GridlinkEventFormScreen(
+    /** "New event" or "Edit event": the caller knows which act this is, the form does not care. */
+    title: String,
     /** The day the calendar was showing. What the date field starts on, so most events need no date. */
     date: LocalDate,
+    /** The event being edited, or null for a new one. Seeds every field, including the id. */
+    initial: GridlinkEvent?,
     /**
-     * The finished event, with an EMPTY id.
+     * The finished event. For a NEW event the id is EMPTY:
      *
-     * 🔴 The caller assigns it, through [gridlinkNewId], because only the caller knows how many have
+     * 🔴 the caller assigns it, through [gridlinkNewId], because only the caller knows how many have
      * been added this run. A form that minted its own would hand out `new:event:1` twice over and the
-     * second event would open the first.
+     * second event would open the first. For an EDIT the id is [initial]'s, verbatim: the edit must
+     * land on the same event it came from.
      */
     onSave: (GridlinkEvent) -> Unit,
     onClose: () -> Unit,
@@ -73,24 +99,35 @@ fun GridlinkNewEventScreen(
      * that has not been submitted, and this one is news about one that has.
      */
     failure: String? = null,
+    /** Draw as §7's reading pane: editing swaps only the right pane. See [GridlinkFormScreen]. */
+    embedded: Boolean = false,
 ) {
-    var title by remember { mutableStateOf(TextFieldValue()) }
-    var day by remember(date) { mutableStateOf(date) }
-    var allDay by remember { mutableStateOf(false) }
-    var start by remember { mutableStateOf(DEFAULT_START) }
-    var end by remember { mutableStateOf(DEFAULT_START.plusMinutes(DEFAULT_DURATION_MINUTES)) }
-    var location by remember { mutableStateOf(TextFieldValue()) }
+    // "summary" is iCalendar's own word for the event title; the screen-title param owns `title`.
+    var summary by remember { mutableStateOf(TextFieldValue(initial?.title.orEmpty())) }
+    var day by remember(date) { mutableStateOf(initial?.date ?: date) }
+    var allDay by remember { mutableStateOf(initial?.allDay ?: false) }
+    var start by remember { mutableStateOf(initial?.start ?: DEFAULT_START) }
+    var end by remember {
+        mutableStateOf(
+            initial?.end ?: (initial?.start ?: DEFAULT_START).plusMinutes(DEFAULT_DURATION_MINUTES),
+        )
+    }
+    var location by remember { mutableStateOf(TextFieldValue(initial?.location.orEmpty())) }
+    var notes by remember { mutableStateOf(TextFieldValue(initial?.notes.orEmpty())) }
+    var category by remember { mutableStateOf(TextFieldValue(initial?.category.orEmpty())) }
+    var reminders by remember { mutableStateOf(initial?.reminders.orEmpty().distinct().sorted()) }
     var picking by remember { mutableStateOf<GridlinkEventPicker?>(null) }
 
     val titleFocus = remember { FocusRequester() }
     val locationFocus = remember { FocusRequester() }
+    val notesFocus = remember { FocusRequester() }
     // Straight into the title with the keyboard up, the same opening the composer has. A form that
     // opens inert costs a tap before anything can be typed, every time.
     LaunchedEffect(Unit) { titleFocus.requestFocus() }
 
-    val named = title.text.isNotBlank()
+    val named = summary.text.isNotBlank()
     GridlinkFormScreen(
-        title = "New event",
+        title = title,
         // No way out while the PUT is in flight. Closing would not recall it, so an X there offers
         // to cancel something it cannot, and the event turns up on the server anyway.
         onClose = if (saving) null else onClose,
@@ -100,11 +137,10 @@ fun GridlinkNewEventScreen(
         onConfirm = {
             onSave(
                 GridlinkEvent(
-                    // Filled in by the caller, which is the only thing that knows how many have been
-                    // added this run. Left as a placeholder here would mean two events sharing an id
-                    // and the second one opening the first.
-                    id = "",
-                    title = title.text.trim(),
+                    // Empty for a new event (the caller mints one; see [onSave]), initial's for an
+                    // edit, so the save lands on the event it came from.
+                    id = initial?.id.orEmpty(),
+                    title = summary.text.trim(),
                     date = day,
                     // 🔴 An all-day event is one with no start, not one with a start of midnight.
                     // [GridlinkEvent.allDay] is derived from `start == null`, and every renderer in
@@ -113,14 +149,22 @@ fun GridlinkNewEventScreen(
                     start = if (allDay) null else start,
                     end = if (allDay) null else end,
                     location = location.text.trim().takeIf { it.isNotBlank() },
+                    // 🔴 The domain survives an edit. It drives the event's colour and the card's
+                    // With/Mail-from sections; defaulting it here would repaint a vendor's visit as
+                    // an internal meeting the first time its time moved.
+                    domain = initial?.domain ?: "gridlink.me",
+                    notes = notes.text.trim().takeIf { it.isNotBlank() },
+                    category = category.text.trim().takeIf { it.isNotBlank() },
+                    reminders = reminders,
                 ),
             )
         },
         modifier = modifier,
+        embedded = embedded,
     ) {
         GridlinkFormTextRow(
-            value = title,
-            onValueChange = { title = it },
+            value = summary,
+            onValueChange = { summary = it },
             placeholder = "Title",
             placeholderStyle = GridlinkType.senderName,
             style = GridlinkType.senderName,
@@ -129,7 +173,7 @@ fun GridlinkNewEventScreen(
             singleLine = true,
             capitalization = KeyboardCapitalization.Sentences,
             imeAction = ImeAction.Next,
-            // Next goes to the other typed field and skips the pickers between them, because the two
+            // Next goes to the next typed field and skips the pickers between them, because the
             // pickers are dialogs: sending the ime action into one would open a modal from a keyboard
             // key, over a keyboard that is still up.
             onImeAction = { locationFocus.requestFocus() },
@@ -184,12 +228,59 @@ fun GridlinkNewEventScreen(
             onFocused = {},
             singleLine = true,
             capitalization = KeyboardCapitalization.Sentences,
-            // Done rather than Next: it is the last field, and the next thing is Save, which is a
-            // button and not a field the ime can move to.
-            imeAction = ImeAction.Done,
-            onImeAction = null,
+            imeAction = ImeAction.Next,
+            onImeAction = { notesFocus.requestFocus() },
             label = "Location",
             contained = true,
+        )
+
+        GridlinkFormTextRow(
+            value = notes,
+            onValueChange = { notes = it },
+            placeholder = "",
+            placeholderStyle = GridlinkType.body,
+            style = GridlinkType.body,
+            focusRequester = notesFocus,
+            onFocused = {},
+            // Multiline: notes are the one field where Enter means a new line, not "next field",
+            // so the ime action stays Default and the chain of Nexts ends at Location.
+            singleLine = false,
+            minHeight = 96.dp,
+            capitalization = KeyboardCapitalization.Sentences,
+            imeAction = ImeAction.Default,
+            onImeAction = null,
+            label = "Notes",
+            contained = true,
+        )
+
+        GridlinkFormTextRow(
+            value = category,
+            onValueChange = { category = it },
+            placeholder = "",
+            placeholderStyle = GridlinkType.body,
+            style = GridlinkType.body,
+            focusRequester = remember { FocusRequester() },
+            onFocused = {},
+            singleLine = true,
+            capitalization = KeyboardCapitalization.Words,
+            // Done rather than Next: the only thing after it is a picker row, which is a dialog and
+            // not a field the ime can move to.
+            imeAction = ImeAction.Done,
+            onImeAction = null,
+            label = "Category",
+            contained = true,
+        )
+
+        GridlinkFormPickRow(
+            label = "REMINDERS",
+            value = if (reminders.isEmpty()) {
+                "None"
+            } else {
+                reminders.joinToString(", ") { gridlinkReminderShort(it) }
+            },
+            onClick = { picking = GridlinkEventPicker.REMINDERS },
+            contained = true,
+            active = picking == GridlinkEventPicker.REMINDERS,
         )
     }
 
@@ -223,9 +314,21 @@ fun GridlinkNewEventScreen(
             notBefore = start,
         )
 
+        GridlinkEventPicker.REMINDERS -> GridlinkReminderPickerSheet(
+            selected = reminders,
+            onToggle = { minutes ->
+                reminders = if (minutes in reminders) {
+                    reminders - minutes
+                } else {
+                    (reminders + minutes).sorted()
+                }
+            },
+            onDismiss = { picking = null },
+        )
+
         null -> Unit
     }
 }
 
 /** Which picker is open, if any. */
-private enum class GridlinkEventPicker { DATE, START, END }
+private enum class GridlinkEventPicker { DATE, START, END, REMINDERS }

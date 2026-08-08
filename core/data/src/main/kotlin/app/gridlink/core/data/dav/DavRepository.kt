@@ -192,6 +192,9 @@ class DavRepository(
         end: LocalTime?,
         location: String? = null,
         description: String? = null,
+        category: String? = null,
+        /** Reminder offsets in minutes before the start; see [ICalendar.buildEvent]. */
+        reminders: List<Int> = emptyList(),
         collectionUrl: String? = null,
         nowMillis: Long = System.currentTimeMillis(),
     ): DavWriteOutcome {
@@ -229,6 +232,8 @@ class DavRepository(
             location = location,
             description = description,
             nowMillis = nowMillis,
+            category = category,
+            reminders = reminders,
         )
 
         val written = try {

@@ -187,6 +187,13 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
                 start = event.start,
                 end = event.end,
                 location = event.location,
+                // ⚠️ These three go up in the .ics (DESCRIPTION, CATEGORIES, VALARM) and any other
+                // client shows them, but THIS device's read path does not surface them yet: the
+                // cached row is rebuilt from entity columns that have no notes/category/reminder
+                // fields. Displaying them from a synced account is a schema migration away.
+                description = event.notes,
+                category = event.category,
+                reminders = event.reminders,
             )
             if (outcome.succeeded) {
                 Log.i(TAG, "created event ${outcome.href}")
@@ -195,6 +202,14 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
             }
             return outcome.error
         }
+
+        // 🔴 False on [DavRepository]'s own documented boundary: it cannot edit an event yet
+        // (recurrence exceptions plus the etag conflict story contacts got), and half of that
+        // story is how a calendar loses an appointment quietly. This hides Edit on synced events.
+        override val canUpdate: Boolean get() = false
+
+        override suspend fun update(event: GridlinkEvent): String? =
+            "This account's calendar cannot edit events yet."
     }
 
     /**

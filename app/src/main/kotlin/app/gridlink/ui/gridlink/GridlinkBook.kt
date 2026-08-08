@@ -45,6 +45,8 @@ import java.time.LocalDate
 @Immutable
 class GridlinkBook(
     val addedEvents: List<GridlinkEvent> = emptyList(),
+    /** This run's in-memory event edits, by [GridlinkEvent.id], shadowing like [editedContacts]. */
+    val editedEvents: Map<String, GridlinkEvent> = emptyMap(),
     val addedContacts: List<GridlinkContact> = emptyList(),
     /** This run's in-memory edits, by [GridlinkContact.id]: the edited copy shadows the original. */
     val editedContacts: Map<String, GridlinkContact> = emptyMap(),
@@ -76,11 +78,17 @@ class GridlinkBook(
 
     val contactsLoading: Boolean = addressBook?.loading == true
 
-    /** The calendar with this run's additions folded in. */
+    /** The calendar with this run's additions and edits folded in. */
     val events: List<GridlinkEvent> =
-        (calendar?.events ?: GridlinkSampleTree.events).let {
-            if (addedEvents.isEmpty()) it else it + addedEvents
-        }
+        (calendar?.events ?: GridlinkSampleTree.events)
+            .let { base ->
+                // An added event can itself be edited later, so the shadow map is applied AFTER the
+                // additions are appended, not only to the base list.
+                if (addedEvents.isEmpty()) base else base + addedEvents
+            }
+            .let { all ->
+                if (editedEvents.isEmpty()) all else all.map { editedEvents[it.id] ?: it }
+            }
 
     /**
      * The address book with this run's additions folded in, in phonebook order.

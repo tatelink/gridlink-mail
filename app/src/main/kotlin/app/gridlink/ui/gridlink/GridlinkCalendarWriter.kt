@@ -39,6 +39,26 @@ interface GridlinkCalendarWriter {
      * The id on [event] is empty: a writer that has somewhere to put it assigns the real identity.
      */
     suspend fun save(event: GridlinkEvent): String?
+
+    /**
+     * 🔴 Whether [update] works, which decides whether the event card SHOWS an Edit button at all.
+     *
+     * The real CalDAV writer answers false, on [app.gridlink.dav.DavRepository]'s own documented
+     * boundary: editing a server event needs the conflict story contacts got (etags, no-op
+     * detection) plus recurrence exceptions, and half of that story is how a calendar loses an
+     * appointment quietly. Until that lands, an Edit button on a synced event would be a promise
+     * the engine cannot keep, and hiding it is more honest than greying it.
+     */
+    val canUpdate: Boolean
+
+    /**
+     * Replace the event carrying this id, returning why it could not be done, or null when it was.
+     *
+     * Unreachable from the UI while [canUpdate] is false, but implemented rather than left to
+     * throw: a writer that crashes on a path "that cannot happen" is one refactor away from
+     * crashing in production.
+     */
+    suspend fun update(event: GridlinkEvent): String?
 }
 
 /**
@@ -57,4 +77,9 @@ object GridlinkMemoryCalendarWriter : GridlinkCalendarWriter {
     override val echoesIntoContent: Boolean get() = false
 
     override suspend fun save(event: GridlinkEvent): String? = null
+
+    // Editing memory is as safe as writing it: there is no server copy to diverge from.
+    override val canUpdate: Boolean get() = true
+
+    override suspend fun update(event: GridlinkEvent): String? = null
 }

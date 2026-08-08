@@ -686,9 +686,16 @@ private fun GridlinkMonthDayList(
  * hide what a cell has plenty of space to say, and the day list beside them is no longer the only
  * place the answer could live.
  *
- * The names are drawn the way every other identity in this app is, as a 3dp domain-coloured bar with
- * the text beside it, so an event is the same colour in the grid, in the day list and in the mail it
- * came from.
+ * ## Tiles, from the mockup
+ * In-month days sit on a rounded tile in the contained-field language — `fieldFill` under a hairline
+ * `surfaceBorder`, the same surface the forms' text boxes use — per Brandon's calendar mockup.
+ * Adjacent months stay flat, so the month's shape is the block of tiles itself: where October ends
+ * is visible before a single number is read.
+ *
+ * The names are tinted pills rather than bar-and-text chips, again from the mockup ("tiles + pills,
+ * no bars"). The tint is the same [gridlinkSenderBarColor] hash the message rows use for the sender
+ * identity bar, so an event is still the same colour in the grid, in the day list and in the mail it
+ * came from — the bar's identity job survives the bar.
  */
 @Composable
 private fun GridlinkDayCell(
@@ -706,6 +713,19 @@ private fun GridlinkDayCell(
     Column(
         modifier = modifier
             .then(if (detailed) Modifier else Modifier.height(GridlinkDimens.calendarDayCell))
+            // Gap before clip, so neighbouring tiles keep a seam instead of fusing into a slab; clip
+            // before clickable, so the ripple is tile-shaped rather than a rectangle behind it.
+            .padding(DAY_TILE_GAP)
+            .clip(DAY_TILE_SHAPE)
+            .then(
+                if (inMonth) {
+                    Modifier
+                        .background(colors.fieldFill)
+                        .border(GridlinkDimens.hairline, colors.surfaceBorder, DAY_TILE_SHAPE)
+                } else {
+                    Modifier
+                },
+            )
             .clickable(onClick = onClick)
             .then(if (detailed) Modifier.padding(DETAILED_CELL_INSET) else Modifier),
         // 🔴 Centred when it is a number in a box, start-aligned when it is a number over a list.
@@ -763,20 +783,26 @@ private fun GridlinkDayCell(
                 ) {
                     Box(
                         modifier = Modifier
-                            .width(GridlinkDimens.senderBarWidth)
-                            .fillMaxHeight()
-                            .background(gridlinkSenderBarColor(mode, event.domain)),
-                    )
-                    Text(
-                        text = event.title,
-                        style = GridlinkType.badge,
-                        color = if (inMonth) colors.textPrimary else colors.textSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
                             .weight(1f)
-                            .padding(start = GridlinkSpacing.s4),
-                    )
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(GridlinkRadii.pill))
+                            // Tinted, not painted: the full sender colour at pill size shouts, and
+                            // gridlinkAccentFill is an opaque gradient so it cannot whisper. An
+                            // alpha wash keeps the identity hue while the tile stays legible.
+                            .background(gridlinkSenderBarColor(mode, event.domain).copy(alpha = DAY_PILL_TINT)),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        Text(
+                            text = event.title,
+                            style = GridlinkType.badge,
+                            color = if (inMonth) colors.textPrimary else colors.textSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            // Clear of the pill's end caps, or a title's first letter starts on
+                            // the curve.
+                            modifier = Modifier.padding(horizontal = 6.dp),
+                        )
+                    }
                     val hidden = events.size - shown.size
                     if (hidden > 0 && index == shown.lastIndex) {
                         Text(
@@ -810,14 +836,27 @@ private fun GridlinkDayCell(
     }
 }
 
-/** Keeps a detailed cell's chips off its neighbours' cell edges without needing a drawn border. */
+/** Keeps a detailed cell's pills clear of the tile's own rounded border. */
 private val DETAILED_CELL_INSET = 3.dp
 
 /** Names shown in a detailed cell before it gives up and counts. */
 private const val DETAILED_CELL_EVENTS = 2
 
-/** Tall enough for [GridlinkType.badge] and no taller: a chip is a label, not a row. */
+/** Tall enough for [GridlinkType.badge] and no taller: a pill is a label, not a row. */
 private val DETAILED_CHIP_HEIGHT = 14.dp
+
+/**
+ * The in-month day tile. [GridlinkRadii.field] rather than a bespoke radius, because the tile IS the
+ * contained-field surface (fill, hairline, rounding) wearing a date instead of a text box.
+ */
+private val DAY_TILE_SHAPE = RoundedCornerShape(GridlinkRadii.field)
+
+/** The seam between tiles. Per-cell, so it doubles between neighbours and halves at the grid edge. */
+private val DAY_TILE_GAP = 1.5.dp
+
+/** A wash of the domain colour, not the colour: strong enough to match an event to its sender bar,
+ *  weak enough that [GridlinkType.badge] text stays readable on top of it in both palettes. */
+private const val DAY_PILL_TINT = 0.20f
 
 /** First and last hour drawn in the time grids. Outside these the sample day is empty, and an
  *  always-scrolled-to-the-middle grid that starts at midnight wastes a third of the screen. */

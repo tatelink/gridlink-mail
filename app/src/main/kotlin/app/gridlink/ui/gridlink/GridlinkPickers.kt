@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -270,6 +271,80 @@ fun GridlinkTimePickerSheet(
                             // The calendar's own label format, shared rather than reinvented: a
                             // picker offering "13:00" for a grid that says "1 PM" is two apps.
                             text = slot.compact(),
+                            style = GridlinkType.senderName,
+                            color = if (isSelected) colors.accent else colors.textPrimary,
+                        )
+                    }
+                }
+            }
+        }
+        GridlinkSheetFooterSpace()
+    }
+}
+
+/**
+ * The reminder offsets on offer, in minutes before the start. Eight stops from "now" to "a day
+ * ahead": the spread every mainstream calendar converged on, because it matches how people actually
+ * hedge (a nudge as it starts, a few short warnings, and "remind me the day before").
+ */
+private val REMINDER_OPTIONS = listOf(0, 5, 10, 15, 30, 60, 120, 1440)
+
+/**
+ * Pick reminders. Plural: an event can want both "30 minutes before" and "the day before".
+ *
+ * 🔴 Unlike the date and time sheets this one does NOT dismiss on tap, because a tap here is a
+ * toggle in a multi-select, not an answer to a single question. Closing on the first choice would
+ * make the second reminder cost a whole reopen, which is exactly the case this sheet exists for.
+ * The way out is the scrim, same as every [GridlinkCenterSheet].
+ */
+@Composable
+fun GridlinkReminderPickerSheet(
+    selected: List<Int>,
+    onToggle: (Int) -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = GridlinkTheme.colors
+    GridlinkCenterSheet(onDismiss = onDismiss, modifier = modifier) {
+        GridlinkSheetHeading(title = "Reminders", icon = Icons.Outlined.NotificationsNone)
+        GridlinkSheetDivider()
+        Column {
+            REMINDER_OPTIONS.forEach { minutes ->
+                val isSelected = minutes in selected
+                val shape = RoundedCornerShape(GridlinkRadii.pill)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onToggle(minutes) }
+                        .padding(
+                            horizontal = GridlinkSpacing.s12,
+                            vertical = GridlinkSpacing.s4,
+                        ),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(shape)
+                            .then(
+                                if (isSelected) {
+                                    Modifier.border(
+                                        GridlinkDimens.hairline,
+                                        colors.selection,
+                                        shape,
+                                    )
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            .padding(
+                                horizontal = GridlinkSpacing.s16,
+                                vertical = GridlinkSpacing.s12,
+                            ),
+                    ) {
+                        Text(
+                            // The form and the card share this wording; see [gridlinkReminderLabel].
+                            text = gridlinkReminderLabel(minutes),
                             style = GridlinkType.senderName,
                             color = if (isSelected) colors.accent else colors.textPrimary,
                         )
