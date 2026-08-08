@@ -51,7 +51,7 @@ import kotlinx.coroutines.withContext
  * One form for both because they ARE the same form — the same fields, the same validation, the
  * same Save-stays-open contract as [GridlinkNewEventScreen] — and two copies would disagree the
  * first time one grew a field. Which mode it is in is carried entirely by [initial]: null is a
- * blank new card, anything else seeds every field and relaxes the email requirement (see below).
+ * blank new card, anything else seeds every field.
  *
  * ## What Save does
  * Hands the edit to whoever owns the form, which in the app puts it through a
@@ -59,22 +59,21 @@ import kotlinx.coroutines.withContext
  * the debug gallery keeps it in memory. The form stays open, Save disabled, until the answer
  * comes back, and a refusal lands in the form's own hint line.
  *
- * ## 🔴 Last name and Company are separate fields, and one of them is required
+ * ## 🔴 Last name and Company are separate fields that never cross over
  * Tate's rule, verbatim: "Last Name is a field, and Company is a field. They don't crossover."
  * So the family field is labelled Last name and only ever holds a surname, and a company goes in
- * Company — the form never files one in the other's slot. What is still required is *something to
- * file under*: [GridlinkSampleContacts.GridlinkContact.letter] is built from
+ * Company — the form never files one in the other's slot.
+ *
+ * ## ⚠️ Save's only gate is "something to file under" — Tate banned the rest
+ * "New contacts should not have any hard coded requirements." An email-required-on-new rule used
+ * to live here and is deliberately gone; do not bring it back. What survives is not policy but a
+ * crash guard: [GridlinkSampleContacts.GridlinkContact.letter] is built from
  * [GridlinkSampleContacts.GridlinkContact.filedUnder] (surname, else given name, else company),
  * and a card where every one of those is blank would take `first()` on an empty string and crash
- * the address book on the frame it was added. A last name or a company satisfies that, so Save
- * asks for one of the two and never asks the user to fake one inside the other.
- *
- * ## ⚠️ The email is required on NEW cards only
- * A new row that cannot be mailed is a mistake worth catching at the point of making it. But on a
- * real address book most cards arrive without an address (79 of the 113 on the first account this
- * synced), and an edit form that refuses to save until one is invented would lock every one of
- * those cards out of editing. So: new requires one valid address, edit requires only that whatever
- * addresses ARE present parse.
+ * the address book on the frame it was added. So Save asks for any one of the three and nothing
+ * more — which is also the floor at which the button means anything, since an all-blank form has
+ * nothing to save. Emails that ARE typed must still parse; that checks what the user wrote, it
+ * does not require them to write anything.
  *
  * ## Emails and phones grow a row at a time
  * The last row of each group is always blank; typing into it grows the group by one. That is the
@@ -159,17 +158,15 @@ fun GridlinkContactFormScreen(
     while (customValueFocus.size < customs.size) customValueFocus.add(FocusRequester())
     LaunchedEffect(Unit) { givenFocus.requestFocus() }
 
-    val filed = family.text.isNotBlank() || company.text.isNotBlank()
+    val filed = family.text.isNotBlank() || given.text.isNotBlank() || company.text.isNotBlank()
     // Validated with the composer's own matcher rather than a second one written here. Two regexes
     // for the same question drift, and the failure is invisible: a contact the address book accepts
     // and the composer will not send to.
     val typedEmails = emails.map { it.text.trim() }.filter { it.isNotEmpty() }
     val misspelled = typedEmails.any { gridlinkTypedRecipient(it) == null }
-    val needsEmail = initial == null && typedEmails.isEmpty()
     val hint = failure ?: when {
-        !filed -> "A contact needs a last name or a company to file under."
+        !filed -> "A contact needs a name or a company to file under."
         misspelled -> "Check the email addresses: one of them doesn't look like name@company.com."
-        needsEmail -> "Add an email address, like name@company.com."
         else -> null
     }
 
@@ -179,7 +176,7 @@ fun GridlinkContactFormScreen(
         // recall it, and the card turns up on the server anyway.
         onClose = if (saving) null else onClose,
         confirmLabel = if (saving) "Saving" else "Save",
-        confirmEnabled = filed && !misspelled && !needsEmail && !saving,
+        confirmEnabled = filed && !misspelled && !saving,
         hint = hint,
         embedded = embedded,
         onConfirm = {

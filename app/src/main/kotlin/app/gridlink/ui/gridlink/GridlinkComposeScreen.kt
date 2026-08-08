@@ -854,9 +854,11 @@ private fun GridlinkComposeHeader(
 /**
  * Send.
  *
- * The same gradient fill, halo and glyph treatment as [GridlinkComposeButton], because it is the
- * same promise: the one control on the screen that makes something happen rather than moving you
- * somewhere. [size] is the only thing that changes between its two homes.
+ * The same gradient fill and halo as [GridlinkComposeButton], because it is the same promise: the
+ * one control on the screen that makes something happen rather than moving you somewhere. Unlike
+ * that button it stays a bare glyph — its 44dp home has no room for a label under the icon, and a
+ * paper plane inside a composer is not ambiguous the way a bare "+" beside labelled circles was.
+ * [size] is the only thing that changes between its two homes.
  *
  * 🔴 Long-press opens the schedule sheet. That is a real feature living on a gesture with no
  * affordance, which is normally a bug; it is acceptable here only because the sheet also has to be
