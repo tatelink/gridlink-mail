@@ -1,0 +1,18 @@
+Gridlink Mail is an email client built for JMAP, the modern successor to IMAP. It syncs faster, uses less battery and less data, and was designed for phones rather than adapted to them. It speaks classic IMAP and SMTP too, so it works with any standard mail provider.
+
+There is no Gridlink account and no Gridlink server. The app talks only to the mail server you configure. It collects nothing, contains no ads, no tracking and no Google libraries, and it is free software under the GPLv3.
+
+Features
+
+* JMAP mail, with IMAP/SMTP as a fully supported alternative
+* Contacts and calendar over JMAP, with CardDAV and CalDAV fallback
+* Autodiscovery: type your address and let it find the server, or pick the protocol yourself
+* Remote images blocked by default, so a message cannot phone home unless you let it
+* OpenPGP support
+* Self-hosted friendly, including servers using a self-signed certificate
+* Two-pane layout on unfolded and tablet-sized screens
+* Swipe actions, undo send, scheduled send and threaded conversations
+
+A note on this build
+
+Gridlink Mail is a fork of Sterna Mail by emon (https://codeberg.org/emon/sterna-mail), reused under the GPLv3. The mail engine, sync layer and OpenPGP support are emon's work; this fork rebuilds the front end and the setup flow. It is not an official Sterna release and emon does not support it. If you want the original, upstream is the better-tested and actively maintained app.
