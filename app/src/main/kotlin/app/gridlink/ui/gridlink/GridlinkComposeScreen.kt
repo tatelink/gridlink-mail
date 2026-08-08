@@ -586,9 +586,17 @@ fun GridlinkComposeScreen(
 /** Which field owns the caret, and therefore whether the keyboard is up. */
 enum class GridlinkComposeField { NONE, TO, SUBJECT, BODY }
 
-/** One file riding along with a draft. [size] is pre-formatted: nothing here computes bytes. */
+/**
+ * One file riding along with a draft or hanging off an open message. [size] is pre-formatted:
+ * nothing here computes bytes.
+ *
+ * [id] is an opaque handle the thread view hands back when its chip is tapped, so whoever supplied
+ * the attachment can find the real part again. Opaque on purpose: this package knows nothing about
+ * body parts or blobs, and the empty default is the sample's honest answer — a fixture has a name
+ * and a size and no bytes anywhere, so its chip stays a label.
+ */
 @Immutable
-data class GridlinkAttachment(val name: String, val size: String)
+data class GridlinkAttachment(val name: String, val size: String, val id: String = "")
 
 /**
  * One request to open the composer: what to load, and what state to open it in.

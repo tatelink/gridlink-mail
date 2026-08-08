@@ -3,6 +3,7 @@ package app.gridlink.ui.gridlink
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -100,6 +101,14 @@ fun GridlinkThreadScreen(
     imagesAlwaysAllowed: Boolean = false,
     /** Add or remove this sender from that list. No-op by default, for the gallery. */
     onAlwaysAllowImages: (allowed: Boolean) -> Unit = {},
+    /**
+     * Open the tapped attachment in a viewer. 🔴 Null, the default, keeps the chips as the plain
+     * labels the gallery has always drawn — see [GridlinkRoot]'s parameter of the same name for why
+     * this is nullable where the screen's other callbacks are no-ops.
+     */
+    onOpenAttachment: ((GridlinkAttachment) -> Unit)? = null,
+    /** One line under the chips about the download in flight, or null — which is almost always. */
+    attachmentStatus: String? = null,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
@@ -202,19 +211,35 @@ fun GridlinkThreadScreen(
                     .gridlinkEdgeFade(fadeTop = false),
             )
 
-            message.attachment?.let { attachment ->
+            if (message.attachments.isNotEmpty()) {
                 // Pinned under the body rather than following it. It used to sit at the end of the
                 // prose, which was fine when the whole screen scrolled as one; with the body
                 // scrolling inside itself, an attachment placed after it would be unreachable.
-                GridlinkThreadAttachment(
-                    attachment = attachment,
+                // A Column, one chip per file: the body above has the weight, so a long list costs
+                // reading room rather than pushing the action bar off screen.
+                Column(
                     modifier = Modifier.padding(
                         start = GridlinkSpacing.s20,
                         end = GridlinkSpacing.s20,
                         top = GridlinkSpacing.s8,
                         bottom = GridlinkSpacing.s12,
                     ),
-                )
+                    verticalArrangement = Arrangement.spacedBy(GridlinkSpacing.s8),
+                ) {
+                    message.attachments.forEach { attachment ->
+                        GridlinkThreadAttachment(
+                            attachment = attachment,
+                            onOpen = onOpenAttachment?.let { open -> { open(attachment) } },
+                        )
+                    }
+                    attachmentStatus?.let { line ->
+                        Text(
+                            text = line,
+                            style = GridlinkType.timestamp,
+                            color = colors.textSecondary,
+                        )
+                    }
+                }
             }
         }
     }
@@ -452,16 +477,17 @@ private fun GridlinkImagesAllowedBanner(
 }
 
 /**
- * The attachment, as a static chip.
+ * One attachment, as a chip.
  *
- * Deliberately not clickable. Nothing in this prototype can open a file, and a chip that highlights
- * under the thumb and then does nothing is a worse answer than one that plainly presents itself as
- * a label.
+ * Clickable exactly when [onOpen] is non-null. The rule this replaces ("deliberately not clickable,
+ * nothing in this prototype can open a file") survives as the null branch: a fixture's chip, with
+ * no bytes anywhere behind it, still refuses to highlight under the thumb and then do nothing.
  */
 @Composable
 private fun GridlinkThreadAttachment(
     attachment: GridlinkAttachment,
     modifier: Modifier = Modifier,
+    onOpen: (() -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
     val shape = RoundedCornerShape(GridlinkRadii.pill)
@@ -470,6 +496,7 @@ private fun GridlinkThreadAttachment(
             .clip(shape)
             .background(colors.surfaceRaised, shape)
             .border(GridlinkDimens.hairline, colors.surfaceBorder, shape)
+            .then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier)
             .padding(horizontal = GridlinkSpacing.s16, vertical = GridlinkSpacing.s12),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -691,7 +718,7 @@ internal fun gridlinkForward(message: GridlinkMessage): GridlinkComposeRequest {
             subject = subject,
             body = "",
             quoted = "Quoted — ${message.sender}, ${message.timestamp}",
-            attachments = listOfNotNull(message.attachment),
+            attachments = message.attachments,
         ),
         focus = GridlinkComposeField.TO,
     )

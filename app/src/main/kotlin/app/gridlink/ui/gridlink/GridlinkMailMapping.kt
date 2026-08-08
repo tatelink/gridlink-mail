@@ -20,7 +20,7 @@ import java.util.Locale
  *
  * ## What is genuinely not known here
  * A list fetch asks the server for headers, not bodies. So a mapped message carries no body (the
- * thread fetches it on open) and no [GridlinkMessage.attachment], only the `hasAttachment` flag it
+ * thread fetches it on open) and no [GridlinkMessage.attachments], only the `hasAttachment` flag it
  * arrives with, as [GridlinkMessage.attachmentPending]. Both are absences with a shape, not
  * defaults to be filled in with something plausible.
  */

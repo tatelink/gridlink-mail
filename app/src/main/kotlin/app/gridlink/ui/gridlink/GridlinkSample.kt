@@ -28,7 +28,7 @@ object GridlinkSample {
             subject = "Daily Sales Summary 2043 HILLCREST 07/30",
             timestamp = "7:14 AM",
             unread = false,
-            attachment = GridlinkAttachment("dss_1182_0730.pdf", "61 KB"),
+            attachments = listOf(GridlinkAttachment("dss_1182_0730.pdf", "61 KB")),
             automated = true,
         ),
         GridlinkMessage(
@@ -164,7 +164,7 @@ object GridlinkSample {
             subject = "Technician arriving between 1 and 4 PM for the dish machine",
             timestamp = "8:37 AM",
             unread = true,
-            attachment = GridlinkAttachment("sanivex_wo_44120.pdf", "62 KB"),
+            attachments = listOf(GridlinkAttachment("sanivex_wo_44120.pdf", "62 KB")),
             section = GridlinkSection.TODAY,
         ),
         GridlinkMessage(
@@ -192,7 +192,7 @@ object GridlinkSample {
             subject = "Work order 88231 closed: walk-in freezer condenser 2096 FERNHILL RD",
             timestamp = "7:20 AM",
             unread = false,
-            attachment = GridlinkAttachment("wo_88231_closure.pdf", "141 KB"),
+            attachments = listOf(GridlinkAttachment("wo_88231_closure.pdf", "141 KB")),
             section = GridlinkSection.TODAY,
         ),
         // YESTERDAY
@@ -221,7 +221,7 @@ object GridlinkSample {
             subject = "Order confirmation 4471902, two substitutions on your standing order",
             timestamp = "Yesterday",
             unread = false,
-            attachment = GridlinkAttachment("picksheet_4471902.pdf", "97 KB"),
+            attachments = listOf(GridlinkAttachment("picksheet_4471902.pdf", "97 KB")),
             section = GridlinkSection.YESTERDAY,
         ),
         GridlinkMessage(
@@ -268,7 +268,7 @@ object GridlinkSample {
             subject = "Numbers for the P7 review, let me know if you want it cut differently",
             timestamp = "Mon",
             unread = false,
-            attachment = GridlinkAttachment("p7_review_by_store.xlsx", "412 KB"),
+            attachments = listOf(GridlinkAttachment("p7_review_by_store.xlsx", "412 KB")),
             section = GridlinkSection.EARLIER,
         ),
         GridlinkMessage(
@@ -296,7 +296,7 @@ object GridlinkSample {
             subject = "Health inspection score posted: 2118 ELLSWORTH, 97.5",
             timestamp = "Sun",
             unread = false,
-            attachment = GridlinkAttachment("inspection_1206_0726.pdf", "203 KB"),
+            attachments = listOf(GridlinkAttachment("inspection_1206_0726.pdf", "203 KB")),
             section = GridlinkSection.EARLIER,
         ),
         // Automated, to give the bundle enough children to be worth expanding.
@@ -307,7 +307,7 @@ object GridlinkSample {
             subject = "Daily Sales Summary 2071 KIRKWOOD 07/30",
             timestamp = "7:14 AM",
             unread = true,
-            attachment = GridlinkAttachment("dss_1155_0730.pdf", "58 KB"),
+            attachments = listOf(GridlinkAttachment("dss_1155_0730.pdf", "58 KB")),
             automated = true,
         ),
         GridlinkMessage(
@@ -441,19 +441,18 @@ data class GridlinkMessage(
     val timestamp: String,
     val unread: Boolean = false,
     /**
-     * 🔴 The attachment itself, not a boolean.
+     * 🔴 The attachments themselves, not a boolean.
      *
-     * It started as `hasAttachment: Boolean` and became this the moment the thread view needed a
-     * file name to draw. Two fields would have been less churn and would also have made it possible
-     * to declare a row with a paperclip and no file, which the list would show and the thread would
-     * not, with nothing anywhere to catch it. [hasAttachment] is derived so the two can never
-     * disagree.
+     * It started as `hasAttachment: Boolean` and became a file the moment the thread view needed a
+     * name to draw, then a list the moment real mail arrived carrying more than one: a message with
+     * three attachments that shows one and says nothing about the other two is the model lying by
+     * omission. [hasAttachment] is derived so the paperclip and the chips can never disagree.
      */
-    val attachment: GridlinkAttachment? = null,
+    val attachments: List<GridlinkAttachment> = emptyList(),
     /**
      * The message carries an attachment whose name and size are not known yet.
      *
-     * 🔴 The one legitimate way to get a paperclip without an [attachment], and it exists because
+     * 🔴 The one legitimate way to get a paperclip with [attachments] empty, and it exists because
      * the cache genuinely knows one fact and not the other: a list fetch asks the server for
      * `hasAttachment` and nothing else, and the file itself only arrives with the body. Left out,
      * real mail would either lose the paperclip it has earned or gain a made-up file name to
@@ -505,7 +504,7 @@ data class GridlinkMessage(
      */
     val inlineImages: Map<String, String> = emptyMap(),
 ) {
-    val hasAttachment: Boolean get() = attachment != null || attachmentPending
+    val hasAttachment: Boolean get() = attachments.isNotEmpty() || attachmentPending
 
     /**
      * ⚠️ Derived, and invented in the same way the domains are.
