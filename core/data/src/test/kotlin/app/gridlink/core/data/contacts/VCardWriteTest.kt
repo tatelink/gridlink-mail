@@ -62,6 +62,35 @@ class VCardWriteTest {
     }
 
     @Test
+    fun `a grouped EMAIL is read and rewritten by an email patch, symmetrically`() {
+        // Reader and writer agree on groups now: `item1.EMAIL` parses as an email (so the form
+        // shows it) AND an email patch removes it (so the rewrite replaces rather than duplicates).
+        // The asymmetry this guards against: a line invisible to the reader but deleted by the
+        // writer, which is silent data loss on the first casual edit.
+        val grouped = listOf(
+            "BEGIN:VCARD",
+            "VERSION:3.0",
+            "FN:Kenna Chadwick",
+            "N:Chadwick;Kenna;;;",
+            "item1.EMAIL;type=INTERNET:kenna@old.example",
+            "ADR;TYPE=HOME:;;123 Main St;Ashvale;PA;17036;USA",
+            "END:VCARD",
+        ).joinToString("\r\n", postfix = "\r\n")
+
+        val parsed = VCard.parse(grouped)!!
+        assertEquals(listOf("kenna@old.example"), parsed.emails)
+
+        val patched = VCardWrite.patch(
+            grouped,
+            ContactEdit.from(parsed).copy(emails = listOf("kenna@new.example")),
+            setOf(ContactCardGroup.EMAILS),
+        )
+        assertTrue(patched.contains("EMAIL:kenna@new.example"))
+        assertFalse(patched.contains("kenna@old.example"))
+        assertTrue(patched.contains("ADR;TYPE=HOME:;;123 Main St;Ashvale;PA;17036;USA"))
+    }
+
+    @Test
     fun `patching one group leaves every unmodelled line byte-for-byte intact`() {
         val patched = VCardWrite.patch(
             richCard,

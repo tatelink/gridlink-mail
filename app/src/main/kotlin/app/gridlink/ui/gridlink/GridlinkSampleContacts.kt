@@ -59,6 +59,9 @@ object GridlinkSampleContacts {
         /** Every address on the card, in its order. Fixtures leave this empty; see [allEmails]. */
         val emails: List<String> = emptyList(),
         val phones: List<String> = emptyList(),
+        /** Postal addresses off the card's ADR lines, each one display line. Read-only: the
+         *  edit form has no address field, and ADR survives every patch untouched. */
+        val addresses: List<String> = emptyList(),
         /** A person's employer. Blank on an organization card — there, [family] IS the company. */
         val company: String = "",
         val jobTitle: String = "",
@@ -171,6 +174,7 @@ object GridlinkSampleContacts {
         GridlinkContact(
             "ridley", "Miriam", "Ridley", "Benefits Administrator", "m.ridley@hrbenefits.example",
             company = "HR Benefits Group",
+            addresses = listOf("11220 Aspen Ln, Suite 240, Fairhaven, PA 17025, USA"),
             photo = ContactCardPhoto("image/jpeg", SAMPLE_PHOTO_BASE64),
             customFields = listOf(
                 ContactCardCustomField("Office", "Highgate, Suite 240"),
