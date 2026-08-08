@@ -162,6 +162,30 @@ fun GridlinkCalendarScreen(
      */
     val countable = !book.calendarLoading && book.coversDate(range.first) && book.coversDate(range.second)
 
+    // One pane means the chrome row is a folded-width line shared with the hamburger, the sync
+    // chip and the subline, and the title seat is the one that gives way (`weight(1f,
+    // fill = false)` in [GridlinkHeader]), so "August 2026" rendered as "August 2…". Brandon:
+    // "the date text display at the top of the screen is truncated (August 2...) isnt useful,
+    // rearrange to display full date, theres plenty of vertical room to move things around."
+    // So in one pane the date leaves the chrome row for its own line in [belowHeader], and the
+    // steppers go with it, because buttons that page a date belong beside the date they page.
+    // Two panes keep the on-row title: there the row has the width, and moving the date down
+    // would spend a line to fix a problem that pane count does not have.
+    val onePane = sidePane == null
+    // One steppers Row used by whichever seat currently owns the date, never both.
+    val steppers: @Composable () -> Unit = {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            GridlinkStepButton(
+                forward = false,
+                onClick = { anchor = view.step(anchor, forward = false) },
+            )
+            GridlinkStepButton(
+                forward = true,
+                onClick = { anchor = view.step(anchor, forward = true) },
+            )
+        }
+    }
+
     GridlinkScaffold(
         modifier = modifier,
         destination = destination,
@@ -172,7 +196,8 @@ fun GridlinkCalendarScreen(
         sidePane = sidePane,
         header = {
             GridlinkHeader(
-                title = view.title(anchor),
+                // "Calendar" cannot truncate; the date it displaces is on the line below.
+                title = if (onePane) "Calendar" else view.title(anchor),
                 unread = 0,
                 subline = when {
                     book.calendarLoading -> "Loading"
@@ -188,24 +213,29 @@ fun GridlinkCalendarScreen(
         // where you now were: a control with an invisible effect. An agenda already means "from
         // here on", and it scrolls, so the buttons were also a worse month view. Removed rather
         // than labelled.
-        trailing = if (view == GridlinkCalendarView.AGENDA) {
-            null
-        } else {
-            {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    GridlinkStepButton(
-                        forward = false,
-                        onClick = { anchor = view.step(anchor, forward = false) },
-                    )
-                    GridlinkStepButton(
-                        forward = true,
-                        onClick = { anchor = view.step(anchor, forward = true) },
-                    )
-                }
-            }
-        },
+        trailing = if (view == GridlinkCalendarView.AGENDA || onePane) null else steppers,
         belowHeader = {
-            GridlinkViewSwitcher(selected = view, onSelect = { view = it })
+            Column {
+                // No date line on the agenda: its "title" is the word Agenda, which the switcher
+                // directly below is already displaying as the selected pill. One pane grows this
+                // band freely — [LocalGridlinkPaneHeaderHeight] only matters when a side pane has
+                // to clear it, and one pane is defined by not having one.
+                if (onePane && view != GridlinkCalendarView.AGENDA) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = view.title(anchor),
+                            style = GridlinkType.screenTitle,
+                            color = GridlinkTheme.colors.textPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        steppers()
+                    }
+                    Spacer(Modifier.height(GridlinkSpacing.s12))
+                }
+                GridlinkViewSwitcher(selected = view, onSelect = { view = it })
+            }
         },
     ) {
         when (view) {
