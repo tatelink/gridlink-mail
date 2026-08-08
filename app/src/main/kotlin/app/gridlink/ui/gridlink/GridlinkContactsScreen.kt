@@ -9,7 +9,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -163,7 +162,7 @@ fun GridlinkContactsScreen(
         scope.launch { listState.scrollToItem(target) }
     }
 
-    // One pill used by whichever seat currently owns it, never both.
+    // Hoisted so the belowHeader lambda below stays about layout, not about sorting.
     val sortPill: @Composable () -> Unit = {
         GridlinkSortPill(
             sort = sort,
@@ -177,97 +176,93 @@ fun GridlinkContactsScreen(
         )
     }
 
-    // Measured, not guessed from the configuration, for [GridlinkModalDrawer]'s reasons. On a
-    // folded phone the chrome row cannot hold the hamburger, the title, the count AND the pill —
-    // the title is the row's designed flex victim, so it is "Cont..." that gives way, which is the
-    // same defect Brandon just reported on the calendar. Same cure, too: below this width the pill
-    // moves down into its own line above the panel, where there is (his words) "plenty of vertical
-    // room".
-    BoxWithConstraints(modifier = modifier) {
-        val pillFitsChrome = maxWidth >= SORT_PILL_CHROME_MIN_WIDTH
-        GridlinkScaffold(
-            destination = destination,
-            onSelectDestination = onSelectDestination,
-            onCompose = onCompose,
-            sidePane = sidePane,
-            header = {
-                GridlinkHeader(
-                    title = "Contacts",
-                    unread = 0,
-                    // Same reasoning as the folder tree's "N mailboxes": the second line summarises
-                    // the screen, and a phonebook's summary is how many entries are in it. "Loading"
-                    // while the first read is out, for the folder tree's reason as well: a count of
-                    // zero is a claim that the account has nobody in it, which is a different thing
-                    // from not having looked.
-                    subline = if (book.contactsLoading) "Loading" else "${book.contacts.size} people and teams",
-                )
-            },
-            trailing = if (pillFitsChrome) sortPill else null,
-            belowHeader = if (pillFitsChrome) null else {
-                {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        // At the end, where the pill lives on every wider window, so folding does
-                        // not also teleport it to the other side of the screen.
-                        horizontalArrangement = Arrangement.End,
-                    ) {
-                        sortPill()
-                    }
-                }
-            },
-        ) {
-            LazyColumn(
-                state = listState,
-                flingBehavior = rememberGridlinkFlingBehavior(),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .gridlinkEdgeFade(),
-                contentPadding = PaddingValues(
-                    top = GridlinkDimens.listFade,
-                    bottom = GridlinkDimens.listFade,
-                ),
+    // Brandon: the pill "seems out of place… since the list it actually sorts is on the left". It
+    // used to ride the chrome row's trailing seat, which spans BOTH panes, so in two panes it sat
+    // over the reading pane while sorting the list on the far side of the window. It now lives on
+    // [belowHeader] at every width: that line belongs to the list column alone (the calendar's
+    // view switcher is the precedent, and the slot's stated purpose), so the pill sits directly
+    // above the list it sorts in one pane and two. This also retires the measured 600dp rule that
+    // used to move it — folding no longer teleports the pill between two homes.
+    GridlinkScaffold(
+        destination = destination,
+        onSelectDestination = onSelectDestination,
+        onCompose = onCompose,
+        modifier = modifier,
+        sidePane = sidePane,
+        header = {
+            GridlinkHeader(
+                title = "Contacts",
+                unread = 0,
+                // Same reasoning as the folder tree's "N mailboxes": the second line summarises
+                // the screen, and a phonebook's summary is how many entries are in it. "Loading"
+                // while the first read is out, for the folder tree's reason as well: a count of
+                // zero is a claim that the account has nobody in it, which is a different thing
+                // from not having looked.
+                subline = if (book.contactsLoading) "Loading" else "${book.contacts.size} people and teams",
+            )
+        },
+        belowHeader = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                // At the end, the corner the pill has always occupied, so the move down is the
+                // only thing that changes.
+                horizontalArrangement = Arrangement.End,
             ) {
-                sections.forEach { section ->
-                    item(key = "heading-${section.letter}") {
-                        GridlinkSectionLabel(section.letter.toString())
-                    }
-                    itemsIndexed(
-                        items = section.contacts,
-                        key = { _, contact -> contact.id },
-                    ) { index, contact ->
-                        Column {
-                            GridlinkContactRow(
-                                contact = contact,
-                                sort = sort,
-                                onClick = { onOpenContact(contact) },
-                                current = contact.id == currentId,
+                sortPill()
+            }
+        },
+    ) {
+        LazyColumn(
+            state = listState,
+            flingBehavior = rememberGridlinkFlingBehavior(),
+            modifier = Modifier
+                .fillMaxSize()
+                .gridlinkEdgeFade(),
+            contentPadding = PaddingValues(
+                top = GridlinkDimens.listFade,
+                bottom = GridlinkDimens.listFade,
+            ),
+        ) {
+            sections.forEach { section ->
+                item(key = "heading-${section.letter}") {
+                    GridlinkSectionLabel(section.letter.toString())
+                }
+                itemsIndexed(
+                    items = section.contacts,
+                    key = { _, contact -> contact.id },
+                ) { index, contact ->
+                    Column {
+                        GridlinkContactRow(
+                            contact = contact,
+                            sort = sort,
+                            onClick = { onOpenContact(contact) },
+                            current = contact.id == currentId,
+                        )
+                        // No rule under the last row of a letter: the next thing down is a
+                        // section label, which already separates. A hairline there reads as an
+                        // orphaned line floating above a heading.
+                        if (index != section.contacts.lastIndex) {
+                            GridlinkRowDivider(
+                                // Stops where the rail starts. Run full width and the hairline
+                                // passes under the resting alphabet, striking through three or
+                                // four letters at a time — which reads as the letters being
+                                // crossed out.
+                                modifier = Modifier.padding(end = RAIL_RESTING),
+                                startInset = GridlinkSpacing.rowHorizontal +
+                                    GridlinkDimens.senderBarWidth,
                             )
-                            // No rule under the last row of a letter: the next thing down is a
-                            // section label, which already separates. A hairline there reads as an
-                            // orphaned line floating above a heading.
-                            if (index != section.contacts.lastIndex) {
-                                GridlinkRowDivider(
-                                    // Stops where the rail starts. Run full width and the hairline
-                                    // passes under the resting alphabet, striking through three or
-                                    // four letters at a time — which reads as the letters being
-                                    // crossed out.
-                                    modifier = Modifier.padding(end = RAIL_RESTING),
-                                    startInset = GridlinkSpacing.rowHorizontal +
-                                        GridlinkDimens.senderBarWidth,
-                                )
-                            }
                         }
                     }
                 }
             }
-
-            GridlinkAlphabetRail(
-                populated = populated,
-                onScrubTo = ::jumpTo,
-                initialScrubLetter = initialScrubLetter,
-                modifier = Modifier.align(Alignment.CenterEnd),
-            )
         }
+
+        GridlinkAlphabetRail(
+            populated = populated,
+            onScrubTo = ::jumpTo,
+            initialScrubLetter = initialScrubLetter,
+            modifier = Modifier.align(Alignment.CenterEnd),
+        )
     }
 }
 
@@ -483,15 +478,8 @@ private fun GridlinkSortPill(
     }
 }
 
-/** The collapsed search pill's height, so the two chrome-row pills read as siblings. */
+/** The collapsed search pill's height, so the two pills read as siblings across screens. */
 private val SORT_PILL_HEIGHT = 44.dp
-
-/**
- * Below this window width the pill leaves the chrome row for its own line. 600dp is the compact
- * boundary the platform uses for the same judgement; a folded Fold (~393dp) is well under it and an
- * unfolded one (~754dp) is comfortably over, and those are the two windows that exist here.
- */
-private val SORT_PILL_CHROME_MIN_WIDTH = 600.dp
 
 // ---------------------------------------------------------------------------------------------
 // The rail
