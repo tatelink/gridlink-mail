@@ -22,6 +22,7 @@ Réglages
 - L'interrupteur de compte, dans Notifications, dit ce qu'il fait vraiment : l'éteindre arrête la relève du courrier de ce compte en arrière-plan, pas seulement la notification.
 - La note qui signale un compte non surveillé ne s'affiche plus quand l'interrupteur de ce compte est éteint, et cet interrupteur se laisse à nouveau cocher.
 - « Messages à synchroniser » dit ce que l'écran affiche : les nombres sont 100, 1 000 et 10 000, et un changement est appliqué à la synchro suivante, au lieu d'exiger un vidage du cache du compte.
+- Le choix « Tout » n'est plus proposé dans cette liste. Un compte resté dessus s'affiche désormais comme 10 000 messages, le plus grand nombre proposé.
 
 Écriture
 
