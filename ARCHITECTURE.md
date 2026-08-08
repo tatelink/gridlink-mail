@@ -7,7 +7,7 @@ This document describes how Sterna is built. It is aimed at developers.
 - A production-quality JMAP-first email client for Android; IMAP/SMTP are fully
   supported through the same cache and UI.
 - Privacy by default: no telemetry, no Google/FCM, FOSS-only dependencies.
-- Clean, testable layers — the protocol clients are pure JVM and unit-tested
+- Clean, testable layers, the protocol clients are pure JVM and unit-tested
   without Android.
 
 ## Stack
@@ -30,8 +30,8 @@ This document describes how Sterna is built. It is aimed at developers.
 | Module              | Type            | Responsibility                                       |
 |---------------------|-----------------|------------------------------------------------------|
 | `:app`              | Android app     | Compose UI, ViewModels, push services/workers, notifications, OpenKeychain binding, app lock. |
-| `:core:jmap`        | Kotlin JVM lib  | JMAP client — session, batched method calls, typed RFC 8620/8621 models, EventSource push, OAuth device flow (RFC 8628). |
-| `:core:imap`        | Kotlin JVM lib  | IMAP/SMTP clients — protocol parsing, IDLE, MIME parser/builder, PGP/MIME, XOAUTH2. |
+| `:core:jmap`        | Kotlin JVM lib  | JMAP client, session, batched method calls, typed RFC 8620/8621 models, EventSource push, OAuth device flow (RFC 8628). |
+| `:core:imap`        | Kotlin JVM lib  | IMAP/SMTP clients, protocol parsing, IDLE, MIME parser/builder, PGP/MIME, XOAUTH2. |
 | `:core:data`        | Android library | `MailRepository` (the one seam the UI talks to), Room cache, account store, settings, PGP seam, storage caps. |
 | `:libs:openpgp-api` | Android library | Vendored openpgp-api client (Java), for the OpenKeychain bound service. |
 
@@ -55,7 +55,7 @@ that extends the cache on scroll: it anchors the next `Email/query` page on the
 oldest cached thread-*representative* (stable when new mail arrives on top,
 unlike an absolute offset), falls back once to a positional query on
 `anchorNotFound`, and in conversation view keeps fetching (bounded) until the
-page has produced enough *new thread rows* — one giant thread must not count as
+page has produced enough *new thread rows*, one giant thread must not count as
 a full page of progress.
 
 **IMAP** (`ImapMailService`) is the parallel read/write path: it maps folders
@@ -69,7 +69,7 @@ stays cached; on JMAP the scroll mediator pages past it on demand. On IMAP it is
 also where the reader's list ends: measured on the bench, an IMAP folder stayed
 flat at its 1 000 cached messages while it was scrolled to the bottom, and why
 is not established (the mediator's IMAP branch does ask for older pages). It
-bounds what is kept *in addition to* the folder's current page — the page a
+bounds what is kept *in addition to* the folder's current page, the page a
 refresh just fetched is never pruned by it, whatever its age. An age window
 also keeps the folder's newest N messages regardless of age (N being that window's page size),
 so a quiet folder is never emptied down to whatever happens to be recent.
@@ -79,15 +79,15 @@ so a quiet folder is never emptied down to whatever happens to be recent.
 Conversation view is pure SQL over the uncollapsed cache
 (`conversationSql`, unit-tested against real SQLite): one row per thread per
 folder, showing the thread's newest in-folder message. A conversation is scoped
-to *its folder's members plus the account's Sent replies* — so the same thread
+to *its folder's members plus the account's Sent replies*, so the same thread
 is a different (split) conversation in Inbox and in Trash, and the count chip
 always equals exactly what the unfolded conversation shows. A separate
 account-wide total only gates the expand affordance (the row can unfold when
 the other members live elsewhere). All joins pin the row's `accountId`, since
 same-server accounts can collide on server-assigned mailbox/thread ids.
 
-Drawer badges are WYSIWYG: for JMAP folders the badge is a live Room aggregate —
-unread *threads* in conversation view, unread *messages* in flat view — so it
+Drawer badges are WYSIWYG: for JMAP folders the badge is a live Room aggregate,
+unread *threads* in conversation view, unread *messages* in flat view, so it
 always equals the bold rows in the list and moves instantly on read/move/
 delete/snooze. IMAP folders keep the stored server counter instead (their
 windowed cache would under-count), and the "All inboxes" header sums the same
@@ -100,7 +100,7 @@ per-account sources.
   sync. A failure surfaces instead of silently diverging.
 - **Destroy is held back:** a permanent destroy (delete-from-Trash, Empty trash)
   only ever runs through a persisted WorkManager job (`MessageDestroyWorker`)
-  delayed past the Undo window — killing the app cannot drop a confirmed destroy,
+  delayed past the Undo window, killing the app cannot drop a confirmed destroy,
   and Undo is a work cancellation. Folder deletion follows the same model.
 - **A destroy names messages, never a folder:** "Empty trash" records the exact
   ids at the moment the user confirms (table `purge_snapshot`, keyed by purge,
@@ -124,14 +124,14 @@ declared `specialUse` (not `dataSync`, which Android 15+ budgets and kills).
 With UnifiedPush the server posts a WebPush-encrypted `StateChange` to the
 distributor's endpoint; the connector library generates and holds the P-256
 keys on-device and hands Sterna decrypted payloads, which enqueue an expedited
-fetch worker — the process can be dead between pushes. A periodic ~30-minute
+fetch worker, the process can be dead between pushes. A periodic ~30-minute
 `MailFetchWorker` is the safety net for every transport (push can die silently)
 and polls what IDLE cannot see.
 
 Notifications diff against *persisted per-folder baselines* of already-announced
 ids (shared by live push and the fallback worker, so they never double-notify),
 with an age floor so backfilled old mail is never announced as new. New-mail
-bursts collapse per thread — one notification per conversation, not per reply.
+bursts collapse per thread, one notification per conversation, not per reply.
 
 ## Auth & secrets
 
@@ -150,7 +150,7 @@ design.
 | Message list rows | Room `emails` | Pruned to the sync window (spare set excepted). |
 | Message bodies | Room `email_bodies` | Opened/prefetched messages; LRU cap per account. |
 | Search index | Room `email_fts` (FTS4) | Headers of every folder except Trash and Spam; outlives the display window. |
-| Outbox / scheduled / snoozed | Room | User data — additive migrations, never dropped. |
+| Outbox / scheduled / snoozed | Room | User data, additive migrations, never dropped. |
 | Attachments | `cacheDir/attachments/` | Size + age cap, LRU eviction. |
 | Credentials | SharedPreferences, KeyStore-encrypted | `AccountStore`. |
 | Settings | DataStore | Reactive `Flow` per setting. |
@@ -164,7 +164,7 @@ outbox-bearing tables migrate additively.
 - **Search:** hybrid. A local accent-folded, prefix-matched FTS4 index over the
   *headers* of every folder except Trash and Spam (crawled in the background)
   answers instantly and offline; after a typing pause the server's own full-text
-  search (which sees bodies) is unioned in — results are only ever added, never
+  search (which sees bodies) is unioned in, results are only ever added, never
   removed. Both sides skip Trash and Spam from the same role source
   (`excludedSearchFolderIds`), so a deleted or spam message never surfaces in
   results whatever the protocol; a message also filed outside Trash is still
@@ -189,6 +189,6 @@ outbox-bearing tables migrate additively.
 Release builds are R8-minified and resource-shrunk (`-PnoR8` for faster test
 builds) and must be **reproducible** for F-Droid: built from a clean tree with
 `--no-build-cache`, no VCS info or dependency-metadata blob embedded, and the
-ART baseline profile deliberately not packaged (`ArtProfile` tasks disabled) —
+ART baseline profile deliberately not packaged (`ArtProfile` tasks disabled),
 it is not byte-stable across build environments. R8 mappings are archived per
 release.

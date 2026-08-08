@@ -34,7 +34,7 @@ that much.
 
 Two habits follow from it, and both are load-bearing:
 
-- **A decision that matters is extracted as a pure function and RUN by a test** — not described by
+- **A decision that matters is extracted as a pure function and RUN by a test**, not described by
   one. A test that recomputes the rule from the same inputs in order to choose what to assert is a
   copy of the rule: invert the shipped condition and it stays green.
 - **Where the decision cannot be reached (a composable, a ViewModel), a SOURCE LINT pins the call
@@ -52,13 +52,13 @@ the dialog block rather than inside the confirming arm. Do not copy the pattern;
 
 ### What a source lint cannot see, even pinned whole
 
-Four holes, all found by audit on rules that looked airtight. A lint is worth writing anyway — but
+Four holes, all found by audit on rules that looked airtight. A lint is worth writing anyway, but
 write it knowing these, and say in its header which ones apply to it.
 
 - **An argument name says nothing about what the name is bound to.** `f(defaultPx, clearancePx)`
   pinned whole is satisfied while the two `val`s one line above are swapped. That is the same 72 dp
   bug as the one cited above, moved by one line. **Where a value can be lifted INTO the function, do
-  that instead** — the constant, the lookup, the default. Then the mutation dies in a test that runs
+  that instead**, the constant, the lookup, the default. Then the mutation dies in a test that runs
   the decision, and the lint stops being the thing holding it.
 - **A rule about the arguments says nothing about the expression that wraps the call.** `!f(...)`,
   `f(...) || x`, `f(...).let { … }` all contain the pinned text.
@@ -78,7 +78,7 @@ The two rules of this repository that generalise both **prove a relation between
 not the presence of a text: the screen's list predicate compared against the selection's, and two
 SQL statements run over the same rows and required to answer the same ids. Prefer that shape. A rule
 that can only be satisfied by one exact spelling teaches the next contributor to "fix" it by pasting
-in the new spelling — which is how a test gets disarmed.
+in the new spelling, which is how a test gets disarmed.
 
 `DaoQuerySource` runs a DAO's `@Query` as written in the shipped source against in-memory SQLite,
 which is the strongest instrument here. Its limit belongs in every test that uses it: the schema is
@@ -107,8 +107,8 @@ systemProp.jdk.http.auth.tunneling.disabledSchemes=
 
 See [ARCHITECTURE.md](ARCHITECTURE.md). In short:
 
-- `:app` — Compose UI and app wiring.
-- `:core:jmap` — pure-Kotlin JMAP protocol client (unit-tested without Android).
+- `:app`, Compose UI and app wiring.
+- `:core:jmap`, pure-Kotlin JMAP protocol client (unit-tested without Android).
 
 ## Conventions
 
