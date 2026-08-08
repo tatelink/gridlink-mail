@@ -1,6 +1,8 @@
 package app.gridlink.core.data.contacts
 
+import app.gridlink.core.jmap.model.ContactCardCustomField
 import app.gridlink.core.jmap.model.ContactCardGroup
+import app.gridlink.core.jmap.model.ContactCardPhoto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -77,6 +79,41 @@ class ContactEditTest {
         assertEquals(setOf(ContactCardGroup.EMAILS), base.copy(emails = listOf("k@a.example")).touchedSince(base))
         assertEquals(setOf(ContactCardGroup.PHONES), base.copy(phones = listOf("555")).touchedSince(base))
         assertEquals(setOf(ContactCardGroup.NOTE), base.copy(note = "Hi").touchedSince(base))
+        assertEquals(
+            setOf(ContactCardGroup.PHOTO),
+            base.copy(photo = ContactCardPhoto("image/jpeg", "R0lGODlh")).touchedSince(base),
+        )
+        assertEquals(
+            setOf(ContactCardGroup.CUSTOM),
+            base.copy(customFields = listOf(ContactCardCustomField("Office", "B-240"))).touchedSince(base),
+        )
+    }
+
+    @Test
+    fun `a card with a photo and custom fields still round-trips as a no-op`() {
+        val card = VCard.parse(
+            """
+            BEGIN:VCARD
+            VERSION:4.0
+            FN:Miriam Ridley
+            N:Ridley;Miriam;;;
+            PHOTO:data:image/jpeg;base64,R0lGODlh
+            X-GRIDLINK-FIELD:Office;Highgate
+            END:VCARD
+            """.trimIndent(),
+        )!!
+        val seed = ContactEdit.from(card)
+        assertTrue(seed.touchedSince(seed).isEmpty())
+        // And the seed actually carried them — an empty-vs-empty no-op would prove nothing.
+        assertEquals("R0lGODlh", seed.photo!!.base64)
+        assertEquals(listOf(ContactCardCustomField("Office", "Highgate")), seed.customFields)
+    }
+
+    @Test
+    fun `a fully blank custom row is the grow-on-type spare, not an edit`() {
+        val original = ContactEdit(given = "Kenna", family = "Chadwick")
+        val fromForm = original.copy(customFields = listOf(ContactCardCustomField(" ", "")))
+        assertTrue(fromForm.touchedSince(original).isEmpty())
     }
 
     @Test

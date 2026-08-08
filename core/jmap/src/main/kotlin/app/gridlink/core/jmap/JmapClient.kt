@@ -46,6 +46,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -2288,6 +2289,12 @@ private fun contactCardGroupProperty(group: ContactCardGroup): String = when (gr
     ContactCardGroup.EMAILS -> "emails"
     ContactCardGroup.PHONES -> "phones"
     ContactCardGroup.NOTE -> "notes"
+    ContactCardGroup.PHOTO -> "media"
+    // Custom fields travel as RFC 9555 vCardProps — jCard entries the server converts back into
+    // vCard properties — so the CardDAV mirror of the same card carries the same X-GRIDLINK-FIELD
+    // lines the DAV write path produces, and the app's vCard reader parses both paths' output
+    // identically. A vendor-extension JSContact property would be invisible to that mirror.
+    ContactCardGroup.CUSTOM -> "vCardProps"
 }
 
 /**
@@ -2346,6 +2353,35 @@ private fun contactCardGroupValue(group: ContactCardGroup, card: ContactCardWrit
     } ?: JsonNull
     ContactCardGroup.NOTE -> card.note?.takeIf { it.isNotBlank() }?.let { note ->
         buildJsonObject { putJsonObject("n1") { put("note", note) } }
+    } ?: JsonNull
+    // A Media object (RFC 9553 §2.6.4) with the photo as a data URI. A data URI rather than a
+    // JMAP blob upload: it is one request instead of two, RFC 9553 sanctions it explicitly, and
+    // RFC 9555 converts it straight into the vCard PHOTO the DAV mirror serves back.
+    ContactCardGroup.PHOTO -> card.photo?.let { photo ->
+        buildJsonObject {
+            putJsonObject("m1") {
+                put("kind", "photo")
+                put("mediaType", photo.mediaType)
+                put("uri", photo.dataUri)
+            }
+        }
+    } ?: JsonNull
+    // jCard entries (RFC 7095 via RFC 9555 §3.2): [name, params, type, value]. The value is the
+    // structured [label, value] pair, exactly what X-GRIDLINK-FIELD:label;value spells in vCard.
+    ContactCardGroup.CUSTOM -> card.customFields.ifEmpty { null }?.let { fields ->
+        buildJsonArray {
+            fields.forEach { field ->
+                addJsonArray {
+                    add("x-gridlink-field")
+                    add(buildJsonObject {})
+                    add("text")
+                    addJsonArray {
+                        add(field.label)
+                        add(field.value)
+                    }
+                }
+            }
+        }
     } ?: JsonNull
 }
 

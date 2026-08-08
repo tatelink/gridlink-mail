@@ -136,4 +136,83 @@ class VCardTest {
         assertEquals(emptyList<ParsedContact>(), VCard.parseAll("BEGIN:VCARD\nVERSION:3.0\nEND:VCARD"))
         assertEquals(emptyList<ParsedContact>(), VCard.parseAll(null))
     }
+
+    // ------------------------------------------------------------------------------------------
+    // Photos
+    // ------------------------------------------------------------------------------------------
+
+    /** Valid base64 of "GIF89a" — a plausible few image bytes, decodable by any Base64 reader. */
+    private val tinyB64 = "R0lGODlh"
+
+    @Test
+    fun `a v4 data-URI photo parses to its media type and payload`() {
+        val card = VCard.parse(
+            "BEGIN:VCARD\nVERSION:4.0\nFN:Kenna Chadwick\nPHOTO:data:image/png;base64,$tinyB64\nEND:VCARD",
+        )!!
+        assertEquals("image/png", card.photo!!.mediaType)
+        assertEquals(tinyB64, card.photo!!.base64)
+    }
+
+    @Test
+    fun `a v3 ENCODING=b photo parses, folded across lines and all`() {
+        val card = VCard.parse(
+            "BEGIN:VCARD\nVERSION:3.0\nFN:Kenna Chadwick\nPHOTO;ENCODING=b;TYPE=JPEG:R0lG\n ODlh\nEND:VCARD",
+        )!!
+        // TYPE=JPEG (a bare subtype) becomes a full media type; the fold's whitespace is gone.
+        assertEquals("image/jpeg", card.photo!!.mediaType)
+        assertEquals(tinyB64, card.photo!!.base64)
+    }
+
+    @Test
+    fun `a remote photo URL is not an inline photo`() {
+        // The model deliberately holds only embedded photos: fetching URLs is a network concern
+        // the parser must not smuggle in. The card still parses; only the photo reads absent.
+        val card = VCard.parse(
+            "BEGIN:VCARD\nVERSION:4.0\nFN:K C\nPHOTO;MEDIATYPE=image/jpeg:https://x.example/a.jpg\nEND:VCARD",
+        )!!
+        assertNotNull(card)
+        assertEquals(null, card.photo)
+    }
+
+    @Test
+    fun `a corrupt photo reads absent rather than sinking the card`() {
+        val card = VCard.parse(
+            "BEGIN:VCARD\nVERSION:4.0\nFN:Kenna Chadwick\nN:Chadwick;Kenna;;;\nPHOTO:data:image/jpeg;base64,@@not-base64@@\nEND:VCARD",
+        )!!
+        assertEquals(null, card.photo)
+        assertEquals("Chadwick", card.fileAsFamily)
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // Custom fields
+    // ------------------------------------------------------------------------------------------
+
+    @Test
+    fun `custom fields parse in order with their escapes undone`() {
+        val card = VCard.parse(
+            """
+            BEGIN:VCARD
+            VERSION:4.0
+            FN:Kenna Chadwick
+            X-GRIDLINK-FIELD:Office;Highgate\, Suite 240
+            X-GRIDLINK-FIELD:Case portal ID;HRB-4417
+            END:VCARD
+            """.trimIndent(),
+        )!!
+        assertEquals(2, card.customFields.size)
+        assertEquals("Office", card.customFields[0].label)
+        assertEquals("Highgate, Suite 240", card.customFields[0].value)
+        assertEquals("Case portal ID", card.customFields[1].label)
+        assertEquals("HRB-4417", card.customFields[1].value)
+    }
+
+    @Test
+    fun `a custom field with only one half present is kept, a fully blank one is not`() {
+        val card = VCard.parse(
+            "BEGIN:VCARD\nVERSION:4.0\nFN:K C\nX-GRIDLINK-FIELD:Birthday;\nX-GRIDLINK-FIELD:;\nEND:VCARD",
+        )!!
+        assertEquals(1, card.customFields.size)
+        assertEquals("Birthday", card.customFields[0].label)
+        assertEquals("", card.customFields[0].value)
+    }
 }

@@ -46,7 +46,7 @@ object VCardWrite {
             add("BEGIN:VCARD")
             add("VERSION:4.0")
             add("UID:" + escapeText(uid))
-            ContactCardGroup.entries.forEach { addAll(groupLines(it, n)) }
+            ContactCardGroup.entries.forEach { addAll(groupLines(it, n, v4 = true)) }
             add("END:VCARD")
         }
         return lines.joinToString("\r\n", postfix = "\r\n")
@@ -60,10 +60,15 @@ object VCardWrite {
         if (touched.isEmpty()) return raw
         val n = edit.normalized()
         val terminator = if ("\r\n" in raw) "\r\n" else "\n"
+        // The one write that cares about the card's version: a 3.0 card gets its photo in the
+        // 3.0 spelling (ENCODING=b) so a same-version reader elsewhere still shows it. Sniffed,
+        // not parsed: VERSION is a bare property and the patch must not depend on the parser.
+        val v4 = !raw.contains("VERSION:3.0", ignoreCase = true) &&
+            !raw.contains("VERSION:2.1", ignoreCase = true)
         val removeNames = touched.flatMapTo(HashSet()) { propertyNames(it) }
         val replacementLines = ContactCardGroup.entries
             .filter { it in touched }
-            .flatMap { groupLines(it, n) }
+            .flatMap { groupLines(it, n, v4) }
 
         // Physical lines → logical lines (a leading space/tab continues the previous one), so a
         // removed property takes its continuations along. Blank lines and anything unparseable
@@ -104,13 +109,16 @@ object VCardWrite {
         ContactCardGroup.EMAILS -> setOf("EMAIL")
         ContactCardGroup.PHONES -> setOf("TEL")
         ContactCardGroup.NOTE -> setOf("NOTE")
+        ContactCardGroup.PHOTO -> setOf("PHOTO")
+        ContactCardGroup.CUSTOM -> setOf("X-GRIDLINK-FIELD")
     }
 
     /**
      * The lines a group writes for an (already normalized) edit. An empty group writes nothing,
      * which after the removal pass means the property is gone — how a vCard spells "cleared".
+     * [v4] only matters to PHOTO, the one property whose inline spelling changed between versions.
      */
-    private fun groupLines(group: ContactCardGroup, edit: ContactEdit): List<String> = when (group) {
+    private fun groupLines(group: ContactCardGroup, edit: ContactEdit, v4: Boolean): List<String> = when (group) {
         ContactCardGroup.NAME -> buildList {
             // FN always, even empty: it is mandatory in both vCard versions, and the live account
             // already holds legitimate cards whose FN is literally blank.
@@ -129,6 +137,19 @@ object VCardWrite {
         ContactCardGroup.PHONES -> edit.phones.map { "TEL:" + escapeText(it) }
         ContactCardGroup.NOTE ->
             edit.note.takeIf { it.isNotEmpty() }?.let { listOf("NOTE:" + escapeText(it)) }.orEmpty()
+        // Unescaped on purpose in both spellings: RFC 6350 §4.2's own PHOTO example carries its
+        // data URI's `;` and `,` raw, and escaping them corrupts the base64 for other readers.
+        ContactCardGroup.PHOTO -> edit.photo?.let { photo ->
+            if (v4) {
+                listOf("PHOTO:" + photo.dataUri)
+            } else {
+                val subtype = photo.mediaType.substringAfter('/').uppercase()
+                listOf("PHOTO;ENCODING=b;TYPE=$subtype:" + photo.base64)
+            }
+        }.orEmpty()
+        ContactCardGroup.CUSTOM -> edit.customFields.map {
+            "X-GRIDLINK-FIELD:" + escapeText(it.label) + ";" + escapeText(it.value)
+        }
     }
 
     /** The property name of a logical line's first physical line, `item1.`-style groups stripped. */

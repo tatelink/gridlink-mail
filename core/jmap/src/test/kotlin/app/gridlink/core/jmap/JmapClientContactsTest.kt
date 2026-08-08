@@ -183,6 +183,68 @@ class JmapClientContactsTest {
         assertTrue(server.takeRequest().body.readUtf8().contains("\"notes\":null"))
     }
 
+    @Test fun updateContactCard_writesThePhotoAsAMediaDataUri() = runBlocking {
+        server.enqueue(MockResponse().setBody(UPDATE_JSON))
+
+        client.updateContactCard(
+            contactsSession(), "d", "card9",
+            ContactCardWrite(
+                uid = "u-1",
+                fullName = "Kenna Chadwick",
+                photo = app.gridlink.core.jmap.model.ContactCardPhoto("image/jpeg", "R0lGODlh"),
+            ),
+            touched = setOf(ContactCardGroup.PHOTO),
+            auth = BasicAuth("u", "p"),
+        )
+
+        val sent = server.takeRequest().body.readUtf8()
+        // RFC 9553 Media object, photo kind, data URI — one request, no blob round-trip.
+        assertTrue(sent.contains("\"media\""))
+        assertTrue(sent.contains("\"kind\":\"photo\""))
+        assertTrue(sent.contains("\"mediaType\":\"image/jpeg\""))
+        assertTrue(sent.contains("data:image/jpeg;base64,R0lGODlh"))
+        // Only the touched group travels.
+        assertFalse(sent.contains("\"full\""))
+    }
+
+    @Test fun updateContactCard_writesCustomFieldsAsVCardProps() = runBlocking {
+        server.enqueue(MockResponse().setBody(UPDATE_JSON))
+
+        client.updateContactCard(
+            contactsSession(), "d", "card9",
+            ContactCardWrite(
+                uid = "u-1",
+                fullName = "Kenna Chadwick",
+                customFields = listOf(
+                    app.gridlink.core.jmap.model.ContactCardCustomField("Office", "Highgate"),
+                ),
+            ),
+            touched = setOf(ContactCardGroup.CUSTOM),
+            auth = BasicAuth("u", "p"),
+        )
+
+        val sent = server.takeRequest().body.readUtf8()
+        // RFC 9555 vCardProps: a jCard entry, so Stalwart's own CardDAV mirror re-emits it as the
+        // same X-GRIDLINK-FIELD line the DAV write path produces.
+        assertTrue(sent.contains("\"vCardProps\""))
+        assertTrue(sent.contains("[\"x-gridlink-field\",{},\"text\",[\"Office\",\"Highgate\"]]"))
+    }
+
+    @Test fun updateContactCard_saysAClearedPhotoAndCustomsOutLoudAsNull() = runBlocking {
+        server.enqueue(MockResponse().setBody(UPDATE_JSON))
+
+        client.updateContactCard(
+            contactsSession(), "d", "card9",
+            ContactCardWrite(uid = "u-1", fullName = "Kenna Chadwick"),
+            touched = setOf(ContactCardGroup.PHOTO, ContactCardGroup.CUSTOM),
+            auth = BasicAuth("u", "p"),
+        )
+
+        val sent = server.takeRequest().body.readUtf8()
+        assertTrue(sent.contains("\"media\":null"))
+        assertTrue(sent.contains("\"vCardProps\":null"))
+    }
+
     @Test fun updateContactCard_noCallWhenNothingWasTouched() = runBlocking {
         client.updateContactCard(
             contactsSession(), "d", "card9",

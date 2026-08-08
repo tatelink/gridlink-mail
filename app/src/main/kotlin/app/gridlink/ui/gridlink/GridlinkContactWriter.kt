@@ -70,6 +70,8 @@ internal fun gridlinkContactOf(edit: ContactEdit, id: String): GridlinkContact {
         company = n.company,
         jobTitle = n.title,
         note = n.note,
+        photo = n.photo,
+        customFields = n.customFields,
         edit = n,
     )
 }

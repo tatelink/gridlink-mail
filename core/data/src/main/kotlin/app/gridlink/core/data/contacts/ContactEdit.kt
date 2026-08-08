@@ -1,6 +1,8 @@
 package app.gridlink.core.data.contacts
 
+import app.gridlink.core.jmap.model.ContactCardCustomField
 import app.gridlink.core.jmap.model.ContactCardGroup
+import app.gridlink.core.jmap.model.ContactCardPhoto
 import app.gridlink.core.jmap.model.ContactCardWrite
 
 /**
@@ -25,6 +27,10 @@ data class ContactEdit(
     val emails: List<String> = emptyList(),
     val phones: List<String> = emptyList(),
     val note: String = "",
+    /** The card's photo, or null for none. Already-encoded ([ContactCardPhoto] compares by its
+     *  base64 content), so "did the photo change" is plain equality like every other field. */
+    val photo: ContactCardPhoto? = null,
+    val customFields: List<ContactCardCustomField> = emptyList(),
 ) {
 
     /** Trimmed fields, blank list entries dropped: the form's raw state made canonical. */
@@ -36,6 +42,10 @@ data class ContactEdit(
         emails = emails.map { it.trim() }.filter { it.isNotEmpty() },
         phones = phones.map { it.trim() }.filter { it.isNotEmpty() },
         note = note.trim(),
+        photo = photo,
+        customFields = customFields
+            .map { ContactCardCustomField(it.label.trim(), it.value.trim()) }
+            .filter { it.label.isNotEmpty() || it.value.isNotEmpty() },
     )
 
     /** An organization card: no person name and no separate company, so [family] is the company. */
@@ -66,6 +76,8 @@ data class ContactEdit(
             if (a.emails != b.emails) add(ContactCardGroup.EMAILS)
             if (a.phones != b.phones) add(ContactCardGroup.PHONES)
             if (a.note != b.note) add(ContactCardGroup.NOTE)
+            if (a.photo != b.photo) add(ContactCardGroup.PHOTO)
+            if (a.customFields != b.customFields) add(ContactCardGroup.CUSTOM)
         }
     }
 
@@ -84,6 +96,8 @@ data class ContactEdit(
             emails = n.emails,
             phones = n.phones,
             note = n.note.takeIf { it.isNotEmpty() },
+            photo = n.photo,
+            customFields = n.customFields,
         )
     }
 
@@ -103,6 +117,8 @@ data class ContactEdit(
                     emails = parsed.emails,
                     phones = parsed.phones,
                     note = parsed.note.orEmpty(),
+                    photo = parsed.photo,
+                    customFields = parsed.customFields,
                 )
             } else {
                 ContactEdit(
@@ -113,6 +129,8 @@ data class ContactEdit(
                     emails = parsed.emails,
                     phones = parsed.phones,
                     note = parsed.note.orEmpty(),
+                    photo = parsed.photo,
+                    customFields = parsed.customFields,
                 )
             }
     }
