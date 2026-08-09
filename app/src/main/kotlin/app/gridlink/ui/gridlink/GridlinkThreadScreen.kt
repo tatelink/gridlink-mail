@@ -344,19 +344,25 @@ private fun GridlinkThreadSender(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                // 🔴 The signed-in address, not a constant. This line used to read the sample's,
-                // which on a real account would have every message in the mailbox claim it was
-                // addressed to somebody else — on the one screen whose job is to let you check
-                // exactly that. It is still an approximation: it says who is READING, not what the
-                // To header holds, so a message received via a list or a bcc says "to <you>"
-                // because that is what the cache knows. The real recipients arrive with the body.
-                text = "to " + LocalGridlinkChrome.current.config.account,
-                style = GridlinkType.metadata,
-                color = colors.textSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            // 🔴 The signed-in address, not a constant. This line used to read the sample's, which
+            // on a real account would have every message in the mailbox claim it was addressed to
+            // somebody else — on the one screen whose job is to let you check exactly that. It is
+            // still an approximation: it says who is READING, not what the To header holds, so a
+            // message received via a list or a bcc says "to <you>" because that is what the cache
+            // knows. The real recipients arrive with the body.
+            //
+            // Blank is now the chrome's default (see [GridlinkChromeConfig]), and "to " on its own
+            // is worse than no line at all, so the whole row goes.
+            val readerAddress = LocalGridlinkChrome.current.config.account
+            if (readerAddress.isNotBlank()) {
+                Text(
+                    text = "to $readerAddress",
+                    style = GridlinkType.metadata,
+                    color = colors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

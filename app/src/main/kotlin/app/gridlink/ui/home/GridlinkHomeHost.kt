@@ -46,11 +46,12 @@ import java.time.ZonedDateTime
  * mailbox and performs the writes; this is the only place that knows both exist.
  *
  * ## 🔴 What is deliberately NOT sample data here
- * Three of [GridlinkApp]'s defaults are sample values that a real account must not inherit, and all
- * three are overridden below: the menu's account address, the mailbox counts beside its rows, and
- * `initialLastSyncedAt`. The last one is the quiet one — left alone it seeds "Synced 4 minutes ago"
- * onto an app that has not yet spoken to a server this launch, which is the exact false reassurance
- * the sync state refuses to write anywhere else.
+ * The menu's account address, the mailbox counts beside its rows and `initialLastSyncedAt` are all
+ * stated below rather than left to [GridlinkApp]'s defaults. Those defaults used to BE the sample
+ * identity, so forgetting one put `tate@gridlink.me` and "Synced 4 minutes ago" onto somebody
+ * else's mailbox; they are empty and null now and the sample has to be asked for by name
+ * ([gridlinkSampleChromeConfig]). The three are still passed explicitly here, because a host that
+ * relies on an empty default is a host that says nothing about what it MEANT.
  *
  * ## Arriving from outside: `mailto:` links and notification taps
  * Both reach the activity as intents, are parsed there, and are handed down as payloads. This file
@@ -308,8 +309,9 @@ internal fun MailtoDraft.toGridlinkDraft(): GridlinkComposeDraft {
     return GridlinkComposeDraft(
         title = "Compose",
         recipients = recipients,
-        // 🔴 Empty, NOT [GridlinkComposeDraft.Fresh]'s seeded query. That seed is a demo prop, and
-        // inheriting it would open a link-driven draft with a half-typed search under the chips.
+        // Empty: a link-driven draft must not open with a half-typed search sitting under chips the
+        // user did not type. Guarded by a test, because this was inherited from a seeded default
+        // once and nothing failed.
         recipientQuery = "",
         subject = subject,
         body = body,

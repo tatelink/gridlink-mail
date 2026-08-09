@@ -303,9 +303,8 @@ fun GridlinkContactScreen(
  * would put the caret in a field that is finished and make the first keystroke look like it is
  * about to add a second person.
  *
- * 🔴 Not [GridlinkComposeDraft.Fresh] with a recipient stuck on. Fresh deliberately seeds the query
- * "ma" to demonstrate the suggestion list; carried into a message you asked to address to one
- * specific person, that opens a composer with a half-typed search for somebody else in it.
+ * Built here rather than copied from [GridlinkComposeDraft.Fresh] because the title differs: this is
+ * a "New message" to a named person, not the compose button's blank sheet.
  */
 internal fun gridlinkWriteTo(contact: GridlinkContact): GridlinkComposeRequest = GridlinkComposeRequest(
     draft = GridlinkComposeDraft(
