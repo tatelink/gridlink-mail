@@ -1536,7 +1536,18 @@ fun GridlinkRoot(
                                     composing = GridlinkComposeRequest(
                                         draft = GridlinkComposeDraft(
                                             title = "Draft",
-                                            recipients = emptyList(),
+                                            // The recipient the row itself just named. Left empty,
+                                            // the composer would open on a blank To field one tap
+                                            // after a line reading "To Sysco Charlotte", which is
+                                            // the app contradicting itself inside one gesture.
+                                            // The address book wins where it knows them.
+                                            recipients = message.sentTo?.let { to ->
+                                                listOfNotNull(
+                                                    GridlinkSampleContacts
+                                                        .forSender(to.name, to.domain)
+                                                        ?: gridlinkTypedRecipient(to.address),
+                                                )
+                                            }.orEmpty(),
                                             recipientQuery = "",
                                             subject = message.subject,
                                             // Fixture bodies are HTML by construction and the

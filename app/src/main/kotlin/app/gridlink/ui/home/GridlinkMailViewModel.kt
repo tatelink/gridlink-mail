@@ -373,6 +373,30 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             Window(account.id, mailboxId, account.syncWindow.limit)
         }.distinctUntilChanged()
 
+    /**
+     * The mailboxes whose rows name the RECIPIENT instead of the sender.
+     *
+     * Sent and Drafts, by role rather than by name, so a server that calls them anything else still
+     * gets it right. Ids, because that is what the open window carries.
+     *
+     * 🔴 Deliberately NOT folded into [folderWindow]. That window keys the Room query, and a set
+     * that starts empty and fills in one frame later would change the key and re-subscribe the whole
+     * mailbox query for a decision that only affects how its rows are drawn. Combined below instead,
+     * where a late answer costs one re-map and nothing else.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val outgoingFolderIds: Flow<Set<String>> = accountId.flatMapLatest { id ->
+        if (id == null) {
+            flowOf(emptySet())
+        } else {
+            repo.observeMailboxes(id).map { boxes ->
+                boxes.filter { GridlinkFolderMapping.roleOf(it.role) in OUTGOING_ROLES }
+                    .map { it.id }
+                    .toSet()
+            }
+        }
+    }.distinctUntilChanged()
+
     /** The open mailbox's cached mail, or null when no mailbox is open. */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val folderMail: Flow<GridlinkOpenFolder?> = folderWindow.flatMapLatest { w ->
@@ -382,9 +406,13 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             combine(
                 repo.observeMailboxWindow(w.accountId, w.mailboxId, w.limit),
                 folderFetched,
-            ) { emails, fetched ->
+                outgoingFolderIds,
+            ) { emails, fetched, outgoing ->
                 val zone = ZoneId.systemDefault()
                 val today = LocalDate.now(zone)
+                // A property of the open mailbox, not of any message in it: in Sent and Drafts the
+                // From line is you on every row, so the row names who the mail went to instead.
+                val showRecipient = w.mailboxId in outgoing
                 GridlinkOpenFolder(
                     id = w.mailboxId,
                     messages = emails.map { email ->
@@ -394,8 +422,13 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                         // a folder to put it in). Left alone, opening a mailbox full of receipts would
                         // show an empty folder. Here every row gets the day heading its date earns and
                         // nothing is hidden.
-                        GridlinkMailMapping.message(email, LABELS, zone, today)
-                            .copy(section = GridlinkMailMapping.section(email, zone, today))
+                        GridlinkMailMapping.message(
+                            email = email,
+                            labels = LABELS,
+                            zone = zone,
+                            today = today,
+                            showRecipient = showRecipient,
+                        ).copy(section = GridlinkMailMapping.section(email, zone, today))
                     },
                     loading = emails.isEmpty() && w.mailboxId !in fetched,
                 )
@@ -905,6 +938,14 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
          */
         val LABELS = GridlinkMailMapping.Labels()
         const val MILLIS_PER_DAY = 24L * 60L * 60L * 1000L
+
+        /**
+         * The mailboxes you wrote the mail in, where the row names its recipient.
+         *
+         * ⚠️ Role, not name, and only these two. Junk and Trash also hold your own mail sometimes,
+         * but they hold everyone else's as well, so the From line there is still the useful one.
+         */
+        val OUTGOING_ROLES = setOf(GridlinkFolderRole.DRAFTS, GridlinkFolderRole.SENT)
 
         /**
          * How long the cache query survives with nobody listening. Long enough to cover a rotation

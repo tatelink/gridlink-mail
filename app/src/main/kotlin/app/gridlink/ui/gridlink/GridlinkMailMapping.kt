@@ -126,13 +126,20 @@ object GridlinkMailMapping {
         )
     }
 
-    /** One cached [Email] as a list row. */
+    /**
+     * One cached [Email] as a list row.
+     *
+     * [showRecipient] is the Sent/Drafts switch and belongs to the MAILBOX, not the message: it is
+     * true because of where the row is being drawn, not because of anything the message says about
+     * itself. See [GridlinkMessage.sentTo].
+     */
     fun message(
         email: Email,
         labels: Labels,
         zone: ZoneId = ZoneId.systemDefault(),
         today: LocalDate = LocalDate.now(zone),
         locale: Locale = appLocale,
+        showRecipient: Boolean = false,
     ): GridlinkMessage {
         val from = email.from.firstOrNull()
         val address = from?.email.orEmpty()
@@ -159,6 +166,33 @@ object GridlinkMailMapping {
             // Left empty on purpose: the body is not in the list cache. The thread fetches it.
             body = "",
             addressOverride = address.takeIf { it.isNotBlank() },
+            sentTo = if (showRecipient) recipient(email) else null,
+        )
+    }
+
+    /**
+     * The `To:` header as one drawable identity.
+     *
+     * ## 🔴 Why an empty `to` gives a blank name rather than falling back to the sender
+     * Upstream's list falls back to the sender when a cached row carries no recipients, and here
+     * that fallback is the bug: the sender in these two mailboxes is you, so the fallback prints
+     * your own name, which is the exact thing this whole path exists to remove. A blank name draws
+     * `(no recipient)`, which is *right* for an unaddressed draft and is "we do not know yet" for
+     * the one other case that reaches it — a row cached before the v17 `recipientsJson` column
+     * existed, which the folder's next refresh fills in. Saying nothing beats saying "Brandon".
+     *
+     * The `to` header is asked for on every list fetch (`Email/query` + `Email/get` both name it),
+     * so this is populated for anything synced by this version.
+     */
+    private fun recipient(email: Email): GridlinkRecipient {
+        val first = email.to.firstOrNull()
+        val address = first?.email.orEmpty()
+        return GridlinkRecipient(
+            // Same rule as [sender]: the display name if there is one, else the address itself,
+            // never the local part prettied up into a name nobody wrote.
+            name = first?.display()?.takeIf { it.isNotBlank() }.orEmpty(),
+            domain = address.substringAfterLast('@', "").lowercase(),
+            others = (email.to.size - 1).coerceAtLeast(0),
         )
     }
 

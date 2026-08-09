@@ -358,12 +358,15 @@ object GridlinkSample {
      * Inbox as *every message in the pool*, so a draft added to that list would be filed as mail
      * that arrived, in the one folder where mail you have not sent yet must never appear.
      *
-     * ⚠️ [GridlinkMessage.sender] is the account itself, not the person the draft is addressed to,
-     * because that is what the live app does: [GridlinkMailMapping.message] reads `from`, and on a
-     * draft `from` is you. So the Drafts list shows four rows from your own address, which looks
-     * odd and is nonetheless exactly what the real mailbox renders today. If that reads wrong, the
-     * fix belongs in the mapper (show the recipient in outgoing mailboxes) where it corrects the
-     * live list and this one together, not here where it would only dress up the sample.
+     * ⚠️ [GridlinkMessage.sender] is still the account itself, because that is what the real
+     * message says: on a draft, `from` is you. What changed is what the ROW draws. Each of these
+     * carries a [GridlinkMessage.sentTo], and the fix that put it there went in the mapper, so the
+     * live Drafts and Sent lists and this sample now say the same thing (his call, 2026-08-09).
+     *
+     * 🔴 `draft-no-subject` is deliberately left unaddressed as well, so the sample exercises the
+     * one row that has no recipient to name. It draws `(no recipient)`, which is the state it is
+     * actually in, and it is the case that would otherwise silently fall back to printing your own
+     * name again. A fixture set where every draft is neatly addressed does not test this.
      *
      * One row carries `(no subject)`, spelled the way [GridlinkMailMapping.Labels] spells it: a
      * draft with nothing in the subject field is the commonest draft there is, and a list that has
@@ -377,6 +380,7 @@ object GridlinkSample {
             subject = "Credit request, truck short 3 cases 0449 BELMONT 07/30",
             timestamp = "10:44 AM",
             section = GridlinkSection.TODAY,
+            sentTo = GridlinkRecipient("Sysco Charlotte", "sysco.com"),
         ),
         GridlinkMessage(
             id = "draft-cap-456",
@@ -385,6 +389,9 @@ object GridlinkSample {
             subject = "Corrective Action Plan, Store 456, walk-in gasket and prep sink",
             timestamp = "10:12 AM",
             section = GridlinkSection.TODAY,
+            // The one multi-recipient row, so the "(+2)" form is on screen in the gallery: a CAP
+            // goes back to the inspector with the store and the area director copied.
+            sentTo = GridlinkRecipient("Steritech", "steritech.com", others = 2),
         ),
         GridlinkMessage(
             id = "draft-tperez-overtime",
@@ -393,6 +400,7 @@ object GridlinkSample {
             subject = "Re: Overtime projection is over plan for period 7",
             timestamp = "Yesterday",
             section = GridlinkSection.YESTERDAY,
+            sentTo = GridlinkRecipient("T. Perez", "gridlink.me"),
         ),
         GridlinkMessage(
             id = "draft-no-subject",
@@ -401,6 +409,60 @@ object GridlinkSample {
             subject = "(no subject)",
             timestamp = "Wed",
             section = GridlinkSection.EARLIER,
+            // 🔴 An EMPTY recipient, not a missing one. Leaving this null is not the same state:
+            // null means "not an outgoing folder" and the row falls back to [sender], which on a
+            // draft is you, which is the bug this whole field exists to kill. The mapper never
+            // hands back null in Drafts or Sent, so a fixture that does is showing the gallery a
+            // row the live app cannot produce.
+            sentTo = GridlinkRecipient(""),
+        ),
+    ).map { message ->
+        message.copy(body = GridlinkSampleBodies.bodyFor(message.id))
+    }
+
+    /**
+     * Sent mail, held apart from the inbox pool for the same reason [draftMessages] is: mail you
+     * sent is not mail that arrived, so these rows exist nowhere else in the sample.
+     *
+     * 🔴 It exists so the outgoing row can be PHOTOGRAPHED. Every other folder in the gallery is a
+     * view over §10's inbox, and Sent was the one screen with nothing in it, which left the real
+     * mailbox as the only place to see the change — and a screenshot of that publishes Brandon's
+     * actual correspondents. Three rows is enough to show the three cases: an outside vendor, a
+     * colleague on the internal domain, and a message with more recipients than the row can name.
+     *
+     * All three are read, and none carries [GridlinkMessage.unread]. Sent mail you have not read is
+     * not a state that exists, and a badge on Sent would be a number with nothing behind it.
+     */
+    val sentMessages: List<GridlinkMessage> = listOf(
+        GridlinkMessage(
+            id = "sent-duke-meter",
+            sender = GRIDLINK_SAMPLE_ACCOUNT,
+            domain = "gridlink.me",
+            subject = "Re: Your July statement is ready for account ending 7714",
+            timestamp = "9:20 AM",
+            section = GridlinkSection.TODAY,
+            sentTo = GridlinkRecipient("Duke Energy", "duke-energy.com"),
+        ),
+        GridlinkMessage(
+            id = "sent-kbaxter-schedule",
+            sender = GRIDLINK_SAMPLE_ACCOUNT,
+            domain = "gridlink.me",
+            subject = "Re: Period 8 schedule, approved with one change",
+            timestamp = "Yesterday",
+            section = GridlinkSection.YESTERDAY,
+            sentTo = GridlinkRecipient("K. Baxter", "gridlink.me"),
+        ),
+        GridlinkMessage(
+            id = "sent-alta-recap",
+            sender = GRIDLINK_SAMPLE_ACCOUNT,
+            domain = "gridlink.me",
+            subject = "Weekly recap, all five stores, week ending 08/02",
+            timestamp = "Mon",
+            section = GridlinkSection.EARLIER,
+            attachments = listOf(GridlinkAttachment("recap-wk-0802.pdf", "204 KB")),
+            // Four recipients, so the row draws "(+3)" beside the first name. This is the case a
+            // joined-and-ellipsised list would silently swallow.
+            sentTo = GridlinkRecipient("A. Moore", "gridlink.me", others = 3),
         ),
     ).map { message ->
         message.copy(body = GridlinkSampleBodies.bodyFor(message.id))
@@ -559,6 +621,20 @@ data class GridlinkMessage(
      * parts for the opposite reason, so a tracking pixel never grows into a paperclip.
      */
     val inlineImages: Map<String, String> = emptyMap(),
+    /**
+     * Who the mail went TO, set only in the mailboxes where the sender is you.
+     *
+     * 🔴 Null is the switch, and null is the normal case. An Inbox row has no recipient worth
+     * drawing (it is you), while every row of Sent and Drafts otherwise shows your own name, which
+     * turns the loudest line in the list into one column of identical text exactly where the fact
+     * you are scanning for should be.
+     *
+     * ⚠️ [sender], [domain] and [address] deliberately keep pointing at the From header even on
+     * these rows, and must not be overloaded to carry the recipient instead: the thread header, the
+     * remote-image allowlist and the unsubscribe dialog all read them, and all three mean the
+     * sender. This is an extra field precisely so those keep working.
+     */
+    val sentTo: GridlinkRecipient? = null,
 ) {
     val hasAttachment: Boolean get() = attachments.isNotEmpty() || attachmentPending
 
@@ -584,6 +660,63 @@ data class GridlinkMessage(
             } else {
                 sender.lowercase().replace(NON_ADDRESS_CHARS, ".").trim('.') + "@" + domain
             }
+
+    private companion object {
+        val NON_ADDRESS_CHARS = Regex("[^a-z0-9]+")
+    }
+}
+
+/**
+ * The one recipient an outgoing row draws, plus how many others there were.
+ *
+ * ## Why one name and a count, and not the joined list
+ * The row is a single line at [GridlinkDimens.messageRowHeight] and shares it with the timestamp, so
+ * a joined list of five recipients is one name and an ellipsis: the same information as one name,
+ * minus the fact that there were five. The count is the part that survives being cut off, so it is
+ * the part that gets its own field.
+ *
+ * ## Why a blank [name] is a state and not a bug
+ * A draft you have written but not addressed genuinely has no recipient, and it is the one row where
+ * falling back to the sender would print your own name again, which is the whole thing this field
+ * exists to stop. So [line] says so plainly instead.
+ *
+ * ⚠️ Its English is hard-coded, like every other label in this package, and for the same reason
+ * given at [GridlinkMailMapping.Labels]: the package implements a written design brief and its
+ * wording is part of that brief. When `ui.gridlink` is localised these three strings move with the
+ * four gathered there.
+ */
+data class GridlinkRecipient(
+    /** Display name if the message carried one, else the bare address. Blank = unaddressed. */
+    val name: String,
+    /** Drives the identity bar colour on outgoing rows, the way `domain` does on incoming ones. */
+    val domain: String = "",
+    /** Recipients beyond [name]. Zero for the ordinary one-recipient message. */
+    val others: Int = 0,
+) {
+    /** Line 1 of the row. */
+    val line: String
+        get() = when {
+            name.isBlank() -> "(no recipient)"
+            others > 0 -> "To $name (+$others)"
+            else -> "To $name"
+        }
+
+    /**
+     * A usable address for this recipient, or blank when there is nothing to build one from.
+     *
+     * Real mail usually needs no derivation at all: [name] comes from the `To:` header's display
+     * name, which already falls back to the bare address when the sender wrote none. The derived
+     * form is for the sample, whose fixtures carry display names only, and it is the same invention
+     * [GridlinkMessage.address] makes for the same reason. It exists so that tapping a Drafts row
+     * opens a composer with the recipient the row just named, rather than an empty To field one tap
+     * away from a line reading "To Sysco Charlotte".
+     */
+    val address: String
+        get() = when {
+            name.contains('@') -> name
+            name.isBlank() || domain.isBlank() -> ""
+            else -> name.lowercase().replace(NON_ADDRESS_CHARS, ".").trim('.') + "@" + domain
+        }
 
     private companion object {
         val NON_ADDRESS_CHARS = Regex("[^a-z0-9]+")
