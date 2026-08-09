@@ -184,6 +184,11 @@ class MainActivity : AppCompatActivity() {
             i.removeExtra(Intent.EXTRA_SUBJECT)
             i.removeExtra(Intent.EXTRA_TEXT)
             i.removeExtra(Intent.EXTRA_STREAM)
+            // The stash [parseShare] filled, dropped with the payload it belongs to. The Gridlink
+            // composer never reads it (it has no attachment picker), so left standing it would sit
+            // in the container until some later draft picked up files from a share the user made
+            // hours ago — and the read grants behind those URIs will have expired by then anyway.
+            application.container.pendingShareUris = emptyList()
         }
     }
 
