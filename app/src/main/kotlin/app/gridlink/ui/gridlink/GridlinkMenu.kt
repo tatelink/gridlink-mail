@@ -1,10 +1,12 @@
 package app.gridlink.ui.gridlink
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,6 +24,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AlternateEmail
 import androidx.compose.material.icons.outlined.Brightness4
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.DoneAll
 import androidx.compose.material.icons.outlined.Drafts
 import androidx.compose.material.icons.outlined.ManageAccounts
 import androidx.compose.material.icons.outlined.Menu
@@ -141,6 +145,20 @@ fun GridlinkChromeRow(
     header: (@Composable () -> Unit)? = null,
     /** The screen's far-right control: the inbox's search pill, the calendar's steppers. */
     trailing: (@Composable () -> Unit)? = null,
+    /**
+     * Non-null while a selection is open: the leading circle becomes the way out of it.
+     *
+     * §6b puts the close control on the header's leading edge, and this is the seat it means. It
+     * cannot go in the nav pill, which is at its documented four-item ceiling on both sides, and it
+     * is not a fifth selection action anyway: the four in the pill do something to the messages, this
+     * one puts the mail down.
+     *
+     * ⚠️ The menu is unreachable while it is a close, which is the trade §6b asks for and is worth
+     * naming. A selection is a mode, the app's other modes (search, the drawer) are already mutually
+     * exclusive with it, and a hamburger that opened a drawer over eleven ticked rows would be
+     * offering to leave the screen mid-action. One tap gets it back.
+     */
+    onCloseSelection: (() -> Unit)? = null,
 ) {
     Row(
         modifier = modifier
@@ -156,7 +174,10 @@ fun GridlinkChromeRow(
             ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        GridlinkMenuButton(onClick = onOpenMenu)
+        GridlinkMenuButton(
+            onClick = onCloseSelection ?: onOpenMenu,
+            closing = onCloseSelection != null,
+        )
         // The weight is what pins [trailing] to the corner AND what lets the search pill open
         // leftward: the pill growing simply takes width back from this box, so its right edge never
         // moves off the pad line.
@@ -191,11 +212,23 @@ fun GridlinkChromeRow(
  * search's is 55% of it. Search is ghosted on purpose, because it is a verb you want four seconds a
  * day and it sits on top of the list you are reading. The menu is the app's only route to Settings,
  * Drafts and Scheduled, and a route that is hard to see is a route people do not find.
+ *
+ * ## 🔴 [closing] swaps the glyph, and only the glyph
+ * The circle, its fill, its hairline and its click target are drawn ONCE and outside the animation.
+ * §6b's rule for the nav pill ("a transformation, not an arrival") is the same rule here for the same
+ * reason: an `if` around the whole control is one circle leaving and another arriving in the corner
+ * the eye is already resting on, and no amount of matching dimensions hides the blink.
+ *
+ * ⚠️ [AnimatedContent] is keyed on the Boolean and NOT on [onClick]. The lambda is a new object on
+ * every recomposition, so keying on it would restart the cross-fade on every frame that touched this
+ * row, which is every frame a selection changes size.
  */
 @Composable
 fun GridlinkMenuButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /** True while a selection is open: the hamburger becomes the close that ends it. */
+    closing: Boolean = false,
 ) {
     val colors = GridlinkTheme.colors
     Box(
@@ -211,10 +244,76 @@ fun GridlinkMenuButton(
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
+        AnimatedContent(
+            targetState = closing,
+            // Cross-fade with no SizeTransform: both glyphs are 20dp inside a fixed 44dp circle, so
+            // there is no size to animate and asking for one only risks the icon scaling inside a
+            // container that is not moving.
+            transitionSpec = {
+                fadeIn(GridlinkMotion.standard()) togetherWith fadeOut(GridlinkMotion.standard())
+            },
+            label = "menuGlyph",
+        ) { isClosing ->
+            Icon(
+                imageVector = if (isClosing) Icons.Outlined.Close else Icons.Outlined.Menu,
+                contentDescription = if (isClosing) "Clear selection" else "Menu",
+                tint = colors.textSecondary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+/**
+ * Select all, in the chrome row's trailing seat while a selection is open.
+ *
+ * §6b: "a close control on the leading edge and select-all on the trailing edge". It wears the search
+ * pill's collapsed treatment because it takes the search pill's actual seat — the inbox hides search
+ * for the duration of a selection — and two different circles trading places in the same corner would
+ * read as the header having been rebuilt rather than as one control changing job.
+ *
+ * ## 🔴 [all] fills it rather than dimming it
+ * Everything-is-picked is an on/off state, and Brandon's on/off vocabulary is the accent fill, the
+ * same one the active nav destination wears. ⚠️ Never express the off state by dropping the glyph's
+ * alpha: he reads opacity-dimming as broken rather than as off, and has said so more than once.
+ *
+ * ## Why it toggles instead of going inert
+ * With everything already ticked a pure "select all" has nothing left to do, and a control that
+ * cannot act is worse in the corner than not being there. So the filled state clears instead, which
+ * is not a second close button by accident: unticking the last row has always ended the selection
+ * (see the list's row tap), so "none selected" already means "not selecting" everywhere else.
+ */
+@Composable
+fun GridlinkSelectAllButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    /** True when every message on screen is already ticked. */
+    all: Boolean = false,
+) {
+    val colors = GridlinkTheme.colors
+    Box(
+        modifier = modifier
+            .size(GridlinkDimens.headerControl)
+            .then(
+                if (all) {
+                    Modifier.background(gridlinkAccentFill(colors.accent), CircleShape)
+                } else {
+                    Modifier.background(colors.surface.copy(alpha = 0.14f), CircleShape)
+                },
+            )
+            .border(
+                width = GridlinkDimens.hairline,
+                color = if (all) Color.Transparent else colors.surfaceBorder.copy(alpha = 0.35f),
+                shape = CircleShape,
+            )
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
         Icon(
-            imageVector = Icons.Outlined.Menu,
-            contentDescription = "Menu",
-            tint = colors.textSecondary,
+            imageVector = Icons.Outlined.DoneAll,
+            contentDescription = if (all) "Clear selection" else "Select all",
+            tint = if (all) colors.onAccent else colors.textSecondary,
             modifier = Modifier.size(20.dp),
         )
     }

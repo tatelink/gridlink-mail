@@ -871,11 +871,16 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
      * with what the user watched happen.
      *
      * 🔴 [GridlinkMailAction.MOVE] and [GridlinkMailAction.UNSUBSCRIBE] do NOTHING here, loudly
-     * rather than quietly: there is no folder picker and no unsubscribe request yet. The row is
-     * already gone from the list at this point, so what the user sees is the message returning at
-     * the next sync — which is exactly what "nothing happened" should look like. The alternative,
-     * and the reason this is spelled out, is quietly archiving instead, which would be the app
-     * doing something to their mail that they did not ask for and cannot see.
+     * rather than quietly. The row is already gone from the list at this point, so what the user
+     * sees is the message returning at the next sync — which is exactly what "nothing happened"
+     * should look like. The alternative, and the reason this is spelled out, is quietly archiving
+     * instead, which would be the app doing something to their mail that they did not ask for and
+     * cannot see.
+     *
+     * ⚠️ MOVE reaching here is now a caller's mistake rather than a missing feature. The selection
+     * toolbar routes moves through [move], which has somewhere to put them; this enum has no room
+     * for a destination, so a move arriving down this path is a request with no answer and the log
+     * line is the honest reply. UNSUBSCRIBE is still genuinely unbuilt.
      */
     fun act(ids: Set<String>, action: GridlinkMailAction) {
         if (ids.isEmpty()) return
@@ -897,6 +902,37 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 throw c
             } catch (t: Throwable) {
                 Log.w(TAG, "$action failed", t)
+            }
+        }
+    }
+
+    /**
+     * File [ids] into the mailbox the user picked.
+     *
+     * Separate from [act] for one reason: a move has a destination, and [GridlinkMailAction] is an
+     * enum. 🔴 [mailboxId] is a [app.gridlink.ui.gridlink.GridlinkFolder.id], which for a real
+     * account IS the JMAP mailbox id — the folder tree is built from the server's own mailbox list
+     * and keeps its ids — so it can go straight to the repository without a lookup.
+     *
+     * Fire and forget on the view model's scope, for [act]'s reason: the rows have already animated
+     * out and the user may have left the screen before the request lands.
+     *
+     * ⚠️ Nothing here decides where mail goes. This is only ever called after the picker has been
+     * shown and a folder tapped, and if the id is empty or unknown the server refuses it, which is
+     * the correct outcome — the alternative would be guessing a mailbox on the user's behalf.
+     */
+    fun move(ids: Set<String>, mailboxId: String) {
+        if (ids.isEmpty() || mailboxId.isEmpty()) return
+        val id = accountId.value ?: return
+        val credentials = store.credentials(id) ?: return
+        val targets = ids.toList()
+        viewModelScope.launch {
+            try {
+                repo.moveAllToMailbox(credentials, targets, mailboxId)
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                Log.w(TAG, "move failed", t)
             }
         }
     }
