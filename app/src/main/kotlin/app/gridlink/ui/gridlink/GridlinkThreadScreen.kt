@@ -271,8 +271,12 @@ fun GridlinkThreadScreen(
                 // live and monitored, and for a sender acting in bad faith that is worth more than
                 // the mail they were sending. Anyone who cares should archive instead, and they can
                 // only decide that if the app says so.
-                text = "Sends a request to ${message.domain} and files this message. " +
-                    "It also confirms to them that this address is real.",
+                //
+                // 🔴 Three sentences, because the three methods genuinely do three different things
+                // and one shared sentence would be wrong for two of them. The old copy said "sends
+                // a request" for all of them, which was a plain lie about the mailto path, where
+                // nothing goes anywhere until the reader presses send on a draft they can read.
+                text = gridlinkUnsubscribeWarning(message),
                 style = GridlinkType.body,
                 color = colors.textSecondary,
             )
@@ -583,20 +587,22 @@ private fun GridlinkThreadActionPill(
 /**
  * What the pill's More slot opens: the actions worth having that are not worth a permanent slot.
  *
- * ## 🔴 Which actions, and why it depends on the sender
- * - **A person wrote it:** Reply all, then Spam. There is no unsubscribe link in a mail from a
- *   colleague, and offering one that cannot work is worse than not offering it.
- * - **A machine sent it** ([GridlinkMessage.automated]): Unsubscribe, then Spam. Reply all drops
- *   out, because replying to everyone on a billing statement means replying to a no-reply robot and
- *   a mailing list, and Reply is still on the circle for the rare one that does read them.
+ * ## 🔴 Which actions, and why it depends on the message
+ * - **It carries no unsubscribe address:** Reply all, then Spam. There is nothing to unsubscribe
+ *   from, and offering an action that cannot work is worse than not offering it.
+ * - **It carries one** ([GridlinkMessage.unsubscribe]): Unsubscribe, then Spam. Reply all drops out,
+ *   because replying to everyone on a bulk mailing means replying to a no-reply robot and a mailing
+ *   list, and Reply is still on the circle for the rare one that does read them.
  *
  * Spam is not tinted [app.gridlink.ui.theme.GridlinkColors.destructive]: red in this palette is
  * spent on delete and nothing else, and filing to Junk is recoverable.
  *
- * ⚠️ The real signal is the `List-Unsubscribe` header, not [GridlinkMessage.automated]. The sample
- * data has no headers, and `automated` is the field that means the same thing here. Swap it when the
- * JMAP store lands, and expect the two to disagree: plenty of genuine bulk mail ships no header at
- * all, and the row has to disappear for those rather than fail.
+ * 🔴 The signal is the message's own `List-Unsubscribe` header and nothing else. It used to be
+ * [GridlinkMessage.automated] — a guess off the local part of the address — with a note here saying
+ * to swap it when real mail landed, and the two do disagree exactly as that note predicted: plenty
+ * of bulk mail ships no header, and plenty of newsletters come from a named human. The header
+ * arrives with the body, so on a message whose fetch has not answered yet this shows Reply all and
+ * changes when it does. Appearing late is the honest failure; offering it on a guess is not.
  */
 @Composable
 private fun GridlinkThreadMoreSheet(
@@ -614,7 +620,7 @@ private fun GridlinkThreadMoreSheet(
             subline = message.subject,
         )
         GridlinkSheetDivider()
-        if (message.automated) {
+        if (message.unsubscribe != null) {
             GridlinkSheetAction(
                 label = "Unsubscribe",
                 icon = Icons.Outlined.Unsubscribe,

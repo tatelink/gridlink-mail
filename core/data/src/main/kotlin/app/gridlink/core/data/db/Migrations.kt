@@ -419,3 +419,30 @@ val MIGRATION_19_20 = object : Migration(19, 20) {
         db.execSQL(ADDRESS_BOOK_CONTACTS_INDEX_SQL)
     }
 }
+
+/** The two `myRights` columns added to `mailboxes` in v21; shared with the JVM test. */
+const val MAILBOXES_ADD_MAY_RENAME_SQL: String =
+    "ALTER TABLE `mailboxes` ADD COLUMN `mayRename` INTEGER"
+
+const val MAILBOXES_ADD_MAY_DELETE_SQL: String =
+    "ALTER TABLE `mailboxes` ADD COLUMN `mayDelete` INTEGER"
+
+/**
+ * Additive 20→21: what the server says this account may do to each mailbox.
+ *
+ * Two nullable columns on `mailboxes`, holding JMAP's `myRights.mayRename` and `mayDelete`. Every
+ * existing row gets NULL, which is deliberate and is why the columns are nullable at all: NULL means
+ * "never asked", not "not allowed", and the folder tree falls back to the rule it used before this
+ * migration existed. Defaulting to 0 would have taken Rename and Delete off every folder in the
+ * account until the next sync; defaulting to 1 would have promised a right the server may refuse.
+ *
+ * A migration rather than the destructive fallback for the same reason as every other one here: the
+ * fallback takes the outbox (unsent mail) with it, and learning a folder's permissions is not a
+ * reason to lose a queued message.
+ */
+val MIGRATION_20_21 = object : Migration(20, 21) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(MAILBOXES_ADD_MAY_RENAME_SQL)
+        db.execSQL(MAILBOXES_ADD_MAY_DELETE_SQL)
+    }
+}

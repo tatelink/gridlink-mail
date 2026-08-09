@@ -145,6 +145,17 @@ data class GridlinkOpenMessage(
     val plainText: Boolean = false,
     /** The body's inline images, `cid:` → `data:`. See [GridlinkMessage.inlineImages]. */
     val inlineImages: Map<String, String> = emptyMap(),
+    /**
+     * How this message can be unsubscribed from, or null when it cannot be — which is most mail,
+     * and which is what takes the Unsubscribe row out of the menu.
+     *
+     * 🔴 Here rather than on [GridlinkMessage] or in the database, and that is the whole design.
+     * The headers behind it come back with the BODY, so the action becomes available at the moment
+     * the message is open and readable, which is the only moment it can be tapped. Putting it on
+     * the list row would mean a column, a migration, and a promise to keep it in step with the
+     * server; putting it here means it is either fetched or the row simply is not offered.
+     */
+    val unsubscribe: GridlinkUnsubscribe? = null,
 )
 
 /**

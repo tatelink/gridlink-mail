@@ -30,6 +30,14 @@ object GridlinkSample {
             unread = false,
             attachments = listOf(GridlinkAttachment("dss_1182_0730.pdf", "61 KB")),
             automated = true,
+            // The three sample senders below carry the three unsubscribe methods, one each, so the
+            // gallery draws all three confirmation sentences without a network or a real newsletter.
+            // 🔴 The other automated messages deliberately carry NONE: "automated" and "can be
+            // unsubscribed from" are different facts, and the gallery should show that they are.
+            // This one is mailto-only — the method that opens a draft and sends nothing by itself.
+            unsubscribe = GridlinkUnsubscribe(
+                mailto = "mailto:dss-unsub+2043@tallyman.example?subject=Unsubscribe%201182",
+            ),
         ),
         GridlinkMessage(
             id = "pbi-refresh",
@@ -39,6 +47,10 @@ object GridlinkSample {
             timestamp = "6:52 AM",
             unread = false,
             automated = true,
+            // A web address with no one-click promise: opens their page, unsubscribes nothing itself.
+            unsubscribe = GridlinkUnsubscribe(
+                httpUrl = "https://powerbi.microsoft.com/unsubscribe?t=9f2c",
+            ),
         ),
         GridlinkMessage(
             id = "verdant-cap",
@@ -114,6 +126,12 @@ object GridlinkSample {
             timestamp = "Mon",
             unread = false,
             automated = true,
+            // One-click: the only method that sends something the moment the dialog is confirmed.
+            unsubscribe = GridlinkUnsubscribe(
+                httpUrl = "https://powerbi.microsoft.com/unsubscribe?t=41ab",
+                mailto = "mailto:unsub-41ab@powerbi.microsoft.com",
+                oneClick = true,
+            ),
         ),
     )
 
@@ -635,6 +653,22 @@ data class GridlinkMessage(
      * sender. This is an extra field precisely so those keep working.
      */
     val sentTo: GridlinkRecipient? = null,
+    /**
+     * How to unsubscribe from this sender, off the message's own `List-Unsubscribe` header, or null
+     * when there is no way to — which is most mail, and which is what hides the action.
+     *
+     * ⚠️ Arrives with the BODY, not with the row, exactly like [inlineImages] and [bodyIsPlainText]:
+     * the header comes back on the single-message fetch, so a row in the list has it null until the
+     * message is opened. That is the right shape for the action it drives, which cannot be reached
+     * without opening the message first. See [GridlinkUnsubscribe] and the merge in `GridlinkRoot`.
+     *
+     * 🔴 This replaced [automated] as the signal for the Unsubscribe row. [automated] is a guess off
+     * the local part of the address, and it was both too generous (offering to unsubscribe from a
+     * no-reply notification with no unsubscribe address anywhere on it) and too mean (hiding the
+     * action on a newsletter from a named human). It still decides the bundle, which is a question
+     * about how mail is grouped and not about what can be done to it.
+     */
+    val unsubscribe: GridlinkUnsubscribe? = null,
 ) {
     val hasAttachment: Boolean get() = attachments.isNotEmpty() || attachmentPending
 

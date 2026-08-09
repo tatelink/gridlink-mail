@@ -1,5 +1,6 @@
 package app.gridlink.core.jmap.model
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /** An email address with optional display name (RFC 8621 §4.1.2.3). */
@@ -98,6 +99,28 @@ data class Email(
      * (issue #60). Empty for every normal fetch, so the ordinary reader path is unchanged.
      */
     val headers: List<EmailHeader> = emptyList(),
+    /**
+     * The `List-Unsubscribe` header (RFC 2369), as text, fetched by the single-message call.
+     *
+     * JMAP lets a client ask for any header by name (RFC 8621 §4.1.3), and `header:{name}:asText`
+     * is the unfolded, decoded value — one string holding the whole `<uri>, <uri>` list. Null when
+     * the message has no such header, which is most of them, and on every IMAP account.
+     *
+     * ⚠️ Deliberately `asText` and not `asURLs`. `asURLs` would hand over a parsed list and save an
+     * in-app parser, but it is the less widely implemented of the two forms, and a server that does
+     * not know it answers with an error for the WHOLE `Email/get` — losing the message body over an
+     * unsubscribe link. Text is what every server can produce; the parsing is [app.gridlink] work.
+     */
+    @SerialName("header:List-Unsubscribe:asText")
+    val listUnsubscribe: String? = null,
+    /**
+     * The `List-Unsubscribe-Post` header (RFC 8058), which is the sender promising that a single
+     * POST is enough and no confirmation page will follow. Its only legal value is
+     * `List-Unsubscribe=One-Click`; anything else, including its absence, means the HTTPS link has
+     * to be opened in a browser instead. See `GridlinkUnsubscribe` for what is made of the pair.
+     */
+    @SerialName("header:List-Unsubscribe-Post:asText")
+    val listUnsubscribePost: String? = null,
 ) {
     /** Whether the message has been read ($seen keyword). */
     val isSeen: Boolean get() = keywords["\$seen"] == true

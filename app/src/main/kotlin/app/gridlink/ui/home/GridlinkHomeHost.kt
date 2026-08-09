@@ -256,6 +256,7 @@ fun GridlinkHomeHost(
             folders = folders,
             onFolderEdit = viewModel::editFolder,
             onMove = viewModel::move,
+            onUnsubscribe = viewModel::unsubscribe,
             onOpenFolder = viewModel::openFolder,
             calendar = calendar,
             contacts = contacts,

@@ -32,6 +32,11 @@ import java.sql.DriverManager
  * confirmed "Empty trash" (#99) — additive, and deliberately empty on upgrade, so a purge
  * confirmed by the previous version destroys nothing instead of re-reading the folder.
  *
+ * And **v20 → v21** ([MIGRATION_20_21]) adds `mailboxes.mayRename` / `mayDelete`, JMAP's `myRights`.
+ * 🔴 Both nullable, and the test that matters is that an existing row comes out **NULL and not 0**:
+ * NULL means "never asked", which the folder tree reads as "use the old local rule", while a 0 would
+ * silently take Rename and Delete off every folder the user made.
+ *
  * The migrations are executed through their own [MIGRATION_14_15] / [MIGRATION_15_16] /
  * [MIGRATION_16_17] / [MIGRATION_17_18] objects (via a tiny [SupportSQLiteDatabase] proxy that forwards `execSQL` to
  * JDBC), not through a copy of their statements, so the test cannot drift from the code that ships.
@@ -167,6 +172,8 @@ class EmailsMigrationSqlTest {
     private fun migrate16to17() = MIGRATION_16_17.migrate(supportDb())
 
     private fun migrate17to18() = MIGRATION_17_18.migrate(supportDb())
+
+    private fun migrate20to21() = MIGRATION_20_21.migrate(supportDb())
 
     private fun count(sql: String): Int = db.createStatement().use { st ->
         st.executeQuery(sql).use { rs ->
@@ -493,5 +500,69 @@ class EmailsMigrationSqlTest {
         assertEquals(1, count("SELECT COUNT(*) FROM `outbox` WHERE `subject` = 'Queued'"))
         assertEquals(1, pkPositions("emails")["accountId"])
         assertEquals(2, pkPositions("emails")["id"])
+    }
+
+    // --- v20 → v21: what the server says this account may do to each mailbox ---------------------
+
+    /** The raw stored value, distinguishing SQL NULL from 0 — which is this migration's whole point. */
+    private fun intOrNull(sql: String): Int? = db.createStatement().use { st ->
+        st.executeQuery(sql).use { rs ->
+            assertTrue(rs.next())
+            val value = rs.getInt(1)
+            if (rs.wasNull()) null else value
+        }
+    }
+
+    @Test fun v20to21_addsBothRightsColumnsAndKeepsEveryRow() {
+        seedV15()
+        migrate20to21()
+
+        assertEquals(
+            setOf(
+                "accountId", "id", "name", "role", "parentId", "sortOrder", "totalEmails",
+                "unreadEmails", "mayRename", "mayDelete",
+            ),
+            columnsOf("mailboxes"),
+        )
+        // Additive, like every migration here: the cached folder keeps its name, role and counters,
+        // and nothing outside `mailboxes` is touched at all.
+        assertEquals(1, count("SELECT COUNT(*) FROM `mailboxes` WHERE `id` = 'mb1' AND `role` = 'inbox' AND `unreadEmails` = 1"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `outbox` WHERE `subject` = 'Queued'"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `snoozed` WHERE `emailId` = 'e2'"))
+    }
+
+    @Test fun v20to21_existingRowsAreNullNotFalse() {
+        seedV15()
+        migrate20to21()
+
+        // 🔴 The reason both columns are nullable. NULL is "never asked", and the folder tree falls
+        // back to its own rule for it. A DEFAULT 0 here would take Rename and Delete off every
+        // folder in the account until the next sync finished — including folders the user made.
+        assertEquals(null, intOrNull("SELECT `mayRename` FROM `mailboxes` WHERE `id` = 'mb1'"))
+        assertEquals(null, intOrNull("SELECT `mayDelete` FROM `mailboxes` WHERE `id` = 'mb1'"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `mailboxes` WHERE `mayRename` IS NULL"))
+    }
+
+    @Test fun v20to21_theColumnsHoldAllThreeStates() {
+        seedV15()
+        migrate20to21()
+
+        // false is a real answer and must be storable as one, distinct from "not known".
+        db.createStatement().use { st ->
+            st.executeUpdate("INSERT INTO `mailboxes` VALUES ('accA', 'mb2', 'Team', NULL, NULL, 0, 0, 0, 0, 1)")
+        }
+        assertEquals(0, intOrNull("SELECT `mayRename` FROM `mailboxes` WHERE `id` = 'mb2'"))
+        assertEquals(1, intOrNull("SELECT `mayDelete` FROM `mailboxes` WHERE `id` = 'mb2'"))
+        assertEquals(null, intOrNull("SELECT `mayRename` FROM `mailboxes` WHERE `id` = 'mb1'"))
+    }
+
+    @Test fun v20to21_leavesTheCompositeKeyAlone() {
+        seedV15()
+        migrate20to21()
+
+        // Room re-checks the key at open time; an ALTER must not disturb it.
+        assertEquals(1, pkPositions("mailboxes")["accountId"])
+        assertEquals(2, pkPositions("mailboxes")["id"])
+        assertEquals(0, pkPositions("mailboxes")["mayRename"])
     }
 }
