@@ -656,14 +656,7 @@ class JmapClient internal constructor(
                     addJsonObject {
                         put("accountId", accountId)
                         putJsonArray("ids") { add(emailId) }
-                        putJsonArray("properties") {
-                            listOf(
-                                "id", "blobId", "threadId", "subject", "preview", "receivedAt",
-                                "from", "to", "cc", "bcc", "messageId", "inReplyTo", "references",
-                                "hasAttachment", "keywords",
-                                "htmlBody", "textBody", "attachments", "bodyValues",
-                            ).forEach { add(it) }
-                        }
+                        putJsonArray("properties") { EMAIL_BODY_PROPERTIES.forEach { add(it) } }
                         put("fetchHTMLBodyValues", true)
                         put("fetchTextBodyValues", true)
                     }
@@ -742,14 +735,7 @@ class JmapClient internal constructor(
                     addJsonObject {
                         put("accountId", accountId)
                         putJsonArray("ids") { ids.forEach { add(it) } }
-                        putJsonArray("properties") {
-                            listOf(
-                                "id", "blobId", "threadId", "subject", "preview", "receivedAt",
-                                "from", "to", "cc", "bcc", "messageId", "inReplyTo", "references",
-                                "hasAttachment", "keywords",
-                                "htmlBody", "textBody", "attachments", "bodyValues",
-                            ).forEach { add(it) }
-                        }
+                        putJsonArray("properties") { EMAIL_BODY_PROPERTIES.forEach { add(it) } }
                         put("fetchHTMLBodyValues", true)
                         put("fetchTextBodyValues", true)
                     }
@@ -2210,6 +2196,28 @@ class JmapClient internal constructor(
             } else {
                 url
             }
+
+        /**
+         * The properties a full single-message fetch asks for: everything the reader draws.
+         *
+         * 🔴 One list, used by BOTH [getEmail] and [getEmailsWithBody], because they were two
+         * copies of the same list and a property added to one of them silently did not apply to a
+         * message that arrived through the other. The prefetch caches what it fetches, so a reader
+         * opening a prefetched message would have been reading a different Email shape than one
+         * opening a cold message, which is the kind of difference that looks like a random bug.
+         *
+         * The last two are not JMAP properties at all: RFC 8621 §4.1.3 lets a client name any
+         * header, and these two are what the Unsubscribe action is built on (RFC 2369 / RFC 8058).
+         * `asText` rather than `asURLs` — see [app.gridlink.core.jmap.model.Email.listUnsubscribe].
+         */
+        internal val EMAIL_BODY_PROPERTIES: List<String> = listOf(
+            "id", "blobId", "threadId", "subject", "preview", "receivedAt",
+            "from", "to", "cc", "bcc", "messageId", "inReplyTo", "references",
+            "hasAttachment", "keywords",
+            "htmlBody", "textBody", "attachments", "bodyValues",
+            "header:List-Unsubscribe:asText",
+            "header:List-Unsubscribe-Post:asText",
+        )
 
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 

@@ -20,4 +20,14 @@ data class MailboxEntity(
     val sortOrder: Int,
     val totalEmails: Int,
     val unreadEmails: Int,
+    /**
+     * JMAP `myRights.mayRename` / `myRights.mayDelete`, as the server reported them.
+     *
+     * 🔴 Nullable, and null means "not known" — not "no". Rows written before v21 have it, and so
+     * does every mailbox on the IMAP path, which has no such property to fetch. The folder tree
+     * falls back to its own rule for those; see `GridlinkFolderMapping`. Storing a false here for
+     * "we did not ask" would quietly take the rename action away from a user's own folders.
+     */
+    val mayRename: Boolean? = null,
+    val mayDelete: Boolean? = null,
 )

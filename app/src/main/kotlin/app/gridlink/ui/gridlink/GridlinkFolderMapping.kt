@@ -8,15 +8,23 @@ import app.gridlink.core.jmap.model.Mailbox
  * [GridlinkMailMapping]'s counterpart for the Folders tab, on the app side of the same line: nothing
  * under `ui.gridlink` may know what a [Mailbox] is, so the conversion lives here and is pure.
  *
- * ## What is genuinely not known here
- * 🔴 **The rights are derived from the role, which [GridlinkFolder] itself says is a guess.** JMAP
- * sends `myRights.mayRename` and `mayDelete` per mailbox; neither the `core:jmap` model nor the
- * `mailboxes` table carries them, so adding them means a model field, a column and a Room migration,
- * and that is a change about the schema rather than a change about drawing real folders. The
- * consequence is stated rather than hidden: a **shared or delegated** mailbox arrives as an ordinary
- * user folder and is offered a rename the server will refuse. A personal account, which is every
- * account this app can currently create, is unaffected. See [GridlinkFolder]'s own note, which has
- * described this trade since the sample was written.
+ * ## Who decides what a folder may do
+ * Two answers, and the folder gets the stricter one ([rightAllows]):
+ *
+ *  1. **The server**, through JMAP `myRights` (RFC 8621 §2), carried here on [Mailbox.myRights] and
+ *     cached in two nullable columns since v21. A **shared or delegated** mailbox is an ordinary
+ *     user folder that the account may read and may not touch, and this is the only thing that can
+ *     say so. Null means the server was never asked — every IMAP account, and any row written before
+ *     v21 — and null falls back to (2) rather than refusing, because "not known" is not "no".
+ *  2. **This app**, which refuses to rename or delete any mailbox the server gave a role to, even
+ *     when `myRights` says it could. The six standard mailboxes are load-bearing: the app files mail
+ *     into them by role, and a renamed Trash is a Trash the app can no longer find. See [roleOf] for
+ *     why that covers `all` / `flagged` / `important` too, which are drawn as ordinary folders and
+ *     are just as much the server's.
+ *
+ * ⚠️ So a `myRights` that GRANTS a right adds nothing: it can only ever take one away. That is the
+ * intended asymmetry — the server is authoritative about what it will refuse, and this app is
+ * authoritative about what it is willing to ask for.
  */
 object GridlinkFolderMapping {
 
@@ -56,11 +64,31 @@ object GridlinkFolderMapping {
                         // put "40" on a mailbox that opens onto an empty list.
                         unread = mailbox.unreadForList,
                         children = build(mailbox.id, depth + 1),
+                        // 🔴 Passed explicitly, never left to [GridlinkFolder]'s defaults. Those
+                        // read `role == USER`, and the unmapped server roles below ARE USER here —
+                        // the default would offer a rename on the server's own "All Mail".
+                        mayRename = rightAllows(mailbox, mailbox.myRights?.mayRename),
+                        mayDelete = rightAllows(mailbox, mailbox.myRights?.mayDelete),
                     )
                 }
         }
         return build(null, 0)
     }
+
+    /**
+     * Whether one right survives both answers: this app's rule AND the server's, in that order.
+     *
+     * [right] is one field of [Mailbox.myRights], so **null is "the server did not say"** and only
+     * an explicit `false` refuses. The local half is [Mailbox.role] being blank — a mailbox the
+     * server named is a mailbox the server owns, whatever it says this account may do to it.
+     *
+     * 🔴 Reads the raw [Mailbox.role] string rather than [roleOf]'s answer, and that is the fix for
+     * the second half of this: `all`, `flagged`, `important` and `subscribed` map to
+     * [GridlinkFolderRole.USER] because there is no glyph for them, and asking the mapped role would
+     * hand them the rename that mapping was never meant to imply.
+     */
+    private fun rightAllows(mailbox: Mailbox, right: Boolean?): Boolean =
+        mailbox.role.isNullOrBlank() && right != false
 
     /** JMAP's role strings (RFC 8621 §2), lowercased by the server, to the six the tree draws. */
     fun roleOf(role: String?): GridlinkFolderRole = when (role?.lowercase()) {
@@ -73,10 +101,13 @@ object GridlinkFolderMapping {
         "junk", "spam" -> GridlinkFolderRole.JUNK
         "trash" -> GridlinkFolderRole.TRASH
         // ⚠️ Everything else is USER, INCLUDING the roles this app has no screen for (`all`,
-        // `flagged`, `important`, `subscribed`). That makes them renameable and deletable in the
-        // tree, which is wrong for a server-assigned mailbox and is the smaller of the two errors:
-        // mapping them onto one of the six would draw an "All Mail" folder wearing the Archive
+        // `flagged`, `important`, `subscribed`). That is a statement about the GLYPH and nothing
+        // else: mapping them onto one of the six would draw an "All Mail" folder wearing the Archive
         // glyph and behaving like the archive everywhere the role is read.
+        //
+        // 🔴 It no longer makes them renameable. [rightAllows] reads the raw role string instead of
+        // this answer, so a mailbox the server named keeps its actions off whether or not this
+        // function has a case for it. That was the actual bug; the glyph never was one.
         else -> GridlinkFolderRole.USER
     }
 

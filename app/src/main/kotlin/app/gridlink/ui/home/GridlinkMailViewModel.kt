@@ -2,7 +2,9 @@ package app.gridlink.ui.home
 
 import android.app.Application
 import android.content.Intent
+import android.net.Uri
 import android.util.Log
+import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.core.text.HtmlCompat
 import androidx.lifecycle.AndroidViewModel
@@ -32,8 +34,11 @@ import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 import app.gridlink.ui.gridlink.GridlinkScheduledContent
 import app.gridlink.ui.gridlink.GridlinkScheduledSend
 import app.gridlink.ui.gridlink.GridlinkSearchContent
+import app.gridlink.ui.gridlink.GridlinkUnsubscribe
 import app.gridlink.ui.gridlink.gridlinkTypedRecipient
+import app.gridlink.ui.gridlink.gridlinkUnsubscribeOf
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
@@ -50,6 +55,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -723,6 +731,13 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 // cid:, so the map is simply unused there, and branching on it would only add a way
                 // for the two to get out of step.
                 inlineImages = body.inlineImages,
+                // Parsed here rather than stored: the headers ride along with this fetch, and the
+                // action they unlock cannot be reached without it. Null for every message that
+                // carries no usable method, which takes the row out of the menu entirely.
+                unsubscribe = gridlinkUnsubscribeOf(
+                    body.email.listUnsubscribe,
+                    body.email.listUnsubscribePost,
+                ),
             )
         }
     }
@@ -870,17 +885,19 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
      * lands, and a write that cancelled because a screen closed would leave the mailbox disagreeing
      * with what the user watched happen.
      *
-     * 🔴 [GridlinkMailAction.MOVE] and [GridlinkMailAction.UNSUBSCRIBE] do NOTHING here, loudly
-     * rather than quietly. The row is already gone from the list at this point, so what the user
-     * sees is the message returning at the next sync — which is exactly what "nothing happened"
-     * should look like. The alternative, and the reason this is spelled out, is quietly archiving
-     * instead, which would be the app doing something to their mail that they did not ask for and
-     * cannot see.
+     * 🔴 [GridlinkMailAction.MOVE] does NOTHING here, loudly rather than quietly. The row is already
+     * gone from the list at this point, so what the user sees is the message returning at the next
+     * sync — which is exactly what "nothing happened" should look like. The alternative, and the
+     * reason this is spelled out, is quietly archiving instead, which would be the app doing
+     * something to their mail that they did not ask for and cannot see. MOVE reaching here is a
+     * caller's mistake rather than a missing feature: the selection toolbar routes moves through
+     * [move], which has somewhere to put them, and this enum has no room for a destination.
      *
-     * ⚠️ MOVE reaching here is now a caller's mistake rather than a missing feature. The selection
-     * toolbar routes moves through [move], which has somewhere to put them; this enum has no room
-     * for a destination, so a move arriving down this path is a request with no answer and the log
-     * line is the honest reply. UNSUBSCRIBE is still genuinely unbuilt.
+     * ⚠️ [GridlinkMailAction.UNSUBSCRIBE] files the message and does NOT send the request. That half
+     * is [unsubscribe], which needs the method off the message's own header and so cannot be reached
+     * from an enum. Both are dispatched by the same tap, and the split is deliberate: the request
+     * goes to a stranger and the filing does not, so they fail separately and a sender who ignores
+     * the request still does not get their mail back into the inbox.
      */
     fun act(ids: Set<String>, action: GridlinkMailAction) {
         if (ids.isEmpty()) return
@@ -895,7 +912,11 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                     GridlinkMailAction.SPAM -> repo.reportSpamAll(credentials, targets)
                     GridlinkMailAction.MARK_READ -> repo.setReadAll(credentials, targets, seen = true)
                     GridlinkMailAction.MARK_UNREAD -> repo.setReadAll(credentials, targets, seen = false)
-                    GridlinkMailAction.MOVE, GridlinkMailAction.UNSUBSCRIBE ->
+                    // The filing half of an unsubscribe. Archive rather than delete: the user asked to
+                    // stop receiving these, not to lose the one in front of them, and the archive is
+                    // where a message they are done with belongs.
+                    GridlinkMailAction.UNSUBSCRIBE -> repo.archiveAll(credentials, targets)
+                    GridlinkMailAction.MOVE ->
                         Log.w(TAG, "$action is not wired yet: ${targets.size} message(s) left untouched")
                 }
             } catch (c: CancellationException) {
@@ -938,6 +959,98 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     }
 
     /**
+     * Send the unsubscribe request itself, by whichever method the sender's header offered.
+     *
+     * The other half of the tap; [act] does the filing. Only ever called for a method with an
+     * [GridlinkUnsubscribe.httpUrl] — the `mailto:` path never reaches here, because that one opens a
+     * draft in the composer and nothing is sent until the reader presses send.
+     *
+     * ## 🔴 The one request this app makes to a stranger
+     * Everything else it does over the network goes to the user's own mail server. This goes to
+     * whoever sent the newsletter, at an address they chose, and so it is built to carry as little as
+     * possible:
+     *  - **A bare [HttpURLConnection], not the shared client.** No cookie jar, no interceptors, no
+     *    authenticator, no connection reused from a session with anyone. A third party gets a
+     *    connection that has never been anywhere.
+     *  - **No `Referer`, no identifying `User-Agent` beyond the platform default,** and no body except
+     *    the eleven bytes RFC 8058 specifies.
+     *  - **https only,** enforced at the parse ([gridlinkUnsubscribeOf]) and again here. The token in
+     *    an unsubscribe URL *is* the mailbox address; sending it in clear would hand it to the path.
+     *
+     * ⚠️ A one-click POST is genuinely one click: it happens on the tap, with no page and no second
+     * confirmation, which is why the dialog before it says so in as many words. When the sender did
+     * NOT promise one-click, this opens their page in a browser instead and stops — a POST to an
+     * endpoint that never agreed to accept one is a request whose meaning nobody has defined.
+     */
+    fun unsubscribe(method: GridlinkUnsubscribe) {
+        val url = method.httpUrl?.takeIf { it.startsWith("https:", ignoreCase = true) } ?: return
+        val app = getApplication<Application>()
+        if (!method.oneClick) {
+            // Their page, in their browser, in a chooser for [openAttachment]'s reasons. Nothing is
+            // unsubscribed by this call; the user finishes it themselves on the page.
+            val view = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            try {
+                // unguarded: not reachable twice. There is no composition here to hang the shared
+                // leave guard on, and the confirmation dialog this is behind clears its own flag
+                // BEFORE dispatching (GridlinkThreadScreen's `confirmingUnsubscribe`), so the second
+                // tap of a double-tap lands on a dialog that is already gone. The other hand-off in
+                // this class, [openAttachment], holds a latch instead because its tap has no dialog.
+                app.startActivity(
+                    Intent.createChooser(view, "Open with").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            } catch (t: Throwable) {
+                Log.w(TAG, "unsubscribe page failed to open", t)
+                Toast.makeText(app, "Couldn't open the unsubscribe page.", Toast.LENGTH_LONG).show()
+            }
+            return
+        }
+        viewModelScope.launch {
+            val sent = withContext(Dispatchers.IO) { postOneClick(url) }
+            // Said either way. A silent failure here is the worst outcome of the three: the message is
+            // filed regardless, so the user would believe they had unsubscribed and only find out
+            // next month.
+            val text = if (sent) {
+                "Unsubscribe request sent."
+            } else {
+                "Couldn't reach them. The message is archived, but you're still subscribed."
+            }
+            Toast.makeText(app, text, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /**
+     * POST `List-Unsubscribe=One-Click` to [url], returning whether the sender accepted it.
+     *
+     * Blocking; call it off the main thread. Any 2xx counts as accepted and everything else does not,
+     * including a 3xx: [HttpURLConnection] follows redirects itself but refuses to cross from https to
+     * http, so a code left over at this point means it was pointed somewhere this app will not go.
+     */
+    private fun postOneClick(url: String): Boolean {
+        var connection: HttpURLConnection? = null
+        return try {
+            connection = (URL(url).openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                connectTimeout = ONE_CLICK_TIMEOUT_MS
+                readTimeout = ONE_CLICK_TIMEOUT_MS
+                setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+            }
+            connection.outputStream.use { it.write(ONE_CLICK_BODY.toByteArray(Charsets.UTF_8)) }
+            val code = connection.responseCode
+            // Drained and closed so the socket is not left half-read. Nothing in the reply is read
+            // for meaning: RFC 8058 defines no response body, and a page returned here is one this
+            // app has no business rendering.
+            connection.errorStream?.use { it.readBytes() } ?: connection.inputStream.use { it.readBytes() }
+            code in 200..299
+        } catch (t: Throwable) {
+            Log.w(TAG, "one-click unsubscribe failed", t)
+            false
+        } finally {
+            connection?.disconnect()
+        }
+    }
+
+    /**
      * Remember, or forget, that this sender's remote images may load.
      *
      * 🔴 Lowercased here and nowhere else matters: the thread view asks whether an address is in the
@@ -964,6 +1077,17 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
 
     private companion object {
         const val TAG = "GridlinkMail"
+
+        /** The entire body of a one-click unsubscribe, fixed by RFC 8058 §3.1. */
+        const val ONE_CLICK_BODY = "List-Unsubscribe=One-Click"
+
+        /**
+         * How long a stranger's unsubscribe endpoint gets to answer.
+         *
+         * Shorter than the mail server's timeouts on purpose: nothing the user is looking at depends
+         * on this reply, and a list that has stopped answering is not worth holding a socket open for.
+         */
+        const val ONE_CLICK_TIMEOUT_MS = 15_000
 
         /**
          * The four strings a mapped row can need that the message itself does not carry.

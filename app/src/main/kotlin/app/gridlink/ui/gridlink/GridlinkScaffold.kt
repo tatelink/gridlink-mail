@@ -710,6 +710,24 @@ fun GridlinkRoot(
      */
     onMove: (Set<String>, String) -> Unit = { _, _ -> },
     /**
+     * Ask this sender to stop, by the method their own header offered.
+     *
+     * 🔴 Separate from [onMailAction] for the same reason [onMove] is: [GridlinkMailAction] is an
+     * enum and an unsubscribe has a payload. The enum's UNSUBSCRIBE case is still reported alongside
+     * this one and still does the filing — this is only the half that leaves the device.
+     *
+     * ⚠️ **The one callback here that talks to a stranger.** Everything else in this scaffold
+     * rearranges mail already on the phone; this makes a request to a host named by the message. The
+     * confirmation in front of it is not a formality (see [GridlinkThreadScreen]), and the
+     * implementation must not carry the account's credentials or cookies to it. Defaults to a no-op
+     * for [onMailAction]'s reason: with the sample, nothing leaves the device.
+     *
+     * Never called for a [GridlinkUnsubscribe] whose only method is a `mailto:` — that one opens
+     * this app's own composer instead, because a draft the reader can read and send is not a request
+     * anyone else needs to make on their behalf.
+     */
+    onUnsubscribe: (GridlinkUnsubscribe) -> Unit = {},
+    /**
      * Which mailbox the user has open, by id, or null when the panel is closed.
      *
      * 🔴 A report, not a request. The scaffold owns [openFolderId] because folding destroys the
@@ -1240,6 +1258,11 @@ fun GridlinkRoot(
                 // the defaults here are not a claim that the message is plain text.
                 bodyIsPlainText = fetched?.plainText == true,
                 inlineImages = fetched?.inlineImages.orEmpty(),
+                // Travels with the body for the same reason: the `List-Unsubscribe` header comes
+                // back on the single-message fetch, so it is null on a row and known once opened.
+                // Null while in flight is correct — the action appears when the answer arrives
+                // rather than being offered on a guess and then withdrawn.
+                unsubscribe = fetched?.unsubscribe,
             )
         }
     }
@@ -1566,16 +1589,50 @@ fun GridlinkRoot(
                         // name. The note that used to sit here said they were identical code and must not
                         // stay that way: archive moves it, spam moves it AND trains the filter, and
                         // unsubscribe sends a request first. Each now says which one it is, and what
-                        // actually happens is decided by whoever receives it. ⚠️ Unsubscribe's request is
-                        // still not sent by anyone; the difference is at least no longer lost here.
+                        // actually happens is decided by whoever receives it.
                         GridlinkThreadAction.ARCHIVE ->
                             fileOpenThread(message.id, GridlinkMailAction.ARCHIVE)
 
                         GridlinkThreadAction.SPAM ->
                             fileOpenThread(message.id, GridlinkMailAction.SPAM)
 
-                        GridlinkThreadAction.UNSUBSCRIBE ->
-                            fileOpenThread(message.id, GridlinkMailAction.UNSUBSCRIBE)
+                        // 🔴 The one branch that is not a filing. Which of the three things it does
+                        // depends on what the sender's own header offered, and the split is here
+                        // rather than inside [onUnsubscribe] because only one of the three leaves
+                        // the device at all — the mailto path is this app's composer and nothing
+                        // more, and handing it to a callback named "unsubscribe" would invite an
+                        // implementation that helpfully sent it.
+                        GridlinkThreadAction.UNSUBSCRIBE -> {
+                            val method = message.unsubscribe
+                            when {
+                                // No method: the sheet does not offer the row without one, so this
+                                // is only reachable if something else dispatched the action. File it
+                                // rather than do nothing, which is the visible half of the button.
+                                method == null ->
+                                    fileOpenThread(message.id, GridlinkMailAction.UNSUBSCRIBE)
+
+                                // A web method, one-click or not. The request goes out and the
+                                // message is filed behind it: the reader pressed a button that says
+                                // it files the message, and a request that fails does not put the
+                                // mail back — they asked to be rid of it either way.
+                                method.httpUrl != null -> {
+                                    onUnsubscribe(method)
+                                    fileOpenThread(message.id, GridlinkMailAction.UNSUBSCRIBE)
+                                }
+
+                                // ⚠️ Mailto only, and deliberately NOT filed. Nothing has been sent
+                                // yet — the draft is sitting in front of the reader — and archiving
+                                // the message now would clear the screen behind a request they may
+                                // still abandon. The composer's own send is what completes this.
+                                method.mailto != null ->
+                                    composing = gridlinkUnsubscribeDraft(message, method.mailto)
+
+                                // Unreachable: a [GridlinkUnsubscribe] exists only when it carries
+                                // at least one of the two. File it rather than swallow the tap.
+                                else ->
+                                    fileOpenThread(message.id, GridlinkMailAction.UNSUBSCRIBE)
+                            }
+                        }
                     }
                 }
             }
