@@ -123,6 +123,19 @@ fun GridlinkScaffold(
     modifier: Modifier = Modifier,
     selecting: Boolean = false,
     onSelectionAction: (GridlinkSelectionAction) -> Unit = {},
+    /**
+     * The way out of a selection, drawn as the chrome row's leading circle while one is open.
+     *
+     * 🔴 Null and [selecting] are not the same question, which is why this is a separate parameter
+     * rather than something derived. [selecting] says the toolbar is showing; this says there is
+     * somebody above who can put the mail down. A screen that had the first without the second would
+     * draw a close control that does nothing, and the honest answer there is to keep the hamburger.
+     *
+     * ⚠️ Whatever is passed must do exactly what the scaffold's own selection [BackHandler] does.
+     * Two exits from one mode that leave different state behind is the shape of bug that only shows
+     * up as "sometimes the toolbar is still there".
+     */
+    onClearSelection: (() -> Unit)? = null,
     onCompose: () -> Unit = {},
     belowHeader: (@Composable () -> Unit)? = null,
     /**
@@ -285,6 +298,9 @@ fun GridlinkScaffold(
                         sync = sync,
                         header = header,
                         trailing = trailing,
+                        // Only while a selection is actually open. Passed unconditionally, the
+                        // hamburger would be a close button on an inbox with nothing ticked.
+                        onCloseSelection = onClearSelection.takeIf { selecting },
                     )
                     if (sidePane == null) {
                         mailColumn(Modifier.weight(1f).fillMaxWidth())
@@ -681,6 +697,18 @@ fun GridlinkRoot(
      * itself locally and nothing leaves the device.
      */
     onFolderEdit: (GridlinkFolderEdit) -> Unit = {},
+    /**
+     * File the selected messages into the mailbox the user picked, by id.
+     *
+     * 🔴 Separate from [onMailAction] because [GridlinkMailAction] is an enum and a move has a
+     * destination. The enum's own MOVE case is still what the thread view reports, and still has
+     * nowhere to go; this is the path with an answer, and it is only ever called after the picker
+     * has been shown and a folder tapped. Nothing infers a mailbox on the user's behalf.
+     *
+     * The id is a [GridlinkFolder.id], which for a real account is the JMAP mailbox id, so it can go
+     * straight to the server. Defaults to a no-op for [onMailAction]'s reason.
+     */
+    onMove: (Set<String>, String) -> Unit = { _, _ -> },
     /**
      * Which mailbox the user has open, by id, or null when the panel is closed.
      *
@@ -1869,6 +1897,12 @@ fun GridlinkRoot(
                             initiallyEmpty = initiallyEmpty,
                             loading = initiallyLoading,
                             removeRequest = removeRequest,
+                            // The same list the Folders tab draws, so the picker can never offer a
+                            // mailbox the tree does not have or miss one it does. The tree only:
+                            // passing [folders] whole would tie the inbox's recomposition to the
+                            // folder screen's own state.
+                            folders = folderTree,
+                            onMove = onMove,
                         )
 
                         GridlinkDestination.FOLDERS -> GridlinkFolderScreen(

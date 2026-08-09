@@ -599,7 +599,13 @@ private fun GridlinkTreeIndent(depth: Int) {
     }
 }
 
-private fun GridlinkFolderRole.icon(): ImageVector = when (this) {
+/**
+ * The glyph for a mailbox's role.
+ *
+ * Internal rather than private so [GridlinkMovePicker] draws the same tree with the same icons. Two
+ * lists of the same mailboxes wearing different glyphs would read as two different things.
+ */
+internal fun GridlinkFolderRole.icon(): ImageVector = when (this) {
     GridlinkFolderRole.INBOX -> Icons.Outlined.Inbox
     GridlinkFolderRole.DRAFTS -> Icons.Outlined.Create
     GridlinkFolderRole.SENT -> Icons.AutoMirrored.Outlined.Send

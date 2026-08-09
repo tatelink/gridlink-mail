@@ -322,6 +322,28 @@ fun GridlinkMessageListScreen(
     onAction: (Set<String>, GridlinkMailAction) -> Unit = { _, _ -> },
     onOpenMessage: (GridlinkMessage) -> Unit = {},
     onCompose: () -> Unit = {},
+    /**
+     * The account's mailboxes, as the Move picker offers them. Defaults to the sample tree for the
+     * same reason [mail] defaults to the sample inbox: a gallery build has to be able to open the
+     * sheet and see folders in it.
+     *
+     * ⚠️ Not [GridlinkFolderContent]. This screen wants the tree and nothing else — no loading flag,
+     * no open mailbox — and taking the whole content object would make the inbox recompose every
+     * time somebody scrolled a folder in the other tab.
+     */
+    folders: List<GridlinkFolder> = GridlinkSampleTree.mailboxes,
+    /**
+     * Move these messages into that mailbox, by id.
+     *
+     * 🔴 Separate from [onAction] because [GridlinkMailAction] is an enum and a move has a
+     * destination. Folding it in would mean either an action with a nullable payload hanging off it
+     * (which every other action would have to ignore) or a move reported with no target, which is
+     * exactly the shape of the bug this phase exists to close: the toolbar reporting a move that
+     * nothing could carry out.
+     *
+     * Defaults to a no-op, so over the sample the rows still leave and nothing is written.
+     */
+    onMove: (Set<String>, String) -> Unit = { _, _ -> },
 ) {
     var bundleExpanded by rememberSaveable(initiallyExpanded) { mutableStateOf(initiallyExpanded) }
     // The pill's text. What it searches is [mail]'s null test, like everything else on this screen:
@@ -537,27 +559,41 @@ fun GridlinkMessageListScreen(
         }
     }
 
+    // The messages waiting on a destination, or null when the picker is closed.
+    //
+    // 🔴 A snapshot taken when Move was tapped, not a read of [selectedIds] at confirm time. The
+    // sheet is modal so the two cannot drift today, but the difference is what stops a later
+    // background change from moving a set the user never saw named in the heading.
+    //
+    // Deliberately NOT saveable. If the process dies under the sheet the selection survives and the
+    // sheet does not, which is the correct pair: nothing has been written yet, so a dismissed picker
+    // costs a second tap, while a restored one would be a confirmation dialog for a decision made in
+    // a session that no longer exists.
+    var pendingMove: Set<String>? by remember { mutableStateOf(null) }
+
     fun applySelectionAction(action: GridlinkSelectionAction) {
         val ids = selectedIds
         if (ids.isEmpty()) return
         when (action) {
-            // ⚠️ Move removes the rows and stops there. Half of it is honest — a message moved out
-            // of the inbox does leave the inbox — and the other half, the folder picker, is waiting
-            // on the folder tree being something you can pick from rather than something you read.
+            // 🔴 Move writes nothing here and removes nothing here. It is the one selection action
+            // whose target is not implied by its name, so all it does is ask; the rows leave in
+            // [confirmMove] once a folder has been picked, and dismissing the sheet is a complete,
+            // valid outcome that must leave the inbox and the selection exactly as they were.
+            GridlinkSelectionAction.MOVE -> {
+                pendingMove = ids
+            }
+
             GridlinkSelectionAction.ARCHIVE,
-            GridlinkSelectionAction.MOVE,
             GridlinkSelectionAction.DELETE,
             -> {
                 remove(ids)
                 onFiled(ids)
-                // 🔴 Move is reported AS a move and not quietly as an archive. Whoever receives it
-                // can say it is not wired yet; it must not pick a mailbox on the user's behalf.
                 onAction(
                     ids,
-                    when (action) {
-                        GridlinkSelectionAction.DELETE -> GridlinkMailAction.DELETE
-                        GridlinkSelectionAction.MOVE -> GridlinkMailAction.MOVE
-                        else -> GridlinkMailAction.ARCHIVE
+                    if (action == GridlinkSelectionAction.DELETE) {
+                        GridlinkMailAction.DELETE
+                    } else {
+                        GridlinkMailAction.ARCHIVE
                     },
                 )
             }
@@ -570,6 +606,27 @@ fun GridlinkMessageListScreen(
                 onSelectedIdsChange(emptySet())
             }
         }
+    }
+
+    /**
+     * The other half of Move: a folder was chosen, so now the rows leave.
+     *
+     * 🔴 Ordered exactly like the archive branch above — [remove] first so the collapse starts on
+     * this frame, then [onFiled] so a reading pane showing one of these lets go of it, then the
+     * write. [remove] is also what clears the ticks, so the toolbar morphs away on its own.
+     *
+     * 🔴 Reported through [onMove] and NOT through [onAction]. [GridlinkMailAction] is an enum with
+     * no room for a destination, so a MOVE sent that way is a request nobody can carry out; sending
+     * both would be one move reported twice, and the enum's own MOVE case exists for callers (the
+     * thread view's own bar) that still have nowhere to put a mailbox id.
+     */
+    fun confirmMove(folder: GridlinkFolder) {
+        val ids = pendingMove ?: return
+        pendingMove = null
+        if (ids.isEmpty()) return
+        remove(ids)
+        onFiled(ids)
+        onMove(ids, folder.id)
     }
 
     // 🔴 Keyed on the whole request, which is why [GridlinkRemoveRequest] carries a nonce. Keyed on
@@ -630,6 +687,20 @@ fun GridlinkMessageListScreen(
     // that still shows a collapsed bundle, which is a visible list.
     val hasMail = humans.any(::isPresent) || !bundleGone
 
+    // Everything a selection could hold: the human timeline and the bundle's children together.
+    //
+    // 🔴 The robots are in, collapsed bundle or not. They are messages, the bundle's own circle
+    // already ticks them as a group, and a "select all" that quietly skipped them would report "4
+    // selected" over an inbox of nineteen and then archive four of them.
+    //
+    // ⚠️ Rows mid-collapse are excluded through [isPresent]. They are still in these lists so their
+    // exit can animate, but they have already left the inbox, and re-ticking one would strand an
+    // archived message under the toolbar.
+    val selectableIds: Set<String> = remember(humans, robots, removedIds) {
+        (humans + robots).filter(::isPresent).mapTo(mutableSetOf()) { it.id }
+    }
+    val allSelected = selectableIds.isNotEmpty() && selectedIds.containsAll(selectableIds)
+
     // Search replaces the list wholesale rather than filtering it in place: hits come from the
     // whole account, so most of them are not IN this list to be filtered toward. `selecting`
     // cannot normally be true alongside a query (the pill is hidden while a selection is open,
@@ -652,6 +723,11 @@ fun GridlinkMessageListScreen(
         onSelectDestination = onSelectDestination,
         selecting = selecting,
         onSelectionAction = ::applySelectionAction,
+        // The same thing the scaffold's own back handler does, and it has to stay the same thing:
+        // one mode with two exits that disagree is a toolbar that sometimes refuses to go away. It
+        // does not touch the destination the way back does, because this control is only ever drawn
+        // on this screen, so there is nowhere to return from.
+        onClearSelection = { onSelectedIdsChange(emptySet()) },
         onCompose = onCompose,
         sidePane = sidePane,
         header = {
@@ -666,10 +742,20 @@ fun GridlinkMessageListScreen(
                 selectedCount = selectedIds.size,
             )
         },
-        // 🔴 Hidden while selecting. A search field and a selection are two different modes of the
-        // same list, and offering both at once invites you to start one and silently lose the
-        // other.
-        trailing = if (selecting) null else {
+        // 🔴 Search is hidden while selecting. A search field and a selection are two different modes
+        // of the same list, and offering both at once invites you to start one and silently lose the
+        // other. §6b spends the freed seat on select-all, which is the other half of the same trade:
+        // one control per corner, and the corner belongs to whichever mode the screen is in.
+        trailing = if (selecting) {
+            {
+                GridlinkSelectAllButton(
+                    all = allSelected,
+                    onClick = {
+                        onSelectedIdsChange(if (allSelected) emptySet() else selectableIds)
+                    },
+                )
+            }
+        } else {
             {
                 GridlinkSearchPill(
                     query = searchQuery,
@@ -940,6 +1026,35 @@ fun GridlinkMessageListScreen(
                 modifier = Modifier.align(Alignment.TopCenter),
             )
         }
+    }
+
+    // A sibling of the scaffold rather than something inside it, which is how [GridlinkFolderScreen]
+    // draws its own sheets: the scaffold owns the chrome and the list, and a modal that lived inside
+    // it would be laid out under the panel's rounded clip and behind the nav pill.
+    //
+    // 🔴 The selection is still ticked behind this sheet and stays that way until a folder is
+    // chosen. That is the point — the toolbar the user pressed Move on is still there, still saying
+    // how many, and dismissing puts them back exactly where they were with nothing written.
+    pendingMove?.let { ids ->
+        GridlinkMovePicker(
+            tree = folders,
+            count = ids.size,
+            onDismiss = { pendingMove = null },
+            onPick = ::confirmMove,
+            // This screen IS the inbox, so the inbox is the mailbox they are moving out of. Found by
+            // role rather than passed in: the id is the server's, this screen never sees it, and a
+            // tree with no INBOX role (a mailbox not yet loaded) correctly yields null, which the
+            // picker reads as "the caller cannot say" and refuses nothing.
+            //
+            // Searched through the whole tree rather than its top level. JMAP puts Inbox at the root
+            // and so does the sample, but a top-level-only search would fail silently on a server
+            // that does not, and the failure is the Inbox being offered as a place to move mail it
+            // is already in.
+            excludeId = gridlinkMoveTargets(folders)
+                .firstOrNull { it.folder.role == GridlinkFolderRole.INBOX }
+                ?.folder
+                ?.id,
+        )
     }
 }
 

@@ -255,6 +255,7 @@ fun GridlinkHomeHost(
             onOpenAttachment = viewModel::openAttachment,
             folders = folders,
             onFolderEdit = viewModel::editFolder,
+            onMove = viewModel::move,
             onOpenFolder = viewModel::openFolder,
             calendar = calendar,
             contacts = contacts,
