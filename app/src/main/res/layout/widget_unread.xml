@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The small widget: one number, and what it counts. Sized to a 2x1 cell, so it holds a count and
+  a label and nothing else — the moment it needs a scrolling list it is the other widget.
+
+  The whole thing is one tap target that opens the inbox.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/unread_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:background="@drawable/widget_card"
+    android:padding="10dp">
+
+    <!-- Big enough to read from arm's length, which is the entire job of this widget. Its text is
+         set by the provider and can be "—" when nothing has synced yet: see WidgetInboxSnapshot,
+         where a null count means "never synced" and must not print as a confident 0. -->
+    <TextView
+        android:id="@+id/unread_count"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="@color/widget_on_card"
+        android:textSize="34sp"
+        android:textStyle="bold"
+        android:maxLines="1"
+        android:includeFontPadding="false" />
+
+    <TextView
+        android:id="@+id/unread_label"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:gravity="center"
+        android:textColor="@color/widget_on_card_dim"
+        android:textSize="12sp"
+        android:maxLines="1"
+        android:ellipsize="end" />
+</LinearLayout>

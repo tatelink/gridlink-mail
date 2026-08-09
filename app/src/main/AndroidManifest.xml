@@ -133,6 +133,47 @@
             </intent-filter>
         </receiver>
 
+        <!-- Home-screen widgets.
+
+             Exported, and both of them have to be: a widget provider is a receiver the LAUNCHER
+             sends APPWIDGET_UPDATE to, and an un-exported one is simply never woken — the same
+             reason BootReceiver above is exported. The actions it answers are all system
+             broadcasts except REFRESH, which only redraws from the local cache and asks the
+             existing fetch worker to run; there is nothing there for another app to gain by
+             sending it. -->
+        <receiver
+            android:name=".widget.InboxWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_inbox_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="app.gridlink.widget.REFRESH" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_inbox_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.UnreadWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_unread_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_unread_info" />
+        </receiver>
+
+        <!-- Supplies the list widget's rows. BIND_REMOTEVIEWS is held by the system alone, so
+             only the launcher can bind this; without it any app could pull the rows, which are
+             senders, subjects and previews of the user's mail. -->
+        <service
+            android:name=".widget.InboxWidgetService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

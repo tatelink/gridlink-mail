@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One message row. GridlinkDayColors.listSurface is 55% white over the gradient, and this is
+     that exact fill: near-black body text on a mid-blue field needs it, and thinning it is the
+     one surface the token file marks as un-thinnable. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/widget_row_fill" />
+    <corners android:radius="14dp" />
+</shape>

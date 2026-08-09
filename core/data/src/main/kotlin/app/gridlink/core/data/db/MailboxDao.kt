@@ -40,6 +40,18 @@ interface MailboxDao {
     suspend fun idForRole(accountId: String, role: String): String?
 
     /**
+     * Name and unread counter of one folder, for the home-screen widget's header.
+     *
+     * Its own projection rather than [observeAll]: the widget wants one folder and no updates,
+     * and subscribing a Flow from a broadcast receiver that is about to be torn down would leave
+     * the collector orphaned. Null when the folder is not cached yet, which the widget renders as
+     * "not synced" rather than as zero unread — a widget confidently showing 0 on a mailbox it has
+     * never read is worse than one admitting it does not know.
+     */
+    @Query("SELECT name, unreadEmails FROM mailboxes WHERE accountId = :accountId AND id = :id LIMIT 1")
+    suspend fun widgetSummary(accountId: String, id: String): MailboxWidgetSummary?
+
+    /**
      * Each account's cached Sent-role folder, reactively: re-emits when the folder table
      * changes, so a consumer keyed on it (the conversation chip's Sent scope) picks the
      * folder up as soon as the first folder sync lands instead of waiting for its next
@@ -104,4 +116,10 @@ data class AccountMailboxId(
 data class MailboxIdRole(
     val id: String,
     val role: String?,
+)
+
+/** Projection for [MailboxDao.widgetSummary]: what the widget header prints. */
+data class MailboxWidgetSummary(
+    val name: String,
+    val unreadEmails: Int,
 )

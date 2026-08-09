@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The resizable "recent mail" widget: a header that always shows, and a scrolling list under it.
+
+  Every id below is touched by GridlinkInboxWidgetProvider. RemoteViews can only reach a fixed
+  set of view types (no ConstraintLayout, no custom views), which is why this is nested
+  LinearLayouts rather than the flatter tree it would otherwise be.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_card"
+    android:padding="12dp">
+
+    <!-- Header. Tapping it opens the app at the inbox; the two buttons take their own taps. -->
+    <LinearLayout
+        android:id="@+id/widget_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="4dp"
+        android:paddingEnd="0dp"
+        android:paddingBottom="8dp">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/widget_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/widget_on_card"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:text="@string/widget_inbox_title" />
+
+            <TextView
+                android:id="@+id/widget_subtitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/widget_on_card_dim"
+                android:textSize="11sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+        </LinearLayout>
+
+        <!-- Gone by default so the launcher's static preview does not draw an empty pill. The
+             provider makes it visible only when there is actually a count to put inside it. -->
+        <TextView
+            android:id="@+id/widget_unread_pill"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/widget_pill"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
+            android:layout_marginEnd="4dp"
+            android:textColor="@color/widget_on_card"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/widget_refresh"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:padding="7dp"
+            android:src="@drawable/ic_widget_refresh"
+            android:contentDescription="@string/widget_refresh" />
+
+        <ImageView
+            android:id="@+id/widget_compose"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:padding="7dp"
+            android:src="@drawable/ic_widget_compose"
+            android:contentDescription="@string/widget_compose" />
+    </LinearLayout>
+
+    <!--
+      The list and its stand-in. setEmptyView swaps between them, so exactly one is ever
+      visible and neither needs to be hidden by hand.
+    -->
+    <ListView
+        android:id="@+id/widget_list"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:divider="@null"
+        android:dividerHeight="0dp"
+        android:scrollbars="none" />
+
+    <TextView
+        android:id="@+id/widget_empty"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:padding="12dp"
+        android:textColor="@color/widget_on_card_dim"
+        android:textSize="13sp" />
+</LinearLayout>

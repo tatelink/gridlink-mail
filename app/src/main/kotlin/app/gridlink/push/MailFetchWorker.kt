@@ -6,7 +6,9 @@ import android.util.Log
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -89,6 +91,8 @@ class MailFetchWorker(context: Context, params: WorkerParameters) : CoroutineWor
         private const val TAG = "MailFetchWorker"
         private const val WORK_NAME = "mail-fetch-fallback"
 
+        private const val NOW_WORK_NAME = "mail-fetch-now"
+
         /** Idempotent: keeps the existing schedule if one is already enqueued. */
         fun ensureScheduled(context: Context) {
             val request = PeriodicWorkRequestBuilder<MailFetchWorker>(30, TimeUnit.MINUTES)
@@ -96,6 +100,27 @@ class MailFetchWorker(context: Context, params: WorkerParameters) : CoroutineWor
                 .build()
             WorkManager.getInstance(context)
                 .enqueueUniquePeriodicWork(WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
+        }
+
+        /**
+         * Run one cycle as soon as the network allows, for a user who explicitly asked — currently
+         * the home-screen widget's refresh button.
+         *
+         * The same worker as the periodic poll, which is the point: it already knows which accounts
+         * are watched, which folders IDLE cannot see, and how to diff baselines so a manual refresh
+         * does not re-announce mail the user has already been told about.
+         *
+         * KEEP, not REPLACE: rapid taps then join the run that is already going instead of each
+         * cancelling the last, which is the one way a refresh button can end up never finishing.
+         * Its own unique name, so an impatient user cannot displace the periodic schedule that is
+         * the app's safety net when push is dead.
+         */
+        fun requestNow(context: Context) {
+            val request = OneTimeWorkRequestBuilder<MailFetchWorker>()
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .build()
+            WorkManager.getInstance(context)
+                .enqueueUniqueWork(NOW_WORK_NAME, ExistingWorkPolicy.KEEP, request)
         }
     }
 }

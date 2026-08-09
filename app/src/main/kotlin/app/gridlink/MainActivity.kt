@@ -255,6 +255,11 @@ class MainActivity : AppCompatActivity() {
         // Stopped activity → no frames → the reader's GL functor cannot draw, so a process
         // kill while backgrounded (LMK, swipe-away) must not count as a fade-window crash.
         NavFadeGuard.onActivityStop(this)
+        // A session's reading, deleting and archiving is invisible to the home screen until
+        // something redraws it, and the user is on their way back to the home screen right now —
+        // this is the exact moment a stale widget gets looked at. Background sync pokes the
+        // widgets too (push/FetchAndNotify.kt); this covers everything the user did by hand.
+        app.gridlink.widget.GridlinkWidgets.refresh(this)
     }
 
     override fun onStart() {

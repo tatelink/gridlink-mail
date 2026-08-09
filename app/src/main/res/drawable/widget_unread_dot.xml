@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Unread marker on a row. Shape as well as colour: a dot the row either has or has not is
+     readable without relying on the weight difference in the sender line, which is a poor
+     signal at widget sizes and no signal at all to someone who cannot see the colour. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="@color/widget_accent" />
+    <size android:width="8dp" android:height="8dp" />
+</shape>
