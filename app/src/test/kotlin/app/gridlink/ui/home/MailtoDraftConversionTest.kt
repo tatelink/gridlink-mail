@@ -86,9 +86,10 @@ class MailtoDraftConversionTest {
     }
 
     /**
-     * 🔴 [GridlinkComposeDraft.Fresh] seeds a recipient query for the sample gallery's benefit. A
-     * link-driven draft must not inherit it, or the composer opens with a half-typed search sitting
-     * under chips the user did not type.
+     * 🔴 The gallery's suggestion frame needs a half-typed query ([GridlinkComposeDraft
+     * .FreshSuggesting]). A link-driven draft must never carry one, or the composer opens with a
+     * search for a sample contact sitting under chips the user did not type. This test predates the
+     * seed moving off `Fresh` and stays as the guard against it moving back.
      */
     @Test
     fun `the recipient search box starts empty`() {

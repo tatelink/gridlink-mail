@@ -485,11 +485,17 @@ fun GridlinkMenuPanel(
                 modifier = Modifier.size(20.dp),
             )
             Column(modifier = Modifier.padding(start = GridlinkSpacing.s12)) {
-                Text(
-                    text = account,
-                    style = GridlinkType.senderName,
-                    color = colors.textPrimary,
-                )
+                // Blank means nobody has told the chrome who is signed in, and the row says nothing
+                // rather than reserving a line for an empty string. It cannot happen in a signed-in
+                // build (the host always passes one) but the default is empty on purpose now, so
+                // the failure of a caller to pass it must not look like a rendering glitch.
+                if (account.isNotBlank()) {
+                    Text(
+                        text = account,
+                        style = GridlinkType.senderName,
+                        color = colors.textPrimary,
+                    )
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier

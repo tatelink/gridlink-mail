@@ -22,6 +22,8 @@ import app.gridlink.ui.gridlink.GridlinkSampleTree
 import app.gridlink.ui.gridlink.GridlinkSender
 import app.gridlink.ui.gridlink.GridlinkSyncState
 import app.gridlink.ui.gridlink.GridlinkUndoFrame
+import app.gridlink.ui.gridlink.gridlinkSampleChromeConfig
+import app.gridlink.ui.gridlink.gridlinkSampleLastSyncedAt
 import app.gridlink.ui.gridlink.mayReparent
 import app.gridlink.ui.theme.GridlinkMode
 
@@ -256,15 +258,20 @@ class GridlinkGalleryActivity : ComponentActivity() {
         // is up. None of that is reachable from adb: `input tap` on the compose button lands at
         // guessed coordinates, and the sheet is behind a long-press, which `input swipe` cannot hold.
         //   am start -n .../GridlinkGalleryActivity --es compose fresh
+        //   am start -n .../GridlinkGalleryActivity --es compose suggest
         //   am start -n .../GridlinkGalleryActivity --es compose reply --es focus none
         //   am start -n .../GridlinkGalleryActivity --es compose reply --ez schedule true
         val composeName = intent?.getStringExtra("compose")?.lowercase()?.trim()
         val draft = when (composeName) {
             null -> null
             "fresh" -> GridlinkComposeDraft.Fresh
+            // The suggestion-list frame. Its own value rather than a seed on `fresh`, because
+            // `fresh` is what the app's compose button opens and a demo query in it is a demo query
+            // in the TO field of a real new message.
+            "suggest" -> GridlinkComposeDraft.FreshSuggesting
             "reply" -> GridlinkComposeDraft.Reply
             else -> throw IllegalArgumentException(
-                "Unknown compose draft '$composeName'. Known: fresh, reply.",
+                "Unknown compose draft '$composeName'. Known: fresh, suggest, reply.",
             )
         }
         // Which field holds the caret, which is also what decides whether the keyboard is up and
@@ -544,10 +551,18 @@ private fun GridlinkGallery(
     // at 9pm coming back in Night is the kind of surprise that wastes a round trip. Passing
     // `--es mode auto` is not a thing; open the menu and tap Auto, which is now one tap away in the
     // shipping UI rather than behind a debug-only long-press.
+    //
+    // 🔴 The sample identity is passed, not inherited. GridlinkChromeConfig defaults to empty so a
+    // build that forgets cannot end up with brandon@gridlink.me in the menu of a real mailbox; the
+    // flip side is that the gallery, which is the one place that WANTS the sample, has to ask. Same
+    // for the "synced 4 minutes ago" line: real by default is null, and the harness seeds it so a
+    // screenshot of the menu is not a screenshot of "never synced".
     GridlinkApp(
         initialSync = initialSync,
         initialModeOverride = initialOverride ?: GridlinkMode.DAY,
         menuOpenAtStart = menuOpenAtStart,
+        config = gridlinkSampleChromeConfig(),
+        initialLastSyncedAt = gridlinkSampleLastSyncedAt(),
     ) {
         GridlinkRoot(
             sender = sender,

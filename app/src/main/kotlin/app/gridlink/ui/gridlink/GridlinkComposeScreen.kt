@@ -750,22 +750,38 @@ data class GridlinkComposeDraft(
     val draftEmailId: String? = null,
 ) {
     companion object {
-        /** §1c. */
+        /**
+         * §1c. What the compose button opens: an empty message.
+         *
+         * 🔴 The recipient query is EMPTY, and used not to be. This carried the "ma" seed that
+         * [FreshSuggesting] now owns, which meant the app's own compose button opened with a
+         * half-typed search for a sample contact in the TO field. Every other caller had grown a
+         * comment explaining that it must not use this value (the contact screen's "write to", the
+         * `mailto:` conversion, and a regression test guarding the second one), which is what a
+         * wrong default looks like from the inside: three workarounds and no bug report.
+         */
         val Fresh = GridlinkComposeDraft(
             title = "Compose",
             recipients = emptyList(),
-            // ⚠️ Seeded, and "ma" specifically. The design's own frame types "ri" against invented
-            // `stores.bfc-ops.com` addresses and gets three rows, two of which share a domain bar;
-            // that is the whole point of the frame, and against this app's real sample contacts
-            // "ri" matches one person. "ma" is the query that reproduces the demonstration honestly:
-            // Marcus Bell and Tanya Mabry are both on gridlink.me and carry the same bar, Marsh
-            // McLennan is not and does not.
-            recipientQuery = "ma",
+            recipientQuery = "",
             subject = "",
             body = "",
             quoted = null,
             attachments = emptyList(),
         )
+
+        /**
+         * [Fresh] mid-search, for the gallery frame that shows the suggestion list.
+         *
+         * "ma" specifically. The design's own frame types "ri" against invented
+         * `stores.bfc-ops.com` addresses and gets three rows, two of which share a domain bar; that
+         * is the whole point of the frame, and against this app's real sample contacts "ri" matches
+         * one person. "ma" reproduces the demonstration honestly: Marcus Bell and Tanya Mabry are
+         * both on gridlink.me and carry the same bar, Marsh McLennan is not and does not.
+         *
+         * ⚠️ Sample data. Nothing outside the debug gallery may open this.
+         */
+        val FreshSuggesting = Fresh.copy(recipientQuery = "ma")
 
         /** §1d, replying to the callout in [GridlinkSample]. */
         val Reply = GridlinkComposeDraft(

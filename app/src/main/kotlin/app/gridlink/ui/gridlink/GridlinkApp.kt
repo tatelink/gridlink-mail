@@ -286,16 +286,21 @@ fun interface GridlinkSyncAction {
  * learns to do something else, and each new one is a fresh chance to forget it in the restore path,
  * where forgetting it looks like nothing at all until the phone is unfolded.
  *
- * 🔴 **Every default here is sample data**, which is what makes the debug gallery work without an
- * account and is exactly what a real build must not accept. A signed-in build passes its own
- * address, its own counts and its own actions; leaving these at their defaults would put
- * `brandon@gridlink.me` in the menu of somebody else's mailbox with "4 unsent" under a Drafts folder
- * nobody has looked at.
+ * ## 🔴 The defaults are EMPTY, and that is the whole point
+ * These used to default to the sample identity so the debug gallery worked with no arguments, which
+ * meant every caller that forgot to pass a config silently inherited `brandon@gridlink.me` in the
+ * menu of somebody else's mailbox, with "4 unsent" under a Drafts folder nobody had looked at. The
+ * sample data has to be ASKED for now: [gridlinkSampleChromeConfig] is what the gallery passes, and
+ * a build that forgets says nothing rather than saying something false. Nothing here may ever be
+ * defaulted to a value that reads as a fact about a real account.
  */
 @Stable
 class GridlinkChromeConfig(
-    /** The signed-in address, stated in the menu sheet. */
-    val account: String = GRIDLINK_SAMPLE_ACCOUNT,
+    /**
+     * The signed-in address, stated in the menu sheet. Empty means "nobody has said", and the row
+     * omits the line entirely rather than printing a blank one.
+     */
+    val account: String = "",
     /** How many accounts exist, for the Accounts row's subtitle. */
     val accountCount: Int = 1,
     /**
@@ -303,7 +308,7 @@ class GridlinkChromeConfig(
      * before anything counts them, and is why this is not defaulted to zero: a Drafts row reading
      * "0 unsent" is a claim, and an absent count is not.
      */
-    val menuCounts: Map<GridlinkMenuItem, Int> = GRIDLINK_SAMPLE_MENU_COUNTS,
+    val menuCounts: Map<GridlinkMenuItem, Int> = emptyMap(),
     /**
      * What a menu row does. The sheet closes either way, so a row wired to nothing is a row that
      * dismisses rather than one that navigates somewhere empty.
@@ -327,6 +332,27 @@ class GridlinkChromeConfig(
      */
     val onSelectMode: (GridlinkMode?) -> Unit = {},
 )
+
+/**
+ * The chrome the debug gallery and the screenshots run on: the sample identity and its counts.
+ *
+ * 🔴 This exists so the sample data has exactly one door and it has to be opened deliberately.
+ * [GridlinkChromeConfig]'s own defaults are empty on purpose; anything that wants an address in the
+ * menu says so here, and `grep gridlinkSampleChromeConfig` is then the complete list of places the
+ * prototype claims to be somebody.
+ */
+fun gridlinkSampleChromeConfig(): GridlinkChromeConfig = GridlinkChromeConfig(
+    account = GRIDLINK_SAMPLE_ACCOUNT,
+    menuCounts = GRIDLINK_SAMPLE_MENU_COUNTS,
+)
+
+/**
+ * A plausible "synced a few minutes ago", for the gallery.
+ *
+ * A function and not a constant: it is relative to now, and frozen at class-init it would drift
+ * into "synced 3 hours ago" over a long screenshot session.
+ */
+fun gridlinkSampleLastSyncedAt(): Long = System.currentTimeMillis() - GRIDLINK_SAMPLE_SYNC_AGE_MS
 
 /**
  * The persisted palette as the chrome's override, with [GridlinkPalette.AUTO] becoming null.
@@ -384,14 +410,16 @@ fun GridlinkApp(
      */
     config: GridlinkChromeConfig = GridlinkChromeConfig(),
     /**
-     * When the last successful sync was, at launch.
+     * When the last successful sync was, at launch. Null means nothing has synced yet this launch,
+     * which is the truth for every build until something actually reaches a server.
      *
-     * 🔴 Defaults to a plausible few minutes ago, which is sample data and is why a real build has
-     * to pass null. "Synced 12 minutes ago" on an account that has never once reached a server is
-     * the exact false reassurance [GridlinkChromeState.syncAllAccounts] refuses to write, arriving
-     * by a different door.
+     * 🔴 This defaulted to a plausible few minutes ago for the gallery's benefit, so a caller that
+     * said nothing got "Synced 4 minutes ago" on an app that had never once spoken to a server.
+     * That is the exact false reassurance [GridlinkChromeState.syncAllAccounts] refuses to write,
+     * arriving by a different door. The gallery asks for it by name now:
+     * [gridlinkSampleLastSyncedAt].
      */
-    initialLastSyncedAt: Long? = System.currentTimeMillis() - GRIDLINK_SAMPLE_SYNC_AGE_MS,
+    initialLastSyncedAt: Long? = null,
     content: @Composable () -> Unit,
 ) {
     val chrome = rememberSaveable(saver = GridlinkChromeState.saver(config)) {

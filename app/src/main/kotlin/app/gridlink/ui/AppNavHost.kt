@@ -40,6 +40,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.compose.ui.res.stringResource
+import app.gridlink.BuildConfig
 import app.gridlink.R
 import app.gridlink.EmailOpenTarget
 import app.gridlink.MailtoDraft
@@ -72,12 +73,27 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
- * TEST BUILD ONLY. Set back to false before integrating. When true, the privacy welcome
- * and the contacts priming appear on every launch/compose regardless of their real gating,
- * so they can be seen on a device that already has an account (without uninstalling). The
- * real gating logic below is untouched; this flag only bypasses it for the preview build.
+ * The opt-in half of [FORCE_ONBOARDING_PREVIEW]. Flip this to true to LOOK at the onboarding
+ * screens, flip it back when done.
+ *
+ * 🔴 Kept separate from the flag itself so that forgetting to flip it back cannot reach a user.
+ * See [FORCE_ONBOARDING_PREVIEW].
  */
-const val FORCE_ONBOARDING_PREVIEW = false
+private const val FORCE_ONBOARDING_PREVIEW_OPT_IN = false
+
+/**
+ * TEST BUILDS ONLY. When true, the privacy welcome and the contacts priming appear on every
+ * launch/compose regardless of their real gating, so they can be looked at on a device that already
+ * has an account without uninstalling it. The real gating below is untouched; this only bypasses it.
+ *
+ * 🔴 `&& BuildConfig.DEBUG` is the point of this line. This was a bare `const val` in main source
+ * whose own KDoc said "set back to false before integrating", which is a landmine with a note taped
+ * to it: the failure mode is somebody flipping it to look at the welcome screen, forgetting, and
+ * shipping a release that shows every returning user the first-run flow on every single launch.
+ * Now the worst a forgotten flip can do is annoy a debug build, and the release branch is dead code
+ * the compiler strips.
+ */
+val FORCE_ONBOARDING_PREVIEW = BuildConfig.DEBUG && FORCE_ONBOARDING_PREVIEW_OPT_IN
 
 /** Top-level route: no account, or signed in to a specific account. */
 sealed interface RootState {
@@ -162,8 +178,9 @@ fun AppNavHost(
 
     // Preview-only gate: force the welcome at startup regardless of RootState/hasSeenWelcome,
     // then fall through to the NORMAL routing (an authenticated user proceeds to their inbox,
-    // they are NOT dropped into the connect screen). Flip FORCE_ONBOARDING_PREVIEW to false to
-    // fully restore the real first-launch gating below.
+    // they are NOT dropped into the connect screen). Flip FORCE_ONBOARDING_PREVIEW_OPT_IN back to
+    // false to fully restore the real first-launch gating below; in a release build this branch is
+    // unreachable either way.
     var previewWelcomeDone by rememberSaveable { mutableStateOf(false) }
     if (FORCE_ONBOARDING_PREVIEW && !previewWelcomeDone) {
         WelcomeScreen(onDone = { previewWelcomeDone = true })

@@ -183,8 +183,22 @@ val LocalGridlinkBook = staticCompositionLocalOf { GridlinkBook() }
  * `new:` cannot collide with the sample ids, the composer's `typed:` ones, or a synced card's
  * [GridlinkDavMapping.PREFIX].
  *
- * ⚠️ The counter is the list size, so it is stable for as long as nothing is deleted, and nothing can
- * be deleted yet. The moment removal exists this has to become a real sequence, or the second contact
- * added after a deletion takes the id of one that is still on screen.
+ * 🔴 The number is one past the HIGHEST already handed out, not the list size. Size was fine only
+ * for as long as nothing could be deleted: delete the first of three and add a fourth and the size
+ * says 2, so the new card takes `new:contact:3`, which belongs to a card still on screen. Two rows
+ * with one id is a Compose key collision, which is a tap opening the wrong card, not a crash.
+ * Reading the max makes the id depend on what was actually issued rather than on how many survived.
+ * Numbers are reused only after the highest one is itself deleted, which is a number nothing holds.
+ *
+ * [existing] is the ids currently in the list, from any source. Ids with another prefix (sample,
+ * `typed:`, a synced card) are ignored rather than parsed, so the sequence is per-kind and per-run.
  */
-fun gridlinkNewId(kind: String, existing: Int): String = "new:$kind:${existing + 1}"
+fun gridlinkNewId(kind: String, existing: List<String>): String {
+    val prefix = "new:$kind:"
+    val highest = existing
+        .filter { it.startsWith(prefix) }
+        .mapNotNull { it.removePrefix(prefix).toIntOrNull() }
+        .maxOrNull()
+        ?: 0
+    return "$prefix${highest + 1}"
+}

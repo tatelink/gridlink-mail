@@ -1101,9 +1101,10 @@ fun GridlinkRoot(
                 return@launch
             }
             if (!calendarWriter.echoesIntoContent) {
-                // 🔴 The id is minted HERE, off the count, because the form cannot know it.
-                // See [gridlinkNewId].
-                addedEvents = addedEvents + event.copy(id = gridlinkNewId("event", addedEvents.size))
+                // 🔴 The id is minted HERE, off the ids already issued, because the form cannot
+                // know them. See [gridlinkNewId].
+                addedEvents = addedEvents +
+                    event.copy(id = gridlinkNewId("event", addedEvents.map { it.id }))
             }
             creating = null
         }
@@ -1168,7 +1169,7 @@ fun GridlinkRoot(
             }
             if (!contactWriter.echoesIntoContent) {
                 addedContacts = addedContacts +
-                    gridlinkContactOf(edit, gridlinkNewId("contact", addedContacts.size))
+                    gridlinkContactOf(edit, gridlinkNewId("contact", addedContacts.map { it.id }))
             }
             creating = null
         }

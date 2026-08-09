@@ -595,6 +595,13 @@ fun GridlinkFormTextRow(
             // row. Inside the decoration box the padding is drawn by the field, so the whole row takes
             // the tap. The contained box's fill and underline ride the outer chain for the same
             // reason: they must cover the full tappable area, padding included.
+            //
+            // ⚠️ Measured on device 2026-08-09 and it holds: on a 390dpi screen the composer's SUBJECT
+            // row owns 588..713px and MESSAGE owns 715..949px, adjacent with only the hairline between,
+            // and the boundary falls on the visual midpoint between the two lines of text. The one
+            // thing under the divider that swallows a tap is the focused row's own CURSOR HANDLE,
+            // which is a ~22px platform overlay that sits directly under the caret and moves with it.
+            // That is Android, not this layout. See [[gridlink-form-hit-areas]] before "fixing" it.
             decorationBox = { field ->
                 Box(
                     modifier = if (contained) {
