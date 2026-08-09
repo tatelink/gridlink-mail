@@ -350,6 +350,62 @@ object GridlinkSample {
         message.copy(body = GridlinkSampleBodies.bodyFor(message.id))
     }
 
+    /**
+     * Four unfinished messages, which is what the drawer's Drafts row has always claimed.
+     *
+     * 🔴 Deliberately NOT part of [messages], and that is the whole reason this is a second list
+     * rather than four more rows in [extraMessages]. [GridlinkSampleFolders.messagesIn] treats the
+     * Inbox as *every message in the pool*, so a draft added to that list would be filed as mail
+     * that arrived, in the one folder where mail you have not sent yet must never appear.
+     *
+     * ⚠️ [GridlinkMessage.sender] is the account itself, not the person the draft is addressed to,
+     * because that is what the live app does: [GridlinkMailMapping.message] reads `from`, and on a
+     * draft `from` is you. So the Drafts list shows four rows from your own address, which looks
+     * odd and is nonetheless exactly what the real mailbox renders today. If that reads wrong, the
+     * fix belongs in the mapper (show the recipient in outgoing mailboxes) where it corrects the
+     * live list and this one together, not here where it would only dress up the sample.
+     *
+     * One row carries `(no subject)`, spelled the way [GridlinkMailMapping.Labels] spells it: a
+     * draft with nothing in the subject field is the commonest draft there is, and a list that has
+     * only ever been photographed with four tidy subject lines has not been tested against it.
+     */
+    val draftMessages: List<GridlinkMessage> = listOf(
+        GridlinkMessage(
+            id = "draft-sysco-credit",
+            sender = GRIDLINK_SAMPLE_ACCOUNT,
+            domain = "gridlink.me",
+            subject = "Credit request, truck short 3 cases 0449 BELMONT 07/30",
+            timestamp = "10:44 AM",
+            section = GridlinkSection.TODAY,
+        ),
+        GridlinkMessage(
+            id = "draft-cap-456",
+            sender = GRIDLINK_SAMPLE_ACCOUNT,
+            domain = "gridlink.me",
+            subject = "Corrective Action Plan, Store 456, walk-in gasket and prep sink",
+            timestamp = "10:12 AM",
+            section = GridlinkSection.TODAY,
+        ),
+        GridlinkMessage(
+            id = "draft-tperez-overtime",
+            sender = GRIDLINK_SAMPLE_ACCOUNT,
+            domain = "gridlink.me",
+            subject = "Re: Overtime projection is over plan for period 7",
+            timestamp = "Yesterday",
+            section = GridlinkSection.YESTERDAY,
+        ),
+        GridlinkMessage(
+            id = "draft-no-subject",
+            sender = GRIDLINK_SAMPLE_ACCOUNT,
+            domain = "gridlink.me",
+            subject = "(no subject)",
+            timestamp = "Wed",
+            section = GridlinkSection.EARLIER,
+        ),
+    ).map { message ->
+        message.copy(body = GridlinkSampleBodies.bodyFor(message.id))
+    }
+
     /** Everything the user actually has to read, in timeline order. */
     val humanMessages: List<GridlinkMessage> = messages.filterNot { it.automated }
 

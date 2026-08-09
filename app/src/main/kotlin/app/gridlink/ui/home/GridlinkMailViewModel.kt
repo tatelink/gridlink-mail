@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Intent
 import android.util.Log
 import androidx.core.content.FileProvider
+import androidx.core.text.HtmlCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.gridlink.container
@@ -13,17 +14,25 @@ import app.gridlink.core.jmap.model.Email
 import app.gridlink.core.jmap.model.EmailBodyPart
 import app.gridlink.core.jmap.model.SearchQuery
 import app.gridlink.push.FetchAndNotify
+import app.gridlink.send.ScheduledSends
 import app.gridlink.ui.gridlink.GridlinkAttachment
+import app.gridlink.ui.gridlink.GridlinkComposeDraft
 import app.gridlink.ui.gridlink.GridlinkFolder
 import app.gridlink.ui.gridlink.GridlinkFolderContent
 import app.gridlink.ui.gridlink.GridlinkFolderEdit
 import app.gridlink.ui.gridlink.GridlinkFolderMapping
+import app.gridlink.ui.gridlink.GridlinkFolderRole
 import app.gridlink.ui.gridlink.GridlinkMailAction
 import app.gridlink.ui.gridlink.GridlinkMailContent
 import app.gridlink.ui.gridlink.GridlinkMailMapping
+import app.gridlink.ui.gridlink.GridlinkMenuItem
 import app.gridlink.ui.gridlink.GridlinkOpenFolder
 import app.gridlink.ui.gridlink.GridlinkOpenMessage
+import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
+import app.gridlink.ui.gridlink.GridlinkScheduledContent
+import app.gridlink.ui.gridlink.GridlinkScheduledSend
 import app.gridlink.ui.gridlink.GridlinkSearchContent
+import app.gridlink.ui.gridlink.gridlinkTypedRecipient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -147,6 +156,15 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     private val searchQuery = MutableStateFlow("")
 
     /**
+     * A saved draft, fetched and rebuilt for the composer to resume. See
+     * [GridlinkMailContent.draftEdit] for the round trip this is the answer half of.
+     */
+    private val draftEdit = MutableStateFlow<GridlinkComposeDraft?>(null)
+
+    /** The in-flight draft fetch, so tapping a second Drafts row abandons the first. */
+    private var draftJob: Job? = null
+
+    /**
      * Point the mailbox at [id], or leave it where it is.
      *
      * The guard is the entire method: called from a composition effect, it runs again on every
@@ -173,6 +191,10 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         // A search is a question asked OF an account. Results from the old one under a pill the
         // new one owns would be mail the new mailbox cannot even open.
         searchQuery.value = ""
+        // A draft belongs to the account it was saved on. Carried across, the composer would open
+        // over it and the eventual save would write it into the NEW account's Drafts.
+        draftJob?.cancel()
+        draftEdit.value = null
     }
 
     /** Account id + inbox + how much of it to hold, as the cache query needs them. */
@@ -280,7 +302,16 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
      * mapper takes the date rather than reading the clock itself.
      */
     val mail: StateFlow<GridlinkMailContent> =
-        combine(rows, opened, primed, settings.imageAllowlist, search) { emails, open, ready, allowed, found ->
+        combine(
+            // Six sources against combine's five-flow ceiling, so the first three ride together.
+            // Grouped by cadence, not at random: rows/opened/primed all change on mail movement,
+            // while the other three each have their own clock (a settings write, a keystroke, a
+            // Drafts tap).
+            combine(rows, opened, primed) { emails, open, ready -> Triple(emails, open, ready) },
+            settings.imageAllowlist,
+            search,
+            draftEdit,
+        ) { (emails, open, ready), allowed, found, editing ->
             val zone = ZoneId.systemDefault()
             val mapped = GridlinkMailMapping.map(
                 emails = emails,
@@ -295,6 +326,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 open = open,
                 imageAllowlist = allowed,
                 search = found,
+                draftEdit = editing,
             )
         }.stateIn(
             scope = viewModelScope,
@@ -381,6 +413,98 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             // Loading, not empty, for the reason [mail]'s initial value is: the first frame draws
             // before Room has answered, and "0 mailboxes" there is a claim about the account.
             initialValue = GridlinkFolderContent(tree = emptyList(), loading = true),
+        )
+
+    // ---------------------------------------------------------------------------------------
+    // The drawer's other two rows: Scheduled and the counts
+    //
+    // Scheduled sends are local rows with alarms on them, not mail (see GridlinkScheduledScreen's
+    // doc), so their flow comes from the scheduled-send table and never touches the mailbox path.
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * The account's waiting sends, soonest-first sorting left to the screen.
+     *
+     * 🔴 Filtered here because [MailRepository.scheduledSendsFlow] is deliberately unfiltered (its
+     * other reader is the delivery worker, which wants everything). Unfiltered on this path, a
+     * second account's queued mail would appear in the first one's Scheduled screen.
+     *
+     * The initial value is a real empty answer, NOT null: null tells the screen "nobody is
+     * supplying" and it draws the sample, which must never happen in the live app.
+     */
+    val scheduled: StateFlow<GridlinkScheduledContent> =
+        combine(accountId, repo.scheduledSendsFlow()) { id, sends ->
+            GridlinkScheduledContent(
+                items = sends.filter { it.accountId == id }.map { entity ->
+                    val addresses = entity.recipients.split(',')
+                        .map { it.trim() }
+                        .filter { it.isNotEmpty() }
+                    GridlinkScheduledSend(
+                        id = entity.id,
+                        // The row has one line for "who": the first address, plus how many more.
+                        to = when (addresses.size) {
+                            0 -> ""
+                            1 -> addresses.first()
+                            else -> "${addresses.first()} +${addresses.size - 1}"
+                        },
+                        subject = entity.subject,
+                        sendAtMillis = entity.sendAtMillis,
+                    )
+                },
+            )
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(SUBSCRIPTION_GRACE_MS),
+            initialValue = GridlinkScheduledContent(items = emptyList()),
+        )
+
+    /**
+     * Stop a waiting send. Row first, worker second, the outbox undo's order and reason: a cancel
+     * that half-lands leaves a worker that wakes to find no row and exits.
+     */
+    fun cancelScheduled(id: Long) {
+        viewModelScope.launch {
+            try {
+                repo.deleteScheduledSend(id)
+                ScheduledSends.cancel(getApplication(), id)
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                Log.w(TAG, "scheduled cancel failed", t)
+            }
+        }
+    }
+
+    /**
+     * Drafts total off the folder table, not a Gridlink count of cached rows: the Drafts mailbox is
+     * usually unfetched (the sync only pulls the inbox), so counting cached mail would say 0 over a
+     * folder with real drafts in it. [Mailbox.totalEmails] is the server's own total, refreshed on
+     * every sync — total, not unread, because the drawer's noun for Drafts is "unsent".
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val draftsCount: Flow<Int> = accountId.flatMapLatest { id ->
+        if (id == null) {
+            flowOf(0)
+        } else {
+            repo.observeMailboxes(id).map { boxes ->
+                boxes.firstOrNull {
+                    GridlinkFolderMapping.roleOf(it.role) == GridlinkFolderRole.DRAFTS
+                }?.totalEmails ?: 0
+            }
+        }
+    }.distinctUntilChanged()
+
+    /** The drawer's live sublines. Only the two rows that have a number to say appear as keys. */
+    val menuCounts: StateFlow<Map<GridlinkMenuItem, Int>> =
+        combine(draftsCount, scheduled) { drafts, waiting ->
+            mapOf(
+                GridlinkMenuItem.DRAFTS to drafts,
+                GridlinkMenuItem.SCHEDULED to waiting.items.size,
+            )
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(SUBSCRIPTION_GRACE_MS),
+            initialValue = emptyMap(),
         )
 
     /**
@@ -571,6 +695,65 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     }
 
     /**
+     * Fetch a saved draft and rebuild it as something the composer can resume, or clear the answer.
+     *
+     * The scaffold calls this with the tapped Drafts row's id, and with null once it has opened the
+     * composer over the answer — the clearing half of [GridlinkMailContent.draftEdit]'s one-shot
+     * contract.
+     *
+     * 🔴 `markRead = false` is the whole reason Drafts taps come here instead of through [open]:
+     * the fetch must not flip the user's own draft to read on the server, and [open] always does.
+     *
+     * ⚠️ A failed fetch is logged and the tap does nothing visible. Real gap, same one [sync] has:
+     * there is no error surface on the folder list to say "couldn't load that draft", and inventing
+     * one here would be a second sync chip.
+     */
+    fun editDraft(emailId: String?) {
+        if (emailId == null) {
+            draftEdit.value = null
+            return
+        }
+        val id = accountId.value ?: return
+        val credentials = store.credentials(id) ?: return
+        draftJob?.cancel()
+        draftJob = viewModelScope.launch {
+            val body = try {
+                repo.openMessage(credentials, emailId, markRead = false)
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                Log.w(TAG, "draft fetch failed", t)
+                return@launch
+            }
+            val email = body.email
+            draftEdit.value = GridlinkComposeDraft(
+                title = "Draft",
+                recipients = email.to.filter { it.email.isNotBlank() }.map { address ->
+                    // The composer's own typed-address builder, so a resumed recipient is
+                    // indistinguishable from one typed just now — same id scheme, same rendering.
+                    // The fallback is for addresses its validator would refuse (odd but real ones
+                    // exist): dropping them here would silently shrink the draft on its next save.
+                    gridlinkTypedRecipient(address.email) ?: GridlinkContact(
+                        id = "typed:${address.email.lowercase()}",
+                        given = "",
+                        family = address.email,
+                        role = "",
+                        email = address.email,
+                    )
+                },
+                recipientQuery = "",
+                subject = email.subject.orEmpty(),
+                body = draftText(email),
+                quoted = null,
+                attachments = emptyList(),
+                // What turns the eventual save into a replace and the eventual send into one that
+                // retires the server copy. Without it, every resume would fork the draft.
+                draftEmailId = emailId,
+            )
+        }
+    }
+
+    /**
      * Download the tapped attachment and hand it to whatever on the phone can show it.
      *
      * The same journey upstream's reader makes: fetch the part (50 MB ceiling, refused before the
@@ -606,6 +789,11 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 // A chooser, not a bare ACTION_VIEW: with no handler installed a bare intent throws
                 // and with several the picker is the right answer anyway. The chooser shows its own
                 // "no apps" sheet, so there is no failure branch to write here.
+                //
+                // unguarded: not a tap. The tap was handled above, where [openingAttachment] holds
+                // the second one back until this hand-off is made; there is no composition here to
+                // hang the shared leave guard on. Same reasoning, same latch, as the reader's own
+                // openAttachment, which this was written from.
                 app.startActivity(
                     Intent.createChooser(view, "Open with").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 )
@@ -764,6 +952,23 @@ internal fun readableBody(email: Email): GridlinkBody {
 
 /** A body and the one fact about it the renderer cannot work out for itself. */
 internal data class GridlinkBody(val content: String, val plainText: Boolean)
+
+/**
+ * The draft's body as the composer's plain-text editor takes it.
+ *
+ * 🔴 [readableBody]'s preference INVERTED, on purpose. The reader wants HTML because its WebView
+ * can lay it out; the composer is a plain-text field, so a draft this app saved (always text) comes
+ * back exactly as typed, and only a draft some other client saved as HTML-only gets flattened.
+ * That flatten is lossy and unavoidable here — the next save writes the flattened text — which is
+ * the same trade upstream's composer makes when it reopens foreign drafts.
+ */
+private fun draftText(email: Email): String {
+    email.textContent()?.takeIf { it.isNotBlank() }?.let { return it }
+    email.htmlContent()?.takeIf { it.isNotBlank() }?.let {
+        return HtmlCompat.fromHtml(it, HtmlCompat.FROM_HTML_MODE_COMPACT).toString().trim()
+    }
+    return ""
+}
 
 /**
  * The message's downloadable parts, in the order their chips will draw. All of them: this held one

@@ -2,8 +2,10 @@ package app.gridlink.ui.gridlink
 
 import android.content.Context
 import app.gridlink.core.data.account.AccountStore
+import app.gridlink.core.data.db.ScheduledSendEntity
 import app.gridlink.core.data.mail.MailRepository
 import app.gridlink.send.Outbox
+import app.gridlink.send.ScheduledSends
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -40,6 +42,26 @@ interface GridlinkSender {
      * Only ever called after [check] has returned null.
      */
     suspend fun enqueue(request: GridlinkComposeRequest): suspend () -> Unit
+
+    /**
+     * Keep the message as a draft, because the composer closed without sending it.
+     *
+     * Called with whatever [GridlinkComposeScreen]'s close handed back: an edited draft to save, or
+     * an emptied one whose server copy (if any) should go away. NOT gated by [check] — a draft with
+     * no recipients, sample recipients, or attachments is a fine draft even though it would be a
+     * refused send. Default is to do nothing, which is the correct behaviour for a build with no
+     * server behind it: the gallery's composer closes and the text simply ceases, as it always has.
+     */
+    suspend fun keep(request: GridlinkComposeRequest) {}
+
+    /**
+     * Queue the message to be sent at [sendAtMillis] (epoch millis), not now.
+     *
+     * Only ever called after [check] has returned null: a scheduled send is still a send, and every
+     * refusal that applies on the tap applies at four tomorrow morning, when nobody will be looking
+     * at the error. Default is a no-op for engine-less builds, same reasoning as [keep].
+     */
+    suspend fun schedule(request: GridlinkComposeRequest, sendAtMillis: Long) {}
 }
 
 /**
@@ -110,6 +132,10 @@ class GridlinkOutboxSender(
             // or the other: a shorter hold sends while the ring still offers to stop it, a longer
             // one leaves the message recallable after the offer is gone.
             holdMs = GRIDLINK_UNDO_WINDOW_MS,
+            // Sending a message that began life as a saved draft retires the draft: the engine
+            // deletes the server copy once the send is accepted, so Drafts does not keep a stale
+            // twin of something that is now in Sent.
+            draftEmailId = draft.draftEmailId,
         )
         return {
             // Row first, worker second, matching the order the stock composer uses: the row is the
@@ -118,6 +144,53 @@ class GridlinkOutboxSender(
             repository.deleteOutbox(id)
             Outbox.cancel(context, id)
         }
+    }
+
+    override suspend fun keep(request: GridlinkComposeRequest) {
+        val draft = request.draft
+        val credentials = accounts.load() ?: error("No account to keep a draft on.")
+        val emptied = draft.recipients.isEmpty() && draft.subject.isBlank() && draft.body.isBlank()
+        if (emptied) {
+            // The composer only reports an empty draft when there IS a server copy to retire
+            // (an emptied fresh compose reports null and never reaches here): the user opened a
+            // saved draft, deleted everything, and closed. That is a discard, said with the
+            // backspace key instead of a button.
+            draft.draftEmailId?.let { repository.discardDraft(credentials, it) }
+            return
+        }
+        repository.saveDraft(
+            credentials = credentials,
+            to = draft.recipients.map { it.email },
+            subject = draft.subject,
+            body = draft.body,
+            // Editing a saved draft replaces it in place rather than piling up a copy per close.
+            replacesEmailId = draft.draftEmailId,
+        )
+    }
+
+    override suspend fun schedule(request: GridlinkComposeRequest, sendAtMillis: Long) {
+        val draft = request.draft
+        val credentials = accounts.load() ?: error("No account to send from.")
+        // Same shape [ComposeViewModel] writes: the entity is the message, held locally until its
+        // worker fires. Nothing goes to the server until then, which is why cancelling a scheduled
+        // send is a local row delete rather than a recall.
+        val id = repository.insertScheduledSend(
+            ScheduledSendEntity(
+                accountId = credentials.id,
+                recipients = draft.recipients.joinToString(",") { it.email },
+                subject = draft.subject,
+                textBody = draft.body,
+                htmlBody = null,
+                fromName = null,
+                fromEmail = null,
+                inReplyTo = null,
+                references = null,
+                sendAtMillis = sendAtMillis,
+                // So the worker retires the server draft when the send finally goes out.
+                draftEmailId = draft.draftEmailId,
+            )
+        )
+        ScheduledSends.enqueue(context, id, sendAtMillis)
     }
 }
 

@@ -87,6 +87,13 @@ import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
 import app.gridlink.ui.theme.gridlinkSenderBarColor
 import kotlinx.coroutines.delay
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.temporal.TemporalAdjusters
 
 /**
  * The composer: §1c fresh, §1d reply with an attachment, §1e the schedule-send sheet.
@@ -120,7 +127,19 @@ import kotlinx.coroutines.delay
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun GridlinkComposeScreen(
-    onClose: () -> Unit,
+    /**
+     * Close, carrying what was on screen so the caller can keep it as a draft — or null when there
+     * is nothing worth keeping.
+     *
+     * 🔴 Null is a decision, not a shortcut, and the composer is the only party that can make it:
+     * it owns the edits, so only it knows whether the screen still says what it said on open. Null
+     * means "closing changes nothing" — the draft was never touched, or it was emptied and never
+     * existed on the server. A non-null request means "this is what the user walked away from",
+     * and the caller decides what keeping it means (a server draft, or nothing, for a build with no
+     * engine). An opened server draft closed UNTOUCHED also reports null: rewriting an identical
+     * draft would churn its id and its date for nothing.
+     */
+    onClose: (GridlinkComposeRequest?) -> Unit,
     modifier: Modifier = Modifier,
     /**
      * Send. Hands back the request that would reopen this exact composer, because §6c's undo has to
@@ -131,7 +150,15 @@ fun GridlinkComposeScreen(
      * make undo silently revert their edits — the one thing an undo must never do. Defaults to
      * [onClose] so a caller that has no undo window still gets a send button that closes.
      */
-    onSend: (GridlinkComposeRequest) -> Unit = { onClose() },
+    onSend: (GridlinkComposeRequest) -> Unit = { onClose(null) },
+    /**
+     * Send later: the same request [onSend] would carry, plus the moment it should go, as epoch
+     * millis. Called when a preset or a picked time is chosen; the composer closes itself no more
+     * than [onSend] does — the caller closes it by clearing the request, exactly as for a send.
+     * Defaults to closing without keeping anything, which is what the schedule sheet did when it
+     * was cosmetic: a build with nothing behind it must not pretend it parked a message.
+     */
+    onSchedule: (GridlinkComposeRequest, Long) -> Unit = { _, _ -> onClose(null) },
     draft: GridlinkComposeDraft = GridlinkComposeDraft.Fresh,
     initialFocus: GridlinkComposeField = GridlinkComposeField.TO,
     initiallyScheduling: Boolean = false,
@@ -152,6 +179,12 @@ fun GridlinkComposeScreen(
     var attachments by remember(draft) { mutableStateOf(draft.attachments) }
     var quotedExpanded by remember(draft) { mutableStateOf(false) }
     var scheduling by remember(draft) { mutableStateOf(initiallyScheduling) }
+
+    // The custom half of Send Later: "Pick a time" walks a date sheet and then a time sheet. Two
+    // states rather than one enum because the second carries the first's answer, and back walks the
+    // pair in reverse — time picker returns to the date, date returns to the presets.
+    var schedulePickingDate by remember(draft) { mutableStateOf(false) }
+    var scheduleDate by remember(draft) { mutableStateOf<LocalDate?>(null) }
 
     // 🔴 [TextFieldValue] and not String, for all three. A String-valued field re-derives its
     // selection on every recomposition, and every one of these is recomposed by something other
@@ -262,15 +295,50 @@ fun GridlinkComposeScreen(
         )
     }
 
+    /**
+     * What closing should keep, or null when closing changes nothing. See [onClose].
+     *
+     * Untouched is measured against the [draft] this composer opened with, field by field, because
+     * "did they edit" is a question about this sitting and not about the draft's history: a reply
+     * opened and immediately backed out of leaves nothing behind, even though its subject and body
+     * arrived full. Emptied-out content reports null only when there is no server draft to discard;
+     * with one, the request goes up empty so the caller can take the stored draft down with it.
+     */
+    fun closeRequest(): GridlinkComposeRequest? {
+        val untouched = recipients == draft.recipients &&
+            query.text == draft.recipientQuery &&
+            subject.text == draft.subject &&
+            body.text == draft.body &&
+            attachments == draft.attachments
+        if (untouched) return null
+        val request = sendRequest()
+        val content = request.draft
+        val empty = content.recipients.isEmpty() && content.recipientQuery.isBlank() &&
+            content.subject.isBlank() && content.body.isBlank() && content.attachments.isEmpty()
+        if (empty && content.draftEmailId == null) return null
+        return request
+    }
+
     BackHandler(enabled = true) {
         when {
+            // The custom-time walk unwinds one sheet at a time: time back to date, date back to
+            // the presets. Each rung restores the sheet the user came through, so back retraces
+            // the path in rather than dumping the whole flow.
+            scheduleDate != null -> {
+                scheduleDate = null
+                schedulePickingDate = true
+            }
+            schedulePickingDate -> {
+                schedulePickingDate = false
+                scheduling = true
+            }
             scheduling -> scheduling = false
             // 🔴 Clears real focus rather than just setting the enum. Assigning `focused = NONE`
             // moves the send button and leaves the caret exactly where it was, so the keyboard
             // stays up over a composer that has already rearranged itself for it being down. The
             // focus change is what closes the keyboard; the enum follows it, via [onFocusChanged].
             keyboardUp -> focusManager.clearFocus()
-            else -> onClose()
+            else -> onClose(closeRequest())
         }
     }
 
@@ -310,7 +378,7 @@ fun GridlinkComposeScreen(
         ) {
             GridlinkComposeHeader(
                 title = draft.title,
-                onClose = onClose,
+                onClose = { onClose(closeRequest()) },
                 // 🔴 The send control is rendered by whichever slot currently owns it, and exactly
                 // one of them does. Both branches read the same `keyboardUp`, so there is no state
                 // in which the composer shows two send buttons or none.
@@ -564,17 +632,57 @@ fun GridlinkComposeScreen(
 
     if (scheduling) {
         GridlinkScheduleSheet(
-            // 🔴 Closes, and deliberately does NOT open the undo window. The two halves of §6c are
-            // different mechanisms and only one of them needs an escape hatch: an undo window exists
-            // because a send you did not mean is already gone in ten seconds, whereas a scheduled
-            // message sits visibly in its own tree node until Monday and can be cancelled from there
-            // for as long as you like. A ten-second countdown on top of a three-day delay would be
-            // rushing a decision that is not urgent.
-            onPick = {
+            // Computed when the sheet opens, not when the composer did: the two moments can be
+            // minutes apart, and "Tonight" has to be judged against the clock the user is looking
+            // at. `remember` inside this branch re-runs on every open because the branch leaves
+            // composition in between.
+            presets = remember { gridlinkSchedulePresets(ZonedDateTime.now()) },
+            // 🔴 Hands the moment up, and deliberately does NOT open the undo window. The two
+            // halves of §6c are different mechanisms and only one of them needs an escape hatch: an
+            // undo window exists because a send you did not mean is already gone in ten seconds,
+            // whereas a scheduled message sits visibly in Scheduled until its moment and can be
+            // cancelled from there for as long as you like. A ten-second countdown on top of a
+            // three-day delay would be rushing a decision that is not urgent.
+            onPick = { millis ->
                 scheduling = false
-                onClose()
+                onSchedule(sendRequest(), millis)
+            },
+            onPickCustom = {
+                scheduling = false
+                schedulePickingDate = true
             },
             onDismiss = { scheduling = false },
+        )
+    }
+
+    // "Pick a time": the calendar's own date and time sheets, in sequence. The same primitives the
+    // event form uses rather than a third picker; a schedule picker that weeks differently from the
+    // calendar two taps away would be two apps.
+    if (schedulePickingDate) {
+        GridlinkDatePickerSheet(
+            selected = remember { LocalDate.now() },
+            // ⚠️ The picker calls onPick and then onDismiss on the same tap, so the pick moves to
+            // the time sheet and the dismiss that follows finds `schedulePickingDate` already
+            // false and does nothing. A scrim tap or back reaches only the dismiss.
+            onPick = { scheduleDate = it },
+            onDismiss = { schedulePickingDate = false },
+        )
+    }
+    scheduleDate?.let { date ->
+        GridlinkTimePickerSheet(
+            title = date.format(SCHEDULE_DATE_TITLE),
+            selected = remember { defaultScheduleTime(date) },
+            // A moment already gone is not a schedule. Same-day picks start at the next quarter
+            // hour; any other day offers the whole day.
+            notBefore = if (date == LocalDate.now()) LocalTime.now() else null,
+            onPick = { time ->
+                scheduleDate = null
+                onSchedule(
+                    sendRequest(),
+                    date.atTime(time).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                )
+            },
+            onDismiss = { scheduleDate = null },
         )
     }
 }
@@ -633,6 +741,13 @@ data class GridlinkComposeDraft(
     val body: String,
     val quoted: String?,
     val attachments: List<GridlinkAttachment>,
+    /**
+     * The server id of the draft this composer is editing, or null for a message that has never
+     * been saved. Carried so that closing replaces the stored draft instead of multiplying it, and
+     * so that sending it consumes it. Opaque to this package: it is minted and spent by whoever
+     * owns the mailbox.
+     */
+    val draftEmailId: String? = null,
 ) {
     companion object {
         /** §1c. */
@@ -836,9 +951,12 @@ private fun GridlinkComposeHeader(
             ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // "Close", not "Discard", since silent draft save landed: leaving keeps the message now,
+        // and a control labelled Discard that quietly saves would be lying in the safe direction,
+        // which is still lying.
         GridlinkCircleButton(
             icon = Icons.Outlined.Close,
-            label = "Discard",
+            label = "Close",
             onClick = onClose,
         )
         Text(
@@ -1293,12 +1411,60 @@ private fun GridlinkAttachmentRow(
 // §1e Schedule send
 // ---------------------------------------------------------------------------------------------
 
-/** The presets. Wording is relative and human; the time beside it is exact and tabular. */
-private val GRIDLINK_SEND_LATER = listOf(
-    "Tonight" to "6:00 PM",
-    "Tomorrow" to "7:00 AM",
-    "Monday" to "8:00 AM",
-)
+/** One Send Later shortcut: the human word, the exact time beside it, and the moment it means. */
+@Immutable
+data class GridlinkSchedulePresetTime(val label: String, val time: String, val millis: Long)
+
+/**
+ * The presets, judged against the clock at the moment the sheet opens. Wording is relative and
+ * human; the time beside it is exact and tabular; the millis behind it are what actually gets
+ * scheduled, so the row and the schedule cannot disagree.
+ *
+ * A preset that has already passed is absent rather than greyed: "Tonight 6:00 PM" at 9 PM is not a
+ * disabled option, it is a time that does not exist. "Monday" likewise stands down whenever
+ * tomorrow already is Monday — two rows meaning the same morning would make the sheet look broken.
+ */
+internal fun gridlinkSchedulePresets(now: ZonedDateTime): List<GridlinkSchedulePresetTime> = buildList {
+    val today = now.toLocalDate()
+    val tonight = today.atTime(18, 0).atZone(now.zone)
+    if (tonight.isAfter(now)) {
+        add(GridlinkSchedulePresetTime("Tonight", "6:00 PM", tonight.toInstant().toEpochMilli()))
+    }
+    val tomorrow = today.plusDays(1)
+    add(
+        GridlinkSchedulePresetTime(
+            "Tomorrow",
+            "7:00 AM",
+            tomorrow.atTime(7, 0).atZone(now.zone).toInstant().toEpochMilli(),
+        ),
+    )
+    val monday = today.with(TemporalAdjusters.next(DayOfWeek.MONDAY))
+    if (monday != tomorrow) {
+        add(
+            GridlinkSchedulePresetTime(
+                "Monday",
+                "8:00 AM",
+                monday.atTime(8, 0).atZone(now.zone).toInstant().toEpochMilli(),
+            ),
+        )
+    }
+}
+
+/** The time sheet's title for a picked day: the event form's own date spelling. */
+internal val SCHEDULE_DATE_TITLE: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM")
+
+/**
+ * Where the time list opens for a picked day: 8 AM for a future day, the next quarter hour for
+ * today — opening today's list on an hour that [GridlinkTimePickerSheet]'s `notBefore` has already
+ * filtered out would land the scroll at the top instead of near now.
+ */
+internal fun defaultScheduleTime(date: LocalDate): LocalTime =
+    if (date == LocalDate.now()) {
+        val now = LocalTime.now()
+        now.plusMinutes((15 - now.minute % 15).toLong()).withSecond(0).withNano(0)
+    } else {
+        LocalTime.of(8, 0)
+    }
 
 /**
  * §1e.
@@ -1318,7 +1484,9 @@ private val GRIDLINK_SEND_LATER = listOf(
  */
 @Composable
 private fun GridlinkScheduleSheet(
-    onPick: (String) -> Unit,
+    presets: List<GridlinkSchedulePresetTime>,
+    onPick: (Long) -> Unit,
+    onPickCustom: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val colors = GridlinkTheme.colors
@@ -1334,21 +1502,21 @@ private fun GridlinkScheduleSheet(
                 bottom = GridlinkSpacing.s8,
             ),
         )
-        GRIDLINK_SEND_LATER.forEach { (day, time) ->
+        presets.forEach { preset ->
             GridlinkSchedulePreset(
-                label = day,
-                trailing = time,
-                onClick = { onPick("$day $time") },
+                label = preset.label,
+                trailing = preset.time,
+                onClick = { onPick(preset.millis) },
             )
         }
         GridlinkSchedulePreset(
             label = "Pick a time",
             trailing = null,
-            // 🔴 The only accent row, because it is the only one that opens something else. The three
-            // above it are complete answers, and accenting them would make the sheet read as four
-            // ways into a picker rather than three shortcuts past it.
+            // 🔴 The only accent row, because it is the only one that opens something else. The rows
+            // above it are complete answers, and accenting them would make the sheet read as several
+            // ways into a picker rather than shortcuts past it.
             accent = true,
-            onClick = { onPick("custom") },
+            onClick = onPickCustom,
         )
         GridlinkSheetFooterSpace()
     }

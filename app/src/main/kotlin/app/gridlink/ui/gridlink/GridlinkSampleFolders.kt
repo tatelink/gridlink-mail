@@ -29,8 +29,10 @@ package app.gridlink.ui.gridlink
  * one tap apart. [unreadIn] is what [GridlinkSampleTree.mailboxes] fills its counts from, so the
  * badge cannot disagree with what is behind it.
  *
- * ⚠️ The visible cost is that Drafts and Junk lose their badges, because the sample has no draft and
- * no junk mail to put in them. A number that cannot be backed by rows is not worth keeping.
+ * ⚠️ The visible cost is that Drafts and Junk carry no badge. Junk has nothing in it, and Drafts has
+ * four rows that are not unread: a draft is mail you wrote, so there is no such thing as an unread
+ * one, and the drawer's "4 unsent" is counting a different noun on a different surface. A number
+ * that cannot be backed by rows is not worth keeping.
  */
 object GridlinkSampleFolders {
 
@@ -103,11 +105,17 @@ object GridlinkSampleFolders {
      * them and writing them out again would be a second copy of §10 to keep in step with the first.
      */
     fun messagesIn(folderId: String): List<GridlinkMessage> {
-        val pool = if (folderId == "inbox") {
-            GridlinkSample.messages
-        } else {
-            val ids = contents[folderId] ?: return emptyList()
-            GridlinkSample.messages.filter { it.id in ids }
+        val pool = when (folderId) {
+            "inbox" -> GridlinkSample.messages
+            // 🔴 Its own list, not a membership in [contents]. Every other folder here is a view
+            // over the inbox pool, and Drafts is the one mailbox that cannot be: mail you have not
+            // sent is not mail that arrived, so its rows exist nowhere else. See
+            // [GridlinkSample.draftMessages] for why they are held apart rather than filtered out.
+            "drafts" -> GridlinkSample.draftMessages
+            else -> {
+                val ids = contents[folderId] ?: return emptyList()
+                GridlinkSample.messages.filter { it.id in ids }
+            }
         }
         return pool.sortedWith(compareBy({ it.dayRank() }, { it.minutesBeforeMidnight() }))
     }

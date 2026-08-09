@@ -299,10 +299,21 @@ const val GRIDLINK_SAMPLE_ACCOUNT = "brandon@gridlink.me"
 
 /**
  * Sample counts for the two mailboxes that carry one. Same status as [GRIDLINK_SAMPLE_ACCOUNT].
+ *
+ * 🔴 Drafts is COUNTED, not typed. It was written as a literal 4 while the sample had no drafts at
+ * all, so the drawer advertised four unsent messages and the Drafts folder one tap away said
+ * "Nothing in Drafts" — the app contradicting itself on two surfaces of the same screen, which is
+ * the exact failure [GridlinkSampleFolders.unreadIn] exists to prevent for folder badges. Reading
+ * the fixture means the row cannot claim mail that is not there.
+ *
+ * ⚠️ Scheduled is still a literal, and it is the one that is defensible: [gridlinkSampleScheduled]
+ * builds its two rows against a `now` that only the composable has, so counting them here would
+ * mean either passing a clock into a constant or freezing the times this menu is not allowed to
+ * own. `GridlinkSampleMenuCountsTest` holds it to the fixture instead.
  */
 val GRIDLINK_SAMPLE_MENU_COUNTS = mapOf(
     GridlinkMenuItem.SCHEDULED to 2,
-    GridlinkMenuItem.DRAFTS to 4,
+    GridlinkMenuItem.DRAFTS to GridlinkSample.draftMessages.size,
 )
 
 /**

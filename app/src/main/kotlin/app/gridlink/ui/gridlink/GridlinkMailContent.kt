@@ -70,6 +70,16 @@ data class GridlinkMailContent(
      * the fixtures are the whole mailbox.
      */
     val search: GridlinkSearchContent? = null,
+    /**
+     * A saved draft, fetched and rebuilt as something the composer can resume, or null.
+     *
+     * The answer half of a round trip: the scaffold reports a tapped Drafts row via `onEditDraft`,
+     * the supplier fetches the message (unread-safe, the fetch never marks it read), and the rebuilt
+     * draft arrives here. The scaffold opens the composer over it and immediately calls
+     * `onEditDraft(null)` to clear it, so a stale answer cannot reopen the composer later — the
+     * same one-shot discipline as [GridlinkChromeState.menuRoute].
+     */
+    val draftEdit: GridlinkComposeDraft? = null,
 )
 
 /**

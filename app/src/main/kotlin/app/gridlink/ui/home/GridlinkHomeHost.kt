@@ -63,6 +63,8 @@ fun GridlinkHomeHost(
     }
     val mail by viewModel.mail.collectAsStateWithLifecycle()
     val folders by viewModel.folders.collectAsStateWithLifecycle()
+    val scheduled by viewModel.scheduled.collectAsStateWithLifecycle()
+    val menuCounts by viewModel.menuCounts.collectAsStateWithLifecycle()
     val calendar by davViewModel.calendar.collectAsStateWithLifecycle()
     val contacts by davViewModel.contacts.collectAsStateWithLifecycle()
 
@@ -88,22 +90,24 @@ fun GridlinkHomeHost(
     // remembered across recompositions: a directly captured lambda would go stale and the Settings
     // row would keep calling back into a composition that had moved on.
     val openSettings by rememberUpdatedState(onOpenSettings)
-    val config = remember(address, accounts.size, viewModel, davViewModel) {
+    // 🔴 menuCounts joins the remember keys: the config is rebuilt when a count changes or the
+    // drawer keeps saying yesterday's number over today's Drafts.
+    val config = remember(address, accounts.size, menuCounts, viewModel, davViewModel) {
         GridlinkChromeConfig(
             account = address,
             accountCount = accounts.size,
-            // Empty, not the sample's "2 waiting / 4 unsent". Nothing counts scheduled sends or
-            // drafts for this UI yet, and an absent number says that where a zero would claim the
-            // folders had been looked at and found empty.
-            menuCounts = emptyMap(),
+            // Live numbers, from the folder table (Drafts) and the scheduled-send table. A zero is
+            // omitted by the menu row itself (`takeIf { it > 0 }`), so an empty account still shows
+            // an unnumbered row rather than a claimed-empty one.
+            menuCounts = menuCounts,
             onSelectMenu = { item ->
                 when (item) {
                     // Accounts management lives inside upstream's settings screen, so both rows
                     // land there for now. Marked rather than merged: they are different questions
                     // and Gridlink will eventually answer the first one itself.
                     GridlinkMenuItem.SETTINGS, GridlinkMenuItem.ACCOUNTS -> openSettings()
-                    // Scheduled and Drafts have upstream screens and no Gridlink route to them yet.
-                    // The sheet closes and nothing happens, which is what an unwired row should do.
+                    // Routed by the scaffold via [GridlinkChromeState.routeMenu], not from here:
+                    // this config lives ABOVE the scaffold and cannot reach its navigation state.
                     GridlinkMenuItem.SCHEDULED, GridlinkMenuItem.DRAFTS -> Unit
                 }
             },
@@ -151,6 +155,9 @@ fun GridlinkHomeHost(
             sender = sender,
             calendarWriter = davViewModel.calendarWriter,
             contactWriter = davViewModel.contactWriter,
+            scheduled = scheduled,
+            onCancelScheduled = viewModel::cancelScheduled,
+            onEditDraft = viewModel::editDraft,
         )
     }
 }
