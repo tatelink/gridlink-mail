@@ -22,6 +22,7 @@ import app.gridlink.ui.gridlink.GridlinkSampleTree
 import app.gridlink.ui.gridlink.GridlinkSender
 import app.gridlink.ui.gridlink.GridlinkSyncState
 import app.gridlink.ui.gridlink.GridlinkUndoFrame
+import app.gridlink.ui.gridlink.mayReparent
 import app.gridlink.ui.theme.GridlinkMode
 
 /**
@@ -195,6 +196,45 @@ class GridlinkGalleryActivity : ComponentActivity() {
                 "Unknown create parent '$createUnder'. Use 'root' for the top level, or one of: " +
                     GridlinkSampleTree.allFolders.joinToString { it.id }
             }
+        }
+        // §6d's reparent, frozen mid-gesture: one folder lifted onto its raised surface, one valid
+        // target wearing the accent outline. Not drivable from adb for a reason no `input swipe` can
+        // get around — the drag ends the instant the finger lifts, and the screenshot is taken after
+        // it has, so the capture is always of the tree after the move rather than during it.
+        //   am start -n .../GridlinkGalleryActivity --es tab folders --es drag ops-456 --es onto vendors
+        //   am start -n .../GridlinkGalleryActivity --es tab folders --es drag ops-456 --es onto root
+        val dragFolderId = intent?.getStringExtra("drag")?.trim()?.takeIf { it.isNotEmpty() }
+        val dropTargetId = intent?.getStringExtra("onto")?.trim()?.takeIf { it.isNotEmpty() }
+        if (dragFolderId != null) {
+            require(tab == GridlinkDestination.FOLDERS) {
+                "drag='$dragFolderId' only means anything on the folder tree. Add --es tab folders."
+            }
+            val folder = GridlinkSampleTree.allFolders.firstOrNull { it.id == dragFolderId }
+            requireNotNull(folder) {
+                "Unknown drag folder '$dragFolderId'. Known: " +
+                    GridlinkSampleTree.allFolders.joinToString { it.id }
+            }
+            // 🔴 The same no-plausible-wrong-picture rule as the sheet guards above. A required
+            // mailbox never lifts, so the frame would be an ordinary tree filed as a drag.
+            require(folder.mayRename) {
+                "'$dragFolderId' may not be reparented (mayRename is false), so it never lifts. " +
+                    "Pick a user folder: " +
+                    GridlinkSampleTree.allFolders.filter { it.mayRename }.joinToString { it.id }
+            }
+            // ⚠️ Validated with the SAME predicate the drag itself uses, not with a re-statement of
+            // its rules. An `--es onto` the app would refuse would render an outline around a row it
+            // would never outline, which is the one thing this harness must not be able to produce.
+            if (dropTargetId != null) {
+                val parentId = dropTargetId.takeIf { it != "root" }
+                require(GridlinkSampleTree.mailboxes.mayReparent(dragFolderId, parentId)) {
+                    "'$dragFolderId' cannot be dropped onto '$dropTargetId': it is either the " +
+                        "folder itself, its own subtree, the parent it is already in, a name " +
+                        "already taken there, or not a folder at all."
+                }
+            }
+        }
+        require(dropTargetId == null || dragFolderId != null) {
+            "onto='$dropTargetId' without --es drag would render nothing."
         }
         // The A-Z rail held at a letter, with the lens up and the list already jumped there. A scrub
         // is a press-and-drag along a 24dp strip, which `input swipe` can only approximate, and the
@@ -443,6 +483,8 @@ class GridlinkGalleryActivity : ComponentActivity() {
                 initialFolderActionId = folderId,
                 initialFolderStage = folderStage,
                 initialCreateUnder = createUnder,
+                initialDragFolderId = dragFolderId,
+                initialDropTargetId = dropTargetId,
                 initialScrubLetter = scrubLetter,
                 initialCompose = composeRequest,
                 initialUndoFrame = undoFrame,
@@ -476,6 +518,8 @@ private fun GridlinkGallery(
     initialFolderActionId: String? = null,
     initialFolderStage: GridlinkFolderStage = GridlinkFolderStage.SHEET,
     initialCreateUnder: String? = null,
+    initialDragFolderId: String? = null,
+    initialDropTargetId: String? = null,
     initialScrubLetter: Char? = null,
     initialCompose: GridlinkComposeRequest? = null,
     initialUndoFrame: GridlinkUndoFrame? = null,
@@ -517,6 +561,8 @@ private fun GridlinkGallery(
             initialFolderActionId = initialFolderActionId,
             initialFolderStage = initialFolderStage,
             initialCreateUnder = initialCreateUnder,
+            initialDragFolderId = initialDragFolderId,
+            initialDropTargetId = initialDropTargetId,
             initialScrubLetter = initialScrubLetter,
             initialCompose = initialCompose,
             initialUndoFrame = initialUndoFrame,

@@ -572,6 +572,8 @@ fun GridlinkRoot(
     initialFolderActionId: String? = null,
     initialFolderStage: GridlinkFolderStage = GridlinkFolderStage.SHEET,
     initialCreateUnder: String? = null,
+    initialDragFolderId: String? = null,
+    initialDropTargetId: String? = null,
     initialScrubLetter: Char? = null,
     initialCompose: GridlinkComposeRequest? = null,
     initialUndoFrame: GridlinkUndoFrame? = null,
@@ -1982,6 +1984,8 @@ fun GridlinkRoot(
                             initialActionFolderId = initialFolderActionId,
                             initialStage = initialFolderStage,
                             initialCreateUnder = initialCreateUnder,
+                            initialDragFolderId = initialDragFolderId,
+                            initialDropTargetId = initialDropTargetId,
                             sidePane = readingPane,
                             // Same rule as the other three lists: only in two panes, or the marked row
                             // sits under a full-screen panel and just looks stuck.

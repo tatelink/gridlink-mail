@@ -342,6 +342,64 @@ fun List<GridlinkFolder>.childNames(parentId: String?): Set<String> {
     return level.mapTo(mutableSetOf()) { it.name.lowercase() }
 }
 
+/**
+ * Whether [id] is allowed to become a child of [parentId] (or a top-level folder, when that is null).
+ *
+ * §6d's drag has to answer this on every frame of the gesture, because it is what decides whether a
+ * row under the finger gets the accent outline. So it is a pure function over the tree rather than
+ * something the drag works out as it goes: the outline and the drop then cannot disagree, and the
+ * whole rule is testable without a pointer.
+ *
+ * Five refusals, and the first two are the ones that matter:
+ *
+ *  1. 🔴 **A folder cannot be dropped into its own subtree.** [moveFolder] is a remove followed by an
+ *     add, and if the destination went with the removal there is nothing left to add it to — the
+ *     folder and everything under it would simply be gone from the tree. This is the one refusal that
+ *     is not a matter of taste.
+ *  2. 🔴 **`mayRename` is the right, not a separate `mayMove`.** RFC 8621 §2 defines it as "the user
+ *     may change the name **or parentId** of this Mailbox", so a mailbox that cannot be renamed
+ *     cannot be moved either, and that already covers every role mailbox and every shared folder the
+ *     server has told us to keep our hands off. See [GridlinkFolderMapping] for how that is decided.
+ *  3. Onto itself: a drop that means nothing.
+ *  4. Onto the parent it is already in: also a drop that means nothing, and worth refusing loudly
+ *     rather than performing, because a `Mailbox/set` that changes nothing still fails on servers
+ *     that reject a no-op update.
+ *  5. A name already taken at the destination. JMAP's uniqueness rule is per-parent and
+ *     case-insensitive, exactly as it is for [siblingNames], so this is the same refusal the rename
+ *     dialog spells out under its field — and here there is no field to spell it out under, which is
+ *     why the target simply never lights up.
+ */
+fun List<GridlinkFolder>.mayReparent(id: String, parentId: String?): Boolean {
+    val folder = findFolder(id) ?: return false
+    if (!folder.mayRename) return false
+    if (parentId == id) return false
+    // A destination that is not in the tree is not a destination. Guards a stale drag surviving a
+    // folder list that was replaced underneath it by a sync.
+    if (parentId != null && findFolder(parentId) == null) return false
+    if (folder.children.flatten().any { it.id == parentId }) return false
+    // `ancestorIds` is empty for a root, so `lastOrNull()` is null there, which is precisely the id
+    // of "the top level" — a root dragged to the root compares null to null and is refused.
+    if (ancestorIds(id)?.lastOrNull() == parentId) return false
+    return folder.name.lowercase() !in childNames(parentId)
+}
+
+/**
+ * A copy of the tree with [id] moved under [parentId], or to the top level when that is null.
+ *
+ * 🔴 [mayReparent] is checked FIRST and the tree is returned untouched when it says no. The order is
+ * load-bearing: the move is a [removeFolder] followed by an [addFolder], and dropping a folder into
+ * its own subtree removes the destination along with the folder, so the add finds no parent and
+ * quietly returns a tree with the whole branch missing. A silent deletion is the failure mode, which
+ * is why this cannot be left to the caller to remember.
+ *
+ * Appended at the destination rather than inserted in sorted position, for [addFolder]'s reason.
+ */
+fun List<GridlinkFolder>.moveFolder(id: String, parentId: String?): List<GridlinkFolder> {
+    if (!mayReparent(id, parentId)) return this
+    val folder = findFolder(id) ?: return this
+    return removeFolder(id).addFolder(parentId, folder)
+}
+
 /** A copy of the tree with [id] gone. Its children go with it; see [GridlinkFolder.mayBeDeletedNow]. */
 fun List<GridlinkFolder>.removeFolder(id: String): List<GridlinkFolder> = this
     .filterNot { it.id == id }

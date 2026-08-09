@@ -616,6 +616,15 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                     is GridlinkFolderEdit.Rename ->
                         repo.renameFolder(credentials, edit.id, edit.name)
 
+                    // 🔴 The open folder is deliberately NOT re-pointed at the new id an IMAP move
+                    // returns. A move does not close the mailbox the user was reading, and the tree
+                    // is about to be replaced by the server's own answer, so re-pointing here would
+                    // be this class guessing at an id the refresh is already carrying. The panel
+                    // empties by itself if the id really did change, which is the same behaviour a
+                    // rename has had since it landed.
+                    is GridlinkFolderEdit.Move ->
+                        repo.moveFolder(credentials, edit.id, edit.parentId)
+
                     is GridlinkFolderEdit.Delete -> {
                         repo.deleteFolder(credentials, edit.id)
                         // The panel is already empty by then (its folder stopped resolving in the
