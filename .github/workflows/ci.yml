@@ -40,12 +40,18 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
 
-      # 🔴 Both modules, not just :core:jmap. The app module's own tests existed and CI never ran
-      # them, so every mapper, date and folder-role test in :app was green only on whichever
-      # machine last bothered — which is the same as not having them. One step so a failure in
-      # either fails the run.
+      # 🔴 Every module that has tests, listed by name. CI used to run :core:jmap alone, which is
+      # 12 of the 161 test files in the tree: the other 149, covering the whole cache, sync, IMAP
+      # and UI-mapping surface, were green only on whichever machine last bothered, which is the
+      # same as not having them. Listed explicitly rather than as a bare `test` so this file says
+      # what is covered, and so a new module with tests has to be added here deliberately instead
+      # of being quietly picked up or quietly missed. One step, so any failure fails the run.
       - name: Unit tests
-        run: ./gradlew :core:jmap:test :app:testDebugUnitTest --stacktrace
+        run: >-
+          ./gradlew
+          :core:jmap:test :core:imap:test :core:dav:test
+          :core:data:testDebugUnitTest :app:testDebugUnitTest
+          --stacktrace
 
       - name: Assemble debug APK
         run: ./gradlew :app:assembleDebug --stacktrace

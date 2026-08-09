@@ -74,8 +74,14 @@ jobs:
       # ⚠️ No dependency-graph counterpart here. That job is `uses:`-based and this runner cannot
       # run actions at all (see the note above), and Forgejo has nowhere to submit one anyway. The
       # vulnerability half of CI is GitHub-only.
+      # Same module list as .github/workflows/ci.yml — keep the two in step, or a push that is
+      # green here is only telling you about a fraction of the tree.
       - name: Unit tests
-        run: ./gradlew :core:jmap:test :app:testDebugUnitTest --no-daemon --stacktrace
+        run: >-
+          ./gradlew
+          :core:jmap:test :core:imap:test :core:dav:test
+          :core:data:testDebugUnitTest :app:testDebugUnitTest
+          --no-daemon --stacktrace
 
       - name: Assemble debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
