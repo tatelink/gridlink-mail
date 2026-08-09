@@ -2,6 +2,9 @@ package app.gridlink.ui.home
 
 import android.app.Application
 import android.util.Log
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,6 +30,12 @@ import app.gridlink.ui.gridlink.GridlinkSyncAction
 import app.gridlink.ui.gridlink.GridlinkSyncState
 import app.gridlink.ui.gridlink.LocalGridlinkChrome
 import app.gridlink.ui.gridlink.gridlinkTypedRecipient
+import app.gridlink.ui.gridlink.toGridlinkPalette
+import app.gridlink.ui.gridlink.toModeOverride
+import app.gridlink.ui.theme.gridlinkColorsFor
+import app.gridlink.ui.theme.gridlinkModeAt
+import kotlinx.coroutines.launch
+import java.time.ZonedDateTime
 
 /**
  * The signed-in app: Gridlink's four tabs, over the account's real mail.
@@ -84,6 +93,7 @@ fun GridlinkHomeHost(
     davViewModel: GridlinkDavViewModel = viewModel(),
 ) {
     val application = LocalContext.current.applicationContext as Application
+    val settings = application.container.settingsRepository
     // Before anything renders, so the first composition is already pointed at the right mailbox
     // rather than at a null one. Re-runs on an account switch; [GridlinkMailViewModel.bind] ignores
     // the repeats a configuration change causes.
@@ -97,6 +107,11 @@ fun GridlinkHomeHost(
     val menuCounts by viewModel.menuCounts.collectAsStateWithLifecycle()
     val calendar by davViewModel.calendar.collectAsStateWithLifecycle()
     val contacts by davViewModel.contacts.collectAsStateWithLifecycle()
+
+    // 🔴 Initial value is null meaning "not read yet", NOT AUTO meaning "follows the sun". The two
+    // are the same picture and a completely different fact, and the difference is the whole reason
+    // this gate exists: see the wait below, and [GridlinkApp]'s `initialModeOverride`.
+    val storedPalette by settings.gridlinkPalette.collectAsStateWithLifecycle(initialValue = null)
 
     val account = accounts.firstOrNull { it.id == accountId }
 
@@ -182,10 +197,40 @@ fun GridlinkHomeHost(
                 davViewModel.sync()
                 mailSynced
             },
+            // 🔴 On [appScope], not a composition scope. The palette pill sits in the menu sheet,
+            // and the sheet closing is a plausible next frame; a write cancelled with the
+            // composition would leave the pill lit and the preference unwritten, which is invisible
+            // until the next cold launch. DataStore serialises its own writes, so a burst of taps
+            // is safe.
+            onSelectMode = { mode ->
+                application.container.appScope.launch {
+                    settings.setGridlinkPalette(mode.toGridlinkPalette())
+                }
+            },
         )
     }
 
+    // ⚠️ Held back until DataStore answers, which is why this is not just an argument below.
+    // [GridlinkApp]'s holder reads its seed exactly once, so composing it against a null we have not
+    // finished reading pins the palette to the wrong value for the life of the process. The wait is
+    // a disk read of a file the activity is already reading, so in practice one frame.
+    //
+    // Painted rather than left empty for that frame: an unpainted Box shows the window background,
+    // which is upstream's light theme and would strobe white before an OLED launch. The colour is
+    // the sun's answer because that is what an unpinned launch resolves to anyway, and a pinned one
+    // is a fraction of a frame away from repainting.
+    val palette = storedPalette
+    if (palette == null) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(gridlinkColorsFor(gridlinkModeAt(ZonedDateTime.now())).background),
+        )
+        return
+    }
+
     GridlinkApp(
+        initialModeOverride = palette.toModeOverride(),
         // 🔴 Starts SYNCING, not SYNCED. The launch sync below is already running by the time the
         // chrome row draws, and opening on a green "Synced" chip that has not synced anything is
         // the same lie as a fake timestamp, told a second earlier.

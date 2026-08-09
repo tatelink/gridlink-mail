@@ -11,11 +11,12 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import app.gridlink.core.data.settings.GridlinkPalette
 import app.gridlink.ui.theme.GridlinkMode
 import app.gridlink.ui.theme.ProvideGridlinkTokens
-import app.gridlink.ui.theme.gridlinkModeForHour
+import app.gridlink.ui.theme.gridlinkModeAt
 import kotlinx.coroutines.delay
-import java.time.LocalTime
+import java.time.ZonedDateTime
 
 /**
  * The facts that belong to the app rather than to any one screen, and the host that provides them.
@@ -154,9 +155,18 @@ class GridlinkChromeState(
 
     val followingClock: Boolean get() = modeOverride == null
 
-    /** Pass null to hand the palette back to the clock. */
+    /**
+     * Pass null to hand the palette back to the clock.
+     *
+     * 🔴 Reports the choice to [GridlinkChromeConfig.onSelectMode] as well as applying it, which is
+     * what makes the pill survive a cold launch. The state is written FIRST and unconditionally:
+     * persistence is somebody else's slow business, and a palette that waited for a disk write
+     * before repainting would make a tap on the pill feel broken. The gallery leaves the callback
+     * at its default and its palette is correctly a per-launch thing.
+     */
     fun selectMode(mode: GridlinkMode?) {
         modeOverride = mode
+        config.onSelectMode(mode)
     }
 
     /**
@@ -307,7 +317,40 @@ class GridlinkChromeConfig(
      * must never get. See [GridlinkChromeState.syncAllAccounts].
      */
     val sync: GridlinkSyncAction? = null,
+    /**
+     * Where a palette choice goes to be remembered. Null means "the clock", matching
+     * [GridlinkChromeState.modeOverride].
+     *
+     * ⚠️ Called on the main thread from a tap, so it must not block: the signed-in host launches a
+     * DataStore write and returns. Defaulting to a no-op is right for the debug gallery, whose
+     * whole job is to sit in one named palette for one screenshot and forget it afterwards.
+     */
+    val onSelectMode: (GridlinkMode?) -> Unit = {},
 )
+
+/**
+ * The persisted palette as the chrome's override, with [GridlinkPalette.AUTO] becoming null.
+ *
+ * 🔴 Two enums rather than one on purpose, and this is the seam between them. `GridlinkMode?` is a
+ * palette that may be absent, which is what the theme needs; [GridlinkPalette] is a stored choice
+ * with a name for "no choice", which is what a preferences file needs, since null is not a value
+ * DataStore can hold and "key missing" already means "never set". Collapsing them would make the
+ * default indistinguishable from a user who deliberately picked the clock.
+ */
+fun GridlinkPalette.toModeOverride(): GridlinkMode? = when (this) {
+    GridlinkPalette.AUTO -> null
+    GridlinkPalette.DAY -> GridlinkMode.DAY
+    GridlinkPalette.NIGHT -> GridlinkMode.NIGHT
+    GridlinkPalette.OLED -> GridlinkMode.OLED
+}
+
+/** The inverse of [toModeOverride]: what to write down when the user taps a pill. */
+fun GridlinkMode?.toGridlinkPalette(): GridlinkPalette = when (this) {
+    null -> GridlinkPalette.AUTO
+    GridlinkMode.DAY -> GridlinkPalette.DAY
+    GridlinkMode.NIGHT -> GridlinkPalette.NIGHT
+    GridlinkMode.OLED -> GridlinkPalette.OLED
+}
 
 val LocalGridlinkChrome = staticCompositionLocalOf { GridlinkChromeState() }
 
@@ -318,13 +361,21 @@ val LocalGridlinkChrome = staticCompositionLocalOf { GridlinkChromeState() }
  * IS [GridlinkChromeState.mode], and a caller that provided the chrome local and then separately
  * chose a palette could disagree with itself. Here that is not expressible.
  *
- * The three seeds exist for the debug gallery, which opens straight into a named palette and a named
- * sync state so a screenshot does not depend on the time of day or on the server being down. A real
- * build calls this with no arguments.
+ * The seeds exist for the debug gallery, which opens straight into a named palette and a named
+ * sync state so a screenshot does not depend on the time of day or on the server being down.
  */
 @Composable
 fun GridlinkApp(
     initialSync: GridlinkSyncState = GridlinkSyncState.SYNCED,
+    /**
+     * The palette to open pinned to, or null to follow the sun.
+     *
+     * 🔴 Read ONCE, when the holder is first created, and never again: that is what remembering it
+     * means. So a caller reading this out of DataStore must not compose [GridlinkApp] until the
+     * first value has arrived, or the holder is born with the null it saw at frame one and the
+     * pinned palette silently never applies on a cold launch. See `GridlinkHomeHost`, which holds
+     * the whole subtree back for the one frame that takes.
+     */
     initialModeOverride: GridlinkMode? = null,
     menuOpenAtStart: Boolean = false,
     /**
@@ -345,7 +396,10 @@ fun GridlinkApp(
 ) {
     val chrome = rememberSaveable(saver = GridlinkChromeState.saver(config)) {
         GridlinkChromeState(
-            autoMode = gridlinkModeForHour(LocalTime.now().hour),
+            // 🔴 The real sun, not a fixed hour. See [gridlinkModeAt]: 20:00 is an hour and a half
+            // after December dusk here and half an hour before June dusk, so the fixed ladder was
+            // bright while it was dark out for a third of the year.
+            autoMode = gridlinkModeAt(ZonedDateTime.now()),
             initialSync = initialSync,
             initialModeOverride = initialModeOverride,
             initialLastSyncedAt = initialLastSyncedAt,
