@@ -44,7 +44,7 @@ The categories further down list the full feature set; this is the order of work
 **Tier 4 — polish**
 - ✅ Richer search filters (from/subject/has-attachment/date, AND-combined); 💡 `SearchSnippet` highlights
 - ✅ Gridlink brand identity — Arctic (light) / Pelagic (dark) palette, a calm sea-teal action colour with a coral accent (the tern's beak); Material You is an opt-in toggle; coastal line-art empty states; calmer microcopy
-- ✅ Per-account colour (avatar + unified-inbox chip); ✅ accessibility pass v1 (screen-reader labels, font scaling, system-bar contrast); 💡 home-screen widget(s), fuller TalkBack audit
+- ✅ Per-account colour (avatar + unified-inbox chip); ✅ accessibility pass v1 (screen-reader labels, font scaling, system-bar contrast); ✅ home-screen widgets (a resizable recent-inbox list and a 2x1 unread count, both cache-only — they never sync); 💡 fuller TalkBack audit
 - ✅ Bundled/grouped notifications (per-account summary) + quiet hours (silent nightly window)
 - ✅ Settings export/import (app preferences → JSON file via SAF; excludes accounts/credentials); ✅ `/.well-known/jmap` autodiscovery (email → server); ✅ OAuth2 device-flow sign-in (RFC 8628)
 
@@ -185,7 +185,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Message text size (small / normal / large / huge) — scales the message-body WebView (Settings → Reading → Message)
 - ✅ Compact inbox top bar showing folder + account
 - ✅ About section in Settings — version (with release date), source code, license and author links
-- 💡 Home-screen widget(s) (unread count / inbox)
+- ✅ Home-screen widgets — a resizable recent-inbox list (sender, subject, preview, relative time, unread dot, attachment mark; header carries the account, an unread pill, refresh and compose) and a 2x1 unread count. Both read the local cache only: they never sync, so they cost no network and cannot stall the launcher. Refresh enqueues the ordinary fetch worker and both redraw when it lands. "Never synced" prints an em dash rather than a zero, which would be a claim the widget has not earned
 - ✅ Accessibility pass (v1): screen-reader labels for icon-only controls (e.g. the star reads "Add star"/"Remove star" instead of the ★ glyph), decorative icons left unlabelled to avoid double-announcement, and text scales with the system font size (Compose sp); 💡 fuller TalkBack audit, large-touch-target review
 
 ## "Complete app" extras
