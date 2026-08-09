@@ -611,6 +611,7 @@
     <string name="status_removed_account">Konto usunięte</string>
     <string name="status_attaching">Załączanie…</string>
     <string name="status_read_file_failed">Nie udało się odczytać wybranego pliku.</string>
+    <string name="status_attach_too_large">Ten plik jest za duży, aby go załączyć. Limit to %1$s.</string>
     <string name="status_open_attachment_failed">Nie udało się otworzyć załącznika: %1$s</string>
     <string name="status_attachment_too_large">Ten załącznik jest za duży, aby go otworzyć.</string>
     <string name="status_inline_images_too_large">Niektóre obrazy w tej wiadomości są za duże, aby je wyświetlić.</string>

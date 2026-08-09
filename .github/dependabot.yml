@@ -1,0 +1,47 @@
+# Dependency updates and, with the dependency graph populated by CI, security alerts.
+#
+# WHY THIS RATHER THAN A SCANNER STEP: the obvious alternative is an OWASP dependency-check step in
+# the build, and it is the wrong trade here. It needs an NVD API key to run at a usable rate, adds
+# minutes to every push, and reports against a database it downloads each time. Dependabot does the
+# same matching server-side, on a schedule, against GitHub's advisory database, and costs the build
+# nothing. The scanning half only works if the dependency graph is accurate for a Gradle/Android
+# project, which is what the `dependency-submission` job in workflows/ci.yml is for. The two are one
+# feature in two files: removing either leaves alerts that never fire.
+#
+# ⚠️ GitHub-only, by construction. The self-hosted Forgejo mirror has no equivalent and does not
+# read this file, so a vulnerable dependency is caught wherever this tree is pushed to GitHub, and
+# nowhere else. That is a real gap in the coverage, not an oversight to be surprised by later.
+#
+# Updates land on the repository's DEFAULT branch. This fork's work sits on gridlink-* branches and
+# the default branch points at them, so no target-branch is set; if that ever stops being true,
+# Dependabot will quietly open PRs against upstream Sterna's `main` instead, which is not ours.
+version: 2
+
+updates:
+  # The app itself. Grouped so a Compose or AndroidX bump arrives as one reviewable PR rather than
+  # fifteen: these libraries are versioned in lockstep and updating them singly produces PRs that
+  # cannot build until their siblings land.
+  - package-ecosystem: gradle
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      androidx:
+        patterns:
+          - "androidx.*"
+      compose:
+        patterns:
+          - "androidx.compose*"
+          - "org.jetbrains.compose*"
+      kotlin:
+        patterns:
+          - "org.jetbrains.kotlin*"
+          - "org.jetbrains.kotlinx*"
+
+  # The workflow files' own actions. Unglamorous and worth having: a pinned action is a dependency
+  # that runs with the repository's token, and it is the one dependency nothing else here updates.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly

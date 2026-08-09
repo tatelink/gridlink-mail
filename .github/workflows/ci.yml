@@ -40,8 +40,12 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
 
+      # 🔴 Both modules, not just :core:jmap. The app module's own tests existed and CI never ran
+      # them, so every mapper, date and folder-role test in :app was green only on whichever
+      # machine last bothered — which is the same as not having them. One step so a failure in
+      # either fails the run.
       - name: Unit tests
-        run: ./gradlew :core:jmap:test --stacktrace
+        run: ./gradlew :core:jmap:test :app:testDebugUnitTest --stacktrace
 
       - name: Assemble debug APK
         run: ./gradlew :app:assembleDebug --stacktrace
@@ -52,3 +56,35 @@ jobs:
           name: gridlink-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+  # Feeds the resolved dependency list to GitHub's dependency graph, which is what makes Dependabot
+  # security alerts fire for a Gradle project — without it the graph is guessed from build files and
+  # misses everything resolved transitively, which is where a vulnerable transitive dependency lives
+  # by definition. Paired with .github/dependabot.yml; neither is much use alone.
+  #
+  # Its own job, not a step in `build`: it resolves configurations rather than building, so a
+  # compile failure should not suppress the security signal, and a submission failure should not
+  # fail the APK.
+  dependency-graph:
+    runs-on: ubuntu-latest
+    # Only from a push to this repository. A pull_request run from a fork gets a read-only token and
+    # cannot submit, which would be a permanent red X on every external PR for no benefit.
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+
+      - name: Submit dependency graph
+        uses: gradle/actions/dependency-submission@v4

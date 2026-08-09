@@ -609,6 +609,7 @@
     <string name="status_removed_account">Cuenta eliminada</string>
     <string name="status_attaching">Adjuntando…</string>
     <string name="status_read_file_failed">No se pudo leer el archivo seleccionado.</string>
+    <string name="status_attach_too_large">Ese archivo es demasiado grande para adjuntarlo. El límite es %1$s.</string>
     <string name="status_open_attachment_failed">No se pudo abrir el adjunto: %1$s</string>
     <string name="status_attachment_too_large">Este adjunto es demasiado grande para abrirlo.</string>
     <string name="status_inline_images_too_large">Algunas imágenes de este mensaje son demasiado grandes para mostrarse.</string>
