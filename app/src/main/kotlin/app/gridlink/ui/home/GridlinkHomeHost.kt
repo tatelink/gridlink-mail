@@ -1,6 +1,7 @@
 package app.gridlink.ui.home
 
 import android.app.Application
+import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -10,16 +11,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.gridlink.EmailOpenTarget
+import app.gridlink.MailtoDraft
 import app.gridlink.container
 import app.gridlink.core.data.account.StoredAccount
 import app.gridlink.ui.gridlink.GridlinkApp
 import app.gridlink.ui.gridlink.GridlinkChromeConfig
+import app.gridlink.ui.gridlink.GridlinkComposeDraft
 import app.gridlink.ui.gridlink.GridlinkMenuItem
+import app.gridlink.ui.gridlink.GridlinkOpenRequest
 import app.gridlink.ui.gridlink.GridlinkOutboxSender
 import app.gridlink.ui.gridlink.GridlinkRoot
+import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 import app.gridlink.ui.gridlink.GridlinkSyncAction
 import app.gridlink.ui.gridlink.GridlinkSyncState
 import app.gridlink.ui.gridlink.LocalGridlinkChrome
+import app.gridlink.ui.gridlink.gridlinkTypedRecipient
 
 /**
  * The signed-in app: Gridlink's four tabs, over the account's real mail.
@@ -36,12 +43,25 @@ import app.gridlink.ui.gridlink.LocalGridlinkChrome
  * onto an app that has not yet spoken to a server this launch, which is the exact false reassurance
  * the sync state refuses to write anywhere else.
  *
- * ## ⚠️ What is not wired yet, and where it went
- * A tapped `mailto:` link and a tapped new-mail notification are consumed one level up, by
- * `AppNavHost`, and land nowhere: they used to drive upstream's NavHost, which no longer composes
- * for a signed-in user. Routing them here needs [GridlinkRoot] to accept a LIVE open request rather
- * than only the `initialOpenId` it takes at construction, since both can arrive while the app is
- * already on screen. That is its own change and it is stated here rather than half-done.
+ * ## Arriving from outside: `mailto:` links and notification taps
+ * Both reach the activity as intents, are parsed there, and are handed down as payloads. This file
+ * turns them into a [GridlinkOpenRequest], which is the one live channel [GridlinkRoot] takes for
+ * "something outside asked for a screen". Two translations happen here and nowhere else:
+ *
+ * - **A `mailto:` becomes a draft.** `to` and `cc` both land in the single recipient list, because
+ *   that is all the composer and the send path have: [GridlinkComposeDraft] carries one list and
+ *   `enqueueSend` takes one list of addresses. A Cc arriving as a To is a loss of nuance the user
+ *   can see and fix. 🔴 `bcc` is DROPPED, never folded in, and that asymmetry is the point: folding
+ *   it would put an address the link explicitly asked to hide in front of every other recipient,
+ *   which is a disclosure this app would be causing rather than a feature it is missing. The drop
+ *   is logged, and a missing recipient is visible in the composer before anything is sent.
+ * - **A notification names its mailbox**, and a message from a watched folder that is not the inbox
+ *   needs that folder opened before it can be shown at all. See [GridlinkOpenRequest.Message].
+ *
+ * ⚠️ A share (`ACTION_SEND`) carrying files arrives as a subject and a body with the URIs stashed in
+ * the container. The Gridlink composer has no attachment picker and its sender refuses a draft with
+ * attachments outright, so the files are not attached; the text is. The activity drops the stash
+ * when the payload is consumed, so nothing inherits it later.
  */
 @Composable
 fun GridlinkHomeHost(
@@ -49,6 +69,16 @@ fun GridlinkHomeHost(
     accounts: List<StoredAccount>,
     /** Hands off to upstream's settings, which is where identities, PGP and filters still live. */
     onOpenSettings: () -> Unit,
+    /** A `mailto:` link or a share, parsed by the activity. Null when nothing is waiting. */
+    pendingMailto: MailtoDraft? = null,
+    onMailtoConsumed: () -> Unit = {},
+    /**
+     * The message a tapped notification wants open. 🔴 Already resolved to THIS account by the
+     * caller: it withholds the payload until the switch it may need has happened, so anything
+     * arriving here belongs to [accountId].
+     */
+    pendingEmailOpen: EmailOpenTarget? = null,
+    onEmailOpenConsumed: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: GridlinkMailViewModel = viewModel(),
     davViewModel: GridlinkDavViewModel = viewModel(),
@@ -68,10 +98,42 @@ fun GridlinkHomeHost(
     val calendar by davViewModel.calendar.collectAsStateWithLifecycle()
     val contacts by davViewModel.contacts.collectAsStateWithLifecycle()
 
+    val account = accounts.firstOrNull { it.id == accountId }
+
     // The address the menu sheet states. The username IS the address for every account this app can
     // create; `accountName` is the human label and is frequently empty, which would leave the one
     // line a user checks when mail stops arriving blank.
-    val address = accounts.firstOrNull { it.id == accountId }?.username.orEmpty()
+    val address = account?.username.orEmpty()
+
+    // The one-shot handed to [GridlinkRoot]. Remembered on the payloads themselves, so an unrelated
+    // recomposition cannot mint a second request out of the same tap, and so the identity the
+    // scaffold keys its effect on is stable until one of them actually changes.
+    //
+    // A notification outranks a `mailto:` when both are somehow waiting. Neither is lost: the
+    // scaffold acknowledges one, that payload clears, and this recomputes to the other.
+    val openRequest = remember(pendingEmailOpen, pendingMailto, account?.inboxId) {
+        when {
+            pendingEmailOpen != null -> GridlinkOpenRequest.Message(
+                id = pendingEmailOpen.emailId,
+                // Named only when it is NOT the inbox. The inbox is the list the scaffold is already
+                // holding, so passing it would spend a folder fetch to be told what is on screen,
+                // and would leave the Folders tab parked on a mailbox nobody opened. A notification
+                // for a watched folder DOES need it: see [GridlinkOpenRequest.Message].
+                folderId = pendingEmailOpen.mailboxId?.takeIf { it != account?.inboxId },
+            )
+            pendingMailto != null -> {
+                // Logged HERE and not inside the conversion, which stays a pure function so the
+                // to/cc/bcc rule can be tested without a framework. Not the addresses themselves,
+                // only that there were some: a log line is no place for a correspondent, and the
+                // user is about to see the draft that is missing them.
+                if (pendingMailto.bcc.isNotBlank()) {
+                    Log.i(TAG, "mailto: carried bcc; dropped, the composer has no blind row")
+                }
+                GridlinkOpenRequest.Compose(pendingMailto.toGridlinkDraft())
+            }
+            else -> null
+        }
+    }
 
     // 🔴 Derived the same way [GridlinkDavViewModel.ownDomain] derives it, and the two MUST agree:
     // an event with no organiser is stamped with the view model's answer and the event card compares
@@ -158,6 +220,58 @@ fun GridlinkHomeHost(
             scheduled = scheduled,
             onCancelScheduled = viewModel::cancelScheduled,
             onEditDraft = viewModel::editDraft,
+            openRequest = openRequest,
+            // Routed back to whichever payload built the request, so consuming one cannot cancel a
+            // genuinely pending other. Reading `openRequest` rather than a captured flag keeps the
+            // two halves impossible to get out of step.
+            onOpenRequestConsumed = {
+                when (openRequest) {
+                    is GridlinkOpenRequest.Message -> onEmailOpenConsumed()
+                    is GridlinkOpenRequest.Compose -> onMailtoConsumed()
+                    null -> Unit
+                }
+            },
         )
     }
 }
+
+/**
+ * A parsed `mailto:` (or a share, which the activity parses into the same shape) as a draft the
+ * composer can open. See this file's KDoc for why `cc` merges into the single recipient list and
+ * why `bcc` does not.
+ */
+internal fun MailtoDraft.toGridlinkDraft(): GridlinkComposeDraft {
+    val recipients = (to.split(',') + cc.split(','))
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .distinctBy { it.lowercase() }
+        .map { candidate ->
+            // The composer's own typed-address builder, so a linked recipient is indistinguishable
+            // from one typed just now. The fallback is for addresses its validator would refuse
+            // (odd but real ones exist): dropping them here would silently shrink the draft, and a
+            // recipient the user cannot see is the one thing this conversion must never produce.
+            gridlinkTypedRecipient(candidate) ?: GridlinkContact(
+                id = "typed:${candidate.lowercase()}",
+                given = "",
+                family = candidate,
+                role = "",
+                email = candidate,
+            )
+        }
+    return GridlinkComposeDraft(
+        title = "Compose",
+        recipients = recipients,
+        // 🔴 Empty, NOT [GridlinkComposeDraft.Fresh]'s seeded query. That seed is a demo prop, and
+        // inheriting it would open a link-driven draft with a half-typed search under the chips.
+        recipientQuery = "",
+        subject = subject,
+        body = body,
+        quoted = null,
+        // A share's files stay unattached: the Gridlink composer has no picker and its sender
+        // refuses a draft carrying attachments. Stated in this file's KDoc rather than dropped
+        // quietly here.
+        attachments = emptyList(),
+    )
+}
+
+private const val TAG = "GridlinkHomeHost"

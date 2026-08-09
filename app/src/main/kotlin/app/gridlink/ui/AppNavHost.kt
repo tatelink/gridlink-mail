@@ -208,11 +208,9 @@ fun AppNavHost(
             // outbox) and because deleting three hundred lines of working routing to make a
             // switch-over look tidy is how those screens become unrecoverable.
             //
-            // ⚠️ What that costs today: a tapped `mailto:` link and a tapped new-mail
-            // notification are consumed here and go nowhere. Both used to drive that NavHost.
-            // Routing them into [GridlinkHomeHost] needs GridlinkRoot to take a LIVE open
-            // request (it takes an `initialOpenId` at construction only), since both arrive
-            // while the app is already on screen. Stated rather than half-wired.
+            // A tapped `mailto:` link and a tapped new-mail notification are routed into
+            // [GridlinkHomeHost] below, through GridlinkRoot's live open request. They no longer
+            // touch that NavHost.
             is RootState.Authenticated -> {
                 // Upstream's settings, reached from the Gridlink menu. A boolean rather than a
                 // nav route because it is the only place the Gridlink UI hands off, and it is
@@ -221,6 +219,13 @@ fun AppNavHost(
                 // System Back closes settings instead of leaving the app, which is what the
                 // NavHost's back stack used to do for this screen.
                 BackHandler(enabled = settingsOpen) { settingsOpen = false }
+                // A notification tap and a `mailto:` link are both requests to be somewhere
+                // specific, and settings is not it. Without this the payload would sit unconsumed
+                // behind the settings screen and fire whenever the user happened to close it,
+                // which is the tap being obeyed at a moment nobody asked for.
+                LaunchedEffect(pendingEmailOpen, pendingMailto) {
+                    if (pendingEmailOpen != null || pendingMailto != null) settingsOpen = false
+                }
                 if (settingsOpen) {
                     SettingsScreen(
                         onBack = { settingsOpen = false },
@@ -228,10 +233,35 @@ fun AppNavHost(
                         initialAccountId = null,
                     )
                 } else {
+                    // A notification names the account its message belongs to, and the app may be
+                    // sitting on a different one. Resolve that first: null means "already the right
+                    // account" (or the notification named none, or one that no longer exists).
+                    val switchTo = pendingEmailOpen?.let {
+                        NotificationAccountSwitch.resolve(
+                            notificationAccountId = it.accountId,
+                            currentAccountId = s.accountId,
+                            knownAccountIds = accounts.map { account -> account.id },
+                            // The Gridlink screens have no unified inbox: every list is one
+                            // account's, so there is never a view a switch would be rude to.
+                            unifiedView = false,
+                        )
+                    }
+                    // 🔴 The switch happens BEFORE the payload is handed down, never in the same
+                    // frame. GridlinkHomeHost binds its view model to `accountId`, so forwarding the
+                    // message together with the switch would have the scaffold open it against the
+                    // account it is in the middle of leaving: the fetch would go out on the old
+                    // account's credentials and fail, or worse, hit a same-id message in the wrong
+                    // mailbox. Firing the switch and withholding the payload costs one recomposition
+                    // and makes the order explicit instead of hoping state settles in time.
+                    LaunchedEffect(switchTo) { switchTo?.let(viewModel::switchAccount) }
                     GridlinkHomeHost(
                         accountId = s.accountId,
                         accounts = accounts,
                         onOpenSettings = { settingsOpen = true },
+                        pendingMailto = pendingMailto,
+                        onMailtoConsumed = onMailtoConsumed,
+                        pendingEmailOpen = pendingEmailOpen.takeIf { switchTo == null },
+                        onEmailOpenConsumed = onEmailOpenConsumed,
                     )
                 }
             }

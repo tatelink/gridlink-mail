@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
@@ -477,6 +478,38 @@ private val THREAD_EDGE_SHADOW = 28.dp
 private const val THREAD_EDGE_SHADOW_ALPHA = 0.36f
 
 /**
+ * Something that happened OUTSIDE this screen tree and wants a screen: a notification tapped in the
+ * shade, a `mailto:` link followed in a browser, a message shared from another app.
+ *
+ * 🔴 A live channel, not a construction parameter, and that distinction is the whole reason the type
+ * exists. [GridlinkRoot]'s `initial…` parameters are `rememberSaveable` KEYS: they seed state once
+ * and RE-seed it whenever they change. A request delivered through one of those would be consumed,
+ * then cleared by whoever sent it, and the clearing would flip the key back to null and re-initialise
+ * the state it had just set — closing the very thread the user tapped the notification to open. The
+ * activity is `singleTask`, so these arrive through `onNewIntent` with the tree already up, which is
+ * exactly the case a construction parameter cannot serve.
+ *
+ * Consumed once and acknowledged through `onOpenRequestConsumed`, so a recomposition cannot replay
+ * it. Same one-shot contract as [GridlinkMailContent.draftEdit], for the same reason.
+ */
+@Immutable
+sealed interface GridlinkOpenRequest {
+    /**
+     * Open one message, by [GridlinkMessage.id].
+     *
+     * [folderId] names the mailbox holding it when that is not the inbox, and it is not optional
+     * decoration. 🔴 A message renders only if it is present in one of the lists this scaffold is
+     * already holding, and an id from a watched non-inbox folder is in none of them: setting the
+     * open id alone would leave an empty pane while the fetch still ran and marked the message READ
+     * on the server. Naming the folder loads it first, so there is something to show.
+     */
+    data class Message(val id: String, val folderId: String? = null) : GridlinkOpenRequest
+
+    /** Open the composer on a draft assembled elsewhere (a `mailto:` link, a share, a quick action). */
+    data class Compose(val draft: GridlinkComposeDraft) : GridlinkOpenRequest
+}
+
+/**
  * Owns which tab is showing and hands off to the screen that answers for it.
  *
  * Deliberately thin: no navigation library, no back stack, no routes. The four destinations are
@@ -691,6 +724,16 @@ fun GridlinkRoot(
      * tapped again is a fresh request rather than a stale answer replaying.
      */
     onEditDraft: (String?) -> Unit = {},
+    /**
+     * A message or a draft arriving from outside the app while this tree is already composed. See
+     * [GridlinkOpenRequest] for why this cannot be one of the `initial…` parameters above.
+     */
+    openRequest: GridlinkOpenRequest? = null,
+    /**
+     * Acknowledge [openRequest]. Called the moment it has been acted on, so the same tap cannot
+     * re-open a thread the user has since backed out of.
+     */
+    onOpenRequestConsumed: () -> Unit = {},
 ) {
     var destination by rememberSaveable(initialDestination) { mutableStateOf(initialDestination) }
 
@@ -1342,6 +1385,84 @@ fun GridlinkRoot(
                     composing = GridlinkComposeRequest(draft = draft)
                     onEditDraft(null)
                 }
+            }
+
+            // A notification tap or a `mailto:` link, arriving while the app is already open. Placed
+            // beside the draft round trip above because it is the same shape of thing: something from
+            // outside handing this tree a screen to show, once, and being told it was taken.
+            //
+            // 🔴 The folder is set BEFORE the message. `openFolderId` is what asks for a mailbox to be
+            // fetched (see the effect that reports it upward), and a message from a watched folder
+            // exists in no list until that fetch lands. Opening the id first would spend the fetch,
+            // mark the message read on the server, and show nothing.
+            //
+            // The message then lands on INBOX with the folder still open behind it, which is not a
+            // compromise but the behaviour the folder list already has: tapping a message inside a
+            // mailbox switches the destination the same way, so a notification and a tap arrive at the
+            // same screen instead of at two that differ only in how you got there.
+            // The id whose entrance is waiting on a fetch, or null. See the Message branch below.
+            var awaitingOpenTravel by remember { mutableStateOf<String?>(null) }
+
+            LaunchedEffect(openRequest) {
+                when (val request = openRequest) {
+                    null -> Unit
+                    is GridlinkOpenRequest.Message -> {
+                        request.folderId?.let { openFolderId = it }
+                        destination = GridlinkDestination.INBOX
+                        openId = request.id
+                        filedOpenId = null
+                        onOpenMail(request.id)
+                        // Acknowledged before the animation, not after: everything the request asked
+                        // for has already been written, and leaving the acknowledgement on the far
+                        // side of a suspend point makes it something an interrupted animation can
+                        // swallow, which would replay the whole open on the next composition.
+                        onOpenRequestConsumed()
+                        if (request.folderId != null) {
+                            // 🔴 The travel WAITS. A message from a folder resolves only once that
+                            // folder's fetch lands, so sliding the thread in now would run the whole
+                            // entrance over an empty pane and leave the list sitting dimmed and
+                            // shifted behind nothing until the network answered.
+                            awaitingOpenTravel = request.id
+                        } else if (!twoPane) {
+                            progress.animateTo(1f, GridlinkMotion.standard())
+                        }
+                    }
+                    is GridlinkOpenRequest.Compose -> {
+                        composing = GridlinkComposeRequest(
+                            draft = request.draft,
+                            // Land on the first field the caller did NOT fill. A `mailto:` names its
+                            // recipient, so opening focused on TO would ask the user to retype what
+                            // the link already said; a share carries a subject and a body and no
+                            // address at all, and that is the one case where TO is the empty field.
+                            focus = when {
+                                request.draft.recipients.isEmpty() -> GridlinkComposeField.TO
+                                request.draft.subject.isBlank() -> GridlinkComposeField.SUBJECT
+                                else -> GridlinkComposeField.BODY
+                            },
+                        )
+                        onOpenRequestConsumed()
+                    }
+                }
+            }
+
+            // The other half of that wait: the fetch landed, so let the thread travel in now.
+            //
+            // Keyed on whether there IS a detail rather than on the message itself, because that is
+            // the moment the pane has something to draw. The id is re-checked instead of trusted: a
+            // user who backs out or opens something else while the fetch is in flight has already
+            // been given a screen, and replaying an entrance onto it would be this effect animating
+            // somebody else's thread. Both of those flip the key, so the stale wait is dropped on
+            // the same pass.
+            LaunchedEffect(awaitingOpenTravel, detail != null, twoPane) {
+                val waitingFor = awaitingOpenTravel ?: return@LaunchedEffect
+                if (waitingFor != visibleOpenId) {
+                    awaitingOpenTravel = null
+                    return@LaunchedEffect
+                }
+                if (detail == null) return@LaunchedEffect
+                // Two panes need no travel: the effect above this one has already pinned it.
+                if (!twoPane) progress.animateTo(1f, GridlinkMotion.standard())
+                awaitingOpenTravel = null
             }
 
             // Back from any other tab returns to the Inbox before it leaves the app. Registered
