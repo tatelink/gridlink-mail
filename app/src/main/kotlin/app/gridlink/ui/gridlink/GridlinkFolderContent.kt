@@ -82,6 +82,21 @@ sealed interface GridlinkFolderEdit {
     data class Rename(val id: String, val name: String) : GridlinkFolderEdit
 
     /**
+     * Reparent a mailbox: §6d's drag, once it has been dropped somewhere valid.
+     *
+     * [parentId] is null for the top level, which is a real destination and not "unchanged" — the
+     * root is how a folder gets back out of a branch it was dragged into.
+     *
+     * 🔴 Separate from [Rename] even though JMAP performs both with a `Mailbox/set` update and gates
+     * both on the same `myRights.mayRename`. They are not the same operation anywhere else: IMAP has
+     * no parent field at all and has to move the folder by renaming its PATH, which changes the
+     * folder's id, and a rename that keeps the path and a move that keeps the leaf name are different
+     * strings to build. Collapsing them into one edit would mean the repository guessing which was
+     * meant from which field happened to be non-null.
+     */
+    data class Move(val id: String, val parentId: String?) : GridlinkFolderEdit
+
+    /**
      * Destroy a mailbox.
      *
      * ⚠️ And everything in it. The dialog behind this says so, and [GridlinkFolder.mayBeDeletedNow]

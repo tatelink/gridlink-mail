@@ -3316,6 +3316,38 @@ class MailRepository(
     }
 
     /**
+     * Move a folder under a new parent (null = the top level), then refresh.
+     * Returns the folder's id after the move, for [renameFolder]'s reason: an IMAP id is a
+     * path, so moving the folder changes it and the watch flags are re-keyed to follow.
+     *
+     * 🔴 IMAP has no parent field, so the move IS a rename — of the path, keeping the leaf. That
+     * makes this the mirror image of [renameFolder], which rewrites the leaf and keeps the path,
+     * and it is why the two are separate calls rather than one with two nullable arguments.
+     * The server moves the subfolders with it; only this folder's own watch flag is re-keyed,
+     * which matches what a rename already does with its own children.
+     */
+    suspend fun moveFolder(credentials: AccountCredentials, mailboxId: String, parentId: String?): String {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            val delim = imap.listImapFolders(credentials).firstOrNull { it.path == mailboxId }?.delimiter
+                ?: if (mailboxId.contains('/')) "/" else if (mailboxId.contains('.')) "." else "/"
+            // The folder's own name, whatever depth it is currently at. `substringAfterLast` with
+            // the path as its fallback is what makes a top-level folder (no delimiter in its id)
+            // come out as itself rather than as an empty string.
+            val leaf = mailboxId.substringAfterLast(delim, mailboxId)
+            val newPath = if (parentId.isNullOrEmpty()) leaf else "$parentId$delim$leaf"
+            if (newPath == mailboxId) return mailboxId
+            imap.renameFolder(credentials, mailboxId, newPath)
+            accountStore.replaceWatchedFolder(credentials.id, mailboxId, newPath, delim)
+            refreshMailboxes(credentials)
+            return newPath
+        }
+        val ctx = connect(credentials)
+        client.moveMailbox(ctx.session, ctx.accountId, mailboxId, parentId, ctx.auth)
+        refreshMailboxes(credentials)
+        return mailboxId
+    }
+
+    /**
      * Delete a folder AND its subfolders (deepest first — servers refuse to destroy a
      * parent that still has children), plus their cached messages and watch flags.
      * Returns every deleted folder id so the caller can clean per-folder state.

@@ -986,6 +986,49 @@ class JmapClient internal constructor(
         }
     }
 
+    /**
+     * Move a mailbox under a new parent (Mailbox/set update of `parentId`).
+     *
+     * 🔴 A null [parentId] is written as an explicit JSON null, not omitted. Omitting the key leaves
+     * the mailbox exactly where it is, so "drag this folder back out to the top level" would return
+     * success and do nothing at all. RFC 8621 §2 defines `parentId: null` as the top level, and that
+     * is what has to go on the wire.
+     *
+     * Gated server-side by the same `myRights.mayRename` as a rename: §2 defines that right as "may
+     * change the name **or parentId**". The UI checks it before offering the drag at all.
+     */
+    suspend fun moveMailbox(
+        session: JmapSession,
+        accountId: String,
+        mailboxId: String,
+        parentId: String?,
+        auth: JmapAuth,
+    ) = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") { add(Jmap.CORE_CAPABILITY); add(Jmap.MAIL_CAPABILITY) }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Mailbox/set")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("update") {
+                            putJsonObject(mailboxId) {
+                                if (parentId == null) put("parentId", JsonNull) else put("parentId", parentId)
+                            }
+                        }
+                    }
+                    add("m0")
+                }
+            }
+        }
+        val args = methodResponseArgs(postJmap(session, auth, payload), "Mailbox/set")
+        if (args["updated"]?.jsonObject?.containsKey(mailboxId) != true) {
+            val type = args["notUpdated"]?.jsonObject?.get(mailboxId)?.jsonObject
+                ?.get("type")?.jsonPrimitive?.content
+            throw JmapException("Couldn't move the folder" + (type?.let { " ($it)" } ?: ""))
+        }
+    }
+
     /** Delete a mailbox (Mailbox/set destroy). */
     suspend fun deleteMailbox(session: JmapSession, accountId: String, mailboxId: String, auth: JmapAuth) =
         withContext(Dispatchers.IO) {

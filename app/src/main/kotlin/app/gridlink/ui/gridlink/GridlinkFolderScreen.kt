@@ -3,11 +3,17 @@ package app.gridlink.ui.gridlink
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -21,7 +27,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -41,24 +48,39 @@ import androidx.compose.material.icons.outlined.Report
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.FloatState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -66,22 +88,56 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
 import app.gridlink.ui.theme.GridlinkRadii
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
+import kotlin.math.abs
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * §6d, the folder tree.
  *
  * ## What this pass covers and what it does not
  * The brief asks for a tree you can read *and* one you can edit: create, rename, delete, reparent by
- * drag. Reading landed first, then rename and delete behind a long-press. Create and drag-to-reparent
- * are still absent rather than stubbed, because a control that silently does nothing is worse than a
- * control that is not there yet — you find out it was fake after you have committed to it.
- * [GridlinkDimens.dragElevation] and [GridlinkDimens.dropTargetOutline] are in the token set waiting.
+ * drag. All four are here. Reading landed first, then rename and delete behind a long-press, then
+ * the inline create row, and reparent last because it had to share the long-press with the sheet.
+ *
+ * ⚠️ **The list does not auto-scroll while a folder is in the air**, so a folder can only be dropped
+ * somewhere currently on screen. That is a genuine limitation and not an oversight: the drag detector
+ * consumes its own move events, which is what stops the LazyColumn treating the same finger as a
+ * scroll, and that is exactly what makes `translationY = travel` correct — the row under the finger
+ * stays the row under the finger. Auto-scroll would mean tracking the pointer in viewport
+ * coordinates and re-deriving the lifted row's offset every frame as the content moved beneath it,
+ * and getting that subtly wrong looks like the folder drifting away from your thumb. Deep trees have
+ * the Move picker in the message list for the same job. Revisit when a real account produces a tree
+ * that does not fit a screen.
+ *
+ * ## The one gesture that has to mean two things
+ * 🔴 A long-press opens the rename/delete sheet AND starts a reparent drag, and the row cannot know
+ * which was meant until the finger either moves or lifts. That is why this row runs a hand-written
+ * [detectFolderRowGestures] rather than `combinedClickable` plus `detectDragGesturesAfterLongPress`:
+ * those two cannot coexist. `combinedClickable` calls `consumeUntilUp()` the instant it fires its own
+ * long-press, so the sibling drag detector sees consumed changes and cancels before the finger has
+ * moved a pixel; and dropping `onLongClick` to get out of the way does not help, because
+ * `Modifier.clickable` has no press-duration limit and a long hold then a release still counts as a
+ * tap, which would open the folder every time you decided not to move it. Suppressing the tap with a
+ * flag fails too — on the up event the Main pass runs inner-to-outer, so the drag clears the flag
+ * before the click reads it.
+ *
+ * So: press and hold, and the row lifts to [GridlinkDimens.dragElevation]. Move, and valid parents
+ * take a [GridlinkDimens.dropTargetOutline] accent outline. Release having moved and it lands;
+ * release without moving and you get the sheet, which is what a long-press has always done.
+ *
+ * ⚠️ TalkBack gets the tap and the long-press through explicit semantics, and does not get the drag.
+ * A pointer path has no accessible equivalent, and the honest fix is a "Move to…" action in the
+ * sheet rather than a fake gesture; [GridlinkMovePicker] already exists for mail and is the obvious
+ * thing to reuse. Not done here.
  *
  * ## Long-press, and what refuses to respond to it
  * 🔴 The six JMAP role mailboxes (Inbox, Drafts, Sent, Archive, Junk, Trash) do not answer a
@@ -94,6 +150,12 @@ import app.gridlink.ui.theme.GridlinkType
  * A dead-feeling long-press is a real cost, and it is the right one here: the alternative is a sheet
  * that opens onto two greyed-out lines, which teaches the gesture is broken rather than that the
  * folder is protected.
+ *
+ * 🔴 Two gates, kept separate, because they are two different rights.
+ * [GridlinkFolder.hasActions] decides whether the long-press does anything at all;
+ * [GridlinkFolder.mayRename] decides whether that something can become a drag, because RFC 8621 §2
+ * defines `mayRename` as "may change the name **or parentId**" and there is no separate move right.
+ * A folder that may be deleted but not renamed still opens its sheet and still refuses to lift.
  *
  * ## Why the tree has no horizontal hairlines
  * Every other list in the app separates rows with a 1px rule and no gaps. This one does not, and it
@@ -153,6 +215,16 @@ fun GridlinkFolderScreen(
     initialStage: GridlinkFolderStage = GridlinkFolderStage.SHEET,
     /** Screen-capture hook: start with one New folder row already editing. "root" for the top level. */
     initialCreateUnder: String? = null,
+    /**
+     * Screen-capture hook: show this folder mid-drag, lifted, without holding a finger on it.
+     *
+     * ⚠️ Renders at zero travel, so the row sits over its own place in the list wearing the drag
+     * shadow. A faked offset would draw it overlapping a neighbour at a distance no real drag pauses
+     * at, which is a prettier frame and a less true one.
+     */
+    initialDragFolderId: String? = null,
+    /** Screen-capture hook: the row that drag is hovering. "root" for the top level's New folder row. */
+    initialDropTargetId: String? = null,
     /** §7's detail pane, or null when the window is too narrow for one. */
     sidePane: (@Composable () -> Unit)? = null,
     /**
@@ -176,9 +248,26 @@ fun GridlinkFolderScreen(
     // folders that are not there. The default `setOf("inbox")` has the same shape and is harmless:
     // a real account's inbox is not called "inbox", so nothing is force-opened and the tree simply
     // starts collapsed.
-    val seedExpanded = remember(initiallyExpanded, initialActionFolderId, initialCreateUnder, tree) {
+    val seedExpanded = remember(
+        initiallyExpanded,
+        initialActionFolderId,
+        initialCreateUnder,
+        initialDragFolderId,
+        initialDropTargetId,
+        tree,
+    ) {
         val ancestors = initialActionFolderId
             ?.let { tree.ancestorIds(it) }
+            .orEmpty()
+        // The same rule for the drag pair: a lifted row and an outlined target that are both inside
+        // shut branches would produce a frame of an ordinary collapsed tree, which is not a wrong
+        // picture so much as a picture of nothing. The drop target itself is opened too, not only
+        // its ancestors, because "root" resolves to a New folder row that only exists at an open
+        // level and dropping ONTO a folder is exactly the moment you want to see inside it.
+        val dragging = initialDragFolderId?.let { tree.ancestorIds(it) }.orEmpty()
+        val dropping = initialDropTargetId
+            ?.takeIf { it != "root" }
+            ?.let { tree.ancestorIds(it).orEmpty() + it }
             .orEmpty()
         // 🔴 The create target itself, not only its ancestors. A branch's New folder row exists only
         // while that branch is open, so seeding `creating` at a folder that is shut asks the harness
@@ -187,7 +276,7 @@ fun GridlinkFolderScreen(
             ?.takeIf { it != "root" }
             ?.let { GridlinkSampleTree.mailboxes.ancestorIds(it).orEmpty() + it }
             .orEmpty()
-        initiallyExpanded + ancestors + createTarget
+        initiallyExpanded + ancestors + createTarget + dragging + dropping
     }
     var expandedIds by remember(seedExpanded) { mutableStateOf(seedExpanded) }
 
@@ -222,6 +311,72 @@ fun GridlinkFolderScreen(
     val rows = remember(tree, expandedIds) { flattenFolders(tree, expandedIds) }
     val folderCount = remember(tree) { tree.flatten().size }
 
+    // 🔴 Hoisted out of `rememberGridlinkFlingBehavior`'s LazyColumn so the drag can read
+    // `layoutInfo`. Working out which row is under a moving finger is otherwise unanswerable: the
+    // rows are laid out by the lazy list and only it knows where they ended up.
+    val listState = rememberLazyListState()
+
+    // What is in the air, and where a drop would put it. Changes only when the finger crosses a row
+    // boundary, which is what keeps it out of the per-frame path.
+    var drag by remember(initialDragFolderId, initialDropTargetId) {
+        mutableStateOf(gridlinkSeededDrag(rows, initialDragFolderId, initialDropTargetId))
+    }
+    // 🔴 How far the lifted row has travelled, held SEPARATELY and read only inside a
+    // `graphicsLayer` block. Folded into `drag` it would be a snapshot write per frame, and every
+    // write recomposes every visible row of the tree for the sake of moving one of them. Read from a
+    // graphics layer instead, the value updates the layer and skips recomposition entirely.
+    val dragOffset = remember { mutableFloatStateOf(0f) }
+
+    fun lift(index: Int, folder: GridlinkFolder, grabY: Float) {
+        dragOffset.floatValue = 0f
+        drag = GridlinkFolderDrag(id = folder.id, index = index, grabY = grabY)
+    }
+
+    fun cancelDrag() {
+        drag = null
+        dragOffset.floatValue = 0f
+    }
+
+    /** Follow the finger: move the lifted row, and work out what is under it now. */
+    fun dragTo(travel: Float) {
+        dragOffset.floatValue = travel
+        val current = drag ?: return
+        val info = listState.layoutInfo
+        // Where the finger is in the list's own coordinates, derived rather than tracked. The lifted
+        // row has not actually moved (its layout offset is where it always was) so its resting
+        // position plus the grab point plus the travel IS the pointer, and no second stream of
+        // coordinates has to be kept in step with the first.
+        val self = info.visibleItemsInfo.firstOrNull { it.index == current.index } ?: return
+        val pointer = self.offset + current.grabY + travel
+        val hit = info.visibleItemsInfo.firstOrNull { pointer >= it.offset && pointer < it.offset + it.size }
+        val item = hit?.index?.let(rows::getOrNull)
+        // 🔴 A New folder row is a drop target for its own LEVEL, which is how the top level stays
+        // reachable without inventing a new affordance. It already sits at the end of its level at
+        // the level's indent, so it already means "in here", and its parentId is null at the root —
+        // which is precisely the parentId a folder needs to be dragged back out to the top.
+        val parentId = when (item) {
+            is GridlinkFolderTreeItem.Row -> item.folder.id
+            is GridlinkFolderTreeItem.NewFolder -> item.parentId
+            null -> null
+        }
+        // One pure question, asked every frame, answered by the tree. The outline and the drop then
+        // cannot disagree, because they are the same predicate. See [mayReparent].
+        val target = hit?.index?.takeIf { item != null && tree.mayReparent(current.id, parentId) }
+        if (target == current.targetIndex) return
+        drag = current.copy(targetIndex = target, targetParentId = parentId)
+    }
+
+    fun drop() {
+        val landed = drag
+        cancelDrag()
+        if (landed?.targetIndex == null) return
+        onTreeChange(tree.moveFolder(landed.id, landed.targetParentId))
+        onEdit(GridlinkFolderEdit.Move(id = landed.id, parentId = landed.targetParentId))
+        // Open the branch it went into, or the folder vanishes at the moment of arrival. A drop to
+        // the top level needs nothing, same as a root create.
+        landed.targetParentId?.let { expandedIds = expandedIds + it }
+    }
+
     fun dismiss() {
         actionFolderId = null
         stage = GridlinkFolderStage.SHEET
@@ -255,6 +410,7 @@ fun GridlinkFolderScreen(
         },
     ) {
         LazyColumn(
+            state = listState,
             flingBehavior = rememberGridlinkFlingBehavior(),
             modifier = Modifier
                 .fillMaxSize()
@@ -264,15 +420,15 @@ fun GridlinkFolderScreen(
                 bottom = GridlinkDimens.listFade,
             ),
         ) {
-            items(
+            itemsIndexed(
                 items = rows,
-                key = { item ->
+                key = { _, item ->
                     when (item) {
                         is GridlinkFolderTreeItem.Row -> item.folder.id
                         is GridlinkFolderTreeItem.NewFolder -> "new:${item.parentId ?: "root"}"
                     }
                 },
-            ) { item ->
+            ) { index, item ->
                 when (item) {
                     is GridlinkFolderTreeItem.Row -> GridlinkFolderRow(
                         row = item,
@@ -286,10 +442,9 @@ fun GridlinkFolderScreen(
                         },
                         onOpen = { onOpenFolder(item.folder) },
                         // 🔴 Null is the whole protection mechanism for the role mailboxes. Not a
-                        // callback that checks a flag and returns: `combinedClickable` with a
-                        // non-null onLongClick consumes the gesture and fires the platform's own
-                        // long-press haptic, so a no-op handler still buzzes and still reads as
-                        // "something happened, and then nothing did".
+                        // callback that checks a flag and returns: a non-null handler is what makes
+                        // the row fire the long-press haptic at all, so a no-op handler still buzzes
+                        // and still reads as "something happened, and then nothing did".
                         onLongPress = if (item.folder.hasActions) {
                             {
                                 actionFolderId = item.folder.id
@@ -298,11 +453,25 @@ fun GridlinkFolderScreen(
                         } else {
                             null
                         },
+                        // The second gate. `hasActions` above decided whether the hold does
+                        // anything; this decides whether it can become a drag. Null on the role
+                        // mailboxes and on any shared folder the server has told us to leave alone.
+                        onLift = if (item.folder.mayRename) {
+                            { grabY -> lift(index, item.folder, grabY) }
+                        } else {
+                            null
+                        },
+                        onDragBy = ::dragTo,
+                        onDrop = ::drop,
+                        onDragCancel = ::cancelDrag,
+                        dragOffset = dragOffset.takeIf { drag?.id == item.folder.id },
+                        dropTarget = drag?.targetIndex == index,
                     )
 
                     is GridlinkFolderTreeItem.NewFolder -> GridlinkNewFolderRow(
                         item = item,
                         editing = creating?.parentId == item.parentId && creating != null,
+                        dropTarget = drag?.targetIndex == index,
                         takenNames = tree.childNames(item.parentId),
                         // 🔴 Only one field open at a time, enforced by there being one piece of
                         // state rather than one per row. Two live fields would mean two focus
@@ -437,6 +606,188 @@ private fun flattenFolders(
     add(GridlinkFolderTreeItem.NewFolder(parentId, depth))
 }
 
+// ---------------------------------------------------------------------------------------------
+// Drag to reparent
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * One folder in the air, and where letting go would put it.
+ *
+ * 🔴 [targetIndex] is what says "there is somewhere to drop", NOT [targetParentId]. Null is a real
+ * destination there — it is the top level — so a nullable parent id cannot also carry "nowhere". The
+ * two fields are set together and only ever read together.
+ *
+ * Deliberately does not carry the travel distance; see the `dragOffset` state in
+ * [GridlinkFolderScreen] for why that is held apart.
+ */
+@Immutable
+private data class GridlinkFolderDrag(
+    val id: String,
+    /** Its index in the flattened row list, which is also its index as a LazyColumn item. */
+    val index: Int,
+    /**
+     * Where inside the row the finger landed.
+     *
+     * The whole reason the pointer never has to be tracked separately: the lifted row is only
+     * *drawn* moved, its layout offset is untouched, so resting offset + this + travel is exactly
+     * where the finger is. One source of truth, and it cannot drift out of step with itself.
+     */
+    val grabY: Float,
+    val targetIndex: Int? = null,
+    /** The parent a drop would set. Null means the top level. */
+    val targetParentId: String? = null,
+)
+
+/**
+ * The harness's mid-drag frame, resolved against the rows actually on screen.
+ *
+ * Returns null for an unknown folder rather than throwing: the gallery already crashes on a bad
+ * `--es drag`, and this is also reached from `@Preview` and from a real account whose tree does not
+ * contain a sample id.
+ */
+private fun gridlinkSeededDrag(
+    rows: List<GridlinkFolderTreeItem>,
+    dragId: String?,
+    dropId: String?,
+): GridlinkFolderDrag? {
+    if (dragId == null) return null
+    val index = rows.indexOfFirst { it is GridlinkFolderTreeItem.Row && it.folder.id == dragId }
+    if (index < 0) return null
+    val targetIndex = dropId
+        ?.let { id ->
+            rows.indexOfFirst {
+                when (it) {
+                    is GridlinkFolderTreeItem.Row -> it.folder.id == id
+                    // "root" is the top level's own New folder row, which is how the extra names a
+                    // destination that has no folder to name it with.
+                    is GridlinkFolderTreeItem.NewFolder -> id == "root" && it.parentId == null
+                }
+            }
+        }
+        ?.takeIf { it >= 0 }
+    return GridlinkFolderDrag(
+        id = dragId,
+        index = index,
+        grabY = 0f,
+        targetIndex = targetIndex,
+        targetParentId = when (val hit = targetIndex?.let(rows::get)) {
+            is GridlinkFolderTreeItem.Row -> hit.folder.id
+            is GridlinkFolderTreeItem.NewFolder -> hit.parentId
+            null -> null
+        },
+    )
+}
+
+/**
+ * Press, hold, and then either move or let go: the row's whole gesture, hand-rolled.
+ *
+ * See [GridlinkFolderScreen]'s KDoc for why none of the stock detectors can do this. The shape:
+ *
+ * ```
+ *  down ──┬── up within the long-press timeout ─────────────► onTap
+ *         ├── cancelled (the list stole it for a scroll) ───► nothing
+ *         └── timeout, finger still down ──┬── no onLift ───► onLongPress
+ *                                          └── lift ──┬── moved ──► onDrop
+ *                                                     └── still ──► onLongPress
+ * ```
+ *
+ * 🔴 [waitForUpOrCancellation] returns null for BOTH "the finger lifted" and "someone else took the
+ * gesture", which is why [cancelled] exists. Without it a scroll that steals the row's pointer looks
+ * identical to a hold that ran out the clock, and flicking the list would lift a folder.
+ *
+ * 🔴 The down is required unconsumed, which is what keeps the chevron's own 28dp hit target
+ * behaving exactly as it did before this existed: `Modifier.clickable` consumes the down in the Main
+ * pass, the child runs before the parent, so a press that starts on the arrow never reaches here.
+ *
+ * ⚠️ Every drag change is consumed, and that is doing two jobs: it stops the enclosing LazyColumn
+ * scrolling on the same finger, which is also what makes the lifted row's translation exactly equal
+ * to the travel. The no-auto-scroll limitation falls out of this.
+ */
+private suspend fun PointerInputScope.detectFolderRowGestures(
+    interactions: MutableInteractionSource,
+    scope: CoroutineScope,
+    onTap: () -> Unit,
+    /** The hold registered and something is going to happen. Fires the haptic; see below. */
+    onHold: () -> Unit,
+    onLongPress: (() -> Unit)?,
+    onLift: ((Float) -> Unit)?,
+    onDragBy: (Float) -> Unit,
+    onDrop: () -> Unit,
+    onDragCancel: () -> Unit,
+) = awaitEachGesture {
+    val down = awaitFirstDown()
+    val press = PressInteraction.Press(down.position)
+    scope.launch { interactions.emit(press) }
+    // The press interaction has to be ended on EVERY path out of here, and the branch that forgets
+    // is the one that leaves a row glowing until the next time it is touched. So: a flag, and a
+    // `finally` that closes it out for whichever branch did not.
+    var settled = false
+    try {
+        var cancelled = false
+        val up = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+            waitForUpOrCancellation().also { if (it == null) cancelled = true }
+        }
+        if (cancelled) return@awaitEachGesture
+        if (up != null) {
+            up.consume()
+            settled = true
+            scope.launch { interactions.emit(PressInteraction.Release(press)) }
+            onTap()
+            return@awaitEachGesture
+        }
+
+        // Held past the timeout with the finger still down.
+        if (onLongPress == null && onLift == null) {
+            // A protected folder. Wait the gesture out rather than falling through, so a late
+            // release cannot be picked up by anything as a tap.
+            waitForUpOrCancellation()
+            return@awaitEachGesture
+        }
+        // 🔴 The haptic, fired the instant the hold registers and before anything is decided. The
+        // platform performs none of its own on this path, and a long-press with no tick is
+        // indistinguishable from one that did not register — you find out it worked when the sheet
+        // arrives, which is too late to stop pressing harder. It is also the signal that the folder
+        // has lifted, so it has to come before the finger starts moving, not after.
+        onHold()
+        if (onLift == null) {
+            // Renaming is refused but something is offered, so the sheet opens on the hold. No drag
+            // to wait for, so it opens now rather than on release.
+            onLongPress?.invoke()
+            waitForUpOrCancellation()
+            return@awaitEachGesture
+        }
+        // 🔴 End the press BEFORE the drag, not in the `finally`. The ripple is drawn by
+        // `Modifier.indication`, which sits ON TOP of the row's background, so a press left open for
+        // the length of a drag paints a grey wash over the lifted card and it reads as a shadow slab
+        // instead of a raised one. The lift has its own visual language now — elevation and a
+        // shadow — and the ripple has nothing left to say.
+        settled = true
+        scope.launch { interactions.emit(PressInteraction.Cancel(press)) }
+        onLift(down.position.y)
+
+        var travel = 0f
+        var moved = false
+        val finished = drag(down.id) { change ->
+            travel += change.positionChange().y
+            if (!moved && abs(travel) > viewConfiguration.touchSlop) moved = true
+            change.consume()
+            onDragBy(travel)
+        }
+        when {
+            !finished -> onDragCancel()
+            moved -> onDrop()
+            // Held and let go without going anywhere. The sheet is what that has always meant, and
+            // making it mean nothing instead would cost the gesture its old job to buy the new one.
+            else -> {
+                onDragCancel()
+                onLongPress?.invoke()
+            }
+        }
+    } finally {
+        if (!settled) scope.launch { interactions.emit(PressInteraction.Cancel(press)) }
+    }
+}
+
 /**
  * One row of the tree.
  *
@@ -453,7 +804,6 @@ private fun flattenFolders(
  * that produces "rename". A 28dp box that only ever does one thing beats a consistent gesture that
  * has to guess which of two things you meant.
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun GridlinkFolderRow(
     row: GridlinkFolderTreeItem.Row,
@@ -463,9 +813,41 @@ private fun GridlinkFolderRow(
     modifier: Modifier = Modifier,
     /** Null on a folder that may not be renamed or deleted; the gesture then does nothing at all. */
     onLongPress: (() -> Unit)? = null,
+    /** Null on a folder that may not be reparented; the hold then only ever opens the sheet. */
+    onLift: ((Float) -> Unit)? = null,
+    onDragBy: (Float) -> Unit = {},
+    onDrop: () -> Unit = {},
+    onDragCancel: () -> Unit = {},
+    /**
+     * Non-null while THIS row is the one in the air: how far it has travelled, in pixels.
+     *
+     * 🔴 A state and not a Float. It is read inside a `graphicsLayer` block, which observes it
+     * without recomposing, so the row moves at frame rate while the tree around it composes once at
+     * the lift and once at the drop. Passed as a plain value it would recompose every visible row
+     * every frame of the gesture.
+     */
+    dragOffset: FloatState? = null,
+    /** True while releasing here would land the dragged folder in this one. */
+    dropTarget: Boolean = false,
 ) {
     val colors = GridlinkTheme.colors
     val haptics = LocalHapticFeedback.current
+    // Hand-driven, because the gesture is hand-driven: without `clickable` there is nothing left to
+    // report presses, and a tree that stopped rippling under the finger would read as a tree that
+    // had stopped responding.
+    val interactions = remember { MutableInteractionSource() }
+    val scope = rememberCoroutineScope()
+    val dragShape = RoundedCornerShape(GridlinkRadii.field)
+    // 🔴 Composited down to an OPAQUE colour, and it has to be. [surfaceRaised] is the token for a
+    // dragged row and it is 72% white, which is fine under a sheet's scrim and is not fine here: the
+    // lifted row passes directly over other rows, and at 72% their names read straight through it —
+    // two folder names sharing one line, which is worse than no elevation at all. Compositing it
+    // over the panel fill and the panel over the background reproduces exactly the tone the row
+    // already had, with nothing behind it left to show through. Brighter than its neighbours, which
+    // is what a raised surface is supposed to look like.
+    val liftedFill = colors.surfaceRaised
+        .compositeOver(colors.listSurface)
+        .compositeOver(colors.background)
     val chevronRotation by animateFloatAsState(
         // Same convention as the message bundle: down means open. Reusing the one arrow glyph the
         // app already rotates keeps a second chevron asset, and a second rotation convention, out.
@@ -484,20 +866,57 @@ private fun GridlinkFolderRow(
         modifier = modifier
             .fillMaxWidth()
             .height(GridlinkDimens.folderRowHeight)
-            .background(fill)
-            .combinedClickable(
-                onClick = onOpen,
-                // 🔴 The haptic is fired here rather than left to the platform. `combinedClickable`
-                // does not perform one on this Compose version, and a long-press with no tick is
-                // indistinguishable from a long-press that was not registered — you find out it
-                // worked when the sheet arrives, which is too late to stop pressing harder.
-                onLongClick = onLongPress?.let { press ->
-                    {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        press()
-                    }
+            .then(
+                if (dragOffset != null) {
+                    // 🔴 zIndex first, or the lifted row draws UNDER the rows it is passing over,
+                    // which reads as the folder sinking into the list instead of out of it. An
+                    // opaque surface too: the row is transparent at rest and a shadow around a
+                    // see-through rectangle is just a smudge travelling over the text below it.
+                    Modifier
+                        .zIndex(1f)
+                        .graphicsLayer { translationY = dragOffset.floatValue }
+                        .shadow(GridlinkDimens.dragElevation, dragShape)
+                        .background(liftedFill, dragShape)
+                } else {
+                    Modifier.background(fill)
                 },
-            ),
+            )
+            // §6d, verbatim: valid drop targets get a 2dp accent outline. Valid is the only case
+            // there is — an invalid one is never marked at all, so the outline can be read as a
+            // promise rather than as a status the user has to interpret.
+            .then(
+                if (dropTarget) {
+                    Modifier.border(GridlinkDimens.dropTargetOutline, colors.accent, dragShape)
+                } else {
+                    Modifier
+                },
+            )
+            .indication(interactions, LocalIndication.current)
+            // 🔴 Keyed on the handlers, not on Unit. `pointerInput` restarts its block when a key
+            // changes, and these lambdas close over the row's index and folder — a stale block would
+            // keep lifting whichever folder happened to be at this position when the tree last
+            // changed, which after a delete is a different folder entirely.
+            .pointerInput(onOpen, onLongPress, onLift) {
+                detectFolderRowGestures(
+                    interactions = interactions,
+                    scope = scope,
+                    onTap = onOpen,
+                    onHold = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
+                    onLongPress = onLongPress,
+                    onLift = onLift,
+                    onDragBy = onDragBy,
+                    onDrop = onDrop,
+                    onDragCancel = onDragCancel,
+                )
+            }
+            // ⚠️ Explicit, because the raw detector above carries none of its own. This is what
+            // TalkBack activates and what the tests find the row by; the drag has no equivalent
+            // here, which is stated in this file's header rather than papered over.
+            .semantics {
+                role = Role.Button
+                onClick(label = "Open ${row.folder.name}") { onOpen(); true }
+                onLongPress?.let { press -> onLongClick(label = "Folder actions") { press(); true } }
+            },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Spacer(Modifier.width(GridlinkSpacing.s12))
@@ -653,6 +1072,15 @@ private fun GridlinkNewFolderRow(
     onCancel: () -> Unit,
     onCreate: (String) -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * True while a dragged folder would land in THIS row's level.
+     *
+     * 🔴 This row is the drop target for its own level, which is the only reason the top level is
+     * reachable by drag at all: a folder dragged out of a branch has to be droppable on something,
+     * and the root is not a row. Rather than inventing a "move to top level" affordance, the row
+     * that already sits at the end of every level and already means "in here" takes the outline too.
+     */
+    dropTarget: Boolean = false,
 ) {
     val colors = GridlinkTheme.colors
     var value by remember(item.parentId, editing) { mutableStateOf(TextFieldValue()) }
@@ -682,6 +1110,19 @@ private fun GridlinkNewFolderRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(GridlinkDimens.folderRowHeight)
+                .then(
+                    if (dropTarget) {
+                        // The same outline a folder row gets, so "you may drop here" is one visual
+                        // fact and not two that happen to co-occur.
+                        Modifier.border(
+                            GridlinkDimens.dropTargetOutline,
+                            colors.accent,
+                            RoundedCornerShape(GridlinkRadii.field),
+                        )
+                    } else {
+                        Modifier
+                    },
+                )
                 .then(if (editing) Modifier else Modifier.clickable(onClick = onStart)),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -788,9 +1229,14 @@ private fun GridlinkNewFolderRow(
 /**
  * What a long-press offers, for a folder that is allowed to be touched.
  *
- * Two actions and no more. Move, create-subfolder and mark-all-read all belong here eventually and
- * none of them work yet, and a sheet listing three things that do nothing beside two that do is how
- * a prototype starts lying about how finished it is.
+ * Two actions and no more. Create-subfolder and mark-all-read belong here eventually and neither
+ * works yet, and a sheet listing two things that do nothing beside two that do is how a prototype
+ * starts lying about how finished it is.
+ *
+ * ⚠️ Move is absent on purpose and is the one omission worth arguing about: it is a real, working
+ * operation, reachable only by dragging. That leaves TalkBack with no way to reparent a folder. A
+ * "Move to…" line here reusing [GridlinkMovePicker] is the fix and it is not built — noted here
+ * rather than in a backlog, because this sheet is where anyone looking for it will look.
  */
 @Composable
 private fun GridlinkFolderActionSheet(
