@@ -89,6 +89,39 @@ class GridlinkChromeState(
     var config by mutableStateOf(initialConfig)
         internal set
 
+    /**
+     * A menu row the drawer wants the scaffold to navigate to, or null when there is nothing
+     * pending.
+     *
+     * ## Why this channel exists
+     * The drawer is rendered by the chrome shell, ABOVE [GridlinkRoot] in the tree, and its rows
+     * dispatch to [GridlinkChromeConfig.onSelectMenu], which the HOST supplies. Drafts and
+     * Scheduled are not host destinations though: Drafts is a folder the scaffold can already
+     * open, and Scheduled is a scaffold overlay. The host cannot reach that state, and threading
+     * a callback down through it would mean the host forwarding an argument it never reads. So
+     * the shell posts the wish here and whichever scaffold is composed consumes it.
+     *
+     * 🔴 Deliberately NOT in [saver]: a navigation wish is an event, not a fact about the app,
+     * and replaying it after an unfold would re-open Drafts over whatever the user had moved on
+     * to. The nonce makes tapping the same row twice distinguishable, or the second tap would
+     * equal the first and never be observed.
+     */
+    var menuRoute by mutableStateOf<Pair<GridlinkMenuItem, Int>?>(null)
+        private set
+
+    private var menuRouteNonce = 0
+
+    /** Post a navigation wish for the scaffold. Called by the drawer's dispatch, on the main thread. */
+    fun routeMenu(item: GridlinkMenuItem) {
+        menuRouteNonce += 1
+        menuRoute = item to menuRouteNonce
+    }
+
+    /** Mark the pending wish handled. Idempotent. */
+    fun consumeMenuRoute() {
+        menuRoute = null
+    }
+
     /** What the chrome row's chip says, and the dot beside the address in the menu sheet. */
     var sync by mutableStateOf(initialSync)
         private set

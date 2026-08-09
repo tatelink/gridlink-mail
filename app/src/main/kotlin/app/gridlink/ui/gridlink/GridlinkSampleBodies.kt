@@ -324,5 +324,44 @@ internal object GridlinkSampleBodies {
                 "<p>The visit is unannounced within the business day. Please make sure the walk-in " +
                 "gasket has been replaced and the sanitiser log is current for the full period.</p>"
             ),
+
+        // -------------------------------------------------------------------------------------
+        // The drafts, for [GridlinkSample.draftMessages]
+        //
+        // 🔴 These stop mid-thought on purpose. A draft is mail you have not finished, and the tap
+        // that opens one lands in the composer with this text already in the field, so a body that
+        // reads as a finished message would make the composer look like it had been handed a sent
+        // one. The unfinished last line is also the cheapest possible check that the flatten in
+        // [GridlinkScaffold]'s Drafts interception ran: it is visible, and it is the end.
+        //
+        // ⚠️ Plain paragraphs, no lists and no links. The composer is a plain-text field, so
+        // everything here goes through HtmlCompat on the way in; markup that survives that trip
+        // as stray blank lines would look like a composer bug rather than a fixture choice.
+        // -------------------------------------------------------------------------------------
+        "draft-brightmar-credit" to (
+            "<p>Hi Ray,</p>" +
+                "<p>The Tuesday truck landed 3 cases short at 2043 HILLCREST again, same as the " +
+                "week before last. Invoice 4471183, the shortage is on the 8 oz portion cups and " +
+                "the case of gloves.</p>" +
+                "<p>Can you put a credit through for those and let me know what</p>"
+            ),
+        "draft-cap-604" to (
+            "<p>Corrective Action Plan, Store 604, inspection 07/24.</p>" +
+                "<p>Walk-in cooler gasket, unit 2: replacement ordered 07/26, fitted 07/29. " +
+                "Photo attached.</p>" +
+                "<p>Sanitiser concentration at the three-compartment sink: dispenser recalibrated " +
+                "07/25 and the shift log has been checked twice a day since.</p>" +
+                "<p>Prep line hand sink: the rack has been moved to</p>"
+            ),
+        "draft-tperez-overtime" to (
+            "<p>T,</p>" +
+                "<p>Period 7 projection has us 6 hours over on the labour line and most of it is " +
+                "sitting on Thursday and Friday. Before I move anything I want to know whether the " +
+                "Thursday close is short-handed for a reason I do not know about.</p>" +
+                "<p>If it is not, I would rather trim the</p>"
+            ),
+        "draft-no-subject" to (
+            "<p>call me when you get a minute</p>"
+            ),
     )
 }

@@ -3,6 +3,7 @@ package app.gridlink.ui.gridlink
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.core.text.HtmlCompat
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -399,6 +400,16 @@ fun GridlinkScaffold(
                     // honest behaviour for a destination that does not exist yet.
                     onSelect = {
                         menuOpen = false
+                        // Drafts and Scheduled are scaffold destinations, not host ones: Drafts is
+                        // a folder the scaffold can already open and Scheduled is a scaffold
+                        // overlay, and the HOST (which owns onSelectMenu) can reach neither. The
+                        // wish is posted on the chrome holder instead, and whichever [GridlinkRoot]
+                        // is composed consumes it. See [GridlinkChromeState.menuRoute].
+                        when (it) {
+                            GridlinkMenuItem.DRAFTS, GridlinkMenuItem.SCHEDULED ->
+                                chrome.routeMenu(it)
+                            else -> Unit
+                        }
                         chrome.config.onSelectMenu(it)
                     },
                     onDismiss = { menuOpen = false },
@@ -661,6 +672,25 @@ fun GridlinkRoot(
      * outside party. Defaults to the sample's, which is what a `@Preview` wants.
      */
     ownDomain: String = GridlinkSample.OWN_DOMAIN,
+    /**
+     * The account's scheduled sends, or null to draw the sample's. Same null contract as [mail]:
+     * null means "nothing behind this screen", not "nothing waiting".
+     */
+    scheduled: GridlinkScheduledContent? = null,
+    /**
+     * Cancel one scheduled send, by [GridlinkScheduledSend.id]. Cancelling before the send time is
+     * a local row delete — nothing has reached the server yet — which is why the row can promise it.
+     */
+    onCancelScheduled: (Long) -> Unit = {},
+    /**
+     * Open the draft with this server id in the composer, or clear the request with null.
+     *
+     * 🔴 A round trip, not a callback that returns the draft: the body has to be fetched, so the
+     * answer arrives later as [GridlinkMailContent.draftEdit] and the scaffold opens the composer
+     * when it does. Null is the scaffold acknowledging the delivery, so a draft edited, closed and
+     * tapped again is a fresh request rather than a stale answer replaying.
+     */
+    onEditDraft: (String?) -> Unit = {},
 ) {
     var destination by rememberSaveable(initialDestination) { mutableStateOf(initialDestination) }
 
@@ -707,6 +737,11 @@ fun GridlinkRoot(
     // put every subsequently opened composer on the sheet too, including the one the compose button
     // opens. See [GridlinkComposeRequest].
     var composing by remember(initialCompose) { mutableStateOf(initialCompose) }
+
+    // The Scheduled overlay, opened from the drawer. Saveable where `composing` is not, because it
+    // is one boolean: surviving the fold costs nothing here, and losing the screen at the hinge
+    // would be losing the very list the user unfolded the phone to read.
+    var scheduledOpen by rememberSaveable { mutableStateOf(false) }
 
     // §6c's undo window. Lives here rather than in the composer for the obvious reason: the composer
     // is gone by the time the bar is up. It is the same shape as `composing` — one nullable value
@@ -764,6 +799,32 @@ fun GridlinkRoot(
             }
             // Undone while the write was still in flight: honour it now.
             if (pending.undone) cancel() else pending.cancel = cancel
+        }
+    }
+
+    /**
+     * Schedule: close the composer and queue the message for later, with [sendWithUndo]'s contract.
+     *
+     * Refusals are decided before anything closes, and every one of send's refusals applies here:
+     * a scheduled send is still a send, only at a time when nobody will be looking at an error.
+     * No undo bar, because there is no ten-second race to win — the message sits in Scheduled,
+     * cancellable from that screen until the moment it goes.
+     */
+    fun scheduleSend(request: GridlinkComposeRequest, sendAtMillis: Long) {
+        val refusal = sender.check(request)
+        if (refusal != null) {
+            sendError = refusal
+            return
+        }
+        sendError = null
+        composing = null
+        scope.launch {
+            runCatching { sender.schedule(request, sendAtMillis) }.onFailure { failure ->
+                // The row never landed, so nothing will be sent. Reopen with the reason rather
+                // than letting the draft evaporate along with the promise to deliver it.
+                composing = request
+                sendError = failure.message ?: "Couldn't schedule that message."
+            }
         }
     }
 
@@ -1247,7 +1308,41 @@ fun GridlinkRoot(
             // where things sit in this file, and a form moved during a refactor would silently
             // reorder the ladder. The explicit gate makes the intent survive the move.
             val formOpen = composing != null || creating != null ||
-                editingEvent != null || editingContact != null
+                editingEvent != null || editingContact != null || scheduledOpen
+
+            // The drawer's Drafts and Scheduled rows, delivered through the chrome holder because
+            // the drawer is composed above this function and dispatches to the HOST, which cannot
+            // reach this state. See [GridlinkChromeState.menuRoute] for why it is a channel.
+            val chromeState = LocalGridlinkChrome.current
+            LaunchedEffect(chromeState.menuRoute) {
+                val (item, _) = chromeState.menuRoute ?: return@LaunchedEffect
+                when (item) {
+                    GridlinkMenuItem.DRAFTS -> {
+                        // Drafts is not its own screen: it is the drafts-role mailbox, opened
+                        // exactly as tapping it in the folder tree would, so the two routes cannot
+                        // drift apart. Resolved by role because a real server names the id.
+                        folderTree.flatten()
+                            .firstOrNull { it.role == GridlinkFolderRole.DRAFTS }
+                            ?.let { drafts ->
+                                destination = GridlinkDestination.FOLDERS
+                                openFolderId = drafts.id
+                                if (!twoPane) progress.animateTo(1f, GridlinkMotion.standard())
+                            }
+                    }
+                    GridlinkMenuItem.SCHEDULED -> scheduledOpen = true
+                    else -> Unit
+                }
+                chromeState.consumeMenuRoute()
+            }
+
+            // The other half of [onEditDraft]'s round trip: the body arrived, open the composer on
+            // it. Acknowledged immediately so the answer cannot replay on a later recomposition.
+            LaunchedEffect(mail?.draftEdit) {
+                mail?.draftEdit?.let { draft ->
+                    composing = GridlinkComposeRequest(draft = draft)
+                    onEditDraft(null)
+                }
+            }
 
             // Back from any other tab returns to the Inbox before it leaves the app. Registered
             // FIRST on purpose: back callbacks fire most-recently-added first, so being composed
@@ -1429,15 +1524,44 @@ fun GridlinkRoot(
                         // do differently, because a folder list and a thread genuinely could nest, and
                         // that is exactly what "paint order is the stack" cannot survive. The folder stays
                         // open behind it, so Folders is where you left it when you come back.
+                        //
+                        // 🔴 Except in Drafts, where a tap RESUMES rather than reads. A draft opened
+                        // as a thread would be a read-only page of your own unfinished sentence with
+                        // Reply buttons on it, and — worse than useless — opening it live would mark
+                        // your own draft read. Live drafts round-trip through [onEditDraft] because
+                        // the body has to be fetched; the sample opens directly on what the row has.
                         onOpenMessage = { message ->
-                            destination = GridlinkDestination.INBOX
-                            openId = message.id
-                            filedOpenId = null
-                            // The same call the inbox rows make, and just as required here: the row
-                            // carries headers only, so without it the thread opens to a blank page
-                            // and the message stays unread on the server.
-                            onOpenMail(message.id)
-                            if (!twoPane) scope.launch { progress.snapTo(1f) }
+                            if (current.folder.role == GridlinkFolderRole.DRAFTS) {
+                                if (folders == null) {
+                                    composing = GridlinkComposeRequest(
+                                        draft = GridlinkComposeDraft(
+                                            title = "Draft",
+                                            recipients = emptyList(),
+                                            recipientQuery = "",
+                                            subject = message.subject,
+                                            // Fixture bodies are HTML by construction and the
+                                            // composer is a plain-text field, so flatten.
+                                            body = HtmlCompat.fromHtml(
+                                                message.body,
+                                                HtmlCompat.FROM_HTML_MODE_COMPACT,
+                                            ).toString().trim(),
+                                            quoted = null,
+                                            attachments = emptyList(),
+                                        ),
+                                    )
+                                } else {
+                                    onEditDraft(message.id)
+                                }
+                            } else {
+                                destination = GridlinkDestination.INBOX
+                                openId = message.id
+                                filedOpenId = null
+                                // The same call the inbox rows make, and just as required here: the
+                                // row carries headers only, so without it the thread opens to a
+                                // blank page and the message stays unread on the server.
+                                onOpenMail(message.id)
+                                if (!twoPane) scope.launch { progress.snapTo(1f) }
+                            }
                         },
                         embedded = embedded,
                     )
@@ -1836,13 +1960,44 @@ fun GridlinkRoot(
                     }
                 }
 
+                // The Scheduled overlay: a full-screen list in BOTH layouts, unlike the details. It
+                // is not a tab's detail, it is the drawer's own destination, and splitting it into a
+                // pane would give it a "beside" relationship with a list it has nothing to do with.
+                // Composed after the forms so its BackHandler outranks theirs is never the question:
+                // formOpen gates them all, and only one of these can be open at once in practice.
+                if (scheduledOpen) {
+                    GridlinkScheduledScreen(
+                        scheduled = scheduled,
+                        onCancel = onCancelScheduled,
+                        onClose = { scheduledOpen = false },
+                    )
+                }
+
                 composing?.let { request ->
                     GridlinkComposeScreen(
-                        // Closing is the user abandoning the attempt, so the refusal goes with it. It
-                        // is about a send, not about the draft, and a reopened composer showing why a
-                        // previous send failed would be reporting history.
-                        onClose = { composing = null; sendError = null },
+                        // Closing keeps the draft — that is [GridlinkSender.keep]'s contract — and
+                        // drops the refusal either way. The refusal was about one send attempt, and
+                        // a reopened composer showing why a previous send failed would be reporting
+                        // history. A close that hands back null changed nothing worth saving.
+                        onClose = { outcome ->
+                            composing = null
+                            sendError = null
+                            if (outcome != null) {
+                                scope.launch {
+                                    runCatching { sender.keep(outcome) }.onFailure { failure ->
+                                        // The draft did NOT reach the server, so the silent save
+                                        // must not be silent: reopen with the text still there and
+                                        // the reason on it, rather than letting "closed" stand in
+                                        // for "kept".
+                                        composing = outcome
+                                        sendError = failure.message
+                                            ?: "Couldn't save that draft."
+                                    }
+                                }
+                            }
+                        },
                         onSend = ::sendWithUndo,
+                        onSchedule = ::scheduleSend,
                         draft = request.draft,
                         initialFocus = request.focus,
                         initiallyScheduling = request.scheduling,
