@@ -363,5 +363,33 @@ internal object GridlinkSampleBodies {
         "draft-no-subject" to (
             "<p>call me when you get a minute</p>"
             ),
+
+        // -------------------------------------------------------------------------------------
+        // Sent, for [GridlinkSample.sentMessages]
+        //
+        // The mirror image of the drafts above: these are finished, so they end on a sentence.
+        // They exist so Sent can be photographed at all. Every other folder in the sample is a
+        // view over mail that arrived, and a screenshot of the real Sent folder would publish
+        // Tate's actual correspondents.
+        // -------------------------------------------------------------------------------------
+        "sent-dalton-meter" to (
+            "<p>Attaching the meter photo for 2043 HILLCREST taken this morning, reading 41,208.</p>" +
+                "<p>The July bill has us at roughly twice the June usage on the same trading " +
+                "days, so before I pay it I would like the read verified against the meter.</p>" +
+                "<p>Account 8841-2207-9.</p>"
+            ),
+        "sent-kbaxter-schedule" to (
+            "<p>Kim,</p>" +
+                "<p>Approved for period 8 as written. The only change is Saturday: put the second " +
+                "opener on at 6 rather than 7, the drive thru is backing up before the biscuit " +
+                "case is full.</p>" +
+                "<p>Thanks for turning it round quickly.</p>"
+            ),
+        "sent-tally-recap" to (
+            "<p>Weekly recap for all five stores is attached.</p>" +
+                "<p>604 and Kirkwood are both ahead of plan. Hillcrest is the one to watch: labour " +
+                "is fine but waste is up for the third week and it is all on the fried side.</p>" +
+                "<p>I am at Hillcrest Thursday and will send a note after.</p>"
+            ),
     )
 }

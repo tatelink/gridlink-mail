@@ -29,10 +29,10 @@ package app.gridlink.ui.gridlink
  * one tap apart. [unreadIn] is what [GridlinkSampleTree.mailboxes] fills its counts from, so the
  * badge cannot disagree with what is behind it.
  *
- * ⚠️ The visible cost is that Drafts and Junk carry no badge. Junk has nothing in it, and Drafts has
- * four rows that are not unread: a draft is mail you wrote, so there is no such thing as an unread
- * one, and the drawer's "4 unsent" is counting a different noun on a different surface. A number
- * that cannot be backed by rows is not worth keeping.
+ * ⚠️ The visible cost is that Drafts, Sent and Junk carry no badge. Junk has nothing in it, and the
+ * other two have rows that are not unread: mail you wrote is never unread mail, and the drawer's
+ * "4 unsent" is counting a different noun on a different surface. A number that cannot be backed by
+ * rows is not worth keeping.
  */
 object GridlinkSampleFolders {
 
@@ -112,6 +112,9 @@ object GridlinkSampleFolders {
             // sent is not mail that arrived, so its rows exist nowhere else. See
             // [GridlinkSample.draftMessages] for why they are held apart rather than filtered out.
             "drafts" -> GridlinkSample.draftMessages
+            // Same reasoning as Drafts, one step later: mail you sent is not mail that arrived, so
+            // it cannot be a view over the inbox pool either. See [GridlinkSample.sentMessages].
+            "sent" -> GridlinkSample.sentMessages
             else -> {
                 val ids = contents[folderId] ?: return emptyList()
                 GridlinkSample.messages.filter { it.id in ids }

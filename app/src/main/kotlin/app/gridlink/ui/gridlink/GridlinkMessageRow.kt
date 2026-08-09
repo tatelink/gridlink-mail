@@ -141,11 +141,21 @@ fun GridlinkMessageRow(
             // which made sense when the tick was buried on the far side of the row; with a circle
             // now sitting immediately to its left, an accent bar just smears the accent into one
             // blob and costs the sender colour for nothing.
+            //
+            // 🔴 On an outgoing row it follows the RECIPIENT's domain, not the sender's. The bar and
+            // line 1 are one identity between them, and leaving the bar on the sender would paint a
+            // whole Sent list in a single colour (your own domain, on every row) beside a column of
+            // names that all differ. The colour has to name the same party the text does.
             Box(
                 modifier = Modifier
                     .width(GridlinkDimens.senderBarWidth)
                     .fillMaxHeight()
-                    .background(gridlinkSenderBarColor(mode, message.domain)),
+                    .background(
+                        gridlinkSenderBarColor(
+                            mode,
+                            message.sentTo?.domain?.takeIf { it.isNotBlank() } ?: message.domain,
+                        ),
+                    ),
             )
             Column(
                 modifier = Modifier
@@ -170,7 +180,10 @@ fun GridlinkMessageRow(
                         // Both lines drop to secondary and lose their weight, which turns the list
                         // into two clearly separated tiers you can sort at a glance without reading
                         // a word. This is a colour-token step, not an alpha fade of the same colour.
-                        text = message.sender,
+                        //
+                        // In Sent and Drafts this is "To <name>" instead. See
+                        // [GridlinkMessage.sentTo]: the sender there is you, on every row.
+                        text = message.sentTo?.line ?: message.sender,
                         style = GridlinkType.senderName.copy(
                             fontWeight = if (message.unread) FontWeight.Bold else FontWeight.Normal,
                         ),
