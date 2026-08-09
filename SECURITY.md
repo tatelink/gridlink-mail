@@ -129,6 +129,14 @@ Out of scope:
   key held in the **Android KeyStore** (non-exportable); only IV + ciphertext are stored.
   Each blob is bound to its account via GCM **AAD** so it cannot be relocated between
   slots, and the key is deleted on a full account reset.
+- **OAuth refreshes are single-flight per account, and repeated failures back off.** Providers
+  that rotate the refresh token retire the old one the instant a new one is issued, so two
+  concurrent refreshes spend the same token and the loser is left holding one the server has
+  already killed, permanently signing the account out. The JMAP path and the IMAP/SMTP path
+  reach a token independently, so that race is reachable in normal use; a process-wide lock per
+  account serialises them and the second caller takes the first one's result. A run of failures
+  (which is what a revoked token looks like) then earns a growing cooldown, so a dead account
+  cannot turn into an unbounded loop against the provider's token endpoint.
 - **Backups are disabled** (`allowBackup="false"`), with backup/data-extraction rules as a
   backstop that exclude the credential store, the Room cache, and settings from cloud
   backup and device transfer.
