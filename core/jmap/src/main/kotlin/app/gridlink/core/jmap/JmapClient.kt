@@ -1727,9 +1727,12 @@ class JmapClient internal constructor(
         }
     }
 
-    /** Save a plain-text draft in the Drafts mailbox (no submission).
+    /** Save a draft in the Drafts mailbox (no submission).
      *  [attachments] are uploaded blobs referenced by the draft, so re-saving an edited draft
      *  keeps the files it carried instead of shedding them (#63).
+     *  [htmlBody] adds a text/html alternative, mirroring [sendEmail]: a draft saved without it
+     *  loses whatever formatting it had the moment it is reopened, because the marks are read back
+     *  out of that part and nowhere else.
      *  Returns the created draft's server id, so an edit can later replace it (#63). */
     suspend fun saveDraft(
         session: JmapSession,
@@ -1745,6 +1748,7 @@ class JmapClient internal constructor(
         inReplyTo: List<String> = emptyList(),
         references: List<String> = emptyList(),
         attachments: List<EmailBodyPart> = emptyList(),
+        htmlBody: String? = null,
     ): String? {
         val args = emailSet(session, auth) {
             put("accountId", accountId)
@@ -1767,8 +1771,14 @@ class JmapClient internal constructor(
                     putJsonArray("textBody") {
                         addJsonObject { put("partId", "body"); put("type", "text/plain") }
                     }
+                    if (htmlBody != null) {
+                        putJsonArray("htmlBody") {
+                            addJsonObject { put("partId", "htmlbody"); put("type", "text/html") }
+                        }
+                    }
                     putJsonObject("bodyValues") {
                         putJsonObject("body") { put("value", textBody) }
+                        if (htmlBody != null) putJsonObject("htmlbody") { put("value", htmlBody) }
                     }
                 }
             }

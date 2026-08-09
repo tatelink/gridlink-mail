@@ -36,6 +36,7 @@ import app.gridlink.ui.gridlink.GridlinkScheduledSend
 import app.gridlink.ui.gridlink.GridlinkSearchContent
 import app.gridlink.ui.gridlink.GridlinkUnsubscribe
 import app.gridlink.ui.gridlink.gridlinkTypedRecipient
+import app.gridlink.ui.gridlink.parseFormattedHtml
 import app.gridlink.ui.gridlink.gridlinkUnsubscribeOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -783,6 +784,14 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 return@launch
             }
             val email = body.email
+            // The marks, read back out of the app's own HTML part. [parseFormattedHtml] accepts
+            // only the shape this app writes and answers null for anything else — a draft from
+            // another client, a signature block, mail HTML in general — and null is not a failure:
+            // it falls through to the plain text, which is exactly what happened before formatting
+            // existed. Better to reopen a draft plain than to reopen a mangled guess at it.
+            val formatted = email.htmlContent()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { parseFormattedHtml(it) }
             draftEdit.value = GridlinkComposeDraft(
                 title = "Draft",
                 recipients = email.to.filter { it.email.isNotBlank() }.map { address ->
@@ -800,12 +809,13 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 },
                 recipientQuery = "",
                 subject = email.subject.orEmpty(),
-                body = draftText(email),
+                body = formatted?.text ?: draftText(email),
                 quoted = null,
                 attachments = emptyList(),
                 // What turns the eventual save into a replace and the eventual send into one that
                 // retires the server copy. Without it, every resume would fork the draft.
                 draftEmailId = emailId,
+                bodySpans = formatted?.spans.orEmpty(),
             )
         }
     }

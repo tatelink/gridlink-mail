@@ -112,7 +112,16 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Save drafts (JMAP, or IMAP APPEND to Drafts); closing compose with unsaved edits prompts to save the draft, discard, or keep editing (intercepts the Close button and system back)
 - ✅ Attachments: pick & send, view/download/open incoming (JMAP blobs / IMAP multipart MIME + BODY-section fetch)
 - ✅ Inline images (`cid:`) rendered in the body (downloaded as data URIs)
-- 💡 Rich-text editor plus plain-text mode
+- ✅ Formatting in compose — bold, italic, bulleted and numbered lists, and links, from a small
+  toolbar that appears above the keyboard while the body has focus. Lists are real `• ` / `1. `
+  prefixes so a plain-text reader sees them, and the return key continues (or ends) a list.
+  Marks serialise to the HTML alternative that already ships beside every message, so nothing
+  new goes on the wire. **Plain text stays the default**: an untouched body renders byte-identical
+  to what the plain escaper always produced (pinned by test), and a "plain text" button strips
+  every mark and marker back out. Links accept what people type (`e.com`, `jeff@e.com`) and refuse
+  any scheme other than `http(s):`/`mailto:` rather than prefixing it. Formatting survives a saved
+  draft (read back out of the draft's own HTML part). Not included: headings, colours, alignment,
+  inline images
 - ✅ Undo send (hold-back window) — held in an app-scoped outbox; ✅ full Outbox — a
   Room-backed send queue that survives app death and auto-retries with exponential
   backoff when the network returns; every send path (compose, reply/forward, RSVP,

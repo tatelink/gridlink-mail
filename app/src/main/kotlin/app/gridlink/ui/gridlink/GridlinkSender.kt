@@ -123,11 +123,15 @@ class GridlinkOutboxSender(
         // apart, and an account removed in between must fail loudly here rather than send as whoever
         // happens to be current now.
         val credentials = accounts.load() ?: error("No account to send from.")
+        val formatted = draft.formattedBody()
         val id = repository.enqueueSend(
             credentials = credentials,
             to = draft.recipients.map { it.email },
             subject = draft.subject,
-            body = draft.body,
+            body = formattedPlain(formatted),
+            // See [GridlinkComposeDraft.formattedBody]: the HTML goes out on every send, formatted
+            // or not, because it is also what protects a plain message from format=flowed reflow.
+            htmlBody = formattedHtml(formatted),
             // 🔴 The hold is the ring. If these two ever disagree the bar is lying in one direction
             // or the other: a shorter hold sends while the ring still offers to stop it, a longer
             // one leaves the message recallable after the offer is gone.
@@ -158,11 +162,16 @@ class GridlinkOutboxSender(
             draft.draftEmailId?.let { repository.discardDraft(credentials, it) }
             return
         }
+        val formatted = draft.formattedBody()
         repository.saveDraft(
             credentials = credentials,
             to = draft.recipients.map { it.email },
             subject = draft.subject,
-            body = draft.body,
+            body = formattedPlain(formatted),
+            // 🔴 The marks live in this part and nowhere else, and reopening the draft reads them
+            // back out of it with [parseFormattedHtml]. Without it a draft closed with a bolded
+            // word reopens plain, and the user's next act is to send it.
+            htmlBody = formattedHtml(formatted),
             // Editing a saved draft replaces it in place rather than piling up a copy per close.
             replacesEmailId = draft.draftEmailId,
         )
@@ -179,8 +188,8 @@ class GridlinkOutboxSender(
                 accountId = credentials.id,
                 recipients = draft.recipients.joinToString(",") { it.email },
                 subject = draft.subject,
-                textBody = draft.body,
-                htmlBody = null,
+                textBody = formattedPlain(draft.formattedBody()),
+                htmlBody = formattedHtml(draft.formattedBody()),
                 fromName = null,
                 fromEmail = null,
                 inReplyTo = null,
