@@ -62,3 +62,58 @@ object DownloadLimits {
         }
     }
 }
+
+/**
+ * The ceiling on a file the user picks to SEND, which [DownloadLimits] never covered.
+ *
+ * 🔴 Its own object rather than another constant in [DownloadLimits], because it is not a download
+ * and the two are enforced in opposite directions: a download is bounded by what a server hands us,
+ * this is bounded by what a file picker hands us. Sharing [ContentTooLargeException] is deliberate,
+ * though: to the reader it is the same sentence either way.
+ *
+ * ⚠️ An outgoing file is the more expensive of the two despite the smaller number. It is read whole
+ * into a ByteArray, written to a cache file, read back to build the MIME entity, then base64'd at
+ * about 4/3 its own weight, and with PGP on it is signed or encrypted in memory as well. The inbound
+ * 50 MB ceiling buys one copy; this one is paid for several times over.
+ */
+object OutgoingLimits {
+
+    /**
+     * A picked attachment: 25 MB.
+     *
+     * Chosen against what will actually be delivered rather than against what the phone can hold.
+     * 25 MB is the practical ceiling most mail servers enforce on a message, so a larger file is
+     * one the recipient's server would bounce after the upload had already been paid for. Refusing
+     * at the picker says so in the one moment the user can still do something about it.
+     */
+    const val ATTACHMENT_MAX_BYTES = 25L * 1024 * 1024
+
+    /**
+     * Read at most [maxBytes] from [stream], throwing [ContentTooLargeException] the moment it is
+     * exceeded rather than after buffering the rest.
+     *
+     * 🔴 This is the check that actually holds. A content provider's declared SIZE is a hint: it is
+     * absent for many providers, and a hostile or simply wrong one can under-report. Enforcing only
+     * on the declared size means the one file crafted to lie is the one file that gets to allocate
+     * without limit, which is the whole failure mode being closed here.
+     */
+    fun readAtMost(stream: java.io.InputStream, maxBytes: Long): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(64 * 1024)
+        var total = 0L
+        while (true) {
+            val read = stream.read(buffer)
+            if (read < 0) break
+            total += read
+            if (total > maxBytes) {
+                throw ContentTooLargeException(
+                    "File exceeds the $maxBytes limit.",
+                    bytes = -1,
+                    maxBytes = maxBytes,
+                )
+            }
+            out.write(buffer, 0, read)
+        }
+        return out.toByteArray()
+    }
+}

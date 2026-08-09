@@ -102,6 +102,15 @@ Out of scope:
 
 - IMAP literals are **size-capped** so a hostile `{N}` cannot trigger an out-of-memory
   allocation; oversized literals are drained and discarded.
+- **Every path that pulls bytes into memory has a ceiling**, in both directions. Inbound
+  (`DownloadLimits`): a JMAP download is refused from the size the message announces, before
+  the round-trip is spent, and the cap is applied ahead of the protocol branch so IMAP is held
+  to it too. The ceilings differ by consent — an inline image is fetched the moment a message
+  is opened and gets 10 MB, an attachment the user tapped gets 50 MB, a calendar invite 2 MB.
+  Outbound (`OutgoingLimits`): a file picked to send is capped at 25 MB, checked first against
+  the size the content provider declares and then again while reading, because that declared
+  size is a hint a provider may omit or under-report, and an unbounded read of a picked URI is
+  the app agreeing to allocate whatever it is handed.
 - MIME parsing is **depth- and part-count-bounded** to prevent stack overflow / quadratic
   blow-up from deeply nested or part-flooded multipart messages.
 - Decoded header display values are stripped of **control characters and Unicode bidi
@@ -169,6 +178,20 @@ Out of scope:
   be mutable and targets a non-exported receiver explicitly).
 - The `FileProvider` shares only `cacheDir/attachments/`, with sanitized filenames and
   read-only, single-URI grants.
+
+### Dependencies
+
+- Gridlink bundles no Google Play Services, no Firebase, and no analytics or crash-reporting
+  SDK; the dependency list is Android/Compose, OkHttp, kotlinx, Room and the OpenPGP API.
+- **Vulnerable dependencies are watched, not scanned in the build.** CI submits the resolved
+  dependency graph to GitHub (`gradle/actions/dependency-submission`), which is what makes
+  Dependabot's advisory matching see transitive dependencies rather than guessing from build
+  files; `.github/dependabot.yml` then raises security and version-update PRs. Scanning
+  server-side rather than adding a dependency-check step keeps the vulnerability database
+  current without adding minutes to every push.
+- The honest limit of that: it is **GitHub-only**. The self-hosted Forgejo mirror runs the
+  same build and tests but has no equivalent, so a vulnerable dependency is caught wherever
+  this tree is pushed to GitHub and nowhere else.
 
 ## Coordinated disclosure
 

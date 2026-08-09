@@ -67,8 +67,15 @@ jobs:
           yes | "$SDK" --licenses > /dev/null 2>&1 || true
           "$SDK" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
+      # Both modules, matching .github/workflows/ci.yml. The :app tests were written and never run
+      # by either runner; adding them to one file only would leave the two workflows disagreeing
+      # about what "tests pass" means.
+      #
+      # ⚠️ No dependency-graph counterpart here. That job is `uses:`-based and this runner cannot
+      # run actions at all (see the note above), and Forgejo has nowhere to submit one anyway. The
+      # vulnerability half of CI is GitHub-only.
       - name: Unit tests
-        run: ./gradlew :core:jmap:test --no-daemon --stacktrace
+        run: ./gradlew :core:jmap:test :app:testDebugUnitTest --no-daemon --stacktrace
 
       - name: Assemble debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace

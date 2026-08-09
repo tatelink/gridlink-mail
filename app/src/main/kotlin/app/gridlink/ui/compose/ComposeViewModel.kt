@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.text.format.Formatter
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -28,6 +29,9 @@ import app.gridlink.core.imap.PgpMime
 import app.gridlink.send.Outbox
 import app.gridlink.send.ScheduledSends
 import app.gridlink.send.SendOutbox
+import app.gridlink.core.jmap.ContentTooLargeException
+import app.gridlink.core.jmap.DownloadLimits
+import app.gridlink.core.jmap.OutgoingLimits
 import app.gridlink.core.jmap.model.Email
 import app.gridlink.core.jmap.model.EmailBodyPart
 import app.gridlink.net.hasUsableNetwork
@@ -510,7 +514,15 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    /** Upload a picked document and add it to the outgoing attachments. */
+    /**
+     * Upload a picked document and add it to the outgoing attachments.
+     *
+     * 🔴 Size-capped at [OutgoingLimits.ATTACHMENT_MAX_BYTES], in two places on purpose. The
+     * provider's declared SIZE is checked first, so a 2 GB video is refused without reading a byte
+     * of it; the read itself is then capped as well, because that declared size is a hint a provider
+     * may omit or get wrong, and an unbounded `readBytes()` on a picked URI is the app agreeing to
+     * allocate whatever it is handed.
+     */
     fun attach(uri: Uri) {
         val app = getApplication<Application>()
         viewModelScope.launch {
@@ -519,10 +531,27 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 val credentials = credentials() ?: error(getApplication<Application>().getString(R.string.status_no_saved_account))
                 val resolver = app.contentResolver
                 val type = resolver.getType(uri)
-                val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
-                    ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+                val columns = arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)
+                val meta = resolver.query(uri, columns, null, null, null)?.use { c ->
+                    if (c.moveToFirst()) {
+                        // Both columns are documented as nullable, and a provider that returns a
+                        // row while leaving SIZE null is common enough (Downloads, some cloud
+                        // providers) that reading it unguarded would crash on an ordinary file.
+                        val display = if (c.isNull(0)) null else c.getString(0)
+                        val declared = if (c.isNull(1)) -1L else c.getLong(1)
+                        display to declared
+                    } else {
+                        null
+                    }
+                }
+                val name = meta?.first
+                // Refuse before the read when the provider was willing to say. -1 means it wasn't,
+                // and that file goes on to be capped while it is read instead.
+                DownloadLimits.enforce(meta?.second ?: -1L, OutgoingLimits.ATTACHMENT_MAX_BYTES)
                 val bytes = withContext(Dispatchers.IO) {
-                    resolver.openInputStream(uri)?.use { it.readBytes() }
+                    resolver.openInputStream(uri)?.use {
+                        OutgoingLimits.readAtMost(it, OutgoingLimits.ATTACHMENT_MAX_BYTES)
+                    }
                 } ?: error(getApplication<Application>().getString(R.string.status_read_file_failed))
                 val part = stageOutgoing(credentials, bytes, type, name, disposition = "attachment", cid = null)
                 _attachments.value = _attachments.value + part
@@ -536,10 +565,16 @@ class ComposeViewModel(application: Application) : AndroidViewModel(application)
                 // "Unable to resolve host …" told the reader nothing they could act on. Say what
                 // happened in a sentence instead — but only when connectivity confirms it (see
                 // isOfflineFailure); every other failure keeps its technical message.
-                _attachmentStatus.value = if (isOfflineFailure(t, online = hasUsableNetwork(app))) {
-                    app.getString(R.string.status_attach_offline)
-                } else {
-                    app.getString(R.string.status_attach_failed, t.message ?: "error")
+                _attachmentStatus.value = when {
+                    // "File exceeds the 26214400 limit." is a sentence for a log, not for someone
+                    // holding a phone. Say the ceiling in the units they picked the file in.
+                    t is ContentTooLargeException -> app.getString(
+                        R.string.status_attach_too_large,
+                        Formatter.formatShortFileSize(app, OutgoingLimits.ATTACHMENT_MAX_BYTES),
+                    )
+                    isOfflineFailure(t, online = hasUsableNetwork(app)) ->
+                        app.getString(R.string.status_attach_offline)
+                    else -> app.getString(R.string.status_attach_failed, t.message ?: "error")
                 }
             }
         }
