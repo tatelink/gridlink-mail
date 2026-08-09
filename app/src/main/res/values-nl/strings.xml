@@ -770,4 +770,25 @@
     <string name="settings_about_source">Broncode</string>
     <string name="settings_about_license">Licentie</string>
     <string name="settings_about_author">Auteur</string>
+
+    <!-- Home-screen widgets -->
+    <string name="widget_inbox_title">Postvak IN</string>
+    <string name="widget_inbox_label">Gridlink Mail</string>
+    <string name="widget_unread_label">Gridlink ongelezen</string>
+    <string name="widget_inbox_description">Recente post, en de directe weg ernaartoe.</string>
+    <string name="widget_unread_description">Hoeveel ongelezen post er wacht.</string>
+    <string name="widget_compose">Bericht schrijven</string>
+    <string name="widget_refresh">Vernieuwen</string>
+    <string name="widget_unread_marker">Ongelezen</string>
+    <string name="widget_has_attachment">Heeft een bijlage</string>
+    <string name="widget_no_subject">(Geen onderwerp)</string>
+    <string name="widget_unknown_sender">(Onbekende afzender)</string>
+    <string name="widget_count_unknown">—</string>
+    <string name="widget_unread_suffix">ongelezen</string>
+    <string name="widget_label_signed_out">Aanmelden</string>
+    <string name="widget_label_not_synced">Nog niet gesynchroniseerd</string>
+    <string name="widget_empty_signed_out">Meld je aan om je post hier te zien.</string>
+    <string name="widget_empty_not_synced">Open Gridlink Mail één keer om dit te vullen.</string>
+    <string name="widget_empty_inbox">Niets in afwachting.</string>
+    <string name="widget_time_now">nu</string>
 </resources>

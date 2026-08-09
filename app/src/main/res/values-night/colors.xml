@@ -11,4 +11,24 @@
          the case that had to be got right, being a saturated blue behind what used to be a
          near-white field. -->
     <color name="gridlink_splash_background">#050A14</color>
+
+    <!-- ==== Home-screen widgets, dark ====
+         GridlinkNightColors, and NOT an inversion of the light set. Night's identity is a deep
+         near-black field with a blue accent, so the card loses the gradient's cyan end rather
+         than gaining a pale one, and the row surface goes from "white over blue" to "lighter
+         over near-black". Its text is white, so the row colours flip roles completely: reusing
+         the light values darker would put #0A0F1A body text on a #141E31 row. -->
+    <color name="widget_card_start">#0D1524</color>
+    <color name="widget_card_end">#050A14</color>
+    <color name="widget_on_card">#FFFFFFFF</color>
+    <!-- GridlinkNightColors.textSecondary. -->
+    <color name="widget_on_card_dim">#8CA0BC</color>
+    <!-- GridlinkNightColors.surfaceRaised, opaque: a translucent row over a near-black card is
+         indistinguishable from the card. -->
+    <color name="widget_row_fill">#FF141E31</color>
+    <color name="widget_row_text">#FFFFFFFF</color>
+    <color name="widget_row_text_secondary">#8CA0BC</color>
+    <!-- GridlinkNightColors.accent. -->
+    <color name="widget_accent">#3B82F6</color>
+    <color name="widget_pill_fill">#3B3B82F6</color>
 </resources>

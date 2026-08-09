@@ -11,6 +11,27 @@ import app.gridlink.core.data.getOrElseUnlessCancelled
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * The home-screen widget's query, hoisted out of the annotation so a test can hold it against the
+ * real snooze predicate.
+ *
+ * 🔴 The `NOT EXISTS` clause below is `notSnoozedSql("emails")` written out longhand, and it has to
+ * be: a Room `@Query` takes a compile-time constant, so it cannot call a function. That is a
+ * duplicated definition of "snoozed", and duplicated definitions drift — so `EmailDaoWidgetSqlTest`
+ * fails the build the moment this stops matching the one in `MailRepository`. What is at stake is
+ * not tidiness: a message the user snoozed out of their inbox reappearing on the home screen is
+ * snoozing not working, on the most visible surface the app has.
+ *
+ * A `const val` and not a plain `val`, because only a compile-time constant satisfies the
+ * annotation.
+ */
+internal const val WIDGET_RECENT_SQL =
+    "SELECT * FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId " +
+        "AND NOT EXISTS (SELECT 1 FROM snoozed WHERE snoozed.emailId = emails.id " +
+        "AND snoozed.accountId = emails.accountId AND snoozed.until > " +
+        "(CAST(strftime('%s','now') AS INTEGER) * 1000)) " +
+        "ORDER BY sortKey DESC LIMIT :limit"
+
 @Dao
 interface EmailDao {
 
@@ -251,6 +272,21 @@ interface EmailDao {
     /** Cached message count for one account's mailbox (end-of-pagination check). */
     @Query("SELECT COUNT(*) FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId")
     suspend fun countForMailbox(accountId: String, mailboxId: String): Int
+
+    /**
+     * Newest [limit] cached rows of a mailbox, for the home-screen widget.
+     *
+     * Flat and uncollapsed on purpose: a widget row is a message, not a thread, and collapsing
+     * would make a five-row widget show two conversations. The list is short and read straight
+     * from the cache, so this never touches the network — a widget draws while the phone is
+     * offline or the app has never been opened this boot.
+     *
+     * 🔴 The snooze predicate is [notSnoozedSql]`("emails")` written out longhand — see
+     * [WIDGET_RECENT_SQL] for why it cannot simply call it, and for the test that pins the two
+     * together.
+     */
+    @Query(WIDGET_RECENT_SQL)
+    suspend fun recentForWidget(accountId: String, mailboxId: String, limit: Int): List<EmailEntity>
 
     /**
      * Oldest cached row that is its thread's newest within the mailbox (anchor for the next

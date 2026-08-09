@@ -794,4 +794,30 @@
     <string name="settings_about_source">Source code</string>
     <string name="settings_about_license">License</string>
     <string name="settings_about_author">Author</string>
+
+    <!-- Home-screen widgets -->
+    <string name="widget_inbox_title">Inbox</string>
+    <string name="widget_inbox_label">Gridlink Mail</string>
+    <string name="widget_unread_label">Gridlink unread</string>
+    <string name="widget_inbox_description">Recent mail, and a way straight into it.</string>
+    <string name="widget_unread_description">How much unread mail is waiting.</string>
+    <string name="widget_compose">Write a message</string>
+    <string name="widget_refresh">Refresh</string>
+    <string name="widget_unread_marker">Unread</string>
+    <string name="widget_has_attachment">Has an attachment</string>
+    <string name="widget_no_subject">(No subject)</string>
+    <string name="widget_unknown_sender">(Unknown sender)</string>
+    <!-- Shown where the unread count goes when nothing has synced yet. Not "0": a widget that
+         confidently prints zero on a mailbox it has never read is wrong in the one place the
+         user trusts without opening anything. -->
+    <string name="widget_count_unknown">—</string>
+    <string name="widget_unread_suffix">unread</string>
+    <!-- The small widget's label is one short line under a big number, so it gets its own terse
+         wording rather than the list widget's full sentences. -->
+    <string name="widget_label_signed_out">Sign in</string>
+    <string name="widget_label_not_synced">Not synced yet</string>
+    <string name="widget_empty_signed_out">Sign in to see your mail here.</string>
+    <string name="widget_empty_not_synced">Open Gridlink Mail once to fill this in.</string>
+    <string name="widget_empty_inbox">Nothing waiting.</string>
+    <string name="widget_time_now">now</string>
 </resources>

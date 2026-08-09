@@ -771,4 +771,25 @@
     <string name="settings_about_source">Code source</string>
     <string name="settings_about_license">Licence</string>
     <string name="settings_about_author">Auteur</string>
+
+    <!-- Home-screen widgets -->
+    <string name="widget_inbox_title">Boîte de réception</string>
+    <string name="widget_inbox_label">Gridlink Mail</string>
+    <string name="widget_unread_label">Gridlink non lus</string>
+    <string name="widget_inbox_description">Le courrier récent, et un accès direct à celui-ci.</string>
+    <string name="widget_unread_description">Combien de courrier non lu vous attend.</string>
+    <string name="widget_compose">Écrire un message</string>
+    <string name="widget_refresh">Actualiser</string>
+    <string name="widget_unread_marker">Non lu</string>
+    <string name="widget_has_attachment">Contient une pièce jointe</string>
+    <string name="widget_no_subject">(Sans objet)</string>
+    <string name="widget_unknown_sender">(Expéditeur inconnu)</string>
+    <string name="widget_count_unknown">—</string>
+    <string name="widget_unread_suffix">non lus</string>
+    <string name="widget_label_signed_out">Se connecter</string>
+    <string name="widget_label_not_synced">Pas encore synchronisé</string>
+    <string name="widget_empty_signed_out">Connectez-vous pour voir votre courrier ici.</string>
+    <string name="widget_empty_not_synced">Ouvrez Gridlink Mail une fois pour remplir ceci.</string>
+    <string name="widget_empty_inbox">Rien en attente.</string>
+    <string name="widget_time_now">maintenant</string>
 </resources>

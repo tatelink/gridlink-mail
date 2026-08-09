@@ -774,4 +774,25 @@
     <string name="settings_about_source">Исходный код</string>
     <string name="settings_about_license">Лицензия</string>
     <string name="settings_about_author">Автор</string>
+
+    <!-- Home-screen widgets -->
+    <string name="widget_inbox_title">Входящие</string>
+    <string name="widget_inbox_label">Gridlink Mail</string>
+    <string name="widget_unread_label">Gridlink: непрочитанные</string>
+    <string name="widget_inbox_description">Свежая почта и прямой путь к ней.</string>
+    <string name="widget_unread_description">Сколько непрочитанной почты ждёт.</string>
+    <string name="widget_compose">Написать письмо</string>
+    <string name="widget_refresh">Обновить</string>
+    <string name="widget_unread_marker">Непрочитано</string>
+    <string name="widget_has_attachment">Есть вложение</string>
+    <string name="widget_no_subject">(Без темы)</string>
+    <string name="widget_unknown_sender">(Отправитель неизвестен)</string>
+    <string name="widget_count_unknown">—</string>
+    <string name="widget_unread_suffix">непрочитанных</string>
+    <string name="widget_label_signed_out">Войти</string>
+    <string name="widget_label_not_synced">Ещё не синхронизировано</string>
+    <string name="widget_empty_signed_out">Войдите, чтобы видеть здесь свою почту.</string>
+    <string name="widget_empty_not_synced">Откройте Gridlink Mail один раз, чтобы это заполнить.</string>
+    <string name="widget_empty_inbox">Ничего не ждёт.</string>
+    <string name="widget_time_now">сейчас</string>
 </resources>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The widget's own field. GridlinkDayColors.gradient (#4DD5F0 → #2F6FE0), which is what the
+     app paints behind every screen, so a Gridlink widget reads as Gridlink on a wallpaper it
+     shares with a dozen other tiles.
+
+     ⚠️ Follows the SYSTEM light/dark setting while the app's palette follows the CLOCK
+     (GridlinkTokens.gridlinkModeForHour). Same knowingly-imperfect trade as
+     gridlink_splash_background in values/colors.xml, and for the same reason: no resource
+     qualifier can read the hour, and a widget cannot host a Compose theme. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient
+        android:angle="315"
+        android:startColor="@color/widget_card_start"
+        android:endColor="@color/widget_card_end"
+        android:type="linear" />
+    <corners android:radius="20dp" />
+</shape>

@@ -21,4 +21,25 @@
          two cases that actually happen — light theme during Day hours, dark theme at night —
          and briefly wrong for a dark-themed phone at noon. -->
     <color name="gridlink_splash_background">#2F6FE0</color>
+
+    <!-- ==== Home-screen widgets ====
+         RemoteViews cannot host a Compose theme, so the widget's palette is spelled out in
+         resources. Every value below is lifted from GridlinkDayColors so the widget and the app
+         are the same product; see drawable/widget_card.xml for why these follow the SYSTEM dark
+         setting while the app's own palette follows the clock. -->
+    <!-- GridlinkDayColors.gradient, start and end. -->
+    <color name="widget_card_start">#4DD5F0</color>
+    <color name="widget_card_end">#2F6FE0</color>
+    <!-- Text drawn straight on the card: header, counter, icon tints. -->
+    <color name="widget_on_card">#FFFFFFFF</color>
+    <color name="widget_on_card_dim">#B3FFFFFF</color>
+    <!-- GridlinkDayColors.listSurface: 55% white, the minimum that carries near-black body text
+         over this gradient. -->
+    <color name="widget_row_fill">#8CFFFFFF</color>
+    <!-- GridlinkDayColors.textPrimary / textSecondary. -->
+    <color name="widget_row_text">#0A0F1A</color>
+    <color name="widget_row_text_secondary">#3A4A5F</color>
+    <!-- GridlinkDayColors.accent, for the unread dot and the counter badge. -->
+    <color name="widget_accent">#1B7FE8</color>
+    <color name="widget_pill_fill">#33FFFFFF</color>
 </resources>

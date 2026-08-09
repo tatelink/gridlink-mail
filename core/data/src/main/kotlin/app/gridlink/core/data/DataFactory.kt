@@ -9,6 +9,7 @@ import app.gridlink.core.data.mail.MailboxUidValidityStore
 import app.gridlink.core.data.mail.MailRepository
 import app.gridlink.core.data.mail.OAuthTokenRefresher
 import app.gridlink.core.data.mail.SyncStateStore
+import app.gridlink.core.data.mail.WidgetInboxReader
 import app.gridlink.core.data.pgp.PgpEngine
 import app.gridlink.core.data.settings.SettingsRepository
 import app.gridlink.core.data.storage.StorageRepository
@@ -25,6 +26,16 @@ object DataFactory {
         val mailRepository: MailRepository,
         val storageRepository: StorageRepository,
         val davRepository: DavRepository,
+        /**
+         * The home-screen widget's read-only view of the cache.
+         *
+         * Handed out here rather than letting `:app` build its own: `GridlinkDatabase.build` mints
+         * a NEW Room instance per call, so a widget that opened its own would run a second
+         * connection — with its own invalidation tracker and its own `fallbackToDestructiveMigration`
+         * — against the same file as the app's. One database instance per process, and this is how
+         * the widget gets a seat at it.
+         */
+        val widgetInboxReader: WidgetInboxReader,
     )
 
     fun create(
@@ -73,6 +84,9 @@ object DataFactory {
                 // The shared JMAP client, for contact writes on servers that speak RFC 9610. A
                 // write is one small request, so mail's connection pool is the right one for it.
                 jmap = client,
+            ),
+            widgetInboxReader = WidgetInboxReader(
+                database.emailDao(), database.mailboxDao(), accountStore,
             ),
         )
     }

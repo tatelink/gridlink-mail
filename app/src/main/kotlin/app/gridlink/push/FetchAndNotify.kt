@@ -5,6 +5,7 @@ import android.content.Context
 import app.gridlink.container
 import app.gridlink.core.data.account.AccountCredentials
 import app.gridlink.core.data.account.MailProtocol
+import app.gridlink.widget.GridlinkWidgets
 import kotlinx.coroutines.flow.first
 
 /**
@@ -86,6 +87,13 @@ object FetchAndNotify {
                 NewMailNotifier.notifyDiff(context, credentials, folder.mailboxId, folderName, folder.emails + returned)
             }
         }
+        // The cache has just changed, so anything drawing from it is now stale. This is the one
+        // funnel every background write goes through — push, the fallback poll, the widget's own
+        // refresh button — which is why the poke lives here rather than at each call site.
+        // Unconditional: a pass that found no new mail can still have marked things read or seen a
+        // folder renamed, and a widget showing yesterday's unread count is the failure people
+        // actually notice. Cheap to a no-op when no widget is placed (GridlinkWidgets.refresh).
+        GridlinkWidgets.refresh(context)
     }
 
     /**
