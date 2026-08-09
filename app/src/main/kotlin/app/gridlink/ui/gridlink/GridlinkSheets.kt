@@ -24,9 +24,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -290,6 +292,19 @@ fun GridlinkModal(
     // bottom=0). A sheet that trusted it would sit its last action under the gesture bar. This line
     // still runs in the host activity's composition, where the same insets are real.
     val bars = WindowInsets.systemBars.asPaddingValues()
+    // 🔴 And the keyboard, for the same reason and read from the same place, but applied ONLY to the
+    // modal's own frame below — not handed to [content], which already lays itself out against
+    // [bars] and would shift by the keyboard's whole height if this went in there too.
+    //
+    // Without it a centred dialog is centred in the display while the keyboard covers the bottom
+    // half of it, and its Cancel/confirm row is drawn underneath the keys. Found on the link dialog,
+    // which is the first one in the app that opens with the keyboard already up and stays there
+    // while you type. Every other dialog with a text field has had it latent since it was written:
+    // the rename dialogs are shorter, so their buttons happened to clear the keys.
+    //
+    // union takes the larger of each side rather than the sum, so the gesture bar's inset does not
+    // get added on top of a keyboard that already covers it.
+    val insets = WindowInsets.systemBars.union(WindowInsets.ime).asPaddingValues()
     // False on the first frame so there is something to animate from. Flipped in a LaunchedEffect
     // rather than seeded true, because a state that is already at its target does not animate.
     var shown by remember { mutableStateOf(false) }
@@ -398,7 +413,7 @@ fun GridlinkModal(
                     indication = null,
                     onClick = dismiss,
                 )
-                .padding(bars)
+                .padding(insets)
                 .padding(GridlinkSpacing.chrome),
             contentAlignment = alignment,
         ) {

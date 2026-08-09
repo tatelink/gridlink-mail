@@ -203,6 +203,18 @@ fun GridlinkComposeScreen(
         mutableStateOf(draft.body.let { TextFieldValue(it, TextRange(it.length)) })
     }
 
+    // The body's marks, beside the body's text rather than inside it. See [GridlinkFormatting.kt]
+    // for why they are not a rich-text field: the text stays a String, and a message written by
+    // someone who never opens the toolbar is byte-for-byte the message this composer sent before
+    // the toolbar existed.
+    var bodySpans by remember(draft) { mutableStateOf(draft.bodySpans) }
+
+    // What the toolbar was told to do to characters that do not exist yet. A bold tap with nothing
+    // selected cannot mark anything; it is a promise about the next keystroke, kept by
+    // [applyPendingMarks] and abandoned the moment the caret moves somewhere else.
+    var pendingMarks by remember(draft) { mutableStateOf(emptyMap<GridlinkMark, Boolean>()) }
+    var linking by remember(draft) { mutableStateOf(false) }
+
     val toFocus = remember { FocusRequester() }
     val subjectFocus = remember { FocusRequester() }
     val bodyFocus = remember { FocusRequester() }
@@ -242,7 +254,19 @@ fun GridlinkComposeScreen(
     // that belonged to a window being torn down cancels this coroutine before it ever arms.
     val imeVisible = WindowInsets.isImeVisible
     var imeWasUp by remember(draft) { mutableStateOf(false) }
-    LaunchedEffect(imeVisible) {
+    //
+    // 🔴 Disarmed entirely while the link dialog is up. That dialog is its own window with its own
+    // text field, so opening it takes the IME off this window, and this watcher read that as the
+    // user putting the keyboard away and cleared the caret out of the message — the exact selection
+    // the link was about to be applied to. The symptom was subtler than that sounds: the link still
+    // landed (the spans are state, not focus), but the composer came back with no caret, no
+    // keyboard and no toolbar, so adding a link cost a tap on the body to carry on typing. Re-armed
+    // from scratch on close, which is why [imeWasUp] is cleared here rather than left standing.
+    LaunchedEffect(imeVisible, linking) {
+        if (linking) {
+            imeWasUp = false
+            return@LaunchedEffect
+        }
         if (imeVisible) {
             delay(IME_SETTLE_MS)
             imeWasUp = true
@@ -252,6 +276,132 @@ fun GridlinkComposeScreen(
             // does: the caret has to leave the field, not just the label describing where it was.
             focusManager.clearFocus()
         }
+    }
+
+    /** The body as the formatting core sees it: one value, so text and marks cannot drift apart. */
+    fun bodyValue(): GridlinkBody = GridlinkBody(body.text, bodySpans)
+
+    /** Take an edit that moved text, marks and caret together, and forget any pending marks. */
+    fun applyBodyEdit(edit: GridlinkBodyEdit) {
+        bodySpans = edit.body.spans
+        body = TextFieldValue(
+            edit.body.text,
+            TextRange(edit.selectionStart, edit.selectionEnd),
+        )
+        pendingMarks = emptyMap()
+    }
+
+    /**
+     * Every keystroke in the body, with the marks dragged along.
+     *
+     * Three cases, in the order they are checked. A pure caret move keeps the text and drops any
+     * pending marks, because a mark armed at one caret has nothing to do with another. A lone
+     * newline typed at the end of a list line is the return key, and [continueList] answers it with
+     * the next bullet or with the way out of the list. Everything else is an ordinary edit:
+     * [remapSpans] drags the marks across it and [applyPendingMarks] paints whatever the toolbar
+     * was holding onto the characters that just arrived.
+     */
+    fun editBody(next: TextFieldValue) {
+        val before = body.text
+        val after = next.text
+        if (before == after) {
+            if (next.selection != body.selection) pendingMarks = emptyMap()
+            body = next
+            return
+        }
+        val caret = next.selection.start
+        val newlineAt = caret - 1
+        val typedReturn = next.selection.collapsed &&
+            after.length == before.length + 1 &&
+            newlineAt >= 0 &&
+            after[newlineAt] == '\n' &&
+            after.removeRange(newlineAt, newlineAt + 1) == before
+        val continued = if (typedReturn) continueList(bodyValue(), newlineAt) else null
+        if (continued != null) {
+            applyBodyEdit(continued)
+            return
+        }
+        var spans = remapSpans(bodySpans, before, after)
+        // Pending marks apply to a plain insertion at the caret and nothing else. A paste over a
+        // selection, or a deletion, is not the keystroke the toolbar was armed for.
+        val inserted = after.length - before.length
+        if (next.selection.collapsed && inserted > 0 && caret - inserted >= 0) {
+            spans = applyPendingMarks(spans, pendingMarks, caret - inserted, caret, after.length)
+        }
+        pendingMarks = emptyMap()
+        bodySpans = spans
+        body = next
+    }
+
+    /**
+     * Bold or italic from the toolbar. With a selection it marks it; with a bare caret it arms
+     * [pendingMarks] instead, starting from what the caret would already inherit so the button
+     * reads as a switch rather than as a one-way door.
+     */
+    fun toggleBodyMark(mark: GridlinkMark) {
+        val selection = body.selection
+        if (selection.collapsed) {
+            val now = pendingMarks[mark] ?: hasMark(bodySpans, selection.start, selection.end, mark)
+            pendingMarks = pendingMarks + (mark to !now)
+        } else {
+            bodySpans = toggleMark(bodyValue(), selection.min, selection.max, mark).spans
+        }
+    }
+
+    /**
+     * The link dialog's answer. Four outcomes, and the last one is the useful one on a phone: with
+     * nothing selected and no link under the caret, the address is inserted as its own linked text,
+     * so pasting a URL into a message is one gesture rather than type-then-select-then-link.
+     */
+    fun applyLink(href: String) {
+        linking = false
+        val selection = body.selection
+        val existing = if (selection.collapsed) linkAt(bodySpans, selection.start) else null
+        when {
+            href.isEmpty() -> {
+                val gone = existing ?: return
+                bodySpans = normalizeSpans(
+                    clearMark(bodySpans, gone.start, gone.end, GridlinkMark.LINK),
+                    body.text.length,
+                )
+            }
+            !selection.collapsed -> {
+                bodySpans = toggleMark(
+                    bodyValue(),
+                    selection.min,
+                    selection.max,
+                    GridlinkMark.LINK,
+                    href,
+                ).spans
+            }
+            existing != null -> {
+                bodySpans = addMark(
+                    bodySpans,
+                    existing.start,
+                    existing.end,
+                    GridlinkMark.LINK,
+                    href,
+                    body.text.length,
+                )
+            }
+            else -> {
+                val at = selection.start
+                // A separator when the caret is hard up against a word, because the address was
+                // asked for as its own thing and gluing it to the previous word produces
+                // "callhttps://e.com" — one unreadable token that no linkifier downstream will
+                // split either. Not padded on the trailing side: the next thing typed is usually
+                // punctuation, and a space before a full stop is its own small wrong.
+                val gap = if (at > 0 && !body.text[at - 1].isWhitespace()) " " else ""
+                val insert = gap + href
+                val text = body.text.substring(0, at) + insert + body.text.substring(at)
+                val moved = remapSpans(bodySpans, body.text, text)
+                val start = at + gap.length
+                val end = start + href.length
+                bodySpans = addMark(moved, start, end, GridlinkMark.LINK, href, text.length)
+                body = TextFieldValue(text, TextRange(end))
+            }
+        }
+        pendingMarks = emptyMap()
     }
 
     /** Turn whatever is half-typed in TO into a recipient, if it is an address. Returns true if so. */
@@ -290,6 +440,7 @@ fun GridlinkComposeScreen(
                 subject = subject.text,
                 body = body.text,
                 attachments = attachments,
+                bodySpans = bodySpans,
             ),
             focus = focused,
         )
@@ -309,6 +460,9 @@ fun GridlinkComposeScreen(
             query.text == draft.recipientQuery &&
             subject.text == draft.subject &&
             body.text == draft.body &&
+            // Bolding a word and nothing else is an edit. Leaving it out here would let a draft
+            // opened, formatted and closed report "untouched" and lose the formatting silently.
+            bodySpans == draft.bodySpans &&
             attachments == draft.attachments
         if (untouched) return null
         val request = sendRequest()
@@ -555,7 +709,11 @@ fun GridlinkComposeScreen(
 
                     GridlinkFormTextRow(
                         value = body,
-                        onValueChange = { body = it },
+                        onValueChange = ::editBody,
+                        // Bold, italic and links are painted over the text the field already holds.
+                        // Nothing is added or removed, which is what makes the identity offset
+                        // mapping inside [GridlinkBodyMarks] safe.
+                        visualTransformation = GridlinkBodyMarks(bodySpans, colors.accent),
                         // Sentence case, unlike the two fields above it. Those labels name a slot in
                         // a form; this one is an invitation to write, and shouting it is wrong.
                         placeholder = "Message",
@@ -612,6 +770,44 @@ fun GridlinkComposeScreen(
                 ) {
                     GridlinkAttachButton(onClick = { /* picker is server work */ })
                 }
+                // The formatting toolbar takes the band the attach and send buttons vacate when the
+                // keyboard comes up, and only while the caret is in the body: there is nothing to
+                // bold in a subject line, and a toolbar offered over TO would be six controls that
+                // do nothing.
+                AnimatedVisibility(
+                    visible = focused == GridlinkComposeField.BODY,
+                    enter = fadeIn(GridlinkMotion.toolbarMorph()),
+                    exit = fadeOut(GridlinkMotion.toolbarMorph()),
+                ) {
+                    val selection = body.selection
+                    GridlinkFormatToolbar(
+                        // What the button reports is what the next keystroke would do, which is why
+                        // a pending mark wins over the text's own: having just tapped bold at an
+                        // empty caret, the user is looking at the button to confirm it took.
+                        bold = pendingMarks[GridlinkMark.BOLD]
+                            ?: hasMark(bodySpans, selection.min, selection.max, GridlinkMark.BOLD),
+                        italic = pendingMarks[GridlinkMark.ITALIC]
+                            ?: hasMark(bodySpans, selection.min, selection.max, GridlinkMark.ITALIC),
+                        bulleted = hasList(bodyValue(), selection.min, selection.max, ordered = false),
+                        numbered = hasList(bodyValue(), selection.min, selection.max, ordered = true),
+                        linked = linkAt(bodySpans, selection.start) != null,
+                        canClear = !bodyValue().isPlain,
+                        onBold = { toggleBodyMark(GridlinkMark.BOLD) },
+                        onItalic = { toggleBodyMark(GridlinkMark.ITALIC) },
+                        onBulleted = {
+                            applyBodyEdit(
+                                toggleList(bodyValue(), selection.min, selection.max, ordered = false),
+                            )
+                        },
+                        onNumbered = {
+                            applyBodyEdit(
+                                toggleList(bodyValue(), selection.min, selection.max, ordered = true),
+                            )
+                        },
+                        onLink = { linking = true },
+                        onClear = { applyBodyEdit(stripFormatting(bodyValue(), selection.start)) },
+                    )
+                }
                 Spacer(Modifier.weight(1f))
                 AnimatedVisibility(
                     visible = !keyboardUp,
@@ -628,6 +824,57 @@ fun GridlinkComposeScreen(
                 }
             }
         }
+    }
+
+    if (linking) {
+        GridlinkLinkDialog(
+            // Seeded from the link under the caret when there is one, which is what turns the same
+            // button into edit and remove. A selection is a new link even if it overlaps an old one.
+            initialHref = body.selection
+                .takeIf { it.collapsed }
+                ?.let { linkAt(bodySpans, it.start) }
+                ?.href
+                .orEmpty(),
+            onConfirm = ::applyLink,
+            onDismiss = { linking = false },
+        )
+    }
+
+    // 🔴 Put the caret back in the message when the link dialog goes away, whichever way it went.
+    // The dialog is its own window and takes focus with it, so without this the composer comes back
+    // with nothing focused: the keyboard drops, the toolbar folds away, and the very next thing
+    // anyone does after adding a link — keep typing — costs an extra tap on the body first.
+    //
+    // 🔴 Gated on the dialog having actually been open, NOT just on `linking` being false. Keyed
+    // alone it would also fire on the composer's first composition, where `linking` starts false,
+    // and quietly overrule [initialFocus] — every fresh compose would open with the caret in the
+    // message instead of TO.
+    //
+    // 🔴 And asked repeatedly, not once. The dialog is its own window and it is still being taken
+    // down on the frame `linking` flips: a focus request made underneath it is dropped, and an IME
+    // show made underneath it comes back `onCancelled at PHASE_CLIENT_REPORT_REQUESTED_VISIBLE_TYPES`
+    // in logcat, immediately followed by the dying window's own hide. Measured on the emulator the
+    // teardown finishes two to three frames after the flip, so a single frame's wait restores
+    // nothing and looks exactly like the bug it was meant to fix. Ask once a frame until the
+    // composer reports the caret landed, then show the keyboard once there is a served view to show
+    // it against. Bounded, so a link added from some future caller that focuses something else does
+    // not leave this spinning for the life of the screen.
+    var linkDialogWasOpen by remember(draft) { mutableStateOf(false) }
+    LaunchedEffect(linking) {
+        if (linking) {
+            linkDialogWasOpen = true
+            return@LaunchedEffect
+        }
+        if (!linkDialogWasOpen) return@LaunchedEffect
+        linkDialogWasOpen = false
+        var asked = 0
+        while (focused != GridlinkComposeField.BODY && asked < GRIDLINK_REFOCUS_FRAMES) {
+            withFrameNanos { }
+            bodyFocus.requestFocus()
+            asked++
+        }
+        withFrameNanos { }
+        keyboard?.show()
     }
 
     if (scheduling) {
@@ -748,7 +995,24 @@ data class GridlinkComposeDraft(
      * owns the mailbox.
      */
     val draftEmailId: String? = null,
+    /**
+     * The body's formatting, as character ranges over [body]. Empty is the ordinary case and the
+     * default: a draft with no spans and no list markers sends exactly the bytes it always did.
+     *
+     * 🔴 Last in the parameter list rather than next to [body], where it belongs conceptually.
+     * Everything before [draftEmailId] is positional for some caller somewhere, and a new parameter
+     * in the middle of that list is a silent argument shift rather than a compile error.
+     */
+    val bodySpans: List<GridlinkSpan> = emptyList(),
 ) {
+    /**
+     * [body] and [bodySpans] as the single value the formatting core takes, so that every write path
+     * — send, schedule, save — renders the same two parts from the same place. A draft that went out
+     * as plain text and came back from Drafts with its bold missing would be this method being
+     * called in one of the three and not the others.
+     */
+    fun formattedBody(): GridlinkBody = GridlinkBody(body, bodySpans)
+
     companion object {
         /**
          * §1c. What the compose button opens: an empty message.
@@ -816,6 +1080,16 @@ private const val SUGGESTION_LIMIT = 3
  * orders of magnitude longer. Nothing waits on this value, so it costs nothing to be generous.
  */
 private const val IME_SETTLE_MS = 400L
+
+/**
+ * How many frames the composer will spend trying to take the caret back from a closing dialog.
+ *
+ * Eight is about 130ms at 60Hz, four times the two-to-three frames the window teardown was measured
+ * at, and it is a ceiling rather than a wait: the loop stops the frame focus lands, which on every
+ * run so far was the second or third. It exists only so a future caller that legitimately focuses
+ * something else on close cannot leave the loop asking forever.
+ */
+private const val GRIDLINK_REFOCUS_FRAMES = 8
 
 /**
  * Who the typed prefix could mean.

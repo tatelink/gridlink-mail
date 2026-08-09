@@ -4410,6 +4410,16 @@ class MailRepository(
         // identity it will be sent as instead of falling back to the login's address (issue #31).
         fromName: String? = null,
         fromEmail: String? = null,
+        /**
+         * A text/html alternative to store beside [body], for a composer that has formatting to
+         * keep. Null means text only, which is what every caller did before and still may.
+         *
+         * 🔴 A draft is the only place the app's own formatting survives being closed: there is
+         * nowhere in the mail model to put a span table, so the marks are written into this part
+         * and read back out of it. Dropping it here does not lose a stylistic nicety, it silently
+         * un-formats a message the user is going to send.
+         */
+        htmlBody: String? = null,
     ): DraftSaveOutcome {
         val ccTrimmed = cc.map { it.trim() }.filter { it.isNotEmpty() }
         val bccTrimmed = bcc.map { it.trim() }.filter { it.isNotEmpty() }
@@ -4421,6 +4431,7 @@ class MailRepository(
                 credentials, drafts,
                 outgoing(
                     credentials, recipients, subject, body, inReplyTo, references,
+                    html = htmlBody,
                     fromName = fromName, fromEmail = fromEmail, cc = ccTrimmed, bcc = bccTrimmed,
                 ).copy(attachments = parts),
             )
@@ -4465,6 +4476,7 @@ class MailRepository(
             inReplyTo = inReplyTo,
             references = references,
             attachments = blobs,
+            htmlBody = htmlBody,
         )
         // Optimistically cache the just-saved draft so the Drafts list (a Room-backed
         // PagingSource) reflects it at once instead of waiting for a pull-to-refresh (#63).
