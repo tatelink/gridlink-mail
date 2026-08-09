@@ -16,6 +16,17 @@ import kotlinx.coroutines.flow.map
 /** How the app picks light vs dark colours. */
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
+/**
+ * Which of the Gridlink screens' three palettes is pinned, or [AUTO] to follow the day.
+ *
+ * Deliberately a data-layer enum of its own rather than the UI's `GridlinkMode?`, for the same
+ * reason [ThemeMode] has SYSTEM instead of a nullable: "follow the clock" is a choice the user
+ * made and a value worth storing, not the absence of one. The UI maps AUTO to a null override at
+ * the boundary. Persisted BY NAME, so an unknown value from a newer build reads back as AUTO
+ * rather than throwing.
+ */
+enum class GridlinkPalette { AUTO, DAY, NIGHT, OLED }
+
 /** Vertical density of message-list rows. */
 enum class ListDensity { COMPACT, NORMAL, SPACED }
 
@@ -68,6 +79,23 @@ class SettingsRepository(context: Context) {
 
     suspend fun setThemeMode(mode: ThemeMode) {
         dataStore.edit { it[KEY_THEME_MODE] = mode.name }
+    }
+
+    /**
+     * The Gridlink screens' palette pill (`Auto · Day · Night · OLED`).
+     *
+     * Separate from [themeMode], which is upstream's light/dark switch for the settings and
+     * account screens. The two are not the same control and must not be collapsed into one: the
+     * Gridlink ladder has a third rung (OLED) that light/dark cannot express, and the settings
+     * screens have no aurora to put it on.
+     */
+    val gridlinkPalette: Flow<GridlinkPalette> = dataStore.data.map { prefs ->
+        prefs[KEY_GRIDLINK_PALETTE]?.let { runCatching { GridlinkPalette.valueOf(it) }.getOrNull() }
+            ?: GridlinkPalette.AUTO
+    }
+
+    suspend fun setGridlinkPalette(palette: GridlinkPalette) {
+        dataStore.edit { it[KEY_GRIDLINK_PALETTE] = palette.name }
     }
 
     /** Use Material You (wallpaper-derived) colours instead of Gridlink's brand palette. Off by default. */
@@ -376,6 +404,7 @@ class SettingsRepository(context: Context) {
         }
 
         private val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
+        private val KEY_GRIDLINK_PALETTE = stringPreferencesKey("gridlink_palette")
         private val KEY_DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         private val KEY_LIST_DENSITY = stringPreferencesKey("list_density")
         private val KEY_PREVIEW_LINES = stringPreferencesKey("preview_lines")

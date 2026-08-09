@@ -18,6 +18,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.appcompat.app.AppCompatActivity
+import app.gridlink.core.data.settings.GridlinkPalette
 import app.gridlink.core.data.settings.ListDensity
 import app.gridlink.core.data.settings.PreviewLines
 import app.gridlink.core.data.settings.ThemeMode
@@ -111,6 +112,10 @@ class MainActivity : AppCompatActivity() {
             val dynamicColor by settings.dynamicColor.collectAsState(initial = false)
             val density by settings.listDensity.collectAsState(initial = ListDensity.NORMAL)
             val previewLines by settings.previewLines.collectAsState(initial = PreviewLines.ONE)
+            // ⚠️ Only the intro overlay reads this. The Gridlink screens underneath collect it
+            // again for themselves, and have to, because they cannot start on a default and correct
+            // themselves later the way an animation can. See [rememberGridlinkIntroMode].
+            val gridlinkPalette by settings.gridlinkPalette.collectAsState(initial = GridlinkPalette.AUTO)
             AppTheme(themeMode = themeMode, dynamicColor = dynamicColor) {
                 CompositionLocalProvider(
                     LocalListDensity provides density,
@@ -143,7 +148,7 @@ class MainActivity : AppCompatActivity() {
                             // Gridlink's palette, which the nav host provides for itself further
                             // down but nothing provides up here. See [rememberGridlinkIntroMode] for
                             // why resolving it a second time is safe and what would break it.
-                            ProvideGridlinkTokens(mode = rememberGridlinkIntroMode()) {
+                            ProvideGridlinkTokens(mode = rememberGridlinkIntroMode(gridlinkPalette)) {
                                 GridlinkIntroOverlay(
                                     onFinished = { introPlaying = false },
                                     started = introReady.value,

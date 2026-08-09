@@ -58,13 +58,14 @@ enum class GridlinkMode {
 }
 
 /**
- * Default automatic ladder, by local hour.
+ * Fallback automatic ladder, by local hour.
  *
- * ⚠️ These cutoffs are a placeholder: the brief says the ladder runs "Day, then Night at dusk,
- * then OLED late at night", and real dusk moves through the year. Wire this to actual sunset when
- * the settings screen lands; until then the boundaries are fixed and documented here rather than
- * scattered through the UI. The manual override pill (`Auto · Day` / `Night` / `OLED`) always wins
- * over this function.
+ * 🔴 No longer what the app uses: [gridlinkModeAt] computes the same three rungs from that day's
+ * real dusk, because these cutoffs put Night an hour and a half after December sunset and half an
+ * hour before June sunset. This function survives as the answer for a day that has no sunrise or
+ * sunset at all (polar summer, polar winter), where a solar ladder has no rungs to offer.
+ *
+ * The manual override pill (`Auto · Day` / `Night` / `OLED`) always wins over either of them.
  */
 fun gridlinkModeForHour(hour: Int): GridlinkMode = when (hour) {
     in 6..19 -> GridlinkMode.DAY

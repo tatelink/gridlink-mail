@@ -33,12 +33,13 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
+import app.gridlink.core.data.settings.GridlinkPalette
 import app.gridlink.ui.theme.GridlinkMode
-import app.gridlink.ui.theme.gridlinkModeForHour
+import app.gridlink.ui.theme.gridlinkModeAt
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import java.time.LocalTime
+import java.time.ZonedDateTime
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -637,16 +638,21 @@ private const val GRIDLINK_INTRO_SKIP_FADE_MS = 110
  *
  * 🔴 This resolves the mode the same way `GridlinkChromeState` does when it is born, and the two
  * agreeing is load-bearing: the overlay sits above the whole nav host, so a disagreement means the
- * intro plays Night and then the app underneath paints Day, one frame after the fade completes. It
- * holds today only because the manual Auto/Day/Night/OLED override is in-memory, so at a cold start
- * there is never an override to miss and both sides fall through to the hour.
+ * intro plays Night and then the app underneath paints Day, one frame after the fade completes.
+ * Both sides now run [gridlinkModeAt] against the same clock and honour the same stored pin, which
+ * is what keeps them agreeing. That used to be a warning here that the day the override was
+ * persisted this would flash the wrong palette at everyone who pinned one; [palette] is that day
+ * arriving, and is why the parameter is not optional.
  *
- * ⚠️ The day that override is persisted, this must read it from wherever it is persisted, or the
- * intro will flash the wrong palette at everyone who pinned one. Nothing will fail; it will just be
- * wrong for the whole length of the intro, every launch.
+ * ⚠️ Keyed on [palette], so it re-resolves when the stored value lands. The caller collects with a
+ * default of [GridlinkPalette.AUTO] rather than holding the overlay back, unlike the app
+ * underneath: an intro is 1.5 seconds of animation the user may skip, and stalling the whole
+ * launch behind a disk read to be certain about it would cost more than the rare wrong first frame.
  */
 @Composable
-fun rememberGridlinkIntroMode(): GridlinkMode = remember { gridlinkModeForHour(LocalTime.now().hour) }
+fun rememberGridlinkIntroMode(palette: GridlinkPalette): GridlinkMode = remember(palette) {
+    palette.toModeOverride() ?: gridlinkModeAt(ZonedDateTime.now())
+}
 
 /**
  * The launch screen: the app's own backdrop, with the mark assembling itself on it, fading out onto
