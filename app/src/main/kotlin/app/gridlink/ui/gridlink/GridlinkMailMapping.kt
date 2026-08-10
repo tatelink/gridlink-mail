@@ -166,6 +166,11 @@ object GridlinkMailMapping {
             section = if (automated) GridlinkSection.AUTOMATED else section(email, zone, today),
             // Left empty on purpose: the body is not in the list cache. The thread fetches it.
             body = "",
+            // The one piece of body text a list fetch DOES return, and the only reason a search
+            // result can show what it matched without opening the message. Null on IMAP rows and
+            // on anything cached before the server sent one, which draws no preview line at all
+            // rather than an empty one.
+            preview = email.preview.orEmpty(),
             addressOverride = address.takeIf { it.isNotBlank() },
             sentTo = if (showRecipient) recipient(email) else null,
         )

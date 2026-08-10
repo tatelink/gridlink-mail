@@ -607,8 +607,12 @@ class JmapClient internal constructor(
                             put("path", "/ids")
                         }
                         putJsonArray("properties") {
-                            // Headers only — responses stay tiny so the crawl reaches even years-old
-                            // mail fast. Body search is served by the server's own full-text index.
+                            // Headers plus `preview` — responses stay tiny so the crawl reaches even
+                            // years-old mail fast. Whole bodies are never fetched here; a real body
+                            // search is served by the server's own full-text index. `preview` is the
+                            // exception because the server already computed it, it costs a couple of
+                            // hundred bytes a message, and it is the only body text the local index
+                            // can offer offline (see EmailFtsEntity, schema v22).
                             listOf(
                                 "id", "threadId", "subject", "preview", "receivedAt",
                                 "from", "hasAttachment", "keywords", "mailboxIds",

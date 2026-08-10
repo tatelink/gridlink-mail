@@ -29,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -97,6 +98,16 @@ private fun Dp.asGutter(): Dp = coerceAtLeast(0.dp)
  * If each row ran its own `animateDpAsState` off a Boolean they would be separate animations with
  * separate start times, and at spring settling times the list would visibly shear. The screen owns
  * ONE animation and passes its current value; nothing in the list may animate this independently.
+ *
+ * ## [highlight] is the search switch, and it is off everywhere else
+ * 🔴 Non-null, with a preview to show, is the ONE case where this row grows to
+ * [GridlinkDimens.searchRowHeight] and draws a third line. Passing a query here from an inbox list
+ * would spend a quarter of the visible rows (see the note at the top of this file) on every screen
+ * in the app, so exactly one call site does it: the search results in [GridlinkMessageListScreen].
+ *
+ * Null and blank mean the same thing on purpose. A search box that has been opened but not typed
+ * into would otherwise add the line, and then remove it again on the first keystroke that fails to
+ * match nothing, which is the list changing height while the user is reading it.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -108,9 +119,18 @@ fun GridlinkMessageRow(
     current: Boolean = false,
     gutter: Dp = 0.dp,
     onLongClick: (() -> Unit)? = null,
+    highlight: String? = null,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
+    val snippet = highlight?.takeIf { it.isNotBlank() && message.preview.isNotBlank() }
+    // Keyed on everything it reads, so scrolling a long result list does not re-run the fold and
+    // the scan on every row on every frame.
+    val snippetText = snippet?.let { query ->
+        remember(message.preview, query, colors.accent) {
+            GridlinkHighlight.annotate(message.preview, query, colors.accent)
+        }
+    }
     // Animated so entering and leaving a selection is a wash of colour across the rows rather than
     // a hard flicker, which at 64dp and this density reads as the list glitching.
     val fill by animateColorAsState(
@@ -121,7 +141,13 @@ fun GridlinkMessageRow(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(GridlinkDimens.messageRowHeight)
+            .height(
+                if (snippetText != null) {
+                    GridlinkDimens.searchRowHeight
+                } else {
+                    GridlinkDimens.messageRowHeight
+                },
+            )
             .background(fill)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
@@ -265,6 +291,23 @@ fun GridlinkMessageRow(
                                 .size(14.dp),
                         )
                     }
+                }
+                if (snippetText != null) {
+                    // Line 3, search only. Secondary colour at 13sp so it sits UNDER the subject in
+                    // the hierarchy: it is evidence for the row, not the row's own identity, and the
+                    // accent runs inside it are the part meant to catch the eye.
+                    //
+                    // 🔴 An AnnotatedString built from plain text by GridlinkHighlight. It is never
+                    // parsed as markup and must never be handed to the body renderer: this is
+                    // arbitrary text off arbitrary mail, drawn in a list.
+                    Text(
+                        text = snippetText,
+                        style = GridlinkType.metadata,
+                        color = colors.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
         }

@@ -545,6 +545,20 @@ object GridlinkDimens {
     /** 🔴 Dense by design: 64dp targets ~13 visible rows on a folded Fold screen. */
     val messageRowHeight = 64.dp
 
+    /**
+     * A SEARCH result row, which carries a third line: the matching part of the message.
+     *
+     * 🔴 Only ever used by search. [messageRowHeight]'s note prices a third line at about a quarter
+     * of the visible inbox, and that price is refused everywhere except here, where the third line
+     * IS the result: a list of senders and subjects cannot show you why any of them came back, so
+     * without it a search for a word in a body returns rows that look unrelated to what was typed.
+     *
+     * 84dp rather than 82 (64 + one 18sp line). The extra 2dp keeps the snippet off the hairline;
+     * it is a shorter line than the two above it and butting it against the divider reads as
+     * clipped.
+     */
+    val searchRowHeight = 84.dp
+
     /** Leading vertical bar carrying sender identity, coloured by sender domain. Replaces avatars. */
     val senderBarWidth = 3.dp
 
@@ -772,7 +786,13 @@ object GridlinkType {
         lineHeight = 18.sp,
     )
 
-    /** Snippet and secondary metadata. Note the brief OMITS snippets from list rows. */
+    /**
+     * Snippet and secondary metadata.
+     *
+     * The brief OMITS snippets from list rows and that still holds for the inbox. The one exception
+     * is a SEARCH result, where the snippet is the answer to the question being asked; see
+     * [GridlinkDimens.searchRowHeight].
+     */
     val metadata = TextStyle(
         fontFamily = GridlinkFontFamily,
         fontSize = 13.sp,

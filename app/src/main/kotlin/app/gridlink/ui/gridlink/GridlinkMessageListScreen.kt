@@ -1160,6 +1160,12 @@ fun GridlinkMessageListScreen(
  * A local filter, which is the thing the real path must never do — and honest here for exactly the
  * reason it is forbidden there: these fixtures are the entire mailbox, so filtering them really is
  * searching everything, and [GridlinkSearchContent.complete] stays true because it is true.
+ *
+ * 🔴 Matches [GridlinkMessage.preview], not [GridlinkMessage.body]. Body here is HTML, so searching
+ * it matched the MARKUP: "table", "div" and "br" returned half the mailbox and then highlighted
+ * nothing, because the preview line the highlighter reads is plain text and never contained the
+ * word. The live index has the same shape (it stores a preview and no body), so matching preview is
+ * both the honest sample and the one that agrees with what the row can show.
  */
 private fun gridlinkSampleSearch(
     query: String,
@@ -1170,7 +1176,7 @@ private fun gridlinkSampleSearch(
     results = (humans + robots).filter { message ->
         message.sender.contains(query, ignoreCase = true) ||
             message.subject.contains(query, ignoreCase = true) ||
-            message.body.contains(query, ignoreCase = true)
+            message.preview.contains(query, ignoreCase = true)
     },
 )
 
@@ -1251,6 +1257,12 @@ private fun GridlinkSearchResults(
                         },
                         current = message.id == currentId,
                         gutter = gutter,
+                        // 🔴 The ONLY call site that passes this. It turns on the row's third line,
+                        // which every other list refuses at the price named in GridlinkMessageRow's
+                        // header note. Here it is the point: the search reaches the opening of the
+                        // body, so a row can come back on a word that appears nowhere in its sender
+                        // or its subject, and without the line that row looks like a wrong answer.
+                        highlight = query,
                     )
                     GridlinkRowDivider(startInset = GridlinkSpacing.rowHorizontal + gutter)
                 }

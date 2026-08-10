@@ -45,6 +45,34 @@ internal object GridlinkSampleBodies {
             "GridlinkSampleBodies.bodies.",
     )
 
+    /**
+     * The opening of [bodyFor] as plain text, standing in for the server's `preview` field.
+     *
+     * ⚠️ A SAMPLE-ONLY approximation, and not a general HTML-to-text converter. Real mail never
+     * takes this path: JMAP returns a `preview` on every list fetch and the mapper passes it
+     * straight through. It exists so the gallery's search results show a real preview line instead
+     * of an empty one, and so the sample search matches the same text a live search would rather
+     * than raw markup (searching "table" used to match a `<table>` tag).
+     *
+     * The tag strip is safe here because the input is the fixed markup in this file, and the OUTPUT
+     * is only ever drawn as plain text: `GridlinkHighlight` builds an `AnnotatedString` from it and
+     * nothing renders it as HTML.
+     */
+    fun previewFor(id: String): String = bodyFor(id)
+        .replace(Regex("<[^>]*>"), " ")
+        .replace("&nbsp;", " ")
+        .replace("&middot;", "·")
+        .replace("&#8226;", "•")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+        .take(PREVIEW_LENGTH)
+
+    /** Matches the 256 characters JMAP servers return, so the sample cannot be longer than life. */
+    private const val PREVIEW_LENGTH = 256
+
     private val bodies: Map<String, String> = mapOf(
         // -------------------------------------------------------------------------------------
         // The brief's ten

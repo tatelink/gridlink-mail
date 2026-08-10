@@ -446,3 +446,78 @@ val MIGRATION_20_21 = object : Migration(20, 21) {
         db.execSQL(MAILBOXES_ADD_MAY_DELETE_SQL)
     }
 }
+
+/**
+ * The v22 `CREATE VIRTUAL TABLE`: [EMAIL_FTS_CREATE_SQL] with `notindexed=preview` gone, so the
+ * tokenizer indexes the one column on this table that has ever held body text.
+ *
+ * 🔴 A SEPARATE constant rather than an edit to [EMAIL_FTS_CREATE_SQL], which is not a description
+ * of the current table: it is the exact statement the 14→15 rebuild has to emit, frozen at the shape
+ * v15 shipped with, and `EmailsMigrationSqlTest` seeds a v15 database from it. Editing it in place
+ * would quietly rewrite history and make that test assert against a schema no released build ever
+ * had. Both statements are correct, for different versions, and both are needed.
+ *
+ * ⚠️ Column order, backticks and clause order are copied from Room's own `createAllTables` output,
+ * for [EMAIL_FTS_CREATE_SQL]'s reason: any drift throws "Migration didn't properly handle email_fts"
+ * at startup, on every device, after the upgrade rather than during the build.
+ */
+const val EMAIL_FTS_CREATE_SQL_V22: String =
+    "CREATE VIRTUAL TABLE IF NOT EXISTS `email_fts` USING FTS4(" +
+        "`emailId` TEXT NOT NULL, `accountId` TEXT NOT NULL, `mailboxId` TEXT NOT NULL, " +
+        "`threadId` TEXT, `subject` TEXT NOT NULL, `sender` TEXT NOT NULL, `body` TEXT NOT NULL, " +
+        "`preview` TEXT, `receivedAt` TEXT, `fromName` TEXT, `fromEmail` TEXT, " +
+        "`seen` INTEGER NOT NULL, `flagged` INTEGER NOT NULL, `hasAttachment` INTEGER NOT NULL, " +
+        "`sortKey` INTEGER NOT NULL, tokenize=unicode61 `remove_diacritics=1`, " +
+        "notindexed=`emailId`, notindexed=`accountId`, notindexed=`mailboxId`, " +
+        "notindexed=`threadId`, notindexed=`receivedAt`, " +
+        "notindexed=`fromName`, notindexed=`fromEmail`, notindexed=`seen`, notindexed=`flagged`, " +
+        "notindexed=`hasAttachment`, notindexed=`sortKey`)"
+
+/**
+ * 21→22: rebuild `email_fts` with `preview` indexed, so a local search matches the opening of the
+ * body and not only the subject and the sender.
+ *
+ * Which column set is tokenized is baked into the table's CREATE statement, exactly like the
+ * tokenizer argument 14→15 had to change, so there is no ALTER for this either: drop and recreate.
+ * The same reasoning applies verbatim — the FTS4 shadow tables go with the drop, and the index is a
+ * disposable derivative of `emails` plus the background crawl, never user data. A destructive
+ * fallback would instead take the outbox (unsent mail) with it, which is why this exists at all.
+ *
+ * 🔴 Repopulated WITH the Trash/Junk/Spam exclusion, which 14→15 left out. That omission is the
+ * documented source of the mislabelled rows `EmailFtsDao.search`'s folder filter exists to catch
+ * (see its KDoc), and repeating it here would seed a fresh crop of them on every upgrade. The roles
+ * are spelled out as literals because a `Migration` runs on raw SQL with no bound parameters and
+ * cannot reach `NOT_SEARCHED_ROLES`; `SearchIndexMigrationRolesTest` is what keeps this list and
+ * that set from drifting apart, and it is the only thing that does.
+ *
+ * ⚠️ Crawled-only rows — mail older than the display cache's window, which only the background crawl
+ * ever indexed — are lost on the drop and re-indexed by that crawl's next run. Search is narrower
+ * than usual for as long as that takes, and the seed below is what keeps it from being EMPTY in the
+ * meantime.
+ */
+/**
+ * The folder roles [MIGRATION_21_22]'s re-seed skips, as a SQL `IN` list.
+ *
+ * 🔴 A named constant so a test can read the SAME string the migration executes. Inlined, the only
+ * way to check it would be a second hand-written copy in the test, which asserts that two copies
+ * agree with each other and not that either agrees with `NOT_SEARCHED_ROLES` — a test that passes
+ * while the bug it names is present.
+ */
+const val SEARCH_SEED_EXCLUDED_ROLES_SQL: String = "'trash', 'junk', 'spam'"
+
+val MIGRATION_21_22 = object : Migration(21, 22) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("DROP TABLE IF EXISTS `email_fts`")
+        db.execSQL(EMAIL_FTS_CREATE_SQL_V22)
+        db.execSQL(
+            "INSERT INTO email_fts(emailId, accountId, mailboxId, threadId, subject, sender, body, " +
+                "preview, receivedAt, fromName, fromEmail, seen, flagged, hasAttachment, sortKey) " +
+                "SELECT id, accountId, mailboxId, threadId, COALESCE(subject, ''), " +
+                "TRIM(COALESCE(fromName, '') || ' ' || COALESCE(fromEmail, '')), '', " +
+                "preview, receivedAt, fromName, fromEmail, seen, flagged, hasAttachment, sortKey " +
+                "FROM emails WHERE NOT EXISTS (SELECT 1 FROM mailboxes " +
+                "WHERE mailboxes.id = emails.mailboxId AND mailboxes.accountId = emails.accountId " +
+                "AND LOWER(TRIM(COALESCE(mailboxes.role, ''))) IN ($SEARCH_SEED_EXCLUDED_ROLES_SQL))",
+        )
+    }
+}
