@@ -83,6 +83,32 @@ interface UidValidityStore {
     /** What was last observed for this folder, or null if it was never observed. */
     suspend fun recorded(accountId: String, mailboxId: String): Long?
 
+    /**
+     * Every folder's last sync point for one account, keyed by mailbox id. An absent key means
+     * "nothing to compare against", which is what [None] always answers for every folder — so a
+     * service built without a database does the full re-read every time, exactly as it did before
+     * CONDSTORE existed here.
+     *
+     * Whole-account because the caller must have the answer in hand BEFORE it opens the session
+     * that will tell it which folder it is syncing.
+     */
+    suspend fun syncPoints(accountId: String): Map<String, ImapSyncPoint> = emptyMap()
+
+    /**
+     * Remember what a sync that SUCCEEDED saw, under the numbering it saw it (RFC 7162).
+     *
+     * Written after the work, never before: a watermark stored ahead of a fetch that then fails
+     * would make the next refresh skip the folder, and the mail it skipped would never arrive.
+     */
+    suspend fun recordSyncPoint(
+        accountId: String,
+        mailboxId: String,
+        uidValidity: Long,
+        highestModSeq: Long,
+        uidNext: Long,
+        messageCount: Int,
+    ) = Unit
+
     /** Remember [uidValidity] as this folder's numbering. */
     suspend fun record(accountId: String, mailboxId: String, uidValidity: Long)
 
@@ -140,6 +166,29 @@ class MailboxUidValidityStore(
 
     override suspend fun recorded(accountId: String, mailboxId: String): Long? =
         dao.recorded(accountId, mailboxId)
+
+    override suspend fun syncPoints(accountId: String): Map<String, ImapSyncPoint> =
+        dao.rowsForAccount(accountId).associate { row ->
+            row.mailboxId to ImapSyncPoint(row.uidValidity, row.highestModSeq, row.uidNext, row.messageCount)
+        }
+
+    /**
+     * 🔴 The UIDVALIDITY is passed on to the UPDATE's own `WHERE`, not checked here: a folder
+     * renumbered between the SELECT that produced these numbers and this write matches no row and
+     * writes nothing, leaving the cursor null and costing one full re-read. A check in Kotlin
+     * would be a second copy of the rule that could drift from the one that decides.
+     */
+    override suspend fun recordSyncPoint(
+        accountId: String,
+        mailboxId: String,
+        uidValidity: Long,
+        highestModSeq: Long,
+        uidNext: Long,
+        messageCount: Int,
+    ) {
+        if (uidValidity <= 0L || highestModSeq <= 0L) return // nothing worth comparing later
+        dao.recordSyncPoint(accountId, mailboxId, uidValidity, highestModSeq, uidNext, messageCount)
+    }
 
     override suspend fun record(accountId: String, mailboxId: String, uidValidity: Long) {
         if (uidValidity <= 0L) return // the server reported none: nothing to remember

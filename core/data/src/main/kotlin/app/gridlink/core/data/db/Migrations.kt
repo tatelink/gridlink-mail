@@ -521,3 +521,36 @@ val MIGRATION_21_22 = object : Migration(21, 22) {
         )
     }
 }
+
+/**
+ * Additive 22→23: the per-folder IMAP sync point, so a refresh can ask "did anything happen here?"
+ * and be told no (RFC 7162 CONDSTORE).
+ *
+ * Three nullable columns on `mailbox_uidvalidity`. Nullable is the whole design, not a convenience:
+ * NULL means "no sync point", and every path that reads one falls back to the full folder re-read
+ * the app did before this existed. So an upgraded install, a server without CONDSTORE and a folder
+ * that has just been renumbered all take the same safe branch without anyone having to special-case
+ * them. A non-null default would have been a fabricated watermark, and a fabricated watermark says
+ * "nothing changed" about a folder nobody has looked at yet.
+ *
+ * 🔴 The columns are added to THIS table, beside `uidValidity`, because they are meaningless
+ * without it: a renumbering resets the server's MODSEQ counter, so a MODSEQ compared across one can
+ * match by coincidence and skip a folder where every message is new. Kept in the same row, the
+ * REPLACE that records a new numbering clears them in the same statement, and
+ * `MailboxUidValidityDao.recordSyncPoint` refuses to write against a numbering that has moved.
+ *
+ * A migration rather than the destructive fallback, like every other one here: the fallback takes
+ * the outbox (unsent mail) with it.
+ */
+val MIGRATION_22_23 = object : Migration(22, 23) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MAILBOX_SYNC_POINT_SQL.forEach { db.execSQL(it) }
+    }
+}
+
+/** The three columns [MIGRATION_22_23] adds; shared with the JVM test so it replays the real ones. */
+val MAILBOX_SYNC_POINT_SQL: List<String> = listOf(
+    "ALTER TABLE `mailbox_uidvalidity` ADD COLUMN `highestModSeq` INTEGER",
+    "ALTER TABLE `mailbox_uidvalidity` ADD COLUMN `uidNext` INTEGER",
+    "ALTER TABLE `mailbox_uidvalidity` ADD COLUMN `messageCount` INTEGER",
+)

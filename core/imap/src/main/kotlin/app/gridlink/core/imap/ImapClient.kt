@@ -462,10 +462,26 @@ class ImapSession(private var socket: Socket) : Closeable {
      * wrong place. Same shape as the `BADCHARSET` retry in [searchUids], and free when the first
      * form works, which it does for every conformant name.
      */
-    fun select(path: String, expectedUidValidity: Long? = null): ImapMailboxStatus {
+    fun select(
+        path: String,
+        expectedUidValidity: Long? = null,
+        withModSeq: Boolean = false,
+    ): ImapMailboxStatus {
+        // RFC 7162 §3.1.1: a server sends `[HIGHESTMODSEQ n]` only once CONDSTORE is enabled, and
+        // the SELECT parameter is the way to do that which cannot be mis-ordered. `ENABLE
+        // CONDSTORE` is only legal in authenticated state (RFC 5161 §3.1), and these sessions are
+        // POOLED — by the time a sync asks for a delta the connection is usually already in
+        // selected state, where the same request would be a protocol error. Asking per SELECT
+        // costs nothing and has no ordering to get wrong.
+        //
+        // Gated on the capability here rather than at each caller, so "ask for a MODSEQ if you
+        // have one" degrades to a plain SELECT in ONE place. Sending the parameter to a server
+        // without CONDSTORE is a BAD, i.e. an unopenable folder.
+        val condstore = withModSeq && hasCapability("CONDSTORE")
+        val params = if (condstore) " (CONDSTORE)" else ""
         val encoded = mailboxArg(path)
         val result = try {
-            command("SELECT $encoded")
+            command("SELECT $encoded$params")
         } catch (refused: ImapException) {
             val verbatim = quote(path)
             // Only where the ambiguity can exist: the path is its own plausible wire form, i.e.
@@ -473,24 +489,54 @@ class ImapSession(private var socket: Socket) : Closeable {
             // exactly one wire form, so a refusal there means what it says and putting raw UTF-8
             // on the wire would only be noise.
             if (verbatim == encoded || path.any { it.code !in 0x20..0x7E }) throw refused
-            command("SELECT $verbatim")
+            command("SELECT $verbatim$params")
         }
         var exists = 0
         var uidValidity = 0L
         var uidNext = 0L
+        var highestModSeq = 0L
         for (resp in result.untagged) {
             // * <n> EXISTS  |  * OK [UIDVALIDITY n] ...  |  * OK [UIDNEXT n] ...
             if (resp.getOrNull(2) == "EXISTS") exists = (resp.getOrNull(1) as? String)?.toIntOrNull() ?: exists
             val flat = resp.joinToString(" ") { it?.toString() ?: "NIL" }
             Regex("UIDVALIDITY (\\d+)").find(flat)?.let { uidValidity = it.groupValues[1].toLong() }
             Regex("UIDNEXT (\\d+)").find(flat)?.let { uidNext = it.groupValues[1].toLong() }
+            // `NOMODSEQ` is the server saying this ONE folder has no modseq support even though
+            // the server does (RFC 7162 §3.1.2.2) — left at 0, which reads as "not reported".
+            Regex("HIGHESTMODSEQ (\\d+)").find(flat)?.let { highestModSeq = it.groupValues[1].toLong() }
         }
         if (expectedUidValidity != null && expectedUidValidity > 0L &&
             uidValidity > 0L && uidValidity != expectedUidValidity
         ) {
             throw ImapUidValidityChanged(path, expectedUidValidity, uidValidity)
         }
-        return ImapMailboxStatus(exists, uidValidity, uidNext)
+        return ImapMailboxStatus(exists, uidValidity, uidNext, highestModSeq)
+    }
+
+    /**
+     * The flags of every message changed since [sinceModSeq] — `UID FETCH 1:* (FLAGS)
+     * (CHANGEDSINCE n)`, RFC 7162 §3.1.3.
+     *
+     * The whole folder is in the range and that is the point: the server answers with the few
+     * messages that moved, however far back they sit, so a star cleared from webmail on a
+     * six-month-old message arrives for the price of the messages that actually changed. The
+     * alternative the app does without this — re-fetching the newest 50 ENVELOPEs and
+     * BODYSTRUCTUREs every refresh — costs the same whether anything changed or not, and still
+     * misses that six-month-old message because it is outside the window.
+     *
+     * ⚠️ This is a DELTA, not a folder listing. It says nothing about messages that did not
+     * change and nothing about messages that were expunged, so a caller that treats the result as
+     * "what is in this folder now" empties the folder. [ImapMailService] gates it on EXISTS and
+     * UIDNEXT both standing still for exactly that reason.
+     *
+     * `\Deleted` messages are NOT filtered out here, unlike every envelope fetch ([messages]):
+     * the flag going ON is itself a change the cache must record, and the row it applies to is
+     * already on screen. Dropping it would leave that message visible until a full re-read.
+     */
+    fun fetchFlagsChangedSince(sinceModSeq: Long): List<ImapFlagChange> {
+        if (sinceModSeq <= 0L) return emptyList()
+        return command("UID FETCH 1:* (FLAGS) (CHANGEDSINCE $sinceModSeq)").untagged
+            .mapNotNull { parseFlagChange(it) }
     }
 
     /**
@@ -775,6 +821,33 @@ class ImapSession(private var socket: Socket) : Closeable {
             hasAttachment = hasAttachment(map["BODYSTRUCTURE"]),
             messageId = messageId,
             inReplyTo = inReplyTo,
+        )
+    }
+
+    /**
+     * One `* n FETCH (UID u FLAGS (...) MODSEQ (m))` line as a flag change, or null when it is not
+     * a FETCH or carries no UID.
+     *
+     * Separate from [parseFetch] rather than a relaxation of it: that function requires an
+     * ENVELOPE to build a message and would have to start returning half-populated ones, which is
+     * exactly the shape that ends up cached. The MODSEQ the server adds unbidden to every
+     * CHANGEDSINCE response is ignored — the new watermark comes from the SELECT that framed this
+     * fetch, which is at least as high as any of these and is one number instead of n.
+     */
+    private fun parseFlagChange(resp: List<Any?>): ImapFlagChange? {
+        if (resp.getOrNull(2) != "FETCH") return null
+        @Suppress("UNCHECKED_CAST")
+        val items = resp.getOrNull(3) as? List<Any?> ?: return null
+        val map = pairUp(items)
+        val uid = (map["UID"] as? String)?.toLongOrNull() ?: return null
+        @Suppress("UNCHECKED_CAST")
+        val flags = (map["FLAGS"] as? List<Any?>)?.mapNotNull { it as? String } ?: emptyList()
+        return ImapFlagChange(
+            uid = uid,
+            seen = flags.any { it.equals("\\Seen", true) },
+            flagged = flags.any { it.equals("\\Flagged", true) },
+            answered = flags.any { it.equals("\\Answered", true) },
+            deleted = flags.any { it.equals("\\Deleted", true) },
         )
     }
 

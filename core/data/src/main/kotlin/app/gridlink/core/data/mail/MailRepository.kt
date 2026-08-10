@@ -697,7 +697,17 @@ data class FolderRefresh(
     val mailboxId: String,
     val name: String,
     val role: String?,
-    val emails: List<Email>,
+    /**
+     * The folder's newest window, or `null` when this pass did not read one because the server
+     * said nothing had changed (RFC 7162 CONDSTORE — see [ImapFolderSync]).
+     *
+     * 🔴 Nullable rather than empty, because the consumer of this field is the notification
+     * baseline (`NewMailNotifier`), and an empty list is a legitimate value there meaning "this
+     * folder is empty". Seeding a baseline from it would record that a folder full of mail
+     * contains nothing, and the next pass that actually read the folder would announce every
+     * message in it as newly arrived. `null` cannot be diffed or seeded by accident.
+     */
+    val emails: List<Email>?,
 )
 
 /** Outcome of loading an account's server-side filter rules. */
@@ -1630,7 +1640,9 @@ class MailRepository(
             try {
                 if (credentials.protocol == MailProtocol.IMAP) {
                     val load = imap.loadFolder(credentials, requestedMailboxId = null, limit = limit)
-                    emailDao.replaceMailbox(credentials.id, load.targetMailboxId, load.messages, recentlyMutatedIds(credentials.id))
+                    applyImapSync(credentials.id, load.targetMailboxId, load.sync)?.let { window ->
+                        emailDao.replaceMailbox(credentials.id, load.targetMailboxId, window, recentlyMutatedIds(credentials.id))
+                    }
                     mailboxDao.replaceAll(credentials.id, load.mailboxes)
                     results += AccountInboxMeta(
                         credentials.id, load.accountName, load.targetMailboxId, load.targetName, load.unread,
@@ -2060,6 +2072,44 @@ class MailRepository(
         return MailboxMeta(accountName, target.id, target.name, target.unreadEmails)
     }
 
+    /**
+     * Put one folder's IMAP sync result into the cache, and answer with the folder's newest window
+     * when this sync actually brought one back — `null` otherwise (RFC 7162 CONDSTORE).
+     *
+     * 🔴 That `null` is the whole contract, and it is not the same as an empty list. Every caller
+     * downstream of a window does something that DELETES what the window omits: `replaceMailbox`
+     * prunes the folder to the ids given, `pruneRetention` spares only those ids, and in `:app`
+     * `NewMailNotifier.seed` writes the baseline that decides what counts as new mail. Handing any
+     * of them an empty list because nothing changed would empty the folder, or announce all of it
+     * as new on the next pass. `null` makes them impossible to call by accident.
+     *
+     * The flag delta is applied here rather than returned, because it is complete in itself: the
+     * rows exist, only two columns move, and nothing downstream needs to see it.
+     */
+    private suspend fun applyImapSync(
+        accountId: String,
+        mailboxId: String,
+        sync: ImapFolderSync,
+    ): List<EmailEntity>? = when (sync) {
+        is ImapFolderSync.Window -> sync.messages
+        // The server's own answer that this folder is untouched. Doing nothing is the point.
+        is ImapFolderSync.Unchanged -> null
+        is ImapFolderSync.Flags -> {
+            for (change in sync.changes) {
+                val id = ImapMailService.emailId(accountId, mailboxId, change.uid)
+                if (change.deleted) {
+                    // `\Deleted` and not yet expunged. Gridlink never shows such a message
+                    // (ImapSession.messages drops it from every envelope fetch), so leaving the
+                    // row would keep on screen the one message a full re-read would have removed.
+                    emailDao.deleteById(accountId, id)
+                } else {
+                    emailDao.setFlags(accountId, id, seen = change.seen, flagged = change.flagged)
+                }
+            }
+            null
+        }
+    }
+
     /** IMAP refresh: list folders + fetch the target folder's newest page into the cache. */
     private suspend fun refreshImap(
         credentials: AccountCredentials,
@@ -2068,19 +2118,27 @@ class MailRepository(
         pruneBeforeMillis: Long?,
     ): MailboxMeta {
         val load = imap.loadFolder(credentials, mailboxId, limit)
-        emailDao.replaceMailbox(credentials.id, load.targetMailboxId, load.messages, recentlyMutatedIds(credentials.id))
         mailboxDao.replaceAll(credentials.id, load.mailboxes)
-        // Spares the page just fetched: IMAP re-queries the folder on every refresh, so this set
-        // IS the folder's newest window as the server has it. Pruning it away is what made a
-        // ten-message folder flash all ten and settle on two (Codeberg #110).
-        if (pruneBeforeMillis != null) {
-            pruneRetention(
-                credentials.id,
-                load.targetMailboxId,
-                pruneBeforeMillis,
-                load.messages.mapTo(HashSet()) { it.id },
-                limit,
-            )
+        val window = applyImapSync(credentials.id, load.targetMailboxId, load.sync)
+        // 🔴 Both the replace and the prune below need the folder's WHOLE newest window, and only
+        // a `Window` sync carries one — so both are skipped when the server told us nothing
+        // changed. Skipping the prune costs at most one refresh's delay in evicting mail that has
+        // aged out; running it without the window is Codeberg #110 again, where the spare set is
+        // what stops the prune deleting the page that was just fetched.
+        if (window != null) {
+            emailDao.replaceMailbox(credentials.id, load.targetMailboxId, window, recentlyMutatedIds(credentials.id))
+            // Spares the page just fetched: IMAP re-queries the folder on every refresh, so this
+            // set IS the folder's newest window as the server has it. Pruning it away is what made
+            // a ten-message folder flash all ten and settle on two (Codeberg #110).
+            if (pruneBeforeMillis != null) {
+                pruneRetention(
+                    credentials.id,
+                    load.targetMailboxId,
+                    pruneBeforeMillis,
+                    window.mapTo(HashSet()) { it.id },
+                    limit,
+                )
+            }
         }
         return MailboxMeta(load.accountName, load.targetMailboxId, load.targetName, load.unread)
     }
@@ -4297,9 +4355,14 @@ class MailRepository(
                 credentials, rekeyWatchedFolders(credentials.id, extraFolderIds), includeInbox, limit,
             )
             missing.forEach(onMissing)
-            loads.forEach { emailDao.upsertAll(it.messages) }
             return loads.map { load ->
-                FolderRefresh(load.mailboxId, load.name, load.role, load.messages.map { it.toEmail() })
+                // `upsertAll` rather than `replaceMailbox` here, as before: a push pass adds what
+                // arrived and never decides what a folder no longer contains. The window is still
+                // what the caller diffs for notifications, so it is passed on as-is — or as null
+                // when the server said this folder is untouched.
+                val window = applyImapSync(credentials.id, load.mailboxId, load.sync)
+                window?.let { emailDao.upsertAll(it) }
+                FolderRefresh(load.mailboxId, load.name, load.role, window?.map { it.toEmail() })
             }
         }
         val resolved = resolve(credentials)

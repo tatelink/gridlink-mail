@@ -7,6 +7,7 @@ import app.gridlink.core.data.db.EmailEntity
 import app.gridlink.core.data.db.EmailRecipients
 import app.gridlink.core.data.db.MailboxEntity
 import app.gridlink.core.imap.ImapClient
+import app.gridlink.core.imap.ImapFlagChange
 import app.gridlink.core.imap.ImapIdleConnection
 import app.gridlink.core.imap.ImapMailboxStatus
 import app.gridlink.core.imap.ImapMessage
@@ -41,7 +42,7 @@ data class ImapFolderLoad(
     val targetName: String,
     val unread: Int,
     val accountName: String,
-    val messages: List<EmailEntity>,
+    val sync: ImapFolderSync,
 )
 
 /** One watched folder's fetched page (multi-folder push, issue #16). */
@@ -49,8 +50,47 @@ data class ImapWatchedLoad(
     val mailboxId: String,
     val name: String,
     val role: String?,
-    val messages: List<EmailEntity>,
+    val sync: ImapFolderSync,
 )
+
+/**
+ * What a refresh actually brought back for one folder (RFC 7162 CONDSTORE).
+ *
+ * 🔴 A SEALED TYPE, and that is the point of it. Before CONDSTORE every refresh returned "the
+ * folder's newest window" and callers could pass it straight to `EmailDao.replaceMailbox`, which
+ * deletes every cached row the list omits. Two of the three cases below are NOT a window — one is
+ * a flag delta, one is nothing at all — and handing either to that call empties the folder on
+ * screen. Handing an empty one to `NewMailNotifier.seed` is worse: it writes an EMPTY baseline, and
+ * the next real fetch then announces the entire folder as new mail.
+ *
+ * Neither mistake throws. Both are a plain `List<EmailEntity>` that happens to be short. So the
+ * three cases are made distinguishable in the type system, where the compiler asks the question at
+ * every call site instead of hoping each one remembered to.
+ */
+sealed interface ImapFolderSync {
+
+    /**
+     * The folder's newest window as the server has it: complete, authoritative, and the only case
+     * that may replace the cache or seed a notification baseline.
+     */
+    data class Window(val messages: List<EmailEntity>) : ImapFolderSync
+
+    /**
+     * Nothing has happened in this folder since the last sync — no arrivals, no flag changes, no
+     * expunges. The cache is already correct, so the correct action is to do NOTHING with it: not
+     * replace it, not prune it, not diff it for notifications.
+     */
+    data object Unchanged : ImapFolderSync
+
+    /**
+     * Flags changed on messages the cache already holds, and provably nothing else did (see
+     * [ImapSyncDecision]). Apply to existing rows only; never treat as a listing.
+     *
+     * No notification pass belongs here either: UIDNEXT standing still is what licensed this
+     * branch, so there is nothing new to announce by construction.
+     */
+    data class Flags(val changes: List<ImapFlagChange>) : ImapFolderSync
+}
 
 /**
  * The deadline arithmetic behind a time-bounded IMAP call. Pure and separate because every
@@ -349,7 +389,13 @@ class ImapMailService(
         requestedMailboxId: String?,
         limit: Int,
     ): ImapFolderLoad {
+        // Read BEFORE the session: the store suspends, the session block does not, and the block
+        // does not yet know which folder it will land on (it resolves the target from a LIST it
+        // has not issued). One query for the account answers it whichever folder that turns out
+        // to be.
+        val points = uidValidity.syncPoints(credentials.id)
         var numbering: Pair<String, Long>? = null
+        var observedPoint: Pair<String, ImapMailboxStatus>? = null
         val load = withSession(credentials) { session ->
             val folders = session.listFolders()
             val mailboxes = folders.mapIndexed { index, folder ->
@@ -368,11 +414,13 @@ class ImapMailService(
                 ?: folders.firstOrNull { it.path.equals("INBOX", ignoreCase = true) }
                 ?: folders.first()
 
-            val status = session.select(target.path)
+            val status = session.select(target.path, withModSeq = true)
             numbering = target.path to status.uidValidity
+            observedPoint = target.path to status
+            // Still asked on every pass, including the skipped ones: it is one SEARCH against the
+            // ~50 envelopes the skip avoids, and it is what the account's unread badge is set
+            // from. Reporting 0 for a folder we chose not to re-read would clear that badge.
             val unread = session.unseenCount()
-            val messages = session.fetchPage(status.exists, offset = 0, limit = limit)
-                .map { it.toEntity(credentials.id, target.path) }
 
             ImapFolderLoad(
                 mailboxes = mailboxes,
@@ -380,13 +428,61 @@ class ImapMailService(
                 targetName = target.name,
                 unread = unread,
                 accountName = credentials.username,
-                messages = messages,
+                sync = session.syncFolder(credentials.id, target.path, status, points[target.path], limit),
             )
         }
         // Before returning: a renumbering seen here drops the caches keyed by the old UIDs, so the
         // first message the user opens from this list cannot come back as a stale cached body.
         numbering?.let { (path, observed) -> reconcileNumbering(credentials.id, path, observed) }
+        // AFTER the work, and only because it succeeded: see [recordSyncPoint].
+        observedPoint?.let { (path, status) -> recordSyncPoint(credentials.id, path, status) }
         return load
+    }
+
+    /**
+     * Sync one already-SELECTed folder the cheapest way its numbers allow (RFC 7162).
+     *
+     * The decision itself is [ImapSyncDecision], which has no socket in it; this is only the part
+     * that issues the resulting command. The full re-read is the fallthrough for every case that
+     * decision is not certain about, and it is the same call the app made before any of this
+     * existed — so a server without CONDSTORE runs the identical code path it always did, having
+     * paid one extra capability lookup that its own LOGIN response already answered.
+     */
+    private fun ImapSession.syncFolder(
+        accountId: String,
+        mailboxId: String,
+        status: ImapMailboxStatus,
+        recorded: ImapSyncPoint?,
+        limit: Int,
+    ): ImapFolderSync {
+        val plan = ImapSyncDecision.plan(
+            recorded, status.uidValidity, status.highestModSeq, status.uidNext, status.exists,
+        )
+        return when (plan) {
+            is ImapSyncPlan.Unchanged -> ImapFolderSync.Unchanged
+            is ImapSyncPlan.FlagsOnly -> ImapFolderSync.Flags(fetchFlagsChangedSince(plan.sinceModSeq))
+            is ImapSyncPlan.Full -> ImapFolderSync.Window(
+                fetchPage(status.exists, offset = 0, limit = limit).map { it.toEntity(accountId, mailboxId) },
+            )
+        }
+    }
+
+    /**
+     * Remember what this sync saw, so the next one can skip the folder.
+     *
+     * 🔴 Called only after the fetch came back, never before it. A watermark written ahead of the
+     * work would be kept even when the work then failed, and the next refresh would skip a folder
+     * whose changes were never actually read — mail that silently never arrives, which is the
+     * exact failure this whole feature has to be careful of.
+     *
+     * The UIDVALIDITY goes into the UPDATE's `WHERE`, so a folder renumbered in between writes
+     * nothing and simply pays for one full re-read next time.
+     */
+    private suspend fun recordSyncPoint(accountId: String, mailboxId: String, status: ImapMailboxStatus) {
+        if (status.highestModSeq <= 0L) return // no CONDSTORE, or NOMODSEQ on this folder
+        uidValidity.recordSyncPoint(
+            accountId, mailboxId, status.uidValidity, status.highestModSeq, status.uidNext, status.exists,
+        )
     }
 
     /**
@@ -406,7 +502,9 @@ class ImapMailService(
         includeInbox: Boolean,
         limit: Int,
     ): Pair<List<ImapWatchedLoad>, Set<String>> {
+        val points = uidValidity.syncPoints(credentials.id)
         val numbering = mutableListOf<Pair<String, Long>>()
+        val observedPoints = mutableListOf<Pair<String, ImapMailboxStatus>>()
         val result = withSession(credentials) { session ->
             val folders = session.listFolders()
             val inbox = folders.firstOrNull { it.role == "inbox" }
@@ -421,15 +519,18 @@ class ImapMailService(
             }
             val missing = extraPaths.filterTo(mutableSetOf()) { path -> folders.none { it.path == path } }
             val loads = targets.map { folder ->
-                val status = session.select(folder.path)
+                val status = session.select(folder.path, withModSeq = true)
                 numbering += folder.path to status.uidValidity
-                val messages = session.fetchPage(status.exists, offset = 0, limit = limit)
-                    .map { it.toEntity(credentials.id, folder.path) }
-                ImapWatchedLoad(folder.path, folder.name, folder.role, messages)
+                observedPoints += folder.path to status
+                ImapWatchedLoad(
+                    folder.path, folder.name, folder.role,
+                    session.syncFolder(credentials.id, folder.path, status, points[folder.path], limit),
+                )
             }
             loads to missing
         }
         numbering.forEach { (path, observed) -> reconcileNumbering(credentials.id, path, observed) }
+        observedPoints.forEach { (path, status) -> recordSyncPoint(credentials.id, path, status) }
         return result
     }
 
