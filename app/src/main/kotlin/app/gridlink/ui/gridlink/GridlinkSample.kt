@@ -374,7 +374,13 @@ object GridlinkSample {
      * added without a body fails on the next launch instead of opening to a blank panel.
      */
     val messages: List<GridlinkMessage> = (briefMessages + extraMessages).map { message ->
-        message.copy(body = GridlinkSampleBodies.bodyFor(message.id))
+        message.copy(
+            body = GridlinkSampleBodies.bodyFor(message.id),
+            // Derived from the same body, exactly as a server derives its own: the gallery's search
+            // results need a real preview line to highlight, and inventing separate preview text
+            // would let the line disagree with the message it claims to be quoting.
+            preview = GridlinkSampleBodies.previewFor(message.id),
+        )
     }
 
     /**
@@ -695,6 +701,28 @@ data class GridlinkMessage(
      * another client, so a message can be starred without this app ever having touched it.
      */
     val starred: Boolean = false,
+    /**
+     * The opening of the body as plain text, roughly 256 characters, or `""` when there is none.
+     *
+     * ## Why this exists next to [body], which is the whole message
+     * [body] arrives only when a message is OPENED. This arrives with the row, from the same list
+     * fetch that supplies the subject and the timestamp, which is what makes it usable in a list at
+     * all. The two are not redundant: one is always present and short, the other is usually absent
+     * and complete.
+     *
+     * 🔴 Drawn on exactly one screen: a search result, as its third line, with the query highlighted
+     * (see `GridlinkHighlight`). NOT on inbox rows. [GridlinkMessageRow] is fixed at
+     * [GridlinkDimens.messageRowHeight] and its own note puts the cost of a third line at about a
+     * quarter of the visible inbox, so it is spent where a preview answers the question being asked
+     * ("which message has my words in it") and nowhere else.
+     *
+     * ⚠️ It is an OPENING, not a summary and not a body. A search that highlights nothing on a row
+     * is normal: the match may be in the subject, the sender, or past the 256th character.
+     *
+     * Empty for most sample data; [GridlinkSample.messages] derives one from each stitched body so
+     * the gallery shows the real thing.
+     */
+    val preview: String = "",
 ) {
     val hasAttachment: Boolean get() = attachments.isNotEmpty() || attachmentPending
 

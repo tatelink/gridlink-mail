@@ -98,8 +98,12 @@ internal fun EmailEntity.toEmail(): Email = Email(
 )
 
 /**
- * A crawled/​cached [Email] → a search-index row. Headers only: body search is served live by the
- * server's own full-text index (unioned into the results), not re-indexed client-side.
+ * A crawled/​cached [Email] → a search-index row.
+ *
+ * Headers plus the server's [Email.preview], which since schema v22 is TOKENIZED and is the only
+ * body text this index holds — see [EmailFtsEntity]. Whole bodies are still never indexed
+ * client-side: [body] is written empty here, on every row, and a real body search is served live by
+ * the server's own full-text index and unioned into the results.
  */
 internal fun Email.toFts(accountId: String): EmailFtsEntity {
     val sender = from.firstOrNull()
