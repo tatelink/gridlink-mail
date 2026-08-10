@@ -538,6 +538,7 @@
     <string name="connect_oauth_error_code">Microsoft отклонил вход (%1$s). Попробуйте снова или используйте пароль приложения.</string>
     <string name="connect_incoming_imap">Входящий (IMAP)</string>
     <string name="connect_outgoing_smtp">Исходящий (SMTP)</string>
+    <string name="connect_srv_found">Заполнено настройками, которые публикует %1$s. Измените их, если они неверны.</string>
     <string name="connect_account_name_optional">Имя аккаунта (необязательно)</string>
     <string name="connect_email_username">Эл. почта / имя пользователя</string>
     <string name="connect_password">Пароль</string>

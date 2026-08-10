@@ -538,6 +538,7 @@
     <string name="connect_oauth_error_code">Microsoft ha rifiutato l\'accesso (%1$s). Riprova oppure usa una password per app.</string>
     <string name="connect_incoming_imap">In entrata (IMAP)</string>
     <string name="connect_outgoing_smtp">In uscita (SMTP)</string>
+    <string name="connect_srv_found">Compilato con le impostazioni pubblicate da %1$s. Modificale se non sono corrette.</string>
     <string name="connect_account_name_optional">Nome account (facoltativo)</string>
     <string name="connect_email_username">Email / nome utente</string>
     <string name="connect_password">Password</string>

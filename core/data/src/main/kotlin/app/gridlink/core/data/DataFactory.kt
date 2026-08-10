@@ -10,6 +10,7 @@ import app.gridlink.core.data.mail.MailRepository
 import app.gridlink.core.data.mail.OAuthTokenRefresher
 import app.gridlink.core.data.mail.SyncStateStore
 import app.gridlink.core.data.mail.WidgetInboxReader
+import app.gridlink.core.data.net.AndroidSrvResolver
 import app.gridlink.core.data.pgp.PgpEngine
 import app.gridlink.core.data.settings.SettingsRepository
 import app.gridlink.core.data.storage.StorageRepository
@@ -67,6 +68,7 @@ object DataFactory {
                 pgpEngine = pgpEngine,
                 settings = settings,
                 syncStateStore = SyncStateStore(appContext),
+                srvResolver = AndroidSrvResolver(),
             ),
             storageRepository = StorageRepository(
                 appContext, database.emailDao(), database.emailFtsDao(), database.emailBodyDao(),

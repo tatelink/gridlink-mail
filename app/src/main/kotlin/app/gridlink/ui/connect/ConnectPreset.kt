@@ -2,6 +2,7 @@ package app.gridlink.ui.connect
 
 import app.gridlink.core.data.account.ConnectionSecurity
 import app.gridlink.core.data.account.MailProtocol
+import app.gridlink.core.data.net.ImapEndpoints
 
 /**
  * What the add-account form decides on its own, kept out of the composable: which quick-setup
@@ -114,6 +115,44 @@ internal fun presetChipTapped(current: PresetForm, tapped: MailProvider): Preset
  */
 internal fun presetForProtocol(preset: PresetForm, protocol: MailProtocol): PresetForm =
     if (protocol == MailProtocol.JMAP && preset.oauth) PresetForm.NONE else preset
+
+/**
+ * The form after applying what the address' domain publishes over SRV (RFC 6186), leaving anything
+ * the user has already decided exactly as it was.
+ *
+ * 🔴 DNS never overwrites a person. A quick-setup chip is an explicit choice and stops this dead; a
+ * host already in a field was either typed or put there by a chip, and either way the user's copy
+ * wins. What is left is the case this feature exists for: an empty field on a domain that knows the
+ * answer, where the alternative is the user hunting through a support page for four values.
+ *
+ * The port and security travel with the host they belong to, because a port on its own describes
+ * nothing. [ImapEndpoints.smtpImplicitTls] is the only judgement call in here, and it is made where
+ * the port is known — see [app.gridlink.core.data.net.MailSrv.imapEndpoints].
+ */
+internal fun presetWithDiscovered(current: PresetForm, discovered: ImapEndpoints): PresetForm {
+    if (current.selected != null) return current
+    var form = current
+    val imapHost = discovered.imapHost
+    val imapPort = discovered.imapPort
+    if (form.imapHost.isBlank() && imapHost != null && imapPort != null) {
+        form = form.copy(
+            imapHost = imapHost,
+            imapPort = imapPort.toString(),
+            // `_imaps._tcp` is the implicit-TLS name; the cleartext `_imap._tcp` is never looked up.
+            imapSecurity = ConnectionSecurity.TLS,
+        )
+    }
+    val smtpHost = discovered.smtpHost
+    val smtpPort = discovered.smtpPort
+    if (form.smtpHost.isBlank() && smtpHost != null && smtpPort != null) {
+        form = form.copy(
+            smtpHost = smtpHost,
+            smtpPort = smtpPort.toString(),
+            smtpSecurity = if (discovered.smtpImplicitTls) ConnectionSecurity.TLS else ConnectionSecurity.STARTTLS,
+        )
+    }
+    return form
+}
 
 /** Where the Connect button sends the form. */
 internal enum class ConnectRoute {

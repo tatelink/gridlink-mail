@@ -538,6 +538,7 @@
     <string name="connect_oauth_error_code">A Microsoft recusou o início de sessão (%1$s). Tente novamente ou use uma palavra-passe de aplicação.</string>
     <string name="connect_incoming_imap">Entrada (IMAP)</string>
     <string name="connect_outgoing_smtp">Saída (SMTP)</string>
+    <string name="connect_srv_found">Preenchido com as definições publicadas por %1$s. Altere-as se estiverem erradas.</string>
     <string name="connect_account_name_optional">Nome da conta (opcional)</string>
     <string name="connect_email_username">E-mail / nome de usuário</string>
     <string name="connect_password">Senha</string>

@@ -95,8 +95,12 @@ import app.gridlink.util.isValidEmail
 import app.gridlink.core.data.account.AuthType
 import app.gridlink.core.data.account.ConnectionSecurity
 import app.gridlink.core.data.account.MailProtocol
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+
+/** How long typing has to stop before the address' domain is asked for its SRV records. */
+private const val SRV_LOOKUP_TYPING_PAUSE_MS = 700L
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
 @Composable
@@ -136,6 +140,32 @@ fun ConnectScreen(
     // Quick setup and the server fields it fills are one piece of state, so the chips, the fields
     // and the Connect button can never disagree about which provider is selected (#105).
     var preset by rememberSaveable(stateSaver = PresetFormSaver) { mutableStateOf(PresetForm.NONE) }
+
+    // SRV autodiscovery for manual IMAP setup (RFC 6186): the domain is asked where its servers are
+    // while the address is still being typed, so the four fields above are already filled by the
+    // time the user scrolls back up to them. The domain whose answer was applied is remembered
+    // rather than recomputed, so a rotation cannot re-fill a field the user deliberately cleared.
+    val imapSuggestion by viewModel.imapSuggestion.collectAsStateWithLifecycle()
+    var srvAppliedFor by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(username, protocol) {
+        if (protocol == MailProtocol.IMAP) {
+            // Typing pause, not a keystroke: the effect restarts on each character, so a half-typed
+            // domain never reaches DNS.
+            delay(SRV_LOOKUP_TYPING_PAUSE_MS)
+            viewModel.suggestImapEndpoints(username)
+        }
+    }
+    LaunchedEffect(imapSuggestion) {
+        val suggestion = imapSuggestion ?: return@LaunchedEffect
+        if (suggestion.domain == srvAppliedFor) return@LaunchedEffect
+        val filled = presetWithDiscovered(preset, suggestion.endpoints)
+        // Only claim the fields came from DNS when they actually did — a chip already armed, or
+        // hosts already typed, leave the form untouched and there is nothing to announce.
+        if (filled != preset) {
+            preset = filled
+            srvAppliedFor = suggestion.domain
+        }
+    }
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     // The provider help link below leaves for a browser; a second tap while it comes up opened a
@@ -486,6 +516,17 @@ fun ConnectScreen(
                         hostPlaceholder = stringResource(R.string.connect_smtp_host_placeholder),
                     )
                     SecurityChips(preset.smtpSecurity) { preset = preset.copy(smtpSecurity = it) }
+
+                    // Fields that fill themselves in are unsettling without a reason on screen, and
+                    // these are a claim the domain's DNS makes, not something that has been dialled
+                    // yet. Say both: where they came from, and that they can be changed.
+                    srvAppliedFor?.let { domain ->
+                        Text(
+                            stringResource(R.string.connect_srv_found, domain),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
 

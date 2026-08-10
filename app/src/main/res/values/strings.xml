@@ -673,6 +673,7 @@
     <string name="connect_oauth_error_code">Microsoft refused the sign-in (%1$s). Try again, or use an app password instead.</string>
     <string name="connect_incoming_imap">Incoming (IMAP)</string>
     <string name="connect_outgoing_smtp">Outgoing (SMTP)</string>
+    <string name="connect_srv_found">Filled in from the settings %1$s publishes. Change them if they\'re wrong.</string>
     <string name="connect_account_name_optional">Account name (optional)</string>
     <string name="connect_email_username">Email / username</string>
     <string name="connect_password">Password</string>

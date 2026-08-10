@@ -79,9 +79,21 @@ object Jmap {
      * `api.` (Fastmail) subdomains as a fallback. Empty for a malformed address.
      */
     fun autodiscoverHosts(email: String): List<String> {
-        val domain = email.substringAfter('@', "").trim().lowercase().removeSuffix(".")
-        if (domain.isEmpty() || !domain.contains('.')) return emptyList()
+        val domain = mailDomain(email) ?: return emptyList()
         return listOf(domain, "mail.$domain", "jmap.$domain", "api.$domain")
+    }
+
+    /**
+     * The domain part of [email], lowercased and with a trailing root dot removed, or null when the
+     * address names no usable domain (no `@`, nothing after it, or a bare name like "localhost").
+     *
+     * 🔴 Extracted so that DNS SRV discovery in `core:data` applies the SAME rule. SRV results are
+     * prepended to [autodiscoverHosts]' guesses, so a second copy of this that ever drifted would
+     * have the two halves of discovery looking at different domains for one address.
+     */
+    fun mailDomain(email: String): String? {
+        val domain = email.substringAfter('@', "").trim().lowercase().removeSuffix(".")
+        return domain.takeIf { it.isNotEmpty() && it.contains('.') }
     }
 
     /** Build the OAuth metadata URL for a host (mirrors [sessionUrlFor]). */

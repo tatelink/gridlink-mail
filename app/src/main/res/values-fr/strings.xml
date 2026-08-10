@@ -538,6 +538,7 @@
     <string name="connect_oauth_error_code">Microsoft a refusé la connexion (%1$s). Réessayez, ou utilisez un mot de passe d\'application.</string>
     <string name="connect_incoming_imap">Entrant (IMAP)</string>
     <string name="connect_outgoing_smtp">Sortant (SMTP)</string>
+    <string name="connect_srv_found">Rempli à partir des paramètres publiés par %1$s. Modifiez-les si besoin.</string>
     <string name="connect_account_name_optional">Nom du compte (facultatif)</string>
     <string name="connect_email_username">E-mail / nom d\'utilisateur</string>
     <string name="connect_password">Mot de passe</string>

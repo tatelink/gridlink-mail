@@ -538,6 +538,7 @@
     <string name="connect_oauth_error_code">Microsoft rechazó el inicio de sesión (%1$s). Inténtalo de nuevo o usa una contraseña de aplicación.</string>
     <string name="connect_incoming_imap">Entrante (IMAP)</string>
     <string name="connect_outgoing_smtp">Saliente (SMTP)</string>
+    <string name="connect_srv_found">Rellenado con la configuración que publica %1$s. Cámbiala si no es correcta.</string>
     <string name="connect_account_name_optional">Nombre de la cuenta (opcional)</string>
     <string name="connect_email_username">Correo / nombre de usuario</string>
     <string name="connect_password">Contraseña</string>

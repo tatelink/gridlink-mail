@@ -2,6 +2,7 @@ package app.gridlink.ui.connect
 
 import app.gridlink.core.data.account.ConnectionSecurity
 import app.gridlink.core.data.account.MailProtocol
+import app.gridlink.core.data.net.ImapEndpoints
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -233,5 +234,75 @@ class ConnectPresetTest {
         // Names double as the chips' identity in [PresetForm.selected]: a duplicate would make two
         // chips light up together and share one selection.
         assertEquals(MAIL_PROVIDERS.size, MAIL_PROVIDERS.map { it.name }.toSet().size)
+    }
+
+    // --- What the domain publishes, and what it is not allowed to touch --------------------------
+
+    private fun endpoints(
+        imapHost: String? = "imap.example.com",
+        imapPort: Int? = 993,
+        smtpHost: String? = "smtp.example.com",
+        smtpPort: Int? = 587,
+        smtpImplicitTls: Boolean = false,
+    ) = ImapEndpoints(imapHost, imapPort, smtpHost, smtpPort, smtpImplicitTls)
+
+    @Test fun publishedServersFillAnEmptyForm() {
+        val filled = presetWithDiscovered(PresetForm.NONE, endpoints())
+        assertEquals("imap.example.com", filled.imapHost)
+        assertEquals("993", filled.imapPort)
+        assertEquals(ConnectionSecurity.TLS, filled.imapSecurity)
+        assertEquals("smtp.example.com", filled.smtpHost)
+        assertEquals("587", filled.smtpPort)
+        assertEquals(ConnectionSecurity.STARTTLS, filled.smtpSecurity)
+        // And the form is then complete enough to connect with, which is the entire point.
+        assertTrue(
+            connectReady(
+                ConnectRoute.IMAP_PASSWORD, "alex@example.com", "secret",
+                filled.imapHost, filled.imapPort, filled.smtpHost, filled.smtpPort,
+            ),
+        )
+    }
+
+    @Test fun submissionOn465IsFilledInAsImplicitTls() {
+        val filled = presetWithDiscovered(PresetForm.NONE, endpoints(smtpPort = 465, smtpImplicitTls = true))
+        assertEquals("465", filled.smtpPort)
+        assertEquals(ConnectionSecurity.TLS, filled.smtpSecurity)
+    }
+
+    @Test fun anArmedChipIsNeverOverruledByDns() {
+        // 🔴 The chip is an explicit choice about which provider this is. A domain that publishes
+        // something else does not get to move the user's account to another server.
+        val armed = presetChipTapped(PresetForm.NONE, gmail)
+        assertEquals(armed, presetWithDiscovered(armed, endpoints()))
+    }
+
+    @Test fun aHostTheUserTypedIsNeverOverwritten() {
+        val typed = PresetForm.NONE.copy(imapHost = "mine.example.com", imapPort = "1993")
+        val filled = presetWithDiscovered(typed, endpoints())
+        assertEquals("mine.example.com", filled.imapHost)
+        assertEquals("1993", filled.imapPort)
+        // The half they had not got to yet is still worth filling in.
+        assertEquals("smtp.example.com", filled.smtpHost)
+    }
+
+    @Test fun halfAnAnswerFillsHalfTheForm() {
+        val filled = presetWithDiscovered(PresetForm.NONE, endpoints(smtpHost = null, smtpPort = null))
+        assertEquals("imap.example.com", filled.imapHost)
+        assertEquals("", filled.smtpHost)
+        // Left incomplete on purpose: Connect stays disabled until the user supplies the rest,
+        // rather than dialling a default that was never published.
+        assertFalse(
+            connectReady(
+                ConnectRoute.IMAP_PASSWORD, "alex@example.com", "secret",
+                filled.imapHost, filled.imapPort, filled.smtpHost, filled.smtpPort,
+            ),
+        )
+    }
+
+    @Test fun anAnswerWithNothingUsableLeavesTheFormAlone() {
+        // The screen compares the result with what it had to decide whether to tell the user their
+        // settings came from DNS, so "changed nothing" has to come back as the same form.
+        val empty = endpoints(imapHost = null, imapPort = null, smtpHost = null, smtpPort = null)
+        assertEquals(PresetForm.NONE, presetWithDiscovered(PresetForm.NONE, empty))
     }
 }
