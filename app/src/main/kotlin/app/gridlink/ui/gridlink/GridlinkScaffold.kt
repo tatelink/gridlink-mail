@@ -1610,6 +1610,18 @@ fun GridlinkRoot(
                         GridlinkThreadAction.SPAM ->
                             fileOpenThread(message.id, GridlinkMailAction.SPAM)
 
+                        // 🔴 Straight to [onMailAction], NOT through `fileOpenThread`. Every other
+                        // branch here ends the reading session on purpose; this one is a switch on
+                        // the message in front of you, and closing the thread under it would be the
+                        // app deciding you were done reading because you flagged something to come
+                        // back to. The star's own lit state is the whole feedback, so there is
+                        // nothing else to show and nowhere else to go.
+                        GridlinkThreadAction.STAR ->
+                            onMailAction(setOf(message.id), GridlinkMailAction.STAR)
+
+                        GridlinkThreadAction.UNSTAR ->
+                            onMailAction(setOf(message.id), GridlinkMailAction.UNSTAR)
+
                         // 🔴 The one branch that is not a filing. Which of the three things it does
                         // depends on what the sender's own header offered, and the split is here
                         // rather than inside [onUnsubscribe] because only one of the three leaves

@@ -974,6 +974,16 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                     GridlinkMailAction.SPAM -> repo.reportSpamAll(credentials, targets)
                     GridlinkMailAction.MARK_READ -> repo.setReadAll(credentials, targets, seen = true)
                     GridlinkMailAction.MARK_UNREAD -> repo.setReadAll(credentials, targets, seen = false)
+                    // ⚠️ One call per message, unlike the two above. There is no batched
+                    // set-flagged on the repository the way there is for seen, because the only
+                    // thing that stars mail in this app is the open thread's own button and that
+                    // is always exactly one id. If a multi-select star ever arrives this wants a
+                    // `setFlaggedAll` with the same Email/set batching [setReadAll] has, not a
+                    // loop that fires five hundred round trips.
+                    GridlinkMailAction.STAR, GridlinkMailAction.UNSTAR -> {
+                        val flagged = action == GridlinkMailAction.STAR
+                        targets.forEach { repo.setFlagged(credentials, it, flagged) }
+                    }
                     // The filing half of an unsubscribe. Archive rather than delete: the user asked to
                     // stop receiving these, not to lose the one in front of them, and the archive is
                     // where a message they are done with belongs.
