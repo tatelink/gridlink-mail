@@ -4046,9 +4046,26 @@ class MailRepository(
      * second page behind it and scrolling to the bottom is the bottom. Pass the account's own
      * `SyncWindow.limit` and the window is exactly the mail that account chose to keep offline;
      * pass anything smaller and the app quietly hides mail it already fetched and still holds.
+     *
+     * [filter] narrows the window to unread / starred / has-attachment rows, in SQL and before the
+     * limit — see the DAO for why after it would answer a narrower question than the chip asks.
+     * NO DEFAULT either, and for [limit]'s reason turned around: a caller that forgets it gets an
+     * unfiltered list under whatever chips are lit, which looks like the filter simply not working.
      */
-    fun observeMailboxWindow(accountId: String, mailboxId: String, limit: Int): Flow<List<Email>> =
-        emailDao.observeMailboxWindow(accountId, mailboxId, limit).map { rows -> rows.map { it.toEmail() } }
+    fun observeMailboxWindow(
+        accountId: String,
+        mailboxId: String,
+        limit: Int,
+        filter: MailFilter,
+    ): Flow<List<Email>> =
+        emailDao.observeMailboxWindow(
+            accountId = accountId,
+            mailboxId = mailboxId,
+            limit = limit,
+            unread = filter.unread,
+            starred = filter.starred,
+            withAttachment = filter.hasAttachment,
+        ).map { rows -> rows.map { it.toEmail() } }
 
     /**
      * One reading of [observeThreadEmails], for callers that act on a thread once (a whole-thread

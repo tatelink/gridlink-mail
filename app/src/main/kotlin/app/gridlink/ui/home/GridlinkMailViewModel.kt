@@ -10,6 +10,7 @@ import androidx.core.text.HtmlCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.gridlink.container
+import app.gridlink.core.data.mail.MailFilter
 import app.gridlink.core.jmap.ContentTooLargeException
 import app.gridlink.core.jmap.DownloadLimits
 import app.gridlink.core.jmap.model.Email
@@ -200,14 +201,41 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         // A search is a question asked OF an account. Results from the old one under a pill the
         // new one owns would be mail the new mailbox cannot even open.
         searchQuery.value = ""
+        // Same argument for the quick filters, one step milder: a lit chip carried across would not
+        // show the wrong account's mail, it would HIDE the new one's — an inbox that opens missing
+        // most of itself because of something the user did in a mailbox they have left.
+        filter.value = MailFilter.none
         // A draft belongs to the account it was saved on. Carried across, the composer would open
         // over it and the eventual save would write it into the NEW account's Drafts.
         draftJob?.cancel()
         draftEdit.value = null
     }
 
-    /** Account id + inbox + how much of it to hold, as the cache query needs them. */
-    private data class Window(val accountId: String, val mailboxId: String, val limit: Int)
+    /**
+     * Account id + inbox + how much of it to hold + how it is narrowed, as the cache query needs
+     * them.
+     *
+     * The filter is IN the key rather than applied to the key's results, so tapping a chip
+     * re-subscribes the Room query and the narrowing happens in SQL, before the limit. See
+     * [MailRepository.observeMailboxWindow].
+     */
+    private data class Window(
+        val accountId: String,
+        val mailboxId: String,
+        val limit: Int,
+        val filter: MailFilter = MailFilter.none,
+    )
+
+    /**
+     * The list's quick filters, as the chips above the list report them.
+     *
+     * Transient, and owned here only as the query's input: the chips themselves are the screen's
+     * state (the sample gallery has no view model and filters its own fixtures, exactly as it does
+     * for the search pill). Reset on account switch by [bind] — a filter is a way of looking at one
+     * mailbox, and carrying it into another account's inbox would hide mail with a chip the user
+     * lit while they were somewhere else.
+     */
+    private val filter = MutableStateFlow(MailFilter.none)
 
     /**
      * The query to run, or null when there is not enough known to run one.
@@ -216,10 +244,10 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
      * known until a refresh has reported it: a freshly created account has `inboxId == null`, and
      * this is what re-points the list at the mailbox the moment the first sync names it.
      */
-    private val window: Flow<Window?> = combine(accountId, store.accountsFlow) { id, accounts ->
+    private val window: Flow<Window?> = combine(accountId, store.accountsFlow, filter) { id, accounts, chips ->
         val account = accounts.firstOrNull { it.id == id } ?: return@combine null
         val inbox = account.inboxId ?: return@combine null
-        Window(account.id, inbox, account.syncWindow.limit)
+        Window(account.id, inbox, account.syncWindow.limit, chips)
     }.distinctUntilChanged()
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -227,9 +255,21 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         if (w == null) {
             flowOf(emptyList())
         } else {
-            repo.observeMailboxWindow(w.accountId, w.mailboxId, w.limit)
+            repo.observeMailboxWindow(w.accountId, w.mailboxId, w.limit, w.filter)
                 .onEach { primed.value = true }
         }
+    }
+
+    /**
+     * Narrow the inbox to unread / starred / has-attachment, or widen it again.
+     *
+     * Deliberately dumb, like [search]: the chips upstream own what is lit and this only ever
+     * records it. 🔴 It does NOT clear [primed]. A filter is a different question about mail the
+     * app already holds, not a new account, and re-skeletoning the list on every chip tap would
+     * flash placeholders over a query that answers from cache within a frame.
+     */
+    fun filter(filter: MailFilter) {
+        this.filter.value = filter
     }
 
     /**
@@ -413,7 +453,10 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             flowOf(null)
         } else {
             combine(
-                repo.observeMailboxWindow(w.accountId, w.mailboxId, w.limit),
+                // 🔴 Unfiltered on purpose. The chips live above the INBOX list; the Folders tab
+                // draws no chips, so a filter applied here would narrow a list with nothing on
+                // screen to say it had been narrowed.
+                repo.observeMailboxWindow(w.accountId, w.mailboxId, w.limit, MailFilter.none),
                 folderFetched,
                 outgoingFolderIds,
             ) { emails, fetched, outgoing ->
