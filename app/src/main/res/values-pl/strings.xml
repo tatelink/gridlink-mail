@@ -538,6 +538,7 @@
     <string name="connect_oauth_error_code">Microsoft odrzucił logowanie (%1$s). Spróbuj ponownie lub użyj hasła aplikacji.</string>
     <string name="connect_incoming_imap">Przychodzące (IMAP)</string>
     <string name="connect_outgoing_smtp">Wychodzące (SMTP)</string>
+    <string name="connect_srv_found">Uzupełniono ustawieniami opublikowanymi przez %1$s. Zmień je, jeśli są błędne.</string>
     <string name="connect_account_name_optional">Nazwa konta (opcjonalnie)</string>
     <string name="connect_email_username">E-mail / nazwa użytkownika</string>
     <string name="connect_password">Hasło</string>

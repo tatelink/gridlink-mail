@@ -14,10 +14,11 @@ import app.gridlink.core.data.account.StoredAccount
 import app.gridlink.core.data.mail.MailRepository
 import app.gridlink.core.data.mail.OAuthDeniedException
 import app.gridlink.core.data.mail.OAuthProvider
+import app.gridlink.core.data.net.ImapEndpoints
+import app.gridlink.core.data.net.MailSrv
 import app.gridlink.core.jmap.BearerAuth
 import app.gridlink.core.jmap.DeviceAuthorization
 import app.gridlink.core.jmap.DeviceTokenResult
-import app.gridlink.core.jmap.Jmap
 import app.gridlink.core.jmap.JmapException
 import app.gridlink.core.jmap.OAuthMetadata
 import kotlinx.coroutines.CancellationException
@@ -132,11 +133,53 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
     /** Drives the per-account password prompt shown after a settings import (see [beginImportSignIn]). */
     val importSignIn: StateFlow<ImportSignIn> = _importSignIn.asStateFlow()
 
+    private val _imapSuggestion = MutableStateFlow<ImapSuggestion?>(null)
+
+    /**
+     * The IMAP and submission servers the typed address' domain publishes over SRV, for the manual
+     * setup form to fill itself in with. Null until a domain answers, which is most of them.
+     */
+    val imapSuggestion: StateFlow<ImapSuggestion?> = _imapSuggestion.asStateFlow()
+
+    /** [ImapEndpoints] plus the domain that published them, so the form can say where they came from. */
+    data class ImapSuggestion(val domain: String, val endpoints: ImapEndpoints)
+
+    private var suggestionJob: Job? = null
+    private var suggestedDomain: String? = null
+
     private var oauthJob: Job? = null
     private var importOAuthJob: Job? = null
 
     init {
         observeOutlookSignIn()
+    }
+
+    /**
+     * Ask [email]'s domain where its IMAP and submission servers are (RFC 6186), if it has not been
+     * asked already.
+     *
+     * ⚠️ This runs while the user is still typing, so it is keyed on the domain rather than the
+     * address: everything after the `@` settles long before the local part does, and re-querying on
+     * each keystroke would be a DNS lookup per character. A domain that answers nothing is
+     * remembered as answered, so it is asked once and not again.
+     *
+     * Nothing here can fail loudly. The lookup already returns an empty result for a timeout, a
+     * refusal or a malformed packet, and the runCatching is for the rest: the form is unchanged and
+     * the user fills it in by hand, exactly as before this existed.
+     */
+    fun suggestImapEndpoints(email: String) {
+        val domain = MailSrv.domainOf(email)
+        if (domain == suggestedDomain) return
+        suggestedDomain = domain
+        suggestionJob?.cancel()
+        _imapSuggestion.value = null
+        if (domain == null) return
+        suggestionJob = viewModelScope.launch {
+            val endpoints = runCatching {
+                container.mailRepository.discoverImapEndpoints(email.trim())
+            }.getOrNull() ?: return@launch
+            _imapSuggestion.value = ImapSuggestion(domain, endpoints)
+        }
     }
 
     fun connect(server: String, username: String, password: String, accountName: String) {
@@ -270,11 +313,17 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
     fun connectOAuth(email: String, server: String, accountName: String) {
         if (busy()) return
         val emailTrim = email.trim()
-        // If the user entered a server (advanced), discover OAuth there; otherwise
-        // derive candidate hosts from the email domain.
-        val candidates = if (server.isNotBlank()) listOf(server.trim()) else Jmap.autodiscoverHosts(emailTrim)
         _state.value = ConnectState.Discovering
         oauthJob = viewModelScope.launch {
+            // If the user entered a server (advanced), discover OAuth there; otherwise ask the
+            // domain (DNS SRV) and fall back to the conventional hostnames. 🔴 The candidate list is
+            // built in here rather than above because it now does DNS, and the main thread is not
+            // the place for that.
+            val candidates = if (server.isNotBlank()) {
+                listOf(server.trim())
+            } else {
+                container.mailRepository.autodiscoverHosts(emailTrim)
+            }
             var metadata: OAuthMetadata? = null
             var host: String? = null
             for (h in candidates) {

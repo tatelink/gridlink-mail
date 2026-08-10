@@ -538,6 +538,7 @@
     <string name="connect_oauth_error_code">Microsoft heeft de aanmelding geweigerd (%1$s). Probeer het opnieuw of gebruik een app-wachtwoord.</string>
     <string name="connect_incoming_imap">Inkomend (IMAP)</string>
     <string name="connect_outgoing_smtp">Uitgaand (SMTP)</string>
+    <string name="connect_srv_found">Ingevuld met de instellingen die %1$s publiceert. Pas ze aan als ze niet kloppen.</string>
     <string name="connect_account_name_optional">Accountnaam (optioneel)</string>
     <string name="connect_email_username">E-mail / gebruikersnaam</string>
     <string name="connect_password">Wachtwoord</string>

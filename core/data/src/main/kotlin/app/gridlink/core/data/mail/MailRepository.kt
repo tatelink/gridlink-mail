@@ -43,6 +43,9 @@ import app.gridlink.core.data.db.EmailEntity
 import app.gridlink.core.data.db.MailboxDao
 import app.gridlink.core.data.db.MailboxIdRole
 import app.gridlink.core.data.getOrElseUnlessCancelled
+import app.gridlink.core.data.net.ImapEndpoints
+import app.gridlink.core.data.net.MailSrv
+import app.gridlink.core.data.net.SrvResolver
 import app.gridlink.core.data.pgp.PgpEngine
 import app.gridlink.core.data.settings.SettingsRepository
 import app.gridlink.core.data.settings.SortOrder
@@ -769,6 +772,11 @@ class MailRepository(
     private val settings: SettingsRepository? = null,
     /** Persisted sync cursors (null in tests): deltas survive process death (issue #17). */
     private val syncStateStore: SyncStateStore? = null,
+    /**
+     * DNS SRV lookups for autodiscovery. Defaults to [SrvResolver.None] so a test or a preview
+     * never reaches the network by omission; the app wires the real one in `DataFactory`.
+     */
+    private val srvResolver: SrvResolver = SrvResolver.None,
 ) {
     /**
      * Schedules the WorkManager job that delivers an outbox item. Set by the app layer at
@@ -1672,6 +1680,7 @@ class MailRepository(
         data object NotFound : DiscoveryResult
     }
 
+
     /**
      * JMAP autodiscovery (RFC 8620 §2.2): probe the email domain's
      * `/.well-known/jmap` (and conventional mail./jmap. subdomains) with the given
@@ -1680,7 +1689,7 @@ class MailRepository(
      * — reported distinctly so the UI can give a precise error.
      */
     suspend fun discoverJmapServer(email: String, password: String, token: String? = null): DiscoveryResult {
-        val hosts = Jmap.autodiscoverHosts(email)
+        val hosts = autodiscoverHosts(email)
         if (hosts.isEmpty()) return DiscoveryResult.NotFound
         // A non-null [token] is an API token (e.g. Fastmail): Bearer, never Basic.
         val auth = if (token != null) BearerAuth(token) else BasicAuth(email.trim(), password)
@@ -1697,6 +1706,34 @@ class MailRepository(
             }
         }
         return if (sawAuthFailure) DiscoveryResult.BadCredentials else DiscoveryResult.NotFound
+    }
+
+    /**
+     * Server hosts to probe for [email], best first: whatever the domain publishes as `_jmap._tcp`
+     * (RFC 8620 §2.2), then the conventional guesses [Jmap.autodiscoverHosts] has always made. See
+     * [MailSrv.jmapCandidates] for why the guesses stay.
+     *
+     * Used by the OAuth path too (`ConnectViewModel`), because the OAuth metadata a JMAP server
+     * advertises sits at the same host as its session.
+     */
+    suspend fun autodiscoverHosts(email: String): List<String> {
+        val guesses = Jmap.autodiscoverHosts(email)
+        val domain = MailSrv.domainOf(email) ?: return guesses
+        return MailSrv.jmapCandidates(srvResolver.lookup(MailSrv.jmap(domain)), guesses)
+    }
+
+    /**
+     * The IMAP and submission servers [email]'s domain publishes (RFC 6186), or null when it
+     * publishes neither.
+     *
+     * Both names are asked for at once: the setup form needs all four values together, and two
+     * sequential lookups would double the wait in front of someone staring at an empty form.
+     */
+    suspend fun discoverImapEndpoints(email: String): ImapEndpoints? = coroutineScope {
+        val domain = MailSrv.domainOf(email) ?: return@coroutineScope null
+        val incoming = async { srvResolver.lookup(MailSrv.imaps(domain)) }
+        val outgoing = async { srvResolver.lookup(MailSrv.submission(domain)) }
+        MailSrv.imapEndpoints(incoming.await(), outgoing.await())
     }
 
     /**

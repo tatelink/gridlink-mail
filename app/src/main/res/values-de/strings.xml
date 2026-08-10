@@ -538,6 +538,7 @@
     <string name="connect_oauth_error_code">Microsoft hat die Anmeldung abgelehnt (%1$s). Versuchen Sie es erneut oder verwenden Sie ein App-Passwort.</string>
     <string name="connect_incoming_imap">Eingehend (IMAP)</string>
     <string name="connect_outgoing_smtp">Ausgehend (SMTP)</string>
+    <string name="connect_srv_found">Aus den von %1$s veröffentlichten Einstellungen übernommen. Ändere sie, falls sie falsch sind.</string>
     <string name="connect_account_name_optional">Kontoname (optional)</string>
     <string name="connect_email_username">E-Mail / Benutzername</string>
     <string name="connect_password">Passwort</string>
