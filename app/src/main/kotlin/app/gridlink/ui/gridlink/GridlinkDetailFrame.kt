@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -92,6 +93,22 @@ fun GridlinkDetailFrame(
      * share an outline.
      */
     bottom: (@Composable RowScope.() -> Unit)? = null,
+    /**
+     * One control that belongs to the thing on screen rather than to the frame, parked at the
+     * trailing end of the title. Null on every screen that has nothing to put there, which is most
+     * of them.
+     *
+     * ## 🔴 It is drawn in BOTH layouts, which is the whole reason it is a slot on the frame
+     * The standing screen's title floats above the glass and the pane's title sits inside it (see
+     * this file's doc), so a screen that wanted a control beside its title had two places to put
+     * one and no way to keep them level. Hanging it off the frame means the caller says "beside the
+     * title" once and the frame decides where that is, exactly like the title itself.
+     *
+     * ⚠️ Sized for [GridlinkDimens.headerControl]. A taller control would push the standing header
+     * down and leave the pane's title row alone, which is precisely the silent drift the shared
+     * frame exists to prevent.
+     */
+    titleAction: (@Composable () -> Unit)? = null,
     panel: @Composable BoxScope.() -> Unit,
 ) {
     val colors = GridlinkTheme.colors
@@ -118,7 +135,7 @@ fun GridlinkDetailFrame(
                     Spacer(Modifier.height(paneFloor))
                 }
             } else {
-                GridlinkDetailHeader(title = title, onBack = onBack)
+                GridlinkDetailHeader(title = title, onBack = onBack, titleAction = titleAction)
             }
 
             Box(
@@ -136,19 +153,33 @@ fun GridlinkDetailFrame(
                         // into the header of the message preview window". Same style the standing
                         // header uses, so folding the device does not change the subject's size,
                         // only where it sits.
-                        Text(
-                            text = title,
-                            style = GridlinkType.threadTitle,
-                            color = colors.textPrimary,
-                            maxLines = 3,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(
+                        //
+                        // A Row rather than a bare Text so [titleAction] lands on the same side of
+                        // the same line it lands on in the standing header. It costs nothing when
+                        // there is no action: a Row with one weighted child measures its child
+                        // exactly as the Text measured itself.
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(
                                 start = GridlinkSpacing.rowHorizontal,
                                 end = GridlinkSpacing.rowHorizontal,
                                 top = GridlinkSpacing.s16,
                                 bottom = GridlinkSpacing.s12,
                             ),
-                        )
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = title,
+                                style = GridlinkType.threadTitle,
+                                color = colors.textPrimary,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (titleAction != null) {
+                                Spacer(Modifier.width(GridlinkSpacing.s12))
+                                titleAction()
+                            }
+                        }
                         // A hairline, not a heavier rule: this is the same divider weight the
                         // panel's own content uses, so the title reads as the panel's first row
                         // rather than as a second window title bar.
@@ -245,6 +276,7 @@ private fun GridlinkDetailHeader(
     title: String,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    titleAction: (@Composable () -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
     Row(
@@ -273,6 +305,10 @@ private fun GridlinkDetailHeader(
                 .weight(1f)
                 .padding(start = GridlinkSpacing.s16),
         )
+        if (titleAction != null) {
+            Spacer(Modifier.width(GridlinkSpacing.s12))
+            titleAction()
+        }
     }
 }
 
@@ -304,6 +340,58 @@ fun GridlinkDetailCircleButton(
             imageVector = icon,
             contentDescription = label,
             tint = colors.textPrimary,
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
+/**
+ * A header control that is also a switch: same circle as [GridlinkDetailCircleButton], lit when
+ * [active].
+ *
+ * ## 🔴 Lit means the accent gradient and a white glyph. Unlit means the plain surface circle.
+ * That is the app's standing vocabulary for an on/off control, the same one the filter chips use,
+ * and the important half of it is what unlit is NOT: it is not the lit circle at reduced alpha.
+ * Brandon has read a dimmed control as broken rather than as off more than once, so nothing in this
+ * design encodes state with opacity.
+ *
+ * [icon] and [activeIcon] are separate because the glyph usually changes too: an outline that fills
+ * in says "off / on" at a glance even before the colour registers, and it is what survives a
+ * colour-blind reading of the same two states.
+ */
+@Composable
+fun GridlinkDetailToggleButton(
+    icon: ImageVector,
+    activeIcon: ImageVector,
+    label: String,
+    active: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    size: Dp = GridlinkDimens.headerControl,
+) {
+    val colors = GridlinkTheme.colors
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .then(
+                if (active) {
+                    Modifier.background(gridlinkAccentFill(colors.accent), CircleShape)
+                } else {
+                    Modifier
+                        .background(colors.surface, CircleShape)
+                        .border(GridlinkDimens.hairline, colors.surfaceBorder, CircleShape)
+                },
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = if (active) activeIcon else icon,
+            contentDescription = label,
+            // Measured against the accent rather than the gradient built from it, for the reason
+            // spelled out on [GridlinkDetailAccentButton].
+            tint = if (active) gridlinkOnAccent(colors.accent) else colors.textPrimary,
             modifier = Modifier.size(20.dp),
         )
     }

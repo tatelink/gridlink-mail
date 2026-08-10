@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -232,6 +233,28 @@ fun GridlinkMessageRow(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
+                    // 🔴 Read-only, and it has to be, at this density. The row is 64dp with no
+                    // spare width and a subject that already ellipsizes; a tappable star would
+                    // need a 40dp target carved out of line 2 on EVERY row, starred or not,
+                    // because a control that only exists once you have used it cannot be found.
+                    // So the star is set in the open message (see [GridlinkThreadAction.STAR]) and
+                    // this only reports it, exactly like the paperclip beside it.
+                    //
+                    // Without this the loop had no end: you could star a message, go back, and the
+                    // list looked identical, which is indistinguishable from the write having
+                    // failed. It is the accent rather than the secondary text colour the paperclip
+                    // uses, because a star is a thing you chose and an attachment is a fact about
+                    // the message.
+                    if (message.starred) {
+                        Icon(
+                            imageVector = Icons.Filled.Star,
+                            contentDescription = "Starred",
+                            tint = colors.accent,
+                            modifier = Modifier
+                                .padding(start = GridlinkSpacing.s8)
+                                .size(14.dp),
+                        )
+                    }
                     if (message.hasAttachment) {
                         Icon(
                             imageVector = Icons.Filled.AttachFile,

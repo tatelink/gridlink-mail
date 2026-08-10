@@ -681,16 +681,18 @@ data class GridlinkMessage(
     /**
      * The `$flagged` keyword, as the server has it. What every other client calls a star.
      *
-     * ## 🔴 Read-only in this app today, and that is a real gap, not an oversight
-     * Nothing in the Gridlink UI can SET this: there is no star control on a row, in the thread, or
-     * in the selection toolbar, and [GridlinkMailAction] has no entry for one. It is carried and
-     * respected because the flag genuinely exists on Brandon's mail — put there from webmail or
-     * another client — and a quick filter that ignored it would be filtering on a fact the app had
-     * decided not to look at.
+     * ## Where it is set, and where it is only shown
+     * Set in ONE place: the open message's title control ([GridlinkThreadAction.STAR]). Shown in
+     * two more, both read-only, both deliberately so — the list row draws a small accent star
+     * beside the paperclip, and the Starred quick filter narrows on it.
      *
-     * So the Starred chip narrows to mail starred somewhere else. That is useful and it is also
-     * half a feature; the other half is a star action, which is a design call about where the
-     * control lives and is deliberately not being invented here.
+     * 🔴 The row's star is not a button and the list has no way to star anything. At 64dp with a
+     * subject that already ellipsizes, a tap target would have to be reserved on every row rather
+     * than only on starred ones, and the selection toolbar is at its documented four-item ceiling
+     * (see [GridlinkSelectionAction]). One place to set it, three places that agree about it.
+     *
+     * ⚠️ The flag also arrives from outside: plenty of Brandon's mail is starred from webmail or
+     * another client, so a message can be starred without this app ever having touched it.
      */
     val starred: Boolean = false,
 ) {

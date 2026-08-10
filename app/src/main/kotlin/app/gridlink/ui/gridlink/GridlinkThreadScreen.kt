@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.outlined.Forward
 import androidx.compose.material.icons.automirrored.outlined.ReplyAll
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.Email
@@ -27,10 +28,12 @@ import androidx.compose.material.icons.outlined.HideImage
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Report
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.Unsubscribe
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -136,11 +139,51 @@ fun GridlinkThreadScreen(
         }
     }
 
+    // 🔴 What the star shows until the mailbox catches up with it.
+    //
+    // [message] is resolved live out of the cached rows on every recomposition, so `message.starred`
+    // IS the truth and it updates on its own — but not until the write has been round-tripped to the
+    // server and written back to Room, which is a few hundred milliseconds of a button that looks
+    // dead. This holds the answer the user just gave in the meantime.
+    //
+    // It clears itself the moment the truth agrees, rather than on a timer, so there is exactly one
+    // source of this state for all but that handful of frames. ⚠️ A write that FAILS never agrees,
+    // so the star stays lit on a message that was not starred until the thread is closed and
+    // reopened (`remember(message.id)`). That is the same shape of failure every other action here
+    // has — [onAction] reports nothing back — and fixing it properly means an error surface on the
+    // thread, which does not exist yet for archive either.
+    //
+    // It is also what makes the star work in the debug gallery, where nothing is wired and
+    // `message.starred` can never change.
+    var pendingStar by remember(message.id) { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(message.starred) {
+        if (pendingStar == message.starred) pendingStar = null
+    }
+    val starred = pendingStar ?: message.starred
+
     GridlinkDetailFrame(
         title = message.subject,
         onBack = onBack,
         modifier = modifier,
         embedded = embedded,
+        titleAction = {
+            GridlinkDetailToggleButton(
+                icon = Icons.Outlined.StarBorder,
+                activeIcon = Icons.Filled.Star,
+                // Names the state it will move TO, like every other toggle in the app. A control
+                // labelled with what it currently is reads as a status line to a screen reader and
+                // leaves "what happens if I press it" unanswered.
+                label = if (starred) "Remove star" else "Star",
+                active = starred,
+                onClick = {
+                    val next = !starred
+                    pendingStar = next
+                    onAction(
+                        if (next) GridlinkThreadAction.STAR else GridlinkThreadAction.UNSTAR,
+                    )
+                },
+            )
+        },
         bottom = {
             GridlinkThreadActionPill(
                 onAction = dispatch,
@@ -543,8 +586,21 @@ private fun GridlinkThreadAttachment(
  * two controls that do the same thing on one 64dp baseline is how you end up tapping the wrong one,
  * and the circle is already the loudest object on the screen. The circle carries the word "Reply"
  * for the same reason, see [GridlinkDetailAccentButton].
+ *
+ * ## 🔴 [STAR] and [UNSTAR] are the exception: they are up at the title, not down at the baseline
+ * Everything else in this enum is a one-way verb that ends with the message somewhere else, so the
+ * baseline is where they belong. Starring is a switch on the message you are looking at, it is
+ * reversible, and its whole point is that you can see the answer without pressing anything. None of
+ * that fits a row of verbs. The two other places it could have gone are closed: the pill is settled
+ * at three slots after Brandon called four "way too crowded" (see [GridlinkThreadActionPill]), and
+ * burying a switch under More would hide the state as well as the control. So it is a lit circle
+ * beside the subject, which is [GridlinkDetailFrame]'s `titleAction` slot.
+ *
+ * Two entries rather than one TOGGLE because everything downstream is a set-a-value call, not a
+ * flip-whatever-you-find call. A single TOGGLE would have to re-read the current state somewhere
+ * else in the chain, and that is exactly where a double tap turns into a lost write.
  */
-enum class GridlinkThreadAction { REPLY, REPLY_ALL, FORWARD, ARCHIVE, SPAM, UNSUBSCRIBE }
+enum class GridlinkThreadAction { REPLY, REPLY_ALL, FORWARD, ARCHIVE, SPAM, UNSUBSCRIBE, STAR, UNSTAR }
 
 /**
  * The secondary actions, in the same shell the nav pill uses on the list.

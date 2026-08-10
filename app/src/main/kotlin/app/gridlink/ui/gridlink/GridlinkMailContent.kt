@@ -179,6 +179,12 @@ data class GridlinkOpenMessage(
  * message, spam moves it AND trains the filter, unsubscribe sends a request first. Collapsing them
  * at this boundary is exactly how that difference gets lost, because from here on nothing can tell
  * which button was pressed.
+ *
+ * ## 🔴 [STAR] and [UNSTAR] do not remove the row, and neither does the caller
+ * Every other entry here except the two mark-read ones ends with the message somewhere else, and the
+ * scaffold's `fileOpenThread` is built around that: it posts the action AND closes the thread. These
+ * two must not go through it. Starring a message you are reading and having the message close is the
+ * app deciding you were finished with it.
  */
 enum class GridlinkMailAction {
     ARCHIVE,
@@ -188,4 +194,6 @@ enum class GridlinkMailAction {
     UNSUBSCRIBE,
     MARK_READ,
     MARK_UNREAD,
+    STAR,
+    UNSTAR,
 }
