@@ -137,6 +137,20 @@ interface EmailDao {
     suspend fun setFlagged(accountId: String, id: String, flagged: Boolean)
 
     /**
+     * Both flags of one cached message at once — what a CONDSTORE delta carries back (RFC 7162).
+     *
+     * An UPDATE and deliberately not an upsert: the delta has no envelope in it, so a row that is
+     * not already cached must NOT be created here. `WHERE` simply matches nothing in that case,
+     * which is the right answer — that message is outside the cached window and will arrive with
+     * its envelope the next time the window is read.
+     *
+     * `\Answered` is not among them because `emails` has no column for it; the app reads
+     * answered-ness from the thread, not the flag.
+     */
+    @Query("UPDATE emails SET seen = :seen, flagged = :flagged WHERE accountId = :accountId AND id = :id")
+    suspend fun setFlags(accountId: String, id: String, seen: Boolean, flagged: Boolean)
+
+    /**
      * Take one message OUT OF THIS PLACE: drop its cached row and its search-index row, together in
      * one transaction, with the recovery for a failed index write sitting OUTSIDE that transaction.
      *

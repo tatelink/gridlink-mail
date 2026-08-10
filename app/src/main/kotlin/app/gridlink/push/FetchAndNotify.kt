@@ -54,6 +54,13 @@ object FetchAndNotify {
         if (inboxId != null) NewMailNotifier.migrateLegacyBaseline(context, credentials.id, inboxId)
         val unarchiveOnReply = container.settingsRepository.unarchiveOnReply.first()
         refreshes.forEach { folder ->
+            // 🔴 The server reported this folder untouched since the last pass, so this pass never
+            // read it (RFC 7162 CONDSTORE). There is nothing to diff and — far more importantly —
+            // nothing to SEED WITH: a `seed` here would record an empty baseline for a folder full
+            // of mail, and the next pass that did read it would announce every message in it as
+            // newly arrived. The baseline is left exactly as the last real read left it, which is
+            // still correct precisely because nothing has happened.
+            val emails = folder.emails ?: return@forEach
             val isInbox = folder.mailboxId == inboxId
             val folderName = if (isInbox) null else folder.name
             val hasBaseline = NewMailNotifier.hasBaseline(context, credentials.id, folder.mailboxId)
@@ -71,7 +78,7 @@ object FetchAndNotify {
             // the one notification. Best-effort — a failed move must not cost the
             // notification (or the reseed).
             val returned = if (isInbox && hasBaseline && unarchiveOnReply) {
-                val threads = NewMailNotifier.newSince(context, credentials.id, folder.mailboxId, folder.emails)
+                val threads = NewMailNotifier.newSince(context, credentials.id, folder.mailboxId, emails)
                     .mapNotNull { it.threadId }
                     .toSet()
                 runCatching { container.mailRepository.unarchiveThreadsOnReply(credentials, threads) }
@@ -82,9 +89,9 @@ object FetchAndNotify {
             if (seedsSilently(resetBaselines, isInbox, hasBaseline)) {
                 // First sight of a folder (or an explicit reset): seed silently instead of
                 // flooding notifications for its whole existing content.
-                NewMailNotifier.seed(context, credentials.id, folder.mailboxId, folder.emails + returned)
+                NewMailNotifier.seed(context, credentials.id, folder.mailboxId, emails + returned)
             } else {
-                NewMailNotifier.notifyDiff(context, credentials, folder.mailboxId, folderName, folder.emails + returned)
+                NewMailNotifier.notifyDiff(context, credentials, folder.mailboxId, folderName, emails + returned)
             }
         }
         // The cache has just changed, so anything drawing from it is now stale. This is the one

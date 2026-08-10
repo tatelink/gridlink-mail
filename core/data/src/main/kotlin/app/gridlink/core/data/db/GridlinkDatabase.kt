@@ -12,7 +12,7 @@ import androidx.room.RoomDatabase
         PurgeSnapshotEntity::class, MailboxUidValidityEntity::class,
         DavCollectionEntity::class, CalendarEventEntity::class, AddressBookContactEntity::class,
     ],
-    version = 22,
+    version = 23,
     exportSchema = false,
 )
 abstract class GridlinkDatabase : RoomDatabase() {
@@ -48,11 +48,14 @@ abstract class GridlinkDatabase : RoomDatabase() {
                 // 19→20 adds the CalDAV/CardDAV mirror; 20→21 adds each mailbox's `myRights`,
                 // nullable because "not asked yet" is not "not allowed"; 21→22 rebuilds
                 // `email_fts` with `preview` tokenized, so a local search finally reaches the
-                // opening of the body and not just subject and sender.
+                // opening of the body and not just subject and sender; 22→23 adds the per-folder
+                // IMAP sync point (HIGHESTMODSEQ/UIDNEXT/EXISTS) that lets a refresh skip a
+                // folder nothing has happened in (RFC 7162).
                 .addMigrations(
                     MIGRATION_9_10, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
                     MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18,
                     MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
+                    MIGRATION_22_23,
                 )
                 // The rest of the DB is a disposable mirror of the server: if some other schema
                 // change has no migration, rebuilding the cache is an acceptable fallback.
