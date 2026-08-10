@@ -94,3 +94,15 @@ jobs:
 
       - name: Submit dependency graph
         uses: gradle/actions/dependency-submission@v4
+        env:
+          # Only what ships inside the APK. Unfiltered, the submission also reports the *build*
+          # classpath, and `com.android.tools.build:gradle` drags in gRPC/Netty, BouncyCastle,
+          # Guava, protobuf and commons-compress. That produced 49 alerts (1 critical, 21 high)
+          # against code that never leaves the build machine and is not in the artifact a user
+          # installs, which is worse than no scanning at all: a real alert would have been
+          # invisible in the noise.
+          #
+          # `runtimeClasspath` is the pure-JVM modules (:core:jmap), `releaseRuntimeClasspath` the
+          # Android ones. Debug- and test-only configurations are deliberately out: those
+          # dependencies are not shipped either.
+          DEPENDENCY_GRAPH_INCLUDE_CONFIGURATIONS: (release)?[Rr]untimeClasspath
