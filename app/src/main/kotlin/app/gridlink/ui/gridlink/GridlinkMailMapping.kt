@@ -160,6 +160,7 @@ object GridlinkMailMapping {
                 yesterday = labels.yesterday,
             ),
             unread = !email.isSeen,
+            starred = email.isFlagged,
             attachmentPending = email.hasAttachment,
             automated = automated,
             section = if (automated) GridlinkSection.AUTOMATED else section(email, zone, today),

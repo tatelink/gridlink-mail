@@ -268,6 +268,12 @@ object GridlinkSample {
             subject = "Guest complaint 2210447 assigned to you, response due within 48 hours",
             timestamp = "Tue",
             unread = true,
+            // ⚠️ One of exactly two starred fixtures, and the only one that is also unread. Without
+            // them the Starred chip empties the list on every sample build, so a gallery capture of
+            // a working filter would be indistinguishable from a broken one. Both are things a
+            // manager would plausibly flag and neither carries an attachment, which is what leaves
+            // "starred + attachments" genuinely empty for the filtered-empty capture.
+            starred = true,
             section = GridlinkSection.EARLIER,
         ),
         GridlinkMessage(
@@ -296,6 +302,9 @@ object GridlinkSample {
             subject = "Certificate of insurance renewal, signature required",
             timestamp = "Mon",
             unread = false,
+            // The second starred fixture, read rather than unread, so the pair also shows that
+            // starred and unread are independent facts rather than two names for the same row.
+            starred = true,
             section = GridlinkSection.EARLIER,
         ),
         GridlinkMessage(
@@ -669,6 +678,21 @@ data class GridlinkMessage(
      * about how mail is grouped and not about what can be done to it.
      */
     val unsubscribe: GridlinkUnsubscribe? = null,
+    /**
+     * The `$flagged` keyword, as the server has it. What every other client calls a star.
+     *
+     * ## 🔴 Read-only in this app today, and that is a real gap, not an oversight
+     * Nothing in the Gridlink UI can SET this: there is no star control on a row, in the thread, or
+     * in the selection toolbar, and [GridlinkMailAction] has no entry for one. It is carried and
+     * respected because the flag genuinely exists on Tate's mail — put there from webmail or
+     * another client — and a quick filter that ignored it would be filtering on a fact the app had
+     * decided not to look at.
+     *
+     * So the Starred chip narrows to mail starred somewhere else. That is useful and it is also
+     * half a feature; the other half is a star action, which is a design call about where the
+     * control lives and is deliberately not being invented here.
+     */
+    val starred: Boolean = false,
 ) {
     val hasAttachment: Boolean get() = attachments.isNotEmpty() || attachmentPending
 

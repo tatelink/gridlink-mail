@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import app.gridlink.core.data.mail.MailFilter
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
 import app.gridlink.ui.theme.GridlinkRadii
@@ -214,6 +215,18 @@ fun GridlinkMessageListScreen(
      */
     onSearchQuery: (String) -> Unit = {},
     /**
+     * Which quick filters are lit, reported upward on every tap.
+     *
+     * Same contract as [onSearchQuery], and for the same reason: whoever supplies [mail] does the
+     * narrowing, in SQL, before the mailbox window's `LIMIT`. This screen cannot do it — the rows it
+     * holds are already the window, so filtering them would answer "starred, among the most recent
+     * N" to a chip that says "starred". The default no-op is the sample's wiring, where a local
+     * filter IS honest because the fixtures are the whole mailbox.
+     */
+    onFilter: (MailFilter) -> Unit = {},
+    /** Screen-capture hook: opens with these chips already lit. */
+    initialFilter: MailFilter = MailFilter.none,
+    /**
      * Screen-capture hook: which row opens mid-swipe. A message id, or [GRIDLINK_BUNDLE_SWIPE_ID]
      * for the bundle row itself. §6a's deliverable is three frames taken *during* the gesture, and
      * `adb input swipe` cannot hold a drag still at a given fraction of a row it cannot measure.
@@ -356,6 +369,8 @@ fun GridlinkMessageListScreen(
     LaunchedEffect(Unit) {
         if (searchQuery.isNotBlank()) onSearchQuery(searchQuery)
     }
+    // The lit chips, saved and re-reported on the way back in. See [rememberGridlinkFilter].
+    var filter by rememberGridlinkFilter(initialFilter, onFilter)
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
@@ -407,6 +422,30 @@ fun GridlinkMessageListScreen(
         robots = bundled
         val present = (content.humans + bundled).mapTo(mutableSetOf()) { it.id }
         removedIds = removedIds intersect present
+    }
+
+    // The sample's half of the quick filters, and the ONLY place this screen narrows anything
+    // itself. An account is narrowed in SQL and arrives through [mail] already filtered; the
+    // fixtures have nobody to ask, and they are the whole mailbox, so re-seeding them through the
+    // predicate is the same operation a re-query is.
+    //
+    // 🔴 Skips its own first run. Composing is not a chip tap, and seeding here unconditionally
+    // would overwrite `initiallyEmpty`'s empty list and the demo recycle's edits with the raw
+    // fixtures on the frame the screen appeared.
+    var filterSeeded by remember { mutableStateOf(false) }
+    LaunchedEffect(filter) {
+        if (mail != null || initiallyEmpty) return@LaunchedEffect
+        // ⚠️ Unless something is already lit, which is [initialFilter]'s whole purpose: the gallery
+        // opens this screen with chips on to photograph a narrowed list, and there is no tap coming.
+        if (!filterSeeded) {
+            filterSeeded = true
+            if (filter.isEmpty) return@LaunchedEffect
+        }
+        humans = GridlinkSample.humanMessages.filter { it.matchesFilter(filter) }
+        robots = GridlinkSample.reportsBundle.messages.filter { it.matchesFilter(filter) }
+        // The lists just changed underneath every animation in flight, and an id that is mid-exit
+        // in one filter has no meaning in the next.
+        removedIds = emptySet()
     }
 
     // 🔴 ONE animation for the whole list. Every row, every section label and every divider reads
@@ -742,6 +781,35 @@ fun GridlinkMessageListScreen(
                 selectedCount = selectedIds.size,
             )
         },
+        // 🔴 Passed unconditionally, never null. The scaffold zeroes the reading pane's top offset
+        // the moment this slot is empty, so hiding the chips during a search or a selection would
+        // shunt the whole list up a row and drag the second pane with it. They stay, and the two
+        // conflicts below are resolved by the chips putting the other mode away instead.
+        //
+        // ⚠️ And they are never dimmed while they wait. Tate reads opacity-dimming as broken
+        // rather than as off; the lit/unlit vocabulary is fill, and it is the only one used here.
+        belowHeader = {
+            GridlinkFilterChips(
+                filter = filter,
+                onFilter = {
+                    filter = it
+                    onFilter(it)
+                    // Search REPLACES this list rather than narrowing it, so a chip tapped over
+                    // results would be a control acting on a list that is not on screen — the
+                    // exact complaint that moved the contacts sort pill down here. The chip is the
+                    // more specific request, so it wins and the query goes.
+                    if (searchQuery.isNotEmpty()) {
+                        searchQuery = ""
+                        onSearchQuery("")
+                    }
+                    // A filter can hide a ticked row, and a toolbar that then archives eleven
+                    // messages of which the user can see four is the worst outcome on this screen.
+                    // Filtering is a decision to look at a different set of mail, so the selection
+                    // does not survive it.
+                    onSelectedIdsChange(emptySet())
+                },
+            )
+        },
         // 🔴 Search is hidden while selecting. A search field and a selection are two different modes
         // of the same list, and offering both at once invites you to start one and silently lose the
         // other. §6b spends the freed seat on select-all, which is the other half of the same trade:
@@ -839,6 +907,19 @@ fun GridlinkMessageListScreen(
                 return@Box
             }
 
+            // Before the empty inbox, because a narrowed list that came back with nothing is not an
+            // empty mailbox and must not offer a sync as the fix. See [GridlinkEmptyFiltered].
+            if (!hasMail && filter.isActive) {
+                GridlinkEmptyFiltered(
+                    summary = gridlinkFilterSummary(filter),
+                    onClearFilters = {
+                        filter = MailFilter.none
+                        onFilter(MailFilter.none)
+                    },
+                )
+                return@Box
+            }
+
             if (!hasMail) {
                 GridlinkEmptyInbox(
                     sync = chrome.sync,
@@ -865,100 +946,115 @@ fun GridlinkMessageListScreen(
                     bottom = GridlinkDimens.listFade,
                 ),
             ) {
-                item(key = "label-automated") {
-                    GridlinkSectionLabel(GridlinkSection.AUTOMATED.label, gutter = gutter)
-                }
-                item(key = "bundle") {
-                    Column {
-                        // §5: "The bundle row itself supports the same swipe actions, applying to every
-                        // message inside it, which is the fastest way to clear a morning's reports."
-                        GridlinkSwipeableRow(
-                            visible = !bundleGone,
-                            enabled = !selecting,
-                            initialFraction = if (initialSwipeId == GRIDLINK_BUNDLE_SWIPE_ID) {
-                                initialSwipeFraction
-                            } else {
-                                0f
-                            },
-                            onAction = { applySwipe(bundleIds, it) },
-                            divider = {
-                                GridlinkRowDivider(
-                                    startInset = GridlinkSpacing.rowHorizontal + gutter,
-                                )
-                            },
-                        ) {
-                            GridlinkBundleRow(
-                                // Recomputed, so the badge answers to the swipes.
-                                bundle = bundleTemplate.copy(unreadCount = bundleUnread),
-                                expanded = bundleExpanded,
-                                // While selecting, a tap on the bundle picks it up rather than opening
-                                // it. Expanding mid-selection would shove six rows under the thumb that
-                                // just tapped.
-                                onToggle = {
-                                    if (selecting) {
-                                        onSelectedIdsChange(
-                                            if (bundleSelected) {
-                                                selectedIds - bundleIds
-                                            } else {
-                                                selectedIds + bundleIds
-                                            },
-                                        )
-                                    } else {
-                                        bundleExpanded = !bundleExpanded
-                                    }
-                                },
-                                gutter = gutter,
-                                selected = bundleSelected,
-                                onLongClick = { onSelectedIdsChange(selectedIds + bundleIds) },
-                            )
-                        }
+                // 🔴 Guarded, exactly as the timeline sections below guard themselves: a section
+                // label is not allowed to outlive the rows it names. AUTOMATED went unguarded
+                // because it could not be empty while the list was always the whole mailbox, and
+                // that stopped being true twice over. A lit Starred chip usually leaves no automated
+                // mail at all, and the fallback bundle for a real account with no robots is empty by
+                // design (see the 🔴 on [bundleTemplate]) — both drew a bare AUTOMATED heading with
+                // nothing underneath it.
+                //
+                // ⚠️ [robots] emptiness, NOT [bundleGone]. A swiped-away bundle keeps its rows here
+                // and marks them in `removedIds`, which is the only state the collapse animation
+                // reads; dropping these items the frame the finger lifts would delete the row
+                // mid-exit and make an archive snap instead of close.
+                if (robots.isNotEmpty()) {
+                    item(key = "label-automated") {
+                        GridlinkSectionLabel(GridlinkSection.AUTOMATED.label, gutter = gutter)
                     }
-                }
-                item(key = "bundle-children") {
-                    // The outer Column is not decoration: expandVertically resolves to the ColumnScope
-                    // overload, and a LazyColumn item is not one.
-                    Column {
-                        // One AnimatedVisibility around the whole group, so expanding reads as the
-                        // bundle opening rather than as six rows arriving in turn.
-                        AnimatedVisibility(
-                            visible = bundleExpanded,
-                            enter = expandVertically(
-                                animationSpec = GridlinkMotion.standard(),
-                            ) + fadeIn(),
-                            exit = shrinkVertically(
-                                animationSpec = GridlinkMotion.groupCollapse(),
-                            ) + fadeOut(),
-                        ) {
-                            Column {
-                                robots.forEach { child ->
-                                    key(child.id) {
-                                        GridlinkSwipeableRow(
-                                            visible = isPresent(child),
-                                            enabled = !selecting,
-                                            initialFraction = if (child.id == initialSwipeId) {
-                                                initialSwipeFraction
-                                            } else {
-                                                0f
-                                            },
-                                            onAction = { applySwipe(setOf(child.id), it) },
-                                            divider = {
-                                                GridlinkRowDivider(
-                                                    startInset = GridlinkSpacing.bundleIndent +
-                                                        GridlinkSpacing.rowHorizontal + gutter,
-                                                )
-                                            },
-                                        ) {
-                                            GridlinkBundledChildRow(
-                                                message = child,
-                                                onClick = { onRowTap(child) },
-                                                selected = child.id in selectedIds,
-                                                current = child.id == currentId &&
-                                                    selectedIds.isEmpty(),
-                                                gutter = gutter,
-                                                onLongClick = {
-                                                    onSelectedIdsChange(selectedIds + child.id)
+                    item(key = "bundle") {
+                        Column {
+                            // §5: "The bundle row itself supports the same swipe actions, applying
+                            // to every message inside it, which is the fastest way to clear a
+                            // morning's reports."
+                            GridlinkSwipeableRow(
+                                visible = !bundleGone,
+                                enabled = !selecting,
+                                initialFraction = if (initialSwipeId == GRIDLINK_BUNDLE_SWIPE_ID) {
+                                    initialSwipeFraction
+                                } else {
+                                    0f
+                                },
+                                onAction = { applySwipe(bundleIds, it) },
+                                divider = {
+                                    GridlinkRowDivider(
+                                        startInset = GridlinkSpacing.rowHorizontal + gutter,
+                                    )
+                                },
+                            ) {
+                                GridlinkBundleRow(
+                                    // Recomputed, so the badge answers to the swipes.
+                                    bundle = bundleTemplate.copy(unreadCount = bundleUnread),
+                                    expanded = bundleExpanded,
+                                    // While selecting, a tap on the bundle picks it up rather than
+                                    // opening it. Expanding mid-selection would shove six rows under
+                                    // the thumb that just tapped.
+                                    onToggle = {
+                                        if (selecting) {
+                                            onSelectedIdsChange(
+                                                if (bundleSelected) {
+                                                    selectedIds - bundleIds
+                                                } else {
+                                                    selectedIds + bundleIds
                                                 },
                                             )
+                                        } else {
+                                            bundleExpanded = !bundleExpanded
+                                        }
+                                    },
+                                    gutter = gutter,
+                                    selected = bundleSelected,
+                                    onLongClick = { onSelectedIdsChange(selectedIds + bundleIds) },
+                                )
+                            }
+                        }
+                    }
+                    item(key = "bundle-children") {
+                        // The outer Column is not decoration: expandVertically resolves to the
+                        // ColumnScope overload, and a LazyColumn item is not one.
+                        Column {
+                            // One AnimatedVisibility around the whole group, so expanding reads as
+                            // the bundle opening rather than as six rows arriving in turn.
+                            AnimatedVisibility(
+                                visible = bundleExpanded,
+                                enter = expandVertically(
+                                    animationSpec = GridlinkMotion.standard(),
+                                ) + fadeIn(),
+                                exit = shrinkVertically(
+                                    animationSpec = GridlinkMotion.groupCollapse(),
+                                ) + fadeOut(),
+                            ) {
+                                Column {
+                                    robots.forEach { child ->
+                                        key(child.id) {
+                                            GridlinkSwipeableRow(
+                                                visible = isPresent(child),
+                                                enabled = !selecting,
+                                                initialFraction = if (child.id == initialSwipeId) {
+                                                    initialSwipeFraction
+                                                } else {
+                                                    0f
+                                                },
+                                                onAction = { applySwipe(setOf(child.id), it) },
+                                                divider = {
+                                                    GridlinkRowDivider(
+                                                        startInset = GridlinkSpacing.bundleIndent +
+                                                            GridlinkSpacing.rowHorizontal + gutter,
+                                                    )
+                                                },
+                                            ) {
+                                                GridlinkBundledChildRow(
+                                                    message = child,
+                                                    onClick = { onRowTap(child) },
+                                                    selected = child.id in selectedIds,
+                                                    current = child.id == currentId &&
+                                                        selectedIds.isEmpty(),
+                                                    gutter = gutter,
+                                                    onLongClick = {
+                                                        onSelectedIdsChange(selectedIds + child.id)
+                                                    },
+                                                )
+                                            }
                                         }
                                     }
                                 }

@@ -374,15 +374,37 @@ interface EmailDao {
      * Snoozed messages are excluded, matching every other read of this table: a snoozed message
      * is deliberately out of sight until its time comes, and a second list that ignored that
      * would put it back on screen with no explanation.
+     *
+     * ## The quick filters
+     * [unread], [starred] and [withAttachment] are the list's filter chips
+     * ([app.gridlink.core.data.mail.MailFilter]), bound as 0/1 and each one inert when off:
+     * `:unread = 0 OR seen = 0` is the whole predicate, so all three off is byte-for-byte the
+     * query this was before they existed.
+     *
+     * 🔴 They filter BEFORE the LIMIT, and that is the entire reason they are in SQL rather than a
+     * `.filter {}` on the result. Applied afterwards, "Starred" would search only the newest
+     * [limit] messages and find the four starred ones among them, silently answering a narrower
+     * question than the chip asks — and the older starred mail it skipped is cached, right there,
+     * a row the user has already seen. Here the window is the newest [limit] messages THAT MATCH.
      */
     @Query(
         "SELECT * FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId " +
+            "AND (:unread = 0 OR seen = 0) " +
+            "AND (:starred = 0 OR flagged = 1) " +
+            "AND (:withAttachment = 0 OR hasAttachment = 1) " +
             "AND NOT EXISTS (SELECT 1 FROM snoozed WHERE snoozed.emailId = emails.id " +
             "AND snoozed.accountId = emails.accountId AND snoozed.until > " +
             "(CAST(strftime('%s','now') AS INTEGER) * 1000)) " +
             "ORDER BY sortKey DESC LIMIT :limit",
     )
-    fun observeMailboxWindow(accountId: String, mailboxId: String, limit: Int): Flow<List<EmailEntity>>
+    fun observeMailboxWindow(
+        accountId: String,
+        mailboxId: String,
+        limit: Int,
+        unread: Boolean,
+        starred: Boolean,
+        withAttachment: Boolean,
+    ): Flow<List<EmailEntity>>
 
     /**
      * Per-folder count of unread THREADS (the conversation-mode drawer badge): one row per

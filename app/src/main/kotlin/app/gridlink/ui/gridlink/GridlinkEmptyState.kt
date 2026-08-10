@@ -170,3 +170,80 @@ fun GridlinkEmptyInbox(
         }
     }
 }
+
+/**
+ * What the list shows when the quick filters have narrowed it to nothing.
+ *
+ * ## 🔴 Why this is not [GridlinkEmptyInbox] with a different headline
+ * They are answers to different questions and only one of them is about the server. "Nothing to
+ * read · tap to check" tells you the mailbox is empty and offers a sync, and over a filtered list
+ * every word of that is wrong: the inbox is full, the sync will change nothing, and the thing
+ * standing between you and your mail is three chips you tapped a second ago. Worse, the tap does
+ * the one thing that cannot help, so the screen would be actively steering you away from the fix.
+ *
+ * So this state names the cause and its whole affordance is the way out. Same mark, same press
+ * scale, same shape on screen — it is the same kind of moment — with the accented verb pointing at
+ * the filters instead of at the network.
+ *
+ * [summary] is the lit chips in words, because "no unread mail with attachments" and "no unread
+ * mail" are different facts and the chips have scrolled out of mind by the time you read this.
+ */
+@Composable
+fun GridlinkEmptyFiltered(
+    summary: String,
+    onClearFilters: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = GridlinkTheme.colors
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) EMPTY_PRESS_SCALE else 1f,
+        animationSpec = GridlinkMotion.standard(),
+        label = "filteredPress",
+    )
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            // Same reasoning as the empty inbox: the whole group is the target, and no ripple.
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClearFilters,
+            )
+            .padding(GridlinkSpacing.chrome),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier.graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            },
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            // Unlit. The glow means "a sync is running", and nothing is running here.
+            GridlinkMark(glow = 0f)
+            Text(
+                text = "Nothing matches",
+                modifier = Modifier.padding(top = EMPTY_MARK_GAP),
+                style = GridlinkType.threadTitle,
+                color = colors.textPrimary,
+            )
+            Text(
+                text = buildAnnotatedString {
+                    append(summary)
+                    append(" · ")
+                    withStyle(SpanStyle(color = colors.accent)) {
+                        append("tap to clear")
+                    }
+                },
+                modifier = Modifier.padding(top = GridlinkSpacing.s8),
+                style = GridlinkType.metadata,
+                color = colors.textSecondary,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}

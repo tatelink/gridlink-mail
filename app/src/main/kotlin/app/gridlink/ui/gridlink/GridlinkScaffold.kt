@@ -55,6 +55,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import app.gridlink.core.data.contacts.ContactEdit
+import app.gridlink.core.data.mail.MailFilter
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
@@ -668,6 +669,16 @@ fun GridlinkRoot(
      * does search everything.
      */
     onSearchQuery: (String) -> Unit = {},
+    /**
+     * Which quick filters the inbox has lit, reported on every tap.
+     *
+     * Forwarded to [GridlinkMessageListScreen] and no further: nothing else in the app is narrowed
+     * by them. Whoever supplies [mail] does the narrowing in SQL; this is only the report. Defaults
+     * to a no-op for [onSearchQuery]'s reason, and the sample filters its own fixtures.
+     */
+    onFilter: (MailFilter) -> Unit = {},
+    /** Screen-capture hook: the inbox opens with these chips already lit. */
+    initialFilter: MailFilter = MailFilter.none,
     /**
      * Remember, or forget, that a sender's remote images may load.
      *
@@ -1951,6 +1962,8 @@ fun GridlinkRoot(
                             onSelectedIdsChange = { selectedIds = it },
                             initialSearchExpanded = initialSearchExpanded,
                             onSearchQuery = onSearchQuery,
+                            onFilter = onFilter,
+                            initialFilter = initialFilter,
                             initialSwipeId = initialSwipeId,
                             initialSwipeFraction = initialSwipeFraction,
                             demoRecycle = demoRecycle,

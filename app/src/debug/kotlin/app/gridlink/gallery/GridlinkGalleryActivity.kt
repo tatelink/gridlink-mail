@@ -6,6 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
 import app.gridlink.container
+import app.gridlink.core.data.mail.MailFilter
 import app.gridlink.ui.gridlink.GRIDLINK_BUNDLE_SWIPE_ID
 import app.gridlink.ui.gridlink.GridlinkApp
 import app.gridlink.ui.gridlink.GridlinkCalendarView
@@ -342,6 +343,29 @@ class GridlinkGalleryActivity : ComponentActivity() {
         // without swiping the sample list away a row at a time.
         //   am start -S -n .../GridlinkGalleryActivity --ez empty true --es sync offline
         val empty = intent?.getBooleanExtra("empty", false) ?: false
+        // Opens with quick-filter chips already lit, and the sample list already narrowed by them.
+        //   am start -S -n .../GridlinkGalleryActivity --es filter unread,attachments
+        //
+        // A comma list rather than three booleans, because the chips are one control: the states
+        // worth photographing are combinations ("unread with an attachment" is the one that
+        // produces the filtered-empty screen over this sample), and three separate extras invite a
+        // capture script to set one and forget the others.
+        val filterNames = intent?.getStringExtra("filter")
+            .orEmpty()
+            .split(',')
+            .map { it.trim().lowercase() }
+            .filter { it.isNotEmpty() }
+        val knownFilters = setOf("unread", "starred", "attachments")
+        val unknownFilters = filterNames.toSet() - knownFilters
+        require(unknownFilters.isEmpty()) {
+            "Unknown filter(s) ${unknownFilters.joinToString()} in the `filter` extra. " +
+                "Known: ${knownFilters.joinToString()}"
+        }
+        val filter = MailFilter(
+            unread = "unread" in filterNames,
+            starred = "starred" in filterNames,
+            hasAttachment = "attachments" in filterNames,
+        )
         // Holds the inbox on §8's skeleton. There is no server yet, so the sample list is simply
         // there on the first frame and the loading state is otherwise unreachable.
         //   am start -S -n .../GridlinkGalleryActivity --ez loading true
@@ -483,6 +507,7 @@ class GridlinkGalleryActivity : ComponentActivity() {
                 initiallyExpanded = expanded,
                 initiallySelected = selected,
                 initialSearchExpanded = searchOpen,
+                initialFilter = filter,
                 initialDestination = tab,
                 initialSwipeId = swipeId,
                 initialSwipeFraction = swipeAt,
@@ -518,6 +543,7 @@ private fun GridlinkGallery(
     initiallyExpanded: Boolean = false,
     initiallySelected: Set<String> = emptySet(),
     initialSearchExpanded: Boolean = false,
+    initialFilter: MailFilter = MailFilter.none,
     initialDestination: GridlinkDestination = GridlinkDestination.INBOX,
     initialSwipeId: String? = null,
     initialSwipeFraction: Float = 0f,
@@ -570,6 +596,7 @@ private fun GridlinkGallery(
             initiallyExpanded = initiallyExpanded,
             initiallySelected = initiallySelected,
             initialSearchExpanded = initialSearchExpanded,
+            initialFilter = initialFilter,
             initialSwipeId = initialSwipeId,
             initialSwipeFraction = initialSwipeFraction,
             initialCalendarView = initialCalendarView,
