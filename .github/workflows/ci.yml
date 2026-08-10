@@ -31,7 +31,7 @@ jobs:
           java-version: '17'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       # The hosted image ships an Android SDK, but not necessarily platform 36 /
       # build-tools 36.0.0, which this project pins. Install them explicitly.
@@ -93,7 +93,7 @@ jobs:
           packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
 
       - name: Submit dependency graph
-        uses: gradle/actions/dependency-submission@v4
+        uses: gradle/actions/dependency-submission@v6
         env:
           # Only what ships inside the APK. Unfiltered, the submission also reports the *build*
           # classpath, and `com.android.tools.build:gradle` drags in gRPC/Netty, BouncyCastle,
