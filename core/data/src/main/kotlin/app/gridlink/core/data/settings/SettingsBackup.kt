@@ -37,6 +37,15 @@ data class SettingsBackup(
     /** App-locale language tag ("" = follow system). */
     val language: String? = null,
     val conversationView: Boolean? = null,
+    /**
+     * [ThreadToolbarAction] names the reader put on the open thread's bottom bar.
+     *
+     * A List because JSON has no set, and order carries no meaning here: the bar's order is the
+     * enum's. An empty list is a real value (every switch off) and is why the field is nullable
+     * rather than defaulting to the defaults — null means "this backup predates the setting".
+     */
+    val threadToolbarActions: List<String>? = null,
+    val bundleAutomated: Boolean? = null,
     /** [MessageTextSize] name. */
     val messageTextSize: String? = null,
     val markReadOnDelete: Boolean? = null,

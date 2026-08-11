@@ -193,7 +193,7 @@ fun GridlinkEventFormScreen(
         // 🔴 No dividers: contained boxes separate themselves by their margins, same as the
         // contact form.
         GridlinkFormPickRow(
-            label = "DATE",
+            label = "Date",
             value = day.format(EVENT_DATE),
             onClick = { picking = GridlinkEventPicker.DATE },
             contained = true,
@@ -212,14 +212,14 @@ fun GridlinkEventFormScreen(
         // plainly.
         if (!allDay) {
             GridlinkFormPickRow(
-                label = "START",
+                label = "Start",
                 value = start.compact(),
                 onClick = { picking = GridlinkEventPicker.START },
                 contained = true,
                 active = picking == GridlinkEventPicker.START,
             )
             GridlinkFormPickRow(
-                label = "END",
+                label = "End",
                 value = end.compact(),
                 onClick = { picking = GridlinkEventPicker.END },
                 contained = true,
@@ -281,7 +281,7 @@ fun GridlinkEventFormScreen(
         )
 
         GridlinkFormPickRow(
-            label = "REMINDERS",
+            label = "Reminders",
             value = if (reminders.isEmpty()) {
                 "None"
             } else {

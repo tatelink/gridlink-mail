@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,13 +22,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.outlined.Forward
 import androidx.compose.material.icons.automirrored.outlined.ReplyAll
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.AttachFile
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.HideImage
-import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.MarkEmailUnread
 import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.Print
 import androidx.compose.material.icons.outlined.Report
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.Unsubscribe
@@ -41,12 +47,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.gridlink.core.data.settings.ThreadToolbarAction
 import app.gridlink.ui.emailhtml.EmailRemoteContent
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMode
+import app.gridlink.ui.theme.GridlinkMotion
 import app.gridlink.ui.theme.GridlinkRadii
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
@@ -112,6 +122,15 @@ fun GridlinkThreadScreen(
     onOpenAttachment: ((GridlinkAttachment) -> Unit)? = null,
     /** One line under the chips about the download in flight, or null — which is almost always. */
     attachmentStatus: String? = null,
+    /**
+     * Which actions the reader put on the bottom bar.
+     *
+     * 🔴 Passed in for [imagesAlwaysAllowed]'s reason and it is the same rule: nothing in this
+     * package knows a settings store exists, so this arrives as a plain value and the default is
+     * [ThreadToolbarAction.DEFAULTS] — what the bar held before it was customisable, which is what
+     * the debug gallery and every preview should draw.
+     */
+    toolbarActions: Set<ThreadToolbarAction> = ThreadToolbarAction.DEFAULTS,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
@@ -185,11 +204,25 @@ fun GridlinkThreadScreen(
             )
         },
         bottom = {
-            GridlinkThreadActionPill(
-                onAction = dispatch,
-                onMore = { showingMore = true },
-                modifier = Modifier.weight(1f),
-            )
+            // ⚠️ Recomputed per message, not remembered against the setting alone: `hasUnsubscribe`
+            // is a property of the message and it arrives LATE, with the body fetch. The bar
+            // correctly changes shape when it lands (see [GridlinkThreadMoreSheet]).
+            val layout = gridlinkToolbarLayout(toolbarActions, message.unsubscribe != null)
+            if (layout.inBar.isEmpty() && !layout.showMore) {
+                // Every switch off and nothing contextual to offer. An empty pill is a control that
+                // does nothing sitting where controls go, so the row gives its width to nothing and
+                // Reply keeps its circle at the end. Turning everything off is allowed, and this is
+                // what it is allowed to look like.
+                Spacer(Modifier.weight(1f))
+            } else {
+                GridlinkThreadActionPill(
+                    layout = layout,
+                    starred = starred,
+                    onAction = dispatch,
+                    onMore = { showingMore = true },
+                    modifier = Modifier.weight(1f),
+                )
+            }
             GridlinkDetailAccentButton(
                 icon = Icons.AutoMirrored.Filled.Reply,
                 label = "Reply",
@@ -214,25 +247,23 @@ fun GridlinkThreadScreen(
 
             // Only when blocking would actually change what is on screen. A banner over a message
             // that never asked for anything is noise, and noise is how a privacy control stops
-            // being read. The allowed-banner has the same condition for the same reason: there is
-            // nothing to say about images on a message that has none.
-            if (hasRemoteContent) {
-                if (showRemote) {
-                    // ⚠️ Only for the standing permission. A one-off "Show" needs no banner: the
-                    // reader pressed it two seconds ago and nothing was remembered.
-                    if (imagesAlwaysAllowed) {
-                        GridlinkImagesAllowedBanner(
-                            sender = message.sender,
-                            onStopAllowing = { onAlwaysAllowImages(false) },
-                        )
-                    }
-                } else {
-                    GridlinkImagesBanner(
-                        sender = message.sender,
-                        onShowOnce = { showOnce = true },
-                        onAlwaysAllow = { onAlwaysAllowImages(true) },
-                    )
-                }
+            // being read.
+            //
+            // 🔴 There is no banner once images ARE allowed. There used to be: a standing bar
+            // reading "Images always load from X." with a Stop action, on the argument that a
+            // permission you cannot see and cannot revoke where you granted it is not really a
+            // permission. Tate killed it, and the argument was answering the wrong question.
+            // The bar was permanent, sat above the first line of every message from every sender
+            // ever allowed, and said nothing the loaded pictures underneath it did not already say.
+            // Revoke lives in Settings → Privacy, which lists every allowed sender with a per-sender
+            // remove and a clear-all, so the permission is both visible and revocable — in the one
+            // place you would go to audit it, rather than smeared across every message it affects.
+            if (hasRemoteContent && !showRemote) {
+                GridlinkImagesBanner(
+                    sender = message.sender,
+                    onShowOnce = { showOnce = true },
+                    onAlwaysAllow = { onAlwaysAllowImages(true) },
+                )
             }
 
             GridlinkMessageBody(
@@ -290,6 +321,10 @@ fun GridlinkThreadScreen(
     if (showingMore) {
         GridlinkThreadMoreSheet(
             message = message,
+            // The same split the bar made, computed the same way from the same two inputs, so the
+            // sheet can never offer an action that is also sitting on the bar behind it.
+            layout = gridlinkToolbarLayout(toolbarActions, message.unsubscribe != null),
+            starred = starred,
             onAction = { action ->
                 showingMore = false
                 dispatch(action)
@@ -328,15 +363,29 @@ fun GridlinkThreadScreen(
 }
 
 /**
- * Who sent it, from where, to whom, and when.
+ * Who sent it and when, on one line, with the raw address and the to-line a tap away.
  *
  * 🔴 No avatar circle and no sender initials. §9 bans them in the list and the ban does not stop at
  * the list: the identity bar is this design's answer to "which sender is this at a glance", and an
  * avatar next to it would be a second, weaker answer to the same question.
  *
- * The address line is the reason this block is three lines instead of one. A display name is what a
- * phishing attempt controls completely, so a header that shows only "HR Benefits" has hidden the one
- * field worth checking.
+ * ## 🔴 Why the address hides, when the whole point of showing it was that it should not
+ * This block was three lines, and the reasoning was sound: a display name is what a phishing attempt
+ * controls completely, so a header showing only "HR Benefits" has hidden the one field worth
+ * checking. What that argument missed is the cost. Tate, on a folded display: the header "takes
+ * up a huge part of screen real estate". Three metadata lines plus a banner before a word of the
+ * message is a header that has to be scrolled past on every single message to pay for a check that
+ * is worth making on a few.
+ *
+ * So it collapses rather than disappears, and the chevron is load-bearing: it is the difference
+ * between a field the app is hiding and a field the reader has not opened yet. Anyone who wants to
+ * verify a sender is one tap from the full address, in the place they already look for it, and the
+ * other ninety-nine messages cost one line. A checkbox in Settings would have been the wrong
+ * answer, because the reader who needs this needs it on *this* message and cannot know in advance
+ * which one that is.
+ *
+ * ⚠️ Collapsed state is per-composition and deliberately not remembered across messages. Expanding
+ * one sender is a question about that sender, not a preference.
  */
 @Composable
 private fun GridlinkThreadSender(
@@ -345,6 +394,12 @@ private fun GridlinkThreadSender(
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
+    var expanded by remember(message.address) { mutableStateOf(false) }
+    val chevronTurn by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = GridlinkMotion.standard(),
+        label = "senderChevron",
+    )
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -359,6 +414,9 @@ private fun GridlinkThreadSender(
         Column(
             modifier = Modifier
                 .weight(1f)
+                // The whole block is the target, not the chevron. A 24dp glyph is a miserable thing
+                // to hit on a phone, and there is nothing else in this header to tap.
+                .clickable { expanded = !expanded }
                 .padding(
                     horizontal = GridlinkSpacing.rowHorizontal,
                     vertical = GridlinkSpacing.s16,
@@ -379,32 +437,46 @@ private fun GridlinkThreadSender(
                     color = colors.textSecondary,
                     modifier = Modifier.padding(start = GridlinkSpacing.s8),
                 )
+                Icon(
+                    imageVector = Icons.Filled.ExpandMore,
+                    // Names the thing behind the chevron rather than the chevron, because a screen
+                    // reader user cannot see that the address is the part being withheld.
+                    contentDescription = if (expanded) "Hide sender details" else "Show sender details",
+                    tint = colors.textSecondary,
+                    modifier = Modifier
+                        .padding(start = GridlinkSpacing.s8)
+                        .size(18.dp)
+                        .rotate(chevronTurn),
+                )
             }
-            Text(
-                text = message.address,
-                style = GridlinkType.metadata,
-                color = colors.textSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            // 🔴 The signed-in address, not a constant. This line used to read the sample's, which
-            // on a real account would have every message in the mailbox claim it was addressed to
-            // somebody else — on the one screen whose job is to let you check exactly that. It is
-            // still an approximation: it says who is READING, not what the To header holds, so a
-            // message received via a list or a bcc says "to <you>" because that is what the cache
-            // knows. The real recipients arrive with the body.
-            //
-            // Blank is now the chrome's default (see [GridlinkChromeConfig]), and "to " on its own
-            // is worse than no line at all, so the whole row goes.
-            val readerAddress = LocalGridlinkChrome.current.config.account
-            if (readerAddress.isNotBlank()) {
+            if (expanded) {
                 Text(
-                    text = "to $readerAddress",
+                    text = message.address,
                     style = GridlinkType.metadata,
                     color = colors.textSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = GridlinkSpacing.s8),
                 )
+                // 🔴 The signed-in address, not a constant. This line used to read the sample's,
+                // which on a real account would have every message in the mailbox claim it was
+                // addressed to somebody else — on the one screen whose job is to let you check
+                // exactly that. It is still an approximation: it says who is READING, not what the
+                // To header holds, so a message received via a list or a bcc says "to <you>"
+                // because that is what the cache knows. The real recipients arrive with the body.
+                //
+                // Blank is now the chrome's default (see [GridlinkChromeConfig]), and "to " on its
+                // own is worse than no line at all, so the whole row goes.
+                val readerAddress = LocalGridlinkChrome.current.config.account
+                if (readerAddress.isNotBlank()) {
+                    Text(
+                        text = "to $readerAddress",
+                        style = GridlinkType.metadata,
+                        color = colors.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
@@ -484,50 +556,12 @@ private fun GridlinkImagesBannerAction(
     )
 }
 
-/**
- * The standing notice, once the reader has said yes to this sender for good.
- *
- * ⚠️ It is not decoration and it is not a success message. The banner above is how the allowlist is
- * joined, and without this there is no way to see from a message that the sender is on it, and no
- * way off it at all except from the settings screen upstream owns. A permission you cannot see and
- * cannot revoke where you granted it is not really a permission.
- */
-@Composable
-private fun GridlinkImagesAllowedBanner(
-    sender: String,
-    onStopAllowing: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val colors = GridlinkTheme.colors
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(colors.surfaceRaised)
-            .padding(
-                start = GridlinkSpacing.s20,
-                end = GridlinkSpacing.s12,
-                top = GridlinkSpacing.s8,
-                bottom = GridlinkSpacing.s8,
-            ),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = Icons.Outlined.Image,
-            contentDescription = null,
-            tint = colors.textSecondary,
-            modifier = Modifier.size(18.dp),
-        )
-        Text(
-            text = "Images always load from $sender.",
-            style = GridlinkType.metadata,
-            color = colors.textSecondary,
-            modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = GridlinkSpacing.s12),
-        )
-        GridlinkImagesBannerAction(label = "Stop", onClick = onStopAllowing)
-    }
-}
+// GridlinkImagesAllowedBanner used to live here: a standing "Images always load from X." bar with a
+// Stop action, shown on every message from an allowed sender. It is gone. The reasoning for it was
+// that a permission you cannot see and cannot revoke where you granted it is not really a
+// permission — true, and satisfied by Settings → Privacy, which lists every allowed sender with a
+// remove and a clear-all. What the bar actually did was spend a permanent line at the top of every
+// affected message restating what the loaded images below it already showed.
 
 /**
  * One attachment, as a chip.
@@ -600,7 +634,114 @@ private fun GridlinkThreadAttachment(
  * flip-whatever-you-find call. A single TOGGLE would have to re-read the current state somewhere
  * else in the chain, and that is exactly where a double tap turns into a lost write.
  */
-enum class GridlinkThreadAction { REPLY, REPLY_ALL, FORWARD, ARCHIVE, SPAM, UNSUBSCRIBE, STAR, UNSTAR }
+enum class GridlinkThreadAction {
+    REPLY,
+    REPLY_ALL,
+    FORWARD,
+    ARCHIVE,
+    SPAM,
+    UNSUBSCRIBE,
+    STAR,
+    UNSTAR,
+    DELETE,
+    MOVE,
+    MARK_UNREAD,
+    PRINT,
+}
+
+/**
+ * Where a [ThreadToolbarAction] the reader enabled actually goes when it is pressed.
+ *
+ * Two enums rather than one, and the seam is deliberate. [ThreadToolbarAction] is a preference: it
+ * is persisted by name, it is exported in backups, and it must not change shape because the UI grew
+ * a case. This one is a dispatch instruction, and it has entries no switch will ever offer (REPLY
+ * owns the accent circle, UNSTAR is the other half of a toggle, UNSUBSCRIBE is contextual). Fusing
+ * them would put the settings screen's stability at the mercy of the reading screen's wiring.
+ *
+ * 🔴 STAR is the one entry that cannot be mapped without knowing the message. Everything downstream
+ * is a set-a-value call rather than a flip-what-you-find call (see [GridlinkThreadAction]), so the
+ * caller passes [starred] and gets the action that moves it to the other state.
+ */
+internal fun ThreadToolbarAction.gridlinkThreadAction(starred: Boolean): GridlinkThreadAction = when (this) {
+    ThreadToolbarAction.REPLY_ALL -> GridlinkThreadAction.REPLY_ALL
+    ThreadToolbarAction.FORWARD -> GridlinkThreadAction.FORWARD
+    ThreadToolbarAction.ARCHIVE -> GridlinkThreadAction.ARCHIVE
+    ThreadToolbarAction.DELETE -> GridlinkThreadAction.DELETE
+    ThreadToolbarAction.MOVE -> GridlinkThreadAction.MOVE
+    ThreadToolbarAction.MARK_UNREAD -> GridlinkThreadAction.MARK_UNREAD
+    ThreadToolbarAction.STAR -> if (starred) GridlinkThreadAction.UNSTAR else GridlinkThreadAction.STAR
+    ThreadToolbarAction.PRINT -> GridlinkThreadAction.PRINT
+    ThreadToolbarAction.JUNK -> GridlinkThreadAction.SPAM
+}
+
+/**
+ * The words on the button, matched to the words on the switch that put it there.
+ *
+ * 🔴 Star is the only one whose label depends on state, for [GridlinkDetailToggleButton]'s reason:
+ * a control names what it will DO, so on a starred message the button says "Remove star". Every
+ * other action reads the same in the bar, in the More sheet and in settings, and it has to: the
+ * settings screen is a map of this bar.
+ */
+internal fun gridlinkToolbarLabel(action: ThreadToolbarAction, starred: Boolean): String = when (action) {
+    ThreadToolbarAction.REPLY_ALL -> "Reply all"
+    ThreadToolbarAction.FORWARD -> "Forward"
+    ThreadToolbarAction.ARCHIVE -> "Archive"
+    ThreadToolbarAction.DELETE -> "Delete"
+    ThreadToolbarAction.MOVE -> "Move"
+    ThreadToolbarAction.MARK_UNREAD -> "Mark unread"
+    ThreadToolbarAction.STAR -> if (starred) "Remove star" else "Star"
+    ThreadToolbarAction.PRINT -> "Print"
+    ThreadToolbarAction.JUNK -> "Junk"
+}
+
+/** The glyph for each, shared by the bar and the sheet so one action never wears two icons. */
+internal fun gridlinkToolbarIcon(action: ThreadToolbarAction, starred: Boolean): ImageVector = when (action) {
+    ThreadToolbarAction.REPLY_ALL -> Icons.AutoMirrored.Outlined.ReplyAll
+    ThreadToolbarAction.FORWARD -> Icons.AutoMirrored.Outlined.Forward
+    ThreadToolbarAction.ARCHIVE -> Icons.Outlined.Archive
+    ThreadToolbarAction.DELETE -> Icons.Outlined.Delete
+    ThreadToolbarAction.MOVE -> Icons.Outlined.DriveFileMove
+    ThreadToolbarAction.MARK_UNREAD -> Icons.Outlined.MarkEmailUnread
+    ThreadToolbarAction.STAR -> if (starred) Icons.Filled.Star else Icons.Outlined.StarBorder
+    ThreadToolbarAction.PRINT -> Icons.Outlined.Print
+    ThreadToolbarAction.JUNK -> Icons.Outlined.Report
+}
+
+/**
+ * How the enabled actions are split between the bar's slots and its More sheet.
+ *
+ * 🔴 Three slots total and the third is More whenever anything is left over, which is the shape
+ * Tate settled on when four labelled controls made the reading pane "way too crowded". So the
+ * honest reading of "shows the first three" is: three when three is all there is, otherwise two and
+ * a door to the rest. A bar that grew a fourth slot for a reader who enabled a fourth action would
+ * reintroduce the crowding the overflow was built to fix.
+ *
+ * ⚠️ Unsubscribe counts toward the overflow without being in [enabled]. It is contextual — it exists
+ * only on a message carrying a `List-Unsubscribe` header — so it can never hold a permanent slot,
+ * but it is real content in the sheet and the More button has to appear for it. That is why a
+ * message with an unsubscribe header can show two actions where the one below it shows three: the
+ * bar reflects what THIS message can do.
+ */
+internal data class GridlinkToolbarLayout(
+    val inBar: List<ThreadToolbarAction>,
+    val inSheet: List<ThreadToolbarAction>,
+    val showMore: Boolean,
+)
+
+internal fun gridlinkToolbarLayout(
+    enabled: Set<ThreadToolbarAction>,
+    hasUnsubscribe: Boolean,
+): GridlinkToolbarLayout {
+    // The enum's order, never the set's. A Set has no order worth trusting, and the whole
+    // fixed-order decision rests on this line.
+    val ordered = ThreadToolbarAction.entries.filter { it in enabled }
+    val showMore = ordered.size > SLOTS || hasUnsubscribe
+    val inBar = if (showMore) ordered.take(SLOTS - 1) else ordered
+    return GridlinkToolbarLayout(inBar = inBar, inSheet = ordered.drop(inBar.size), showMore = showMore)
+}
+
+/** Slots on the bar, More included. See [GridlinkThreadActionPill]. */
+private const val SLOTS = 3
 
 /**
  * The secondary actions, in the same shell the nav pill uses on the list.
@@ -612,37 +753,47 @@ enum class GridlinkThreadAction { REPLY, REPLY_ALL, FORWARD, ARCHIVE, SPAM, UNSU
  * ## 🔴 Three slots, the third being More
  * This pill used to hold four contextual actions, and in §7's reading pane four labelled slots plus
  * the Reply circle plus the scaffold's parked "+" put six controls on one baseline about 460dp wide.
- * Tate called it "way too crowded" and picked the overflow: the two actions you reach for while
- * reading (Forward, Archive) keep their one-tap slots, and the rare, deliberate ones (Reply all or
- * Unsubscribe, and Spam) sit one tap further away in [GridlinkThreadMoreSheet]. The same three
- * slots everywhere, full screen included — a pill that changed its population with the window would
- * be two bars to learn.
+ * Tate called it "way too crowded" and picked the overflow. The same three slots everywhere, full
+ * screen included — a pill that changed its population with the window would be two bars to learn.
+ *
+ * ## What is IN those slots is now the reader's
+ * Tate, 2026-08-10: "the dynamic control bar at the bottom in unfolded mode should be
+ * customizable, make that an option in settings." The count did not change and the crowding verdict
+ * still stands; only the contents moved into [ThreadToolbarAction], and [gridlinkToolbarLayout] does
+ * the fitting. This composable is now pure rendering: it is handed a decided layout and draws it.
+ *
+ * ⚠️ Deliberately NOT a reorderable list. He picked fixed order over drag-to-arrange, so there is
+ * nothing here that reads a stored position — see [ThreadToolbarAction] for why the enum's own
+ * declaration order is the whole ordering mechanism.
  */
 @Composable
 private fun GridlinkThreadActionPill(
+    layout: GridlinkToolbarLayout,
+    starred: Boolean,
     onAction: (GridlinkThreadAction) -> Unit,
     onMore: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     GridlinkDetailActionPill(modifier = modifier) {
-        GridlinkDetailActionItem(
-            label = "Forward",
-            icon = Icons.AutoMirrored.Outlined.Forward,
-            onClick = { onAction(GridlinkThreadAction.FORWARD) },
-            modifier = Modifier.weight(1f),
-        )
-        GridlinkDetailActionItem(
-            label = "Archive",
-            icon = Icons.Outlined.Archive,
-            onClick = { onAction(GridlinkThreadAction.ARCHIVE) },
-            modifier = Modifier.weight(1f),
-        )
-        GridlinkDetailActionItem(
-            label = "More",
-            icon = Icons.Outlined.MoreHoriz,
-            onClick = onMore,
-            modifier = Modifier.weight(1f),
-        )
+        layout.inBar.forEach { action ->
+            GridlinkDetailActionItem(
+                label = gridlinkToolbarLabel(action, starred),
+                icon = gridlinkToolbarIcon(action, starred),
+                onClick = { onAction(action.gridlinkThreadAction(starred)) },
+                // 🔴 Equal weights, so two enabled actions each take half the pill rather than
+                // sitting at its left end. The pill is the same width whatever is in it, and a bar
+                // whose buttons moved when a setting changed would be a different bar every time.
+                modifier = Modifier.weight(1f),
+            )
+        }
+        if (layout.showMore) {
+            GridlinkDetailActionItem(
+                label = "More",
+                icon = Icons.Outlined.MoreHoriz,
+                onClick = onMore,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
 
@@ -650,14 +801,15 @@ private fun GridlinkThreadActionPill(
  * What the pill's More slot opens: the actions worth having that are not worth a permanent slot.
  *
  * ## 🔴 Which actions, and why it depends on the message
- * - **It carries no unsubscribe address:** Reply all, then Spam. There is nothing to unsubscribe
- *   from, and offering an action that cannot work is worse than not offering it.
- * - **It carries one** ([GridlinkMessage.unsubscribe]): Unsubscribe, then Spam. Reply all drops out,
- *   because replying to everyone on a bulk mailing means replying to a no-reply robot and a mailing
- *   list, and Reply is still on the circle for the rare one that does read them.
+ * Two sources, in this order: the message's own Unsubscribe if it has one, then whatever the
+ * reader's enabled set could not fit on the bar ([gridlinkToolbarLayout]). The first is contextual
+ * and cannot be configured; the second is entirely their choice, Reply all and Junk included, which
+ * is why this sheet no longer names a single action of its own.
  *
- * Spam is not tinted [app.gridlink.ui.theme.GridlinkColors.destructive]: red in this palette is
- * spent on delete and nothing else, and filing to Junk is recoverable.
+ * This used to hard-code "Reply all OR Unsubscribe, then Spam", and the OR was the interesting part:
+ * on a bulk mailing, replying to everyone means replying to a no-reply robot and a mailing list. It
+ * is gone because Reply all is now a switch — a reader who never wants it turns it off everywhere
+ * rather than having the app guess per message — and Reply is still on the circle regardless.
  *
  * 🔴 The signal is the message's own `List-Unsubscribe` header and nothing else. It used to be
  * [GridlinkMessage.automated] — a guess off the local part of the address — with a note here saying
@@ -669,6 +821,8 @@ private fun GridlinkThreadActionPill(
 @Composable
 private fun GridlinkThreadMoreSheet(
     message: GridlinkMessage,
+    layout: GridlinkToolbarLayout,
+    starred: Boolean,
     onAction: (GridlinkThreadAction) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -682,24 +836,26 @@ private fun GridlinkThreadMoreSheet(
             subline = message.subject,
         )
         GridlinkSheetDivider()
+        // 🔴 First, above the reader's own overflow. It is the only row here that is about THIS
+        // message rather than about the reader's layout, and it is the one they opened the sheet
+        // for on a message that has it.
         if (message.unsubscribe != null) {
             GridlinkSheetAction(
                 label = "Unsubscribe",
                 icon = Icons.Outlined.Unsubscribe,
                 onClick = { onAction(GridlinkThreadAction.UNSUBSCRIBE) },
             )
-        } else {
+        }
+        // Everything the bar could not fit, in the same order it would have shown them. The sheet is
+        // the continuation of the bar, not a second menu with its own opinions, so an action never
+        // changes name or icon on the way in here.
+        layout.inSheet.forEach { action ->
             GridlinkSheetAction(
-                label = "Reply all",
-                icon = Icons.AutoMirrored.Outlined.ReplyAll,
-                onClick = { onAction(GridlinkThreadAction.REPLY_ALL) },
+                label = gridlinkToolbarLabel(action, starred),
+                icon = gridlinkToolbarIcon(action, starred),
+                onClick = { onAction(action.gridlinkThreadAction(starred)) },
             )
         }
-        GridlinkSheetAction(
-            label = "Spam",
-            icon = Icons.Outlined.Report,
-            onClick = { onAction(GridlinkThreadAction.SPAM) },
-        )
         GridlinkSheetFooterSpace()
     }
 }

@@ -58,8 +58,13 @@ import java.util.Locale
  * edit events (the real CalDAV writer's answer until the repository grows a conflict story), and the
  * button is then absent rather than disabled — a greyed-out Edit still tells the user this app edits
  * appointments, it just won't today. Decline and "Add to my calendar" stay absent for the same
- * reason they always were. Copy, Share and Write are real everywhere: clipboard, share sheet, and
- * the composer respectively, all against data this screen already has.
+ * reason they always were. Copy and Share are real everywhere: clipboard and share sheet, both
+ * against data this screen already has.
+ *
+ * ⚠️ There was a Write item here that composed to the counterparty. It is gone by Tate's call
+ * ("on cal, get rid of write button entirely"), and the counterparty itself is not: the With row and
+ * the mail list below still name them. Writing to them is one tap further away, from the contact
+ * card, which is where every other "write to this person" in the app already lives.
  *
  * ## What the counterparty is, and why an internal event has none
  * [GridlinkEvent.domain] is the event's only statement about who it is with, and it is not
@@ -83,7 +88,6 @@ fun GridlinkEventScreen(
     onBack: () -> Unit,
     onOpenMessage: (GridlinkMessage) -> Unit,
     onOpenEvent: (GridlinkEvent) -> Unit,
-    onWrite: (GridlinkSampleContacts.GridlinkContact) -> Unit,
     modifier: Modifier = Modifier,
     embedded: Boolean = false,
     /** Open the edit form over this event, or null when no writer can honour an edit (see KDoc). */
@@ -151,26 +155,22 @@ fun GridlinkEventScreen(
                     },
                     modifier = Modifier.weight(1f),
                 )
-                // 🔴 In the pill now, with the contact card's own mail glyph, because Edit took the
-                // accent slot and its pencil. Present exactly when there is somebody to write to,
-                // absent otherwise rather than inert: the pill reflows to two items cleanly.
-                counterpart?.let { contact ->
+                // 🔴 Edit lives in the pill, not the accent circle. Tate, 2026-08-10: "the edit
+                // button can live on the dynamic toolbar, it doesnt need to be big and orange."
+                // Present exactly when a writer can honour it (see KDoc), absent otherwise rather
+                // than inert, and the pill reflows to two items cleanly when it is.
+                //
+                // ⚠️ This card therefore has NO accent button at all, and it is the only detail
+                // screen that doesn't. That is deliberate: an appointment's verbs are all small
+                // ones, and none of them earns the weight the contact card's Write earns.
+                onEdit?.let { edit ->
                     GridlinkDetailActionItem(
-                        label = "Write",
-                        icon = Icons.Outlined.Email,
-                        onClick = { onWrite(contact) },
+                        label = "Edit",
+                        icon = Icons.Outlined.Edit,
+                        onClick = { edit(event) },
                         modifier = Modifier.weight(1f),
                     )
                 }
-            }
-            // The accent slot holds Edit when a writer can honour it — the contact card's exact
-            // arrangement, so the two cards' bottoms read as one design.
-            onEdit?.let { edit ->
-                GridlinkDetailAccentButton(
-                    icon = Icons.Outlined.Edit,
-                    label = "Edit",
-                    onClick = { edit(event) },
-                )
             }
         },
     ) {

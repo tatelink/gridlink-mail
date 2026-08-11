@@ -723,8 +723,25 @@ data class GridlinkMessage(
      * the gallery shows the real thing.
      */
     val preview: String = "",
+    /**
+     * How many messages this row stands for, with conversation view on. 1 everywhere else, and 1 is
+     * not a special case: a message with no other replies IS a thread of one.
+     *
+     * 🔴 Counted in the row's own mailbox and NOT narrowed by the quick filters, because it is a
+     * promise about what tapping the count unfolds — the same folder, unfiltered. See
+     * `EmailDao.observeMailboxThreadWindow`, which is where both halves of that promise are made.
+     */
+    val threadCount: Int = 1,
+    /**
+     * `COALESCE(threadId, id)`: what the collapsed list groups by and what the expansion queries.
+     * Null only for sample data, which has no server threads and never collapses.
+     */
+    val threadKey: String? = null,
 ) {
     val hasAttachment: Boolean get() = attachments.isNotEmpty() || attachmentPending
+
+    /** The row stands for more than itself, so it has something to unfold. */
+    val isConversation: Boolean get() = threadCount > 1
 
     /**
      * ⚠️ Derived, and invented in the same way the domains are.

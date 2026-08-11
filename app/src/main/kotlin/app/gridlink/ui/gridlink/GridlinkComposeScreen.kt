@@ -1293,12 +1293,14 @@ private fun GridlinkSendButton(
     Box(
         modifier = modifier
             .size(size)
+            // Warm, with the accent circle and the compose "+": Send is this screen's primary verb
+            // and the three of them are one control wearing three glyphs. See GridlinkColors.accentWarm.
             .gridlinkGlow(
-                colors.actionGlow?.copy(alpha = 0.40f),
+                colors.warmGlow?.copy(alpha = 0.40f),
                 radiusMultiplier = 0.95f,
             )
             .clip(CircleShape)
-            .background(gridlinkAccentFill(colors.accent))
+            .background(gridlinkAccentFill(colors.accentWarm, darken = GRIDLINK_WARM_FILL_DARKEN))
             .then(
                 if (pressed) {
                     Modifier.border(GridlinkDimens.ringStroke, colors.selection, CircleShape)
@@ -1312,7 +1314,7 @@ private fun GridlinkSendButton(
         Icon(
             imageVector = Icons.AutoMirrored.Filled.Send,
             contentDescription = "Send",
-            tint = colors.onAccent,
+            tint = colors.onAccentWarm,
             // Scaled off the circle rather than fixed, so the 44dp and 64dp placements carry the
             // same glyph-to-circle ratio and the smaller one does not read as a shrunken version of
             // a button with a big icon in it.

@@ -31,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
@@ -200,7 +201,19 @@ fun GridlinkDetailFrame(
             }
 
             if (bottom == null) {
-                Spacer(Modifier.height(GridlinkSpacing.chrome))
+                // 🔴 A pane with no bottom row still has to end where one WOULD have ended.
+                // Beside it, the list column always spends s16 + a pill + chrome on its nav pill,
+                // and the scaffold parks the round "+" on that same baseline. Ending on plain
+                // chrome instead ran the Folders pane's glass past the pill and under the "+",
+                // so the two columns no longer shared an outline and the button sat on glass.
+                // The standing screen has no such neighbour: it covers the pill, so it keeps
+                // the tight margin.
+                val tail = if (embedded) {
+                    GridlinkSpacing.s16 + GRIDLINK_PILL_HEIGHT + GridlinkSpacing.chrome
+                } else {
+                    GridlinkSpacing.chrome
+                }
+                Spacer(Modifier.height(tail))
             } else {
                 Row(
                     modifier = Modifier
@@ -398,6 +411,62 @@ fun GridlinkDetailToggleButton(
 }
 
 /**
+ * A header control that says what it does in words: an icon and a label in one small pill, sized to
+ * the same [GridlinkDimens.headerControl] height as the circles beside it.
+ *
+ * ## 🔴 Why this is not a [GridlinkDetailCircleButton]
+ * Every other title-row control is a glyph, and that works because every other one is reversible —
+ * star, unstar, back. Tate asked for an inline control beside Deleted Items and Junk that
+ * PERMANENTLY destroys mail ("deleted items and junk need an 'empty' button inline beside the folder
+ * name"), and there is no glyph that distinguishes "empty this folder for ever" from "delete this
+ * one thing". The same argument the accent button lost when it was a bare circle and read as a back
+ * arrow: at a glance, an unlabelled icon is a guess, and this is not a control anybody should be
+ * guessing at.
+ *
+ * [tint] paints the glyph and the label, not the fill. A destructive control gets a red word on the
+ * ordinary surface rather than a red button: a filled red pill in the title row would outweigh the
+ * folder name it sits beside, and the weight belongs to what you are looking at, not to the thing
+ * that empties it.
+ */
+@Composable
+fun GridlinkDetailTextAction(
+    label: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tint: Color = GridlinkTheme.colors.textPrimary,
+) {
+    val colors = GridlinkTheme.colors
+    val shape = RoundedCornerShape(GridlinkRadii.pill)
+    Row(
+        modifier = modifier
+            .height(GridlinkDimens.headerControl)
+            .clip(shape)
+            .background(colors.surface, shape)
+            .border(GridlinkDimens.hairline, colors.surfaceBorder, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = GridlinkSpacing.s12),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            // Null: the label beside it is real text, and a description here would have a screen
+            // reader announce the control twice. Same rule as [GridlinkDetailAccentButton].
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(GridlinkSpacing.s8))
+        Text(
+            text = label,
+            style = GridlinkType.toolbarLabel.copy(fontSize = GridlinkType.senderName.fontSize),
+            color = tint,
+            maxLines = 1,
+        )
+    }
+}
+
+/**
  * The secondary actions, as one floating pill at the nav bar's height.
  *
  * Items divide the width evenly, so a pill with two of them is not a pill with four and two gaps.
@@ -486,15 +555,17 @@ fun GridlinkDetailAccentButton(
     modifier: Modifier = Modifier,
 ) {
     val colors = GridlinkTheme.colors
-    val fill = gridlinkAccentFill(colors.accent)
-    // Measured against the accent itself, not the gradient built from it. The fill darkens toward
-    // its far corner, so testing the brush is not possible and testing the dark end would flip the
-    // glyph to white on a pale accent where the lit corner needs black.
-    val onAccent = gridlinkOnAccent(colors.accent)
+    // 🔴 [GridlinkColors.accentWarm], not [GridlinkColors.accent], and this is the one control in the
+    // app that is. The accent still owns links, focus underlines, the selection wash and the filled
+    // nav item; this token means "this does something", whatever colour a given mode paints it (see
+    // its KDoc: blue in Day and Night, orange in OLED). The pairing is fill + ink + ramp depth
+    // together, so read all three off the palette rather than deriving any of them here.
+    val fill = gridlinkAccentFill(colors.accentWarm, darken = GRIDLINK_WARM_FILL_DARKEN)
+    val onAccent = colors.onAccentWarm
     Column(
         modifier = modifier
             .size(GridlinkDimens.composeButton)
-            .gridlinkGlow(colors.actionGlow?.copy(alpha = 0.40f), radiusMultiplier = 0.95f)
+            .gridlinkGlow(colors.warmGlow?.copy(alpha = 0.40f), radiusMultiplier = 0.95f)
             .clip(CircleShape)
             .background(fill, CircleShape)
             .clickable(onClick = onClick),

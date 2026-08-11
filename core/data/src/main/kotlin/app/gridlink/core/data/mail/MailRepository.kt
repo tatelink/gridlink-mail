@@ -4163,6 +4163,37 @@ class MailRepository(
         ).map { rows -> rows.map { it.toEmail() } }
 
     /**
+     * [observeMailboxWindow] with conversation view on: the same window, one row per thread.
+     *
+     * Returns [InboxRow]s so the two modes hand the caller the same shape — flat mode is this with
+     * every `threadCount` at 1 — and so nothing above has to learn a second row type to switch
+     * between them. [InboxRow.unread] is the THREAD's unread state, not the representative's; see
+     * [app.gridlink.core.data.db.EmailDao.observeMailboxThreadWindow] for why the count and the
+     * unread flag ignore the chips while the representative does not.
+     *
+     * 🔴 `threadExpandable` is left to its default (`threadCount > 1`) rather than the account-wide
+     * "2+ cached messages anywhere" the paged list uses. The Gridlink list unfolds a row from THIS
+     * mailbox's cached members ([observeThreadEmails] with the one mailbox id), so a row that
+     * promised to unfold on the strength of a Sent reply it will not show would open onto itself.
+     */
+    fun observeMailboxThreadWindow(
+        accountId: String,
+        mailboxId: String,
+        limit: Int,
+        filter: MailFilter,
+    ): Flow<List<InboxRow>> =
+        emailDao.observeMailboxThreadWindow(
+            accountId = accountId,
+            mailboxId = mailboxId,
+            limit = limit,
+            unread = filter.unread,
+            starred = filter.starred,
+            withAttachment = filter.hasAttachment,
+        ).map { rows ->
+            rows.map { InboxRow(email = it.email.toEmail(), threadCount = it.threadCount, unread = it.threadUnread) }
+        }
+
+    /**
      * One reading of [observeThreadEmails], for callers that act on a thread once (a whole-thread
      * swipe) rather than draw it.
      */

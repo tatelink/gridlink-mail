@@ -106,11 +106,19 @@ fun SettingsSection(title: String, content: @Composable () -> Unit) {
     }
 }
 
-/** Boolean toggle row. [enabled] = false renders the row inert and dimmed. */
+/**
+ * Boolean toggle row. [enabled] = false renders the row inert and dimmed.
+ *
+ * [subtitle] is nullable, and null omits the second line entirely rather than drawing a blank one.
+ * Most switches here need the explaining sentence and should keep it; a run of switches whose titles
+ * are the whole answer (the message-actions list, which is just a set of action names) reads better
+ * without nine lines of restated obviousness under it, and one caption at the foot of the section
+ * says the thing that actually needs saying.
+ */
 @Composable
 fun SettingSwitch(
     title: String,
-    subtitle: String,
+    subtitle: String? = null,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     enabled: Boolean = true,
@@ -131,12 +139,14 @@ fun SettingSwitch(
                     MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                 },
             )
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-                    .copy(alpha = if (enabled) 1f else 0.38f),
-            )
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                        .copy(alpha = if (enabled) 1f else 0.38f),
+                )
+            }
         }
         Spacer(Modifier.width(16.dp))
         Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)

@@ -6,13 +6,19 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -156,7 +162,15 @@ fun GridlinkContactFormScreen(
     while (phoneFocus.size < phones.size) phoneFocus.add(FocusRequester())
     while (customLabelFocus.size < customs.size) customLabelFocus.add(FocusRequester())
     while (customValueFocus.size < customs.size) customValueFocus.add(FocusRequester())
-    LaunchedEffect(Unit) { givenFocus.requestFocus() }
+    // 🔴 Nothing takes focus when the form opens, and that is deliberate. This used to be
+    // `LaunchedEffect(Unit) { givenFocus.requestFocus() }`, which threw the keyboard up over the
+    // bottom half of the form before the user had decided what they were doing — and on an EDIT
+    // that is nearly always wrong, since the reason you opened an existing contact is usually a
+    // phone number near the bottom, now hidden. Even on a new contact it pre-empts the photo
+    // button, which sits above the name and is the one control the form leads with.
+    //
+    // The requesters below are all still live: they are what the Next key walks through once the
+    // user has picked a field. Only the unprompted first focus is gone.
 
     val filed = family.text.isNotBlank() || given.text.isNotBlank() || company.text.isNotBlank()
     // Validated with the composer's own matcher rather than a second one written here. Two regexes
@@ -433,15 +447,32 @@ private fun growTrailingPairRow(rows: MutableList<Pair<TextFieldValue, TextField
     }
 }
 
+/** The photo tile's corner radius. Large enough to read as a squircle, short of a circle. */
+private val GridlinkContactPhotoShape = RoundedCornerShape(32.dp)
+
+/** How big the tile is. Big enough to be the thing the form opens with, not a thumbnail. */
+private val GridlinkContactPhotoSize = 112.dp
+
 /**
- * The photo slot at the top of the form: the current picture (or nothing), one action to pick,
- * and Remove when there is something to remove.
+ * The photo tile: a centred squircle at the top of the form, and the whole reason the first field
+ * starts a third of the way down the pane.
  *
- * A contained box like the fields below it, but [GridlinkFieldBoxShape] with a border and 🔴 no
- * underline: the underline promises a keyboard, and this row opens a picker. The whole leading
- * area is one tap target for pick/replace, because "tap the picture to change the picture" is the
- * gesture every gallery app has already taught; Remove is a separate, smaller target so a
- * fat-finger cannot delete what it meant to replace.
+ * ## Why this is not the contained row it used to be
+ * It was a full-width bordered box, the same shape as every text field, sitting directly above
+ * First name — which made the form open as a wall of identical boxes with no top and no start, and
+ * put the picture (the one thing on a contact you recognise before you read anything) on equal
+ * footing with the Title field. Centred, alone, with air above and below it, it becomes the header
+ * of the form instead of its first row.
+ *
+ * ## The height is fixed, not a fraction of the screen
+ * 🔴 "About a third of the page" is the intent, and it is served here by a spacer stack that comes
+ * to roughly 220dp, not by measuring the viewport. The form also draws inside the two-pane layout's
+ * side pane, where the screen height is not the pane height, so a real fraction would push the
+ * first field halfway down a pane it had mismeasured. A fixed block is a third of a folded Fold
+ * screen and stays sane everywhere else.
+ *
+ * Remove sits BELOW the tile rather than beside it, and only exists when there is a photo, so the
+ * empty state is exactly one target: nothing to mis-hit.
  */
 @Composable
 private fun GridlinkContactPhotoRow(
@@ -452,58 +483,69 @@ private fun GridlinkContactPhotoRow(
 ) {
     val colors = GridlinkTheme.colors
     val bitmap = rememberGridlinkContactPhoto(photo)
-    Row(
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(
-                horizontal = GridlinkSpacing.rowHorizontal,
-                vertical = GridlinkSpacing.s8,
-            )
-            .clip(GridlinkFieldBoxShape)
-            .background(colors.fieldFill)
-            .border(GridlinkDimens.hairline, colors.surfaceBorder, GridlinkFieldBoxShape),
-        verticalAlignment = Alignment.CenterVertically,
+                start = GridlinkSpacing.rowHorizontal,
+                end = GridlinkSpacing.rowHorizontal,
+                // The padding from the top of the pane he asked for. The form scrolls, so this is
+                // breathing room at rest rather than a gap that has to survive anything.
+                top = GridlinkSpacing.s28,
+                bottom = GridlinkSpacing.s40,
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Row(
+        Box(
             modifier = Modifier
-                .weight(1f)
-                .clickable(onClick = onPick)
-                .padding(
-                    horizontal = GridlinkSpacing.s16,
-                    vertical = GridlinkSpacing.s12,
-                ),
-            verticalAlignment = Alignment.CenterVertically,
+                .size(GridlinkContactPhotoSize)
+                .clip(GridlinkContactPhotoShape)
+                .background(colors.fieldFill)
+                .border(GridlinkDimens.hairline, colors.surfaceBorder, GridlinkContactPhotoShape)
+                .clickable(onClick = onPick),
+            contentAlignment = Alignment.Center,
         ) {
             if (bitmap != null) {
                 Image(
                     bitmap = bitmap,
                     contentDescription = "Contact photo",
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(GridlinkSpacing.s8)),
+                    // Fills the tile: the border and the fill behind it are the empty state, and
+                    // leaving them visible around a picture would frame it like a sticker.
+                    modifier = Modifier.fillMaxSize(),
                 )
-                Spacer(Modifier.width(GridlinkSpacing.s16))
+            } else {
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    // The caption below says "Add photo" in words; repeating it here would make a
+                    // screen reader announce the same action twice for one target.
+                    contentDescription = null,
+                    tint = colors.textSecondary,
+                    modifier = Modifier.size(32.dp),
+                )
             }
-            Text(
-                text = if (photo == null) "Add photo" else "Replace photo",
-                style = GridlinkType.body,
-                // Placeholder grey while empty, exactly as the text rows read before they are
-                // typed into; primary once the row holds something.
-                color = if (photo == null) colors.textSecondary else colors.textPrimary,
-            )
         }
+        Spacer(Modifier.height(GridlinkSpacing.s12))
+        Text(
+            text = if (photo == null) "Add photo" else "Replace photo",
+            style = GridlinkType.body,
+            // Placeholder grey while empty, exactly as the text rows read before they are typed
+            // into; primary once there is a picture to replace.
+            color = if (photo == null) colors.textSecondary else colors.textPrimary,
+            modifier = Modifier
+                .clip(GridlinkFieldBoxShape)
+                .clickable(onClick = onPick)
+                .padding(horizontal = GridlinkSpacing.s12, vertical = GridlinkSpacing.s8),
+        )
         if (photo != null) {
             Text(
                 text = "Remove",
-                style = GridlinkType.body,
+                style = GridlinkType.metadata,
                 color = colors.textSecondary,
                 modifier = Modifier
+                    .clip(GridlinkFieldBoxShape)
                     .clickable(onClick = onRemove)
-                    .padding(
-                        horizontal = GridlinkSpacing.s16,
-                        vertical = GridlinkSpacing.s12,
-                    ),
+                    .padding(horizontal = GridlinkSpacing.s12, vertical = GridlinkSpacing.s8),
             )
         }
     }

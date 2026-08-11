@@ -4,7 +4,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.core.text.HtmlCompat
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -18,7 +17,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
@@ -52,10 +50,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import app.gridlink.core.data.contacts.ContactEdit
 import app.gridlink.core.data.mail.MailFilter
+import app.gridlink.core.data.settings.ThreadToolbarAction
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
@@ -249,11 +249,14 @@ fun GridlinkScaffold(
                     // FAB would have taken.
                     //
                     // 🔴 The button itself is NOT in this Row. It is drawn once, over the whole
-                    // window, and slid into place — see the overlay below. What is left here is the
-                    // hole it occupies, which is why the gap is a [Spacer] and not an absence: the
-                    // pill has to stop short of the button or the two would overlap, and in two
-                    // panes the button has left the column entirely so the pill takes the width
-                    // back.
+                    // window — see the overlay below. What is left here is the hole it occupies,
+                    // which is why the gap is a [Spacer] and not an absence: the pill has to stop
+                    // short of the button or the two would overlap, and in two panes the button
+                    // hangs off the reading pane instead so the pill takes the width back.
+                    //
+                    // The Spacer trails the pill because the button is bottom-RIGHT now. Put it back
+                    // in front and the pill would be indented from a button that is no longer there
+                    // while running under the one that is.
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -266,9 +269,6 @@ fun GridlinkScaffold(
                         horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s16),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        if (sidePane == null) {
-                            Spacer(Modifier.width(GridlinkDimens.composeButton))
-                        }
                         GridlinkNavPill(
                             selected = destination,
                             onSelect = onSelectDestination,
@@ -276,6 +276,9 @@ fun GridlinkScaffold(
                             onSelectionAction = onSelectionAction,
                             modifier = Modifier.weight(1f),
                         )
+                        if (sidePane == null) {
+                            Spacer(Modifier.width(GridlinkDimens.composeButton))
+                        }
                     }
                 }
             }
@@ -286,9 +289,10 @@ fun GridlinkScaffold(
             // the outside edges of the window.
             //
             // A Box around the Column rather than the Column alone, because the compose button is
-            // now a sibling of the panes instead of a child of one. [BoxWithConstraints] because
-            // where it slides TO is the width of the inset window, which nothing else here knows.
-            BoxWithConstraints(
+            // a sibling of the panes instead of a child of one. It was a [BoxWithConstraints] while
+            // the button travelled, to measure where it slid TO; a button that never moves is just
+            // an alignment, and a subcompose pass over the whole scaffold to learn that is waste.
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .windowInsetsPadding(WindowInsets.systemBars),
@@ -340,49 +344,37 @@ fun GridlinkScaffold(
                 }
 
                 /**
-                 * The one compose button, wherever the window currently wants it.
+                 * The one compose button, bottom right of the window, always.
                  *
-                 * ## Why it is drawn here and not in the control row
-                 * Tate's ask was that it travel: left of the nav pill in one pane, hard right of
-                 * the whole window in two, and *slide* between them. A button composed inside
-                 * [mailColumn] cannot do that. In two panes that column is a fixed 380dp, so the
-                 * furthest right it could ever reach is the seam between the panes, which is nowhere
-                 * near the right of the window; and moving it between two parents means one instance
-                 * leaving and another arriving, which is a cut, not a slide. So it is a sibling of
-                 * both panes, positioned by an animated offset, and the control row leaves a hole
-                 * for it when it is home.
+                 * ## 🔴 It used to travel, and that was the bug
+                 * The original ask was that it slide: left of the nav pill in one pane, hard right of
+                 * the window in two. Tate retracted it after living with it, and the reason is the
+                 * one that matters: "when no mail is selected in folded mode, the button is on the
+                 * left. when a message is opened, it switches to the right, its just confusing." A
+                 * thread's Reply is a *different composable* parked at the far right by
+                 * [GridlinkDetailFrame], so opening a message in one pane read as the same button
+                 * jumping sides. Both are now at the same corner and neither moves, which is what
+                 * made it feel like one control in the first place.
                  *
-                 * ## 🔴 The one it lands on in two panes is over the reading pane, on purpose
-                 * That is what "the very rightmost position" means on a window whose right half is
-                 * the thread. It floats over the pane's glass rather than displacing it. The pane
-                 * scrolls its own content and ends above the window's bottom padding, so what sits
-                 * under the button is the tail of the fade, not a line of text.
+                 * ## Why it is still drawn here and not in the control row
+                 * It floats over whichever pane is under it rather than displacing anything, and in
+                 * two panes that right edge belongs to the reading pane, not to [mailColumn]'s fixed
+                 * 380dp. A button composed inside the column could never reach past the seam. The
+                 * control row still leaves a hole for it in one pane so the nav pill stops short
+                 * instead of running underneath.
+                 *
+                 * The pane scrolls its own content and ends above the window's bottom padding, so
+                 * what sits under the button is the tail of the fade, not a line of text.
                  */
-                val homeX = GridlinkSpacing.chrome
-                // Coerced, because [BoxWithConstraints] hands back the real width and a window
-                // narrower than the button plus its margins would otherwise compute a target to the
-                // LEFT of home and slide the wrong way. Nothing this app runs on is that narrow;
-                // the guard costs a comparison and removes the class of bug entirely.
-                val farX = (maxWidth - GridlinkSpacing.chrome - GridlinkDimens.composeButton)
-                    .coerceAtLeast(homeX)
-                val composeX by animateDpAsState(
-                    // `sidePane == null` IS the compact layout: the caller passes a pane whenever the
-                    // window is wide, open or empty. Read from the same value the layout above
-                    // branches on, so the button cannot end up parked for a layout that is not showing.
-                    targetValue = if (sidePane == null) homeX else farX,
-                    animationSpec = GridlinkMotion.standard(),
-                    label = "composeSlide",
-                )
                 GridlinkComposeButton(
                     onClick = onCompose,
                     destination = destination,
                     modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        // The same bottom margin the control row uses, so the button keeps the nav
-                        // pill's baseline at both ends of the journey. The button and the pill are
-                        // both [GRIDLINK_PILL_HEIGHT], so matching the bottom matches the whole line.
-                        .padding(bottom = GridlinkSpacing.chrome)
-                        .offset(x = composeX),
+                        .align(Alignment.BottomEnd)
+                        // The same margins the control row uses, so the button keeps the nav pill's
+                        // baseline. The button and the pill are both [GRIDLINK_PILL_HEIGHT], so
+                        // matching the bottom matches the whole line.
+                        .padding(end = GridlinkSpacing.chrome, bottom = GridlinkSpacing.chrome),
                 )
             }
         }
@@ -670,6 +662,15 @@ fun GridlinkRoot(
      */
     onSearchQuery: (String) -> Unit = {},
     /**
+     * A conversation row's count pill was tapped: unfold that thread, or fold it back.
+     *
+     * Forwarded to the inbox list and no further. The folder panel deliberately does not get it:
+     * it is a place you go to see what is IN a folder, and collapsing there would answer a question
+     * nobody asked it. Whoever supplies [mail] answers by filling [GridlinkMailContent.threads],
+     * and the no-op default is what leaves the pill undrawn in the sample and the gallery.
+     */
+    onToggleThread: (String) -> Unit = {},
+    /**
      * Which quick filters the inbox has lit, reported on every tap.
      *
      * Forwarded to [GridlinkMessageListScreen] and no further: nothing else in the app is narrowed
@@ -784,6 +785,15 @@ fun GridlinkRoot(
      */
     onEditDraft: (String?) -> Unit = {},
     /**
+     * Permanently destroy everything in the mailbox with this id, or null when nothing can.
+     *
+     * 🔴 Null is the debug gallery's answer and it is why this is nullable rather than a no-op
+     * default: [GridlinkFolderMailScreen] hides the Empty button entirely when nothing is wired,
+     * so the sample tree shows a Trash you can read and not one with a live-looking button that
+     * silently does nothing.
+     */
+    onEmptyFolder: ((String) -> Unit)? = null,
+    /**
      * A message or a draft arriving from outside the app while this tree is already composed. See
      * [GridlinkOpenRequest] for why this cannot be one of the `initial…` parameters above.
      */
@@ -793,6 +803,14 @@ fun GridlinkRoot(
      * re-open a thread the user has since backed out of.
      */
     onOpenRequestConsumed: () -> Unit = {},
+    /**
+     * Which actions the open message's bottom bar offers, from Settings.
+     *
+     * Defaults to [ThreadToolbarAction.DEFAULTS], which is the bar as it shipped, so a `@Preview` and
+     * the debug gallery draw the same three buttons a reader with untouched settings sees. See
+     * [GridlinkThreadScreen] for how the set becomes a bar plus a More sheet.
+     */
+    toolbarActions: Set<ThreadToolbarAction> = ThreadToolbarAction.DEFAULTS,
 ) {
     var destination by rememberSaveable(initialDestination) { mutableStateOf(initialDestination) }
 
@@ -1377,6 +1395,21 @@ fun GridlinkRoot(
     var removeNonce by remember { mutableIntStateOf(0) }
 
     /**
+     * The open message waiting on a Move destination, or null.
+     *
+     * ⚠️ An id and not a boolean. The picker is dismissible and the thread stays open behind it, so
+     * between raising the sheet and picking a folder the user can reach the back gesture; holding the
+     * id means the filing is aimed at the message the sheet was raised ON, not at whatever `detail`
+     * happens to say by the time they choose.
+     */
+    var movingThread by remember { mutableStateOf<String?>(null) }
+
+    // Print is the one thread action that leaves the app's own world and hands a document to the
+    // system spooler, so it needs a Context. Read once here rather than at the dispatch site, which
+    // is a lambda and not a composable scope.
+    val context = LocalContext.current
+
+    /**
      * Files the open message and goes back to the list.
      *
      * 🔴 The order matters and is the opposite of what reads naturally. `closeThread()` starts an
@@ -1385,9 +1418,9 @@ fun GridlinkRoot(
      * and is over by the time the list is uncovered, instead of a row visibly vanishing under the
      * user's eyes on a screen they just arrived back at.
      */
-    fun fileOpenThread(id: String, action: GridlinkMailAction) {
+    fun fileOpenThread(id: String, action: GridlinkMailAction, moveTo: String? = null) {
         removeNonce += 1
-        removeRequest = GridlinkRemoveRequest(setOf(id), removeNonce, action)
+        removeRequest = GridlinkRemoveRequest(setOf(id), removeNonce, action, moveTo)
         closeDetail()
     }
 
@@ -1610,6 +1643,33 @@ fun GridlinkRoot(
                         GridlinkThreadAction.SPAM ->
                             fileOpenThread(message.id, GridlinkMailAction.SPAM)
 
+                        // Same shape as archive and spam: the message is filed and the reading
+                        // session is over. No confirmation, because delete here means Trash, which
+                        // is a mailbox the message can be fetched back out of; the only thing in
+                        // this app that asks first is Empty, which destroys mail on the server.
+                        GridlinkThreadAction.DELETE ->
+                            fileOpenThread(message.id, GridlinkMailAction.DELETE)
+
+                        // 🔴 Asks, then files, in that order — the picker is what supplies the
+                        // destination, and there is nothing to file until it has. Dismissing the
+                        // sheet is a complete outcome that leaves the thread open and writes
+                        // nothing, which is the same contract the list's own Move has.
+                        GridlinkThreadAction.MOVE -> movingThread = message.id
+
+                        // 🔴 Closes the thread, and it has to. Opening a message is what marks it
+                        // read, so a Mark unread that left you looking at it would be undone by the
+                        // screen you were looking at. Routed through [fileOpenThread] for the row's
+                        // collapse-behind-the-animation ordering even though nothing is being
+                        // filed: the row DOES leave an unread-filtered list, and on any other list
+                        // the next sync brings it back within the second, unread.
+                        GridlinkThreadAction.MARK_UNREAD ->
+                            fileOpenThread(message.id, GridlinkMailAction.MARK_UNREAD)
+
+                        // The one action that writes nothing and goes nowhere. The system print UI
+                        // comes up over the app and the thread is still there underneath when it is
+                        // dismissed, which is what printing something you are reading should do.
+                        GridlinkThreadAction.PRINT -> gridlinkPrintMessage(context, message)
+
                         // 🔴 Straight to [onMailAction], NOT through `fileOpenThread`. Every other
                         // branch here ends the reading session on purpose; this one is a switch on
                         // the message in front of you, and closing the thread under it would be the
@@ -1690,6 +1750,7 @@ fun GridlinkRoot(
                             ?.takeIf { it.id == current.message.id }
                             ?.attachmentStatus,
                         embedded = embedded,
+                        toolbarActions = toolbarActions,
                     )
 
                     is GridlinkDetail.Contact -> GridlinkContactScreen(
@@ -1733,7 +1794,6 @@ fun GridlinkRoot(
                         // the card being replaced is already fully in, so running the entrance would slide
                         // the screen out and back for what is one appointment becoming another.
                         onOpenEvent = { openEventId = it.id },
-                        onWrite = { composing = gridlinkWriteTo(it) },
                         // 🔴 Absent, not disabled, when the writer cannot edit THIS event: the
                         // real CalDAV writer says so per event ([GridlinkCalendarWriter.canUpdate],
                         // which is how a repeating event's day shows no Edit while a one-off does),
@@ -1807,6 +1867,10 @@ fun GridlinkRoot(
                             }
                         },
                         embedded = embedded,
+                        // Bound to the folder that is OPEN, not to the one the callback is handed
+                        // later: `current` is captured here, so an Empty confirmed on Junk can never
+                        // be carried out against whatever folder the tree has moved on to.
+                        onEmpty = onEmptyFolder?.let { empty -> { empty(current.folder.id) } },
                     )
                 }
             }
@@ -1974,6 +2038,7 @@ fun GridlinkRoot(
                             onSelectedIdsChange = { selectedIds = it },
                             initialSearchExpanded = initialSearchExpanded,
                             onSearchQuery = onSearchQuery,
+                            onToggleThread = onToggleThread,
                             onFilter = onFilter,
                             initialFilter = initialFilter,
                             initialSwipeId = initialSwipeId,
@@ -2223,6 +2288,29 @@ fun GridlinkRoot(
                         scheduled = scheduled,
                         onCancel = onCancelScheduled,
                         onClose = { scheduledOpen = false },
+                    )
+                }
+
+                // Move, raised from the open thread's bottom bar. The same sheet the list's own Move
+                // uses, deliberately: two pickers that drew the account's folders in two different
+                // orders would be two different answers to "what mailboxes do I have".
+                //
+                // 🔴 The pick goes through [fileOpenThread], not through [onMove] directly, so the
+                // row's collapse rides the same behind-the-animation ordering as every other filing
+                // from inside a thread. The destination travels in the request's `moveTo`, which is
+                // what routes it to `onMove` when the list applies it.
+                movingThread?.let { id ->
+                    GridlinkMovePicker(
+                        tree = folderTree,
+                        count = 1,
+                        onDismiss = { movingThread = null },
+                        onPick = { folder ->
+                            movingThread = null
+                            fileOpenThread(id, GridlinkMailAction.MOVE, folder.id)
+                        },
+                        // The mailbox being read, when there is one. On Inbox and on search there
+                        // is no folder id to name, and the picker's own contract for that is null.
+                        excludeId = openFolderId,
                     )
                 }
 

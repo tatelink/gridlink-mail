@@ -379,9 +379,10 @@ private fun GridlinkConfirmPill(
             .then(
                 if (enabled) {
                     Modifier
-                        .gridlinkGlow(colors.actionGlow?.copy(alpha = 0.40f), radiusMultiplier = 0.95f)
+                        // Warm, with Send and the accent circle: Save is this screen's primary verb.
+                        .gridlinkGlow(colors.warmGlow?.copy(alpha = 0.40f), radiusMultiplier = 0.95f)
                         .clip(shape)
-                        .background(gridlinkAccentFill(colors.accent))
+                        .background(gridlinkAccentFill(colors.accentWarm, darken = GRIDLINK_WARM_FILL_DARKEN))
                         .clickable(onClick = onClick)
                 } else {
                     Modifier
@@ -396,7 +397,7 @@ private fun GridlinkConfirmPill(
         Text(
             text = label,
             style = GridlinkType.senderName,
-            color = if (enabled) colors.onAccent else colors.textSecondary,
+            color = if (enabled) colors.onAccentWarm else colors.textSecondary,
         )
     }
 }
@@ -637,17 +638,32 @@ fun GridlinkFormTextRow(
                 vertical = GridlinkSpacing.s8,
             ),
         ) {
-            label?.let {
-                GridlinkFieldLabelPill(it)
-                Spacer(Modifier.height(GridlinkSpacing.s8))
-            }
-            editor(
-                Modifier
+            // 🔴 The label sits INSIDE the box, at its left, and never above it. A typed row used to
+            // stack its pill over the box while [GridlinkFormPickRow] and [GridlinkFormToggleRow] put
+            // theirs beside the value, so any form mixing the two (the event form has all three kinds)
+            // read as two different forms bolted together, and the contact form's all-typed layout
+            // disagreed with the event form's. Tate's call, 2026-08-10: inline, everywhere.
+            Row(
+                modifier = Modifier
                     .fillMaxWidth()
                     .clip(GridlinkEntryFieldShape)
                     .background(colors.fieldFill)
                     .gridlinkFieldUnderline(underline),
-            )
+                // A multiline box is taller than its first line, so its label hangs from the top
+                // rather than floating in the middle of an empty notes area.
+                verticalAlignment = if (singleLine) Alignment.CenterVertically else Alignment.Top,
+            ) {
+                label?.let {
+                    GridlinkFieldLabelPill(
+                        text = it,
+                        modifier = Modifier.padding(
+                            start = GridlinkSpacing.s16,
+                            top = if (singleLine) 0.dp else GridlinkSpacing.s12,
+                        ),
+                    )
+                }
+                editor(Modifier.weight(1f))
+            }
         }
     } else {
         editor(modifier.fillMaxWidth())
