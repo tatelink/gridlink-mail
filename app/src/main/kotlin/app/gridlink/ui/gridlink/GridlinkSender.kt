@@ -79,6 +79,14 @@ class GridlinkOutboxSender(
     private val context: Context,
     private val repository: MailRepository,
     private val accounts: AccountStore,
+    /**
+     * Where a draft's attachments come from, or null in a build that cannot attach.
+     *
+     * 🔴 The SAME instance the composer stages into. It holds the parts behind the chips, so a
+     * second one here would find every id unknown and refuse every attached send — the bug this
+     * whole change removes, wearing a different hat.
+     */
+    private val attacher: GridlinkAttacher? = null,
 ) : GridlinkSender {
 
     override fun check(request: GridlinkComposeRequest): String? {
@@ -108,11 +116,15 @@ class GridlinkOutboxSender(
                 "Type an address to send for real."
         }
 
-        // The attachment on the demo reply is a name and a size with no bytes anywhere behind it.
-        // The outbox stages real files, so this would queue a message claiming an attachment it
-        // cannot carry, and #70's rule is that a send never goes out short of what was attached.
-        if (draft.attachments.isNotEmpty()) {
-            return "Attachments aren't wired up yet. Remove it to send."
+        // Attachments go out for real now, but only the ones this app staged. The demo reply's is a
+        // name and a size with no bytes anywhere behind it, and #70's rule is that a send never goes
+        // out short of what was attached — so a chip with no file is a refusal, by name, rather than
+        // a message that quietly leaves it off.
+        val unstaged = draft.attachments.filter { attacher == null || !attacher.holds(it) }
+        if (unstaged.isNotEmpty()) {
+            val what = unstaged.joinToString(", ") { it.name }
+            return "$what ${if (unstaged.size == 1) "has" else "have"} no file behind " +
+                "${if (unstaged.size == 1) "it" else "them"}. Remove and attach again to send."
         }
         return null
     }
@@ -132,6 +144,9 @@ class GridlinkOutboxSender(
             // See [GridlinkComposeDraft.formattedBody]: the HTML goes out on every send, formatted
             // or not, because it is also what protects a plain message from format=flowed reflow.
             htmlBody = formattedHtml(formatted),
+            // The staged parts, not the chips. [check] has already refused any chip with no file
+            // behind it, so this cannot silently shorten the message.
+            attachments = attacher?.parts(draft.attachments).orEmpty(),
             // 🔴 The hold is the ring. If these two ever disagree the bar is lying in one direction
             // or the other: a shorter hold sends while the ring still offers to stop it, a longer
             // one leaves the message recallable after the offer is gone.
@@ -153,7 +168,8 @@ class GridlinkOutboxSender(
     override suspend fun keep(request: GridlinkComposeRequest) {
         val draft = request.draft
         val credentials = accounts.load() ?: error("No account to keep a draft on.")
-        val emptied = draft.recipients.isEmpty() && draft.subject.isBlank() && draft.body.isBlank()
+        val emptied = draft.recipients.isEmpty() && draft.subject.isBlank() && draft.body.isBlank() &&
+            draft.attachments.isEmpty()
         if (emptied) {
             // The composer only reports an empty draft when there IS a server copy to retire
             // (an emptied fresh compose reports null and never reaches here): the user opened a
@@ -172,6 +188,11 @@ class GridlinkOutboxSender(
             // back out of it with [parseFormattedHtml]. Without it a draft closed with a bolded
             // word reopens plain, and the user's next act is to send it.
             htmlBody = formattedHtml(formatted),
+            // A draft keeps its files, so closing the composer on an attached message and reopening
+            // it from Drafts finds the same message. Chips with nothing behind them are dropped
+            // rather than refused: [check] does not run on a close, and a draft is allowed to be
+            // less than a sendable message — which is the whole point of a draft.
+            attachments = attacher?.parts(draft.attachments.filter { attacher.holds(it) }).orEmpty(),
             // Editing a saved draft replaces it in place rather than piling up a copy per close.
             replacesEmailId = draft.draftEmailId,
         )
@@ -179,6 +200,14 @@ class GridlinkOutboxSender(
 
     override suspend fun schedule(request: GridlinkComposeRequest, sendAtMillis: Long) {
         val draft = request.draft
+        // 🔴 The scheduled-send table has no attachment column: its row IS the message, and a file
+        // has nowhere to live in it. Upstream draws the same line ([scheduleSendAllowed]). Refused
+        // here rather than in [check] because that method cannot tell a send from a schedule, and
+        // an attached message sent NOW is perfectly fine — the scaffold reopens the composer with
+        // this sentence, so the draft and its file survive the refusal.
+        if (draft.attachments.isNotEmpty()) {
+            error("Send Later can't carry a file yet. Send it now, or remove the attachment.")
+        }
         val credentials = accounts.load() ?: error("No account to send from.")
         // Same shape [ComposeViewModel] writes: the entity is the message, held locally until its
         // worker fires. Nothing goes to the server until then, which is why cancelling a scheduled

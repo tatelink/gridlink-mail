@@ -3,6 +3,7 @@ package app.gridlink.ui.home
 import android.app.Application
 import android.os.Build
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -27,6 +28,7 @@ import app.gridlink.core.data.settings.ThreadToolbarAction
 import app.gridlink.ui.gridlink.GridlinkApp
 import app.gridlink.ui.gridlink.GridlinkAttachment
 import app.gridlink.ui.gridlink.GridlinkChromeConfig
+import app.gridlink.ui.gridlink.GridlinkFileAttacher
 import app.gridlink.ui.gridlink.GridlinkComposeDraft
 import app.gridlink.ui.gridlink.GridlinkMenuItem
 import app.gridlink.ui.gridlink.GridlinkOpenRequest
@@ -76,9 +78,10 @@ import java.time.ZonedDateTime
  *   needs that folder opened before it can be shown at all. See [GridlinkOpenRequest.Message].
  *
  * ⚠️ A share (`ACTION_SEND`) carrying files arrives as a subject and a body with the URIs stashed in
- * the container. The Gridlink composer has no attachment picker and its sender refuses a draft with
- * attachments outright, so the files are not attached; the text is. The activity drops the stash
- * when the payload is consumed, so nothing inherits it later.
+ * the container. The files are staged HERE, through [GridlinkFileAttacher], before the composer is
+ * allowed to open: sharing a photo into this app produces a draft with the photo on it, which is
+ * what "share to mail" has always meant everywhere else. The stash is cleared as it is read, so
+ * nothing inherits it later and no expired read grant is retried.
  */
 @Composable
 fun GridlinkHomeHost(
@@ -135,13 +138,74 @@ fun GridlinkHomeHost(
     // line a user checks when mail stops arriving blank.
     val address = account?.username.orEmpty()
 
+    // 🔴 One attacher, and the sender is built AROUND it. It holds the staged file behind every
+    // chip the composer is showing, so a second instance would leave the sender unable to find any
+    // of them and refusing every attached send.
+    val attacher = remember(application) {
+        GridlinkFileAttacher(
+            context = application,
+            repository = application.container.mailRepository,
+            accounts = application.container.accountStore,
+        )
+    }
+    val sender = remember(application, attacher) {
+        GridlinkOutboxSender(
+            context = application,
+            repository = application.container.mailRepository,
+            accounts = application.container.accountStore,
+            attacher = attacher,
+        )
+    }
+
+    // Files shared into the app (ACTION_SEND), staged BEFORE the composer opens.
+    //
+    // 🔴 null means "not answered yet for this share", and the composer is held back until it is.
+    // Attaching afterwards would mean opening a composer and then replacing its draft, and the
+    // composer keys all of its state on the draft it was given: the replacement would reset the
+    // fields, which for a share is exactly where the user has just started typing.
+    //
+    // The stash is cleared as it is read. A read grant behind a `content:` URI does not outlive the
+    // share, so a second attempt later would fail anyway, and leaving it standing risks a much
+    // later draft picking up a file from a share the user made this morning.
+    var sharedFiles by remember(pendingMailto) { mutableStateOf<List<GridlinkAttachment>?>(null) }
+    LaunchedEffect(pendingMailto) {
+        if (pendingMailto == null) {
+            sharedFiles = emptyList()
+            return@LaunchedEffect
+        }
+        val uris = application.container.pendingShareUris
+        application.container.pendingShareUris = emptyList()
+        val staged = mutableListOf<GridlinkAttachment>()
+        var failed = 0
+        uris.forEach { uri ->
+            runCatching { attacher.stage(uri) }
+                .onSuccess { staged += it }
+                .onFailure {
+                    failed++
+                    Log.w(TAG, "shared file could not be attached", it)
+                }
+        }
+        // Said out loud rather than left to be noticed. A share that silently drops a file is the
+        // user sending a message they believe carries a photo, which is the same class of failure
+        // as the black hole the save flow just closed. The composer opens either way, with whatever
+        // did attach, so the message is still there to fix.
+        if (failed > 0) {
+            Toast.makeText(
+                application,
+                if (failed == 1) "Couldn't attach that file." else "Couldn't attach $failed files.",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+        sharedFiles = staged
+    }
+
     // The one-shot handed to [GridlinkRoot]. Remembered on the payloads themselves, so an unrelated
     // recomposition cannot mint a second request out of the same tap, and so the identity the
     // scaffold keys its effect on is stable until one of them actually changes.
     //
     // A notification outranks a `mailto:` when both are somehow waiting. Neither is lost: the
     // scaffold acknowledges one, that payload clears, and this recomputes to the other.
-    val openRequest = remember(pendingEmailOpen, pendingMailto, account?.inboxId) {
+    val openRequest = remember(pendingEmailOpen, pendingMailto, sharedFiles, account?.inboxId) {
         when {
             pendingEmailOpen != null -> GridlinkOpenRequest.Message(
                 id = pendingEmailOpen.emailId,
@@ -159,7 +223,10 @@ fun GridlinkHomeHost(
                 if (pendingMailto.bcc.isNotBlank()) {
                     Log.i(TAG, "mailto: carried bcc; dropped, the composer has no blind row")
                 }
-                GridlinkOpenRequest.Compose(pendingMailto.toGridlinkDraft())
+                // Held back one recomposition while a share's files stage. See [sharedFiles].
+                sharedFiles?.let {
+                    GridlinkOpenRequest.Compose(pendingMailto.toGridlinkDraft(it))
+                }
             }
             else -> null
         }
@@ -169,14 +236,6 @@ fun GridlinkHomeHost(
     // an event with no organiser is stamped with the view model's answer and the event card compares
     // it against this one. Empty is a working value, not a broken one; see that property.
     val ownDomain = address.substringAfter('@', "")
-
-    val sender = remember(application) {
-        GridlinkOutboxSender(
-            context = application,
-            repository = application.container.mailRepository,
-            accounts = application.container.accountStore,
-        )
-    }
 
     // 🔴 Read through [rememberUpdatedState] rather than captured, because the config below is
     // remembered across recompositions: a directly captured lambda would go stale and the Settings
@@ -315,6 +374,7 @@ fun GridlinkHomeHost(
             contacts = contacts,
             ownDomain = ownDomain,
             sender = sender,
+            attacher = attacher,
             calendarWriter = davViewModel.calendarWriter,
             contactWriter = davViewModel.contactWriter,
             scheduled = scheduled,
@@ -342,7 +402,10 @@ fun GridlinkHomeHost(
  * composer can open. See this file's KDoc for why `cc` merges into the single recipient list and
  * why `bcc` does not.
  */
-internal fun MailtoDraft.toGridlinkDraft(): GridlinkComposeDraft {
+internal fun MailtoDraft.toGridlinkDraft(
+    /** A share's files, already staged by [GridlinkFileAttacher]. Empty for a plain `mailto:`. */
+    attachments: List<GridlinkAttachment> = emptyList(),
+): GridlinkComposeDraft {
     val recipients = (to.split(',') + cc.split(','))
         .map { it.trim() }
         .filter { it.isNotBlank() }
@@ -370,10 +433,9 @@ internal fun MailtoDraft.toGridlinkDraft(): GridlinkComposeDraft {
         subject = subject,
         body = body,
         quoted = null,
-        // A share's files stay unattached: the Gridlink composer has no picker and its sender
-        // refuses a draft carrying attachments. Stated in this file's KDoc rather than dropped
-        // quietly here.
-        attachments = emptyList(),
+        // A share's files, staged before this draft was built. Empty for a `mailto:`, which
+        // carries text and nothing else.
+        attachments = attachments,
     )
 }
 

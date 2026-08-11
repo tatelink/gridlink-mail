@@ -616,6 +616,13 @@ fun GridlinkRoot(
      */
     sender: GridlinkSender = GridlinkNullSender,
     /**
+     * What the composer's attach button does, or null in a build with no files behind it.
+     *
+     * 🔴 Must be the same instance [sender] was built with. It holds the staged file behind each
+     * chip, and a sender looking at a different one refuses every attached send.
+     */
+    attacher: GridlinkAttacher? = null,
+    /**
      * What the new-event form's Save button does.
      *
      * Defaults to [GridlinkMemoryCalendarWriter], which keeps the event for the run. Unlike [sender]
@@ -2350,6 +2357,7 @@ fun GridlinkRoot(
                         initialFocus = request.focus,
                         initiallyScheduling = request.scheduling,
                         error = sendError,
+                        attacher = attacher,
                     )
                 }
 

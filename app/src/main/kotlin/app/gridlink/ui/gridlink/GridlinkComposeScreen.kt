@@ -1,6 +1,8 @@
 package app.gridlink.ui.gridlink
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -52,6 +54,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -86,7 +89,9 @@ import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
 import app.gridlink.ui.theme.gridlinkSenderBarColor
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
@@ -172,6 +177,14 @@ fun GridlinkComposeScreen(
      * that means the opposite of "this did not send".
      */
     error: String? = null,
+    /**
+     * Turn a picked or shared file into a chip, or null in a build with nothing behind the button.
+     *
+     * Null is the gallery's answer and it is why the attach button stays visible there: the control
+     * is part of the composer's design, and hiding it in the harness would mean photographing a
+     * screen the app does not have. Tapping it with no attacher does nothing, exactly as before.
+     */
+    attacher: GridlinkAttacher? = null,
 ) {
     val colors = GridlinkTheme.colors
     var focused by remember(draft) { mutableStateOf(initialFocus) }
@@ -214,6 +227,52 @@ fun GridlinkComposeScreen(
     // [applyPendingMarks] and abandoned the moment the caret moves somewhere else.
     var pendingMarks by remember(draft) { mutableStateOf(emptyMap<GridlinkMark, Boolean>()) }
     var linking by remember(draft) { mutableStateOf(false) }
+
+    // What attaching a file is doing or why it did not happen, said on the composer itself.
+    //
+    // 🔴 Local, not hoisted like [error]. A refusal to send has to reach whoever owns the message;
+    // a file that would not attach is over the moment it is read, and the only screen it concerns
+    // is this one. Cleared on the next attempt, so a failure never outlives the file it was about.
+    var attachNotice by remember(draft) { mutableStateOf<String?>(null) }
+    var attaching by remember(draft) { mutableStateOf(false) }
+    val attachScope = rememberCoroutineScope()
+
+    /**
+     * Stage picked files onto the draft, one at a time.
+     *
+     * Sequential rather than concurrent on purpose: on JMAP each one is an upload, and three at
+     * once over a phone connection finish no sooner while making the failure of any one of them
+     * harder to attribute. A failed file stops the run and says which it was — the rest are not
+     * attached either, so what the user sees on the chips is what the message will carry.
+     */
+    fun attachFiles(uris: List<android.net.Uri>) {
+        val stage = attacher ?: return
+        if (uris.isEmpty()) return
+        attachScope.launch {
+            attaching = true
+            attachNotice = if (uris.size == 1) "Attaching…" else "Attaching ${uris.size} files…"
+            try {
+                uris.forEach { uri -> attachments = attachments + stage.stage(uri) }
+                attachNotice = null
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                attachNotice = t.message ?: "Couldn't attach that file."
+            } finally {
+                attaching = false
+            }
+        }
+    }
+
+    // "*/*", so the button attaches whatever the user has rather than second-guessing what an
+    // email is allowed to carry.
+    //
+    // ⚠️ Yes, this opens the system picker, and no, that is not the document picker the save flow
+    // was just rid of. Reading a file this app does not own IS the grant: there is no API that
+    // hands over another app's bytes without the user pointing at them in the system's own UI. The
+    // save case had a real alternative (MediaStore) and took it; this one does not have one.
+    val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { picked -> attachFiles(picked) }
 
     val toFocus = remember { FocusRequester() }
     val subjectFocus = remember { FocusRequester() }
@@ -561,11 +620,16 @@ fun GridlinkComposeScreen(
             // colliding with an existing name is a form not yet valid; mail that the user believes
             // has gone and has not is a different order of thing, and it is the one case in this app
             // where nothing was destroyed but something was still lost.
-            error?.let { reason ->
+            // The send refusal, or what the attach button is doing. One slot rather than two: they
+            // cannot both be true (a refusal is decided on the send tap, and a staging file has not
+            // been sent), and a second line would push the form down for a message that lasts a
+            // second. Progress is secondary text, not amber: nothing is wrong while it is running,
+            // and amber in this app means something is staged that the user may not want.
+            (error ?: attachNotice)?.let { reason ->
                 Text(
                     text = reason,
                     style = GridlinkType.metadata,
-                    color = colors.caution,
+                    color = if (error == null && attaching) colors.textSecondary else colors.caution,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(
@@ -768,7 +832,11 @@ fun GridlinkComposeScreen(
                     enter = fadeIn(GridlinkMotion.toolbarMorph()),
                     exit = fadeOut(GridlinkMotion.toolbarMorph()),
                 ) {
-                    GridlinkAttachButton(onClick = { /* picker is server work */ })
+                    GridlinkAttachButton(
+                        onClick = {
+                            if (attacher != null && !attaching) filePicker.launch(arrayOf("*/*"))
+                        },
+                    )
                 }
                 // The formatting toolbar takes the band the attach and send buttons vacate when the
                 // keyboard comes up, and only while the caret is in the body: there is nothing to
