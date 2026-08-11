@@ -80,6 +80,21 @@ data class GridlinkMailContent(
      * same one-shot discipline as [GridlinkChromeState.menuRoute].
      */
     val draftEdit: GridlinkComposeDraft? = null,
+    /**
+     * The messages under each unfolded conversation row, keyed by [GridlinkMessage.threadKey], and
+     * empty for every row that is not unfolded right now.
+     *
+     * ## 🔴 Why the members are supplied and not fetched by the row
+     * Conversation view collapses six messages into one row, and this map is the only way back to
+     * the other five: the Gridlink reader opens ONE message, so a collapsed row with no expansion
+     * would put cached mail somewhere the app cannot reach. A map keyed by thread rather than a
+     * second list because the rows are drawn in place, under the row they belong to.
+     *
+     * Bounded by what is unfolded, so it is not the message cache in UI state: folding a row drops
+     * its entry. Each list INCLUDES the representative, so the unfolded thread reads as a whole
+     * conversation rather than as "the row, plus the others".
+     */
+    val threads: Map<String, List<GridlinkMessage>> = emptyMap(),
 )
 
 /**

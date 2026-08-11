@@ -25,7 +25,6 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Email
-import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -68,9 +67,9 @@ import app.gridlink.ui.theme.gridlinkSenderBarColor
  * ## The field rows act, they don't just display
  * Tapping an address opens the composer already addressed to it (each address, not just the
  * primary — that is the point of listing them); tapping a number opens the dialler with it typed
- * in, through [gridlinkDial], which shows the number rather than ringing it. Copy and Share keep
- * their place in the pill, Write joins them there, and the accent slot goes to Edit — on a card,
- * changing the card is the headline act.
+ * in, through [gridlinkDial], which shows the number rather than ringing it. Copy and Write hold the
+ * pill's two slots and the accent slot goes to Edit: on a card, changing the card is the headline
+ * act. Share used to sit between them and no longer does, for the width reason recorded at the pill.
  *
  * ⚠️ A "Find mail" button was considered and dropped. The search field is private state inside
  * [GridlinkMessageListScreen], so prefilling it means hoisting search state through the scaffold to
@@ -101,26 +100,25 @@ fun GridlinkContactScreen(
         modifier = modifier,
         embedded = embedded,
         bottom = {
+            // 🔴 TWO slots, not three. Brandon reported the pill spilling out of the reading pane on
+            // the unfolded Fold, and it is these labels that do it: "Copy address" is nearly twice
+            // the width of the thread pill's "Forward", so the same three-slot shape that fits over
+            // there runs out of room here. Beside the pill the pane also spends a whole
+            // [GridlinkDimens.composeButton] on the accent circle plus the travelling "+", so the
+            // pill gets less width than the thread's does on the same screen. Two is the ceiling for
+            // this card at every width, folded included, so the card does not rearrange itself when
+            // the device opens.
+            //
+            // Share is the one that lost its slot: Copy has no other route to the clipboard, and
+            // Write is the card's whole point in a mail app, while sharing a contact is the rarest
+            // of the three. It is gone rather than hidden — a More sheet for a single item would be
+            // a second tap to reach one action, which is worse than the thread's case where More
+            // covers four.
             GridlinkDetailActionPill(modifier = Modifier.weight(1f)) {
                 GridlinkDetailActionItem(
                     label = "Copy address",
                     icon = Icons.Outlined.ContentCopy,
                     onClick = { clipboard.setText(AnnotatedString(contact.email)) },
-                    modifier = Modifier.weight(1f),
-                )
-                GridlinkDetailActionItem(
-                    label = "Share",
-                    icon = Icons.Outlined.Share,
-                    onClick = {
-                        leaveOnce {
-                            gridlinkShare(
-                                context = context,
-                                subject = contact.displayName,
-                                text = "${contact.displayName}\n${contact.email}",
-                                chooserTitle = "Share contact",
-                            )
-                        }
-                    },
                     modifier = Modifier.weight(1f),
                 )
                 GridlinkDetailActionItem(

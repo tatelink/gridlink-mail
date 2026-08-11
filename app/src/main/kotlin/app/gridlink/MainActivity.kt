@@ -18,6 +18,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import app.gridlink.core.data.settings.GridlinkPalette
 import app.gridlink.core.data.settings.ListDensity
 import app.gridlink.core.data.settings.PreviewLines
@@ -90,7 +94,14 @@ class MainActivity : AppCompatActivity() {
             // Gridlink. A tapped new-mail notification and a mailto: link from another app are both
             // requests to be somewhere specific, and a brand animation in front of either is the app
             // making the user wait through its logo to get to the thing they already asked for.
-            playIntro = pendingMailto.value == null && pendingEmailOpen.value == null
+            // 🔴 …and only on the launches the intro is actually DUE on. Brandon, 2026-08-10: "i
+            // like the video but loading it every time seems like a lot - maybe only the first time
+            // after account added? every app open is too much tho." Due means: never played here
+            // before, or the account list has grown since it last played. See
+            // [SettingsRepository.introSeenAccountCount] for why it is a count and not a boolean.
+            playIntro = pendingMailto.value == null &&
+                pendingEmailOpen.value == null &&
+                introIsDue()
         }
         if (playIntro && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             splashScreen.setOnExitAnimationListener { splash ->
@@ -159,6 +170,33 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * Whether this launch is one of the ones the intro is owed on, and claim it if so.
+     *
+     * Due when nothing has been recorded yet (a genuine first launch) or when the account list has
+     * grown past the count the intro last saw (an account was added since). Claiming it writes
+     * today's count back, so the next launch with the same accounts skips the animation — which is
+     * the whole point of the change.
+     *
+     * ⚠️ The read is blocking, on the main thread, on purpose. "Does this launch get the intro" is a
+     * fact about the launch: it has to be settled before the splash-exit listener is registered a
+     * few lines below, and before `setContent` seeds `introPlaying`. Deciding it later — from a
+     * collected flow — would either flash the intro onto a screen that had already drawn mail, or
+     * hold every launch behind an async read to avoid that. The read is one small preferences file
+     * while the system splash is still covering the window, and the alternative costs more.
+     *
+     * The write is not blocking and does not need to be: nothing this launch does depends on it, and
+     * a process killed between the two only spends one extra intro.
+     */
+    private fun introIsDue(): Boolean {
+        val settings = application.container.settingsRepository
+        val accountCount = application.container.accountStore.accounts().size
+        val seen = runBlocking { settings.introSeenAccountCount.first() }
+        if (seen != null && accountCount <= seen) return false
+        lifecycleScope.launch { settings.setIntroSeenAccountCount(accountCount) }
+        return true
     }
 
     override fun onNewIntent(intent: Intent) {

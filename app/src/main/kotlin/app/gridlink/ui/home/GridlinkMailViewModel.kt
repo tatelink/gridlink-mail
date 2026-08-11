@@ -10,13 +10,17 @@ import androidx.core.text.HtmlCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.gridlink.container
+import app.gridlink.core.data.account.AccountCredentials
 import app.gridlink.core.data.mail.MailFilter
+import app.gridlink.core.data.mail.MailSearchResult
 import app.gridlink.core.jmap.ContentTooLargeException
 import app.gridlink.core.jmap.DownloadLimits
 import app.gridlink.core.jmap.model.Email
 import app.gridlink.core.jmap.model.EmailBodyPart
 import app.gridlink.core.jmap.model.SearchQuery
+import app.gridlink.mail.MessageDestroyWorker
 import app.gridlink.push.FetchAndNotify
+import app.gridlink.push.Notifications
 import app.gridlink.send.ScheduledSends
 import app.gridlink.ui.gridlink.GridlinkAttachment
 import app.gridlink.ui.gridlink.GridlinkComposeDraft
@@ -29,6 +33,7 @@ import app.gridlink.ui.gridlink.GridlinkMailAction
 import app.gridlink.ui.gridlink.GridlinkMailContent
 import app.gridlink.ui.gridlink.GridlinkMailMapping
 import app.gridlink.ui.gridlink.GridlinkMenuItem
+import app.gridlink.ui.gridlink.GridlinkMessage
 import app.gridlink.ui.gridlink.GridlinkOpenFolder
 import app.gridlink.ui.gridlink.GridlinkOpenMessage
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
@@ -60,7 +65,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
+import java.time.Instant
 import java.time.LocalDate
+import java.time.OffsetDateTime
 import java.time.ZoneId
 
 /**
@@ -166,6 +173,29 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     private val searchQuery = MutableStateFlow("")
 
     /**
+     * Bumped once per page the header crawl writes into the local index, so a search already on
+     * screen can fold in mail that was not indexed when it ran.
+     *
+     * The crawl walks newest → oldest and can take a while on a large mailbox. Without this, the
+     * local half of an answer would be frozen at whatever the index happened to hold at the
+     * keystroke, and older mail would only appear if the user typed another character.
+     */
+    private val indexTick = MutableStateFlow(0)
+
+    /** The header crawl, kept to one at a time. See [startSearchIndexing]. */
+    private var crawlJob: Job? = null
+
+    /**
+     * The conversation rows the reader has unfolded, by thread key.
+     *
+     * A SET, so unfolding a second conversation does not fold the first: these are rows in a list
+     * being scanned, not a detail view that can only hold one thing. Cleared on account switch by
+     * [bind] for the reason every other piece of list state is — a thread key belongs to the account
+     * it was read in, and two accounts on one server share them.
+     */
+    private val expandedThreads = MutableStateFlow<Set<String>>(emptySet())
+
+    /**
      * A saved draft, fetched and rebuilt for the composer to resume. See
      * [GridlinkMailContent.draftEdit] for the round trip this is the answer half of.
      */
@@ -205,6 +235,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         // show the wrong account's mail, it would HIDE the new one's — an inbox that opens missing
         // most of itself because of something the user did in a mailbox they have left.
         filter.value = MailFilter.none
+        expandedThreads.value = emptySet()
         // A draft belongs to the account it was saved on. Carried across, the composer would open
         // over it and the eventual save would write it into the NEW account's Drafts.
         draftJob?.cancel()
@@ -250,15 +281,35 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         Window(account.id, inbox, account.syncWindow.limit, chips)
     }.distinctUntilChanged()
 
+    /**
+     * The list's rows, flat or collapsed by conversation.
+     *
+     * 🔴 The preference is in the flatMapLatest KEY, beside the window, and not combined with the
+     * result: the two modes are two different Room queries, so flipping the switch has to re-run the
+     * subscription rather than re-shape rows the flat query already returned. Collapsing after the
+     * fact would also collapse only within the newest `limit` MESSAGES, quietly answering a
+     * narrower question than the setting asks — the same trap the quick filters are in SQL to avoid.
+     *
+     * Flat rows are handed on as threads of one, which is what they are, so everything downstream
+     * reads one shape. See [GridlinkMailMapping.Row].
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
-    private val rows: Flow<List<Email>> = window.flatMapLatest { w ->
-        if (w == null) {
-            flowOf(emptyList())
-        } else {
-            repo.observeMailboxWindow(w.accountId, w.mailboxId, w.limit, w.filter)
-                .onEach { primed.value = true }
-        }
-    }
+    private val rows: Flow<List<GridlinkMailMapping.Row>> =
+        combine(window, settings.conversationView) { w, conversations -> w to conversations }
+            .distinctUntilChanged()
+            .flatMapLatest { (w, conversations) ->
+                when {
+                    w == null -> flowOf(emptyList())
+                    conversations -> repo.observeMailboxThreadWindow(w.accountId, w.mailboxId, w.limit, w.filter)
+                        .map { rows ->
+                            rows.map { GridlinkMailMapping.Row(it.email, it.threadCount, it.unread) }
+                        }
+                        .onEach { primed.value = true }
+                    else -> repo.observeMailboxWindow(w.accountId, w.mailboxId, w.limit, w.filter)
+                        .map { emails -> emails.map { GridlinkMailMapping.Row(it) } }
+                        .onEach { primed.value = true }
+                }
+            }
 
     /**
      * Narrow the inbox to unread / starred / has-attachment, or widen it again.
@@ -273,14 +324,38 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     }
 
     /**
-     * The pill's text turned into server answers, or null while the pill is empty.
+     * The pill's text turned into answers, or null while the pill is empty.
+     *
+     * ## Two legs, unioned, and why there have to be two
+     * The local index is PREFIX-matched, so "amaz" finds Amazon while the user is still typing, and
+     * it answers from Room, so it answers offline and within a frame. The server is stemmed
+     * whole-token full text over the entire account, so it reaches the body of a mail from two years
+     * ago that this phone has never cached, in every folder including ones the drawer has never
+     * opened. Neither is a superset of the other, which is why the answer is their union rather than
+     * a choice between them.
+     *
+     * 🔴 Measured against the live Stalwart, 2026-08-11, because the shape of this whole design
+     * rests on it: `text:"invoice"` → 140 hits, `text:"invoic"` → 139 (the STEM, not a prefix),
+     * `text:"invo"` → 0, `from:"amaz"` → 0, and `text:"invo*"` → 0 (the `*` is tokenized away, not
+     * honoured). So the server cannot do partial words at all, on any field, and asking it to is not
+     * a matter of finding the right syntax. That is the exact complaint a Twake Mail reviewer left
+     * against this same server ("a search for 'hap' does not bring up 'happen'"), and the local leg
+     * is the only answer to it.
      *
      * ## Why the debounce is a delay inside the flow and not a `debounce()` on the query
      * The searching state has to appear on the FIRST keystroke, not after the quiet period: a pill
      * that sits inert for half a second before admitting it heard you reads as broken. So every
      * keystroke restarts this block (flatMapLatest cancels the old one, delay and all), the
      * searching emission goes out immediately, and only a pause long enough to survive the delay
-     * reaches the network. One request per pause, zero per keystroke.
+     * reaches the network. One request per pause, zero per keystroke. The LOCAL leg is not
+     * debounced: it costs one indexed query against Room, and holding it back would throw away the
+     * only thing that can answer a keystroke at the speed the keystroke arrives.
+     *
+     * ## The union only ever ADDS
+     * Emissions go out in the order local → local+server → local+server as the crawl grows the
+     * index, and nothing is ever removed between them. A row that appeared cannot vanish under the
+     * user's finger as they reach for it, which is the failure mode a "replace with the better
+     * answer" design has and never shows in testing on a fast link.
      *
      * 🔴 Results are NOT cached, deliberately, matching [MailRepository.search]'s own contract:
      * they are transient answers, and clearing the pill drops them. What IS kept is the invariant
@@ -297,50 +372,240 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             } else {
                 flow {
                     emit(GridlinkSearchContent(query = q, searching = true))
+                    // Leg 1, immediately. `searching` stays true: the server has not answered, and
+                    // the screen draws rows under a true `searching` as long as it has any, so this
+                    // shows results without ever letting an empty local index flash "No results"
+                    // over a search that is still running.
+                    var local = localSearch(q)
+                    if (local.emails.isNotEmpty()) emit(answer(q, local.emails, searching = true, complete = false))
                     delay(SEARCH_DEBOUNCE_MS)
-                    emit(runSearch(q))
-                }
+                    // Leg 2. Merged, never substituted — see the note above.
+                    val server = serverSearch(q)
+                    emit(merged(q, local, server))
+                    // The crawl indexes the mailbox behind this, newest first. Re-run the cheap leg
+                    // as it lands so older mail appears progressively rather than waiting for the
+                    // next keystroke. `indexTick` is a StateFlow, so the first emission is the
+                    // current value and costs one extra local query; `distinctUntilChanged` on the
+                    // built answer keeps a tick that added nothing from re-emitting.
+                    indexTick.collect {
+                        local = localSearch(q)
+                        emit(merged(q, local, server))
+                    }
+                }.distinctUntilChanged()
             }
         }
 
-    /** One server search, mapped for the list. Failures come back as a value, never a throw. */
-    private suspend fun runSearch(q: String): GridlinkSearchContent {
+    /**
+     * The local leg: the prefix-matched offline index, narrowed to the account on screen.
+     *
+     * ⚠️ The narrowing is not optional. `EmailFtsDao.search` has no account column in its query, so
+     * on a phone with two accounts signed in it answers out of BOTH indexes, and the extra rows
+     * would be mail this mailbox cannot open — they carry another account's ids.
+     *
+     * A failure is reported as an incomplete answer rather than swallowed: a locked or damaged FTS
+     * table would otherwise drop every partial-word hit in silence, under a list still presenting
+     * itself as the whole answer.
+     */
+    private suspend fun localSearch(q: String): MailSearchResult {
+        val id = accountId.value ?: return MailSearchResult(emptyList(), complete = false)
+        return try {
+            MailSearchResult(repo.searchIndex(q, SEARCH_LIMIT).filter { it.accountId == id })
+        } catch (c: CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            Log.w(TAG, "local search failed", t)
+            MailSearchResult(emptyList(), complete = false)
+        }
+    }
+
+    /** The server leg. Failures come back as a value, never a throw. */
+    private suspend fun serverSearch(q: String): MailSearchResult {
         val id = accountId.value
         val credentials = id?.let { store.credentials(it) }
-            // No account behind the pill: nothing was looked at, and `failed` is what stops that
-            // being drawn as the confident "No results".
-            ?: return GridlinkSearchContent(query = q, complete = false, failed = true)
+            ?: return MailSearchResult(emptyList(), complete = false)
         return try {
-            val hits = repo.search(credentials, SearchQuery(text = q), SEARCH_LIMIT)
-            val zone = ZoneId.systemDefault()
-            val today = LocalDate.now(zone)
-            GridlinkSearchContent(
-                query = q,
-                // The section is re-stated for [folderMail]'s reason: the mapper marks no-reply
-                // senders AUTOMATED for the inbox bundle, and a results list has no bundle row to
-                // put them in. Every hit gets the day heading its date earns.
-                results = hits.emails.map { email ->
-                    GridlinkMailMapping.message(email, LABELS, zone, today)
-                        .copy(section = GridlinkMailMapping.section(email, zone, today))
-                },
-                complete = hits.complete,
-            )
+            repo.search(credentials, SearchQuery(text = q), SEARCH_LIMIT)
         } catch (c: CancellationException) {
             // The user kept typing. The replacement emission is already on its way.
             throw c
         } catch (t: Throwable) {
             Log.w(TAG, "search failed", t)
-            GridlinkSearchContent(query = q, complete = false, failed = true)
+            MailSearchResult(emptyList(), complete = false)
         }
     }
 
     /**
-     * Report what the search pill says, on every keystroke. The flow above owns the pacing, so
-     * this is deliberately dumb: no trimming, no comparison, no scheduling.
+     * Both legs as one answer.
+     *
+     * `failed` is reserved for having NOTHING to show and a reason to think that is not the truth:
+     * with rows on screen the screen says "there may be more" in its footer instead, because an
+     * error message over a list of real hits would be telling the user the answer they are reading
+     * does not exist.
+     */
+    private fun merged(q: String, local: MailSearchResult, server: MailSearchResult): GridlinkSearchContent {
+        // Local first so a hit both legs found keeps the local row, whose fields come from the
+        // cache; then newest-first across the union, or a server hit from last year would sit above
+        // a local hit from this morning inside the same day heading.
+        val emails = (local.emails + server.emails)
+            .distinctBy { it.id }
+            .sortedByDescending { receivedMillis(it) }
+            .take(SEARCH_LIMIT)
+        // Both legs must have run to the end for this to be a total. A good server answer does not
+        // excuse a local index that fell over, and vice versa.
+        val complete = local.complete && server.complete && emails.size < SEARCH_LIMIT
+        return answer(
+            q = q,
+            emails = emails,
+            searching = false,
+            complete = complete,
+            failed = emails.isEmpty() && !complete,
+        )
+    }
+
+    /**
+     * When a hit arrived, for ordering only.
+     *
+     * The wire value is an ISO string, and the two legs come from two different writers, so it is
+     * parsed rather than compared as text: a `+02:00` offset sorts before a `Z` of the same instant
+     * on any string comparison, and both spellings are legal in the same mailbox. An unreadable or
+     * missing date sorts last, matching where [GridlinkMailMapping.section] puts it.
+     */
+    private fun receivedMillis(email: Email): Long =
+        email.receivedAt?.let { iso ->
+            runCatching { Instant.parse(iso) }
+                .recoverCatching { OffsetDateTime.parse(iso).toInstant() }
+                .getOrNull()
+                ?.toEpochMilli()
+        } ?: Long.MIN_VALUE
+
+    /** [emails] as a search answer, each hit wearing the day heading its own date earns. */
+    private fun answer(
+        q: String,
+        emails: List<Email>,
+        searching: Boolean,
+        complete: Boolean,
+        failed: Boolean = false,
+    ): GridlinkSearchContent {
+        val zone = ZoneId.systemDefault()
+        val today = LocalDate.now(zone)
+        return GridlinkSearchContent(
+            query = q,
+            // The section is re-stated for [folderMail]'s reason: the mapper marks no-reply
+            // senders AUTOMATED for the inbox bundle, and a results list has no bundle row to
+            // put them in. Every hit gets the day heading its date earns.
+            results = emails.map { email ->
+                GridlinkMailMapping.message(email, LABELS, zone, today)
+                    .copy(section = GridlinkMailMapping.section(email, zone, today))
+            },
+            searching = searching,
+            complete = complete,
+            failed = failed,
+        )
+    }
+
+    /**
+     * Report what the search pill says, on every keystroke, and make sure the index the local leg
+     * reads is worth reading.
+     *
+     * The pacing lives in the flow above, so the reporting half is deliberately dumb: no trimming,
+     * no comparison, no scheduling.
      */
     fun search(query: String) {
         searchQuery.value = query
+        if (query.isNotBlank()) startSearchIndexing()
     }
+
+    /**
+     * Seed the local index from the cache, then crawl the mailbox's headers into it.
+     *
+     * 🔴 Nothing in the Gridlink path did this before, so the local index was whatever the schema
+     * 21 → 22 migration seeded on upgrade and nothing since: a search's offline half was frozen at
+     * a moment months in the past, and a fresh install had no offline half at all. The seed is what
+     * the mail on screen right now is worth, and the crawl is what makes a search reach past the
+     * cached window, into every folder, without needing the network at the moment it is asked.
+     *
+     * Guarded to one crawl at a time, and cheap to call on every keystroke: the repository throttles
+     * a completed crawl by its own TTL and a partial one stays retryable. Deliberately NOT cancelled
+     * when the pill closes — the crawl is idempotent and killing it partway (then meeting the
+     * throttle on reopen) is exactly what freezes coverage halfway through a mailbox.
+     */
+    private fun startSearchIndexing() {
+        if (crawlJob?.isActive == true) return
+        val id = accountId.value ?: return
+        crawlJob = viewModelScope.launch {
+            val credentials = store.credentials(id) ?: return@launch
+            runCatching { repo.seedIndexFromCache() }
+                .onFailure { Log.w(TAG, "index seed failed", it) }
+            indexTick.value++
+            runCatching {
+                repo.syncSearchIndex(credentials, onPage = { indexTick.value++ })
+            }.onFailure { Log.w(TAG, "index crawl failed", it) }
+            indexTick.value++
+        }
+    }
+
+    /**
+     * Unfold or refold one conversation row.
+     *
+     * Idempotent in both directions and safe to call for a thread of one: the list only offers the
+     * control on a row that stands for more than itself, and a key with nothing under it simply maps
+     * to a one-message list.
+     */
+    fun toggleThread(key: String) {
+        expandedThreads.value = expandedThreads.value.let { if (key in it) it - key else it + key }
+    }
+
+    /**
+     * The messages under each unfolded conversation row.
+     *
+     * ## Cache only, and live
+     * [MailRepository.observeThreadEmails] reads the same table the list does, so unfolding is
+     * instant and works offline, and a message filed out of the thread leaves the unfolded rows at
+     * the same moment it leaves the collapsed one. Nothing is fetched: a thread's members are in the
+     * window that produced the row.
+     *
+     * 🔴 Scoped to the ONE open mailbox, matching the count on the row. The wider scope upstream
+     * uses (the folder plus the account's Sent) would put replies you wrote under a row whose count
+     * did not include them, so the row would say 3 and open 5.
+     *
+     * The empty-key case is handled before [combine] rather than left to it: `combine` over an empty
+     * list of flows never emits, so an inbox with nothing unfolded would leave the whole [mail] flow
+     * waiting on a value that could not arrive, and the list would sit under its skeleton forever.
+     *
+     * ⚠️ Turning conversation view off empties this rather than clearing [expandedThreads]. The
+     * difference matters on the way back: the setting is a switch a reader can flick twice while
+     * looking at the same list, and forgetting what they had unfolded each time it went off would
+     * make the second flick lose their place for no reason the list could explain.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val threads: Flow<Map<String, List<GridlinkMessage>>> =
+        combine(window, expandedThreads, settings.conversationView) { w, keys, conversations ->
+            (if (conversations) w else null) to keys
+        }
+            .flatMapLatest { (w, keys) ->
+                if (w == null || keys.isEmpty()) {
+                    flowOf(emptyMap())
+                } else {
+                    combine(
+                        keys.map { key ->
+                            repo.observeThreadEmails(w.accountId, listOf(w.mailboxId), key)
+                                .map { emails -> key to emails }
+                        },
+                    ) { pairs ->
+                        val zone = ZoneId.systemDefault()
+                        val today = LocalDate.now(zone)
+                        pairs.associate { (key, emails) ->
+                            // The section is re-stated for [folderMail]'s reason: an unfolded child
+                            // is drawn under its parent row and never under a day heading, so the
+                            // AUTOMATED marking the bundle needs must not follow it there.
+                            key to emails.map { email ->
+                                GridlinkMailMapping.message(email, LABELS, zone, today)
+                                    .copy(section = GridlinkMailMapping.section(email, zone, today))
+                            }
+                        }
+                    }
+                }
+            }
 
     /**
      * The inbox, as the Gridlink screens take it.
@@ -356,17 +621,23 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             // Grouped by cadence, not at random: rows/opened/primed all change on mail movement,
             // while the other three each have their own clock (a settings write, a keystroke, a
             // Drafts tap).
-            combine(rows, opened, primed) { emails, open, ready -> Triple(emails, open, ready) },
-            settings.imageAllowlist,
+            combine(rows, opened, primed) { listRows, open, ready -> Triple(listRows, open, ready) },
+            // Two preferences in one slot, for the same ceiling reason as the triple above. They are
+            // unrelated, so the pair means nothing beyond "both are settings reads".
+            combine(settings.imageAllowlist, settings.bundleAutomated) { allowed, bundling ->
+                allowed to bundling
+            },
             search,
             draftEdit,
-        ) { (emails, open, ready), allowed, found, editing ->
+            threads,
+        ) { (listRows, open, ready), (allowed, bundling), found, editing, unfolded ->
             val zone = ZoneId.systemDefault()
             val mapped = GridlinkMailMapping.map(
-                emails = emails,
+                rows = listRows,
                 labels = LABELS,
                 zone = zone,
                 today = LocalDate.now(zone),
+                bundleAutomated = bundling,
             )
             GridlinkMailContent(
                 humans = mapped.humans,
@@ -376,6 +647,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 imageAllowlist = allowed,
                 search = found,
                 draftEdit = editing,
+                threads = unfolded,
             )
         }.stateIn(
             scope = viewModelScope,
@@ -690,6 +962,71 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     }
 
     /**
+     * Permanently destroy everything in [mailboxId] — the Empty button on Trash and Junk.
+     *
+     * ## The order is snapshot, evict, schedule, and it is not interchangeable
+     * 1. **Snapshot.** [MailRepository.snapshotTrashPurge] writes down exactly which message ids are
+     *    being destroyed, asking the server for the whole folder and falling back to the cache when
+     *    it cannot. The photo IS the order: [MessageDestroyWorker] destroys that list and nothing
+     *    else, so mail that arrives in the folder after the tap is never swept up in it.
+     * 2. **Evict.** One batched local delete, so the panel empties immediately rather than at the
+     *    next sync. 🔴 It has to come SECOND: the IMAP path and the offline JMAP fallback both read
+     *    the snapshot out of that very cache, and evicting first photographs an empty folder and
+     *    destroys nothing.
+     * 3. **Schedule.** Persisted WorkManager work, so a process death between the tap and the
+     *    network does not leave a folder the user watched empty itself quietly full again.
+     *
+     * ⚠️ Despite the repository's name this is not Trash-only. `snapshotTrashPurge` takes a mailbox
+     * id and has no opinion about its role; the two-folder rule lives in the UI
+     * ([GridlinkFolderMailScreen.onEmpty]), where the button is, which is the only place it can be
+     * checked against something a human looked at.
+     *
+     * 🔴 No hold-back and no undo, unlike upstream's `emptyTrash`. That path arms a 5-second window
+     * with a snackbar behind it; this one asks first, in a dialog that says the mail is destroyed on
+     * the server and cannot be brought back. Two protections for one action would mean either a
+     * confirmation the undo makes redundant, or an undo bar for something the user has already
+     * confirmed and moved on from. ⚠️ So this is genuinely irreversible from the moment it is
+     * called: nothing downstream will ask again.
+     *
+     * A second tap while one is in flight is dropped rather than queued. The folder IS being
+     * emptied; a second photograph of a folder already evicted would be empty anyway, and taking one
+     * only risks the empty-snapshot confusion (#99) this ordering exists to avoid.
+     */
+    fun emptyFolder(mailboxId: String) {
+        if (mailboxId.isEmpty()) return
+        val id = accountId.value ?: return
+        val credentials = store.credentials(id) ?: return
+        val target = credentials.id to mailboxId
+        if (emptyingFolder == target) return
+        emptyingFolder = target
+        viewModelScope.launch {
+            try {
+                val purge = repo.snapshotTrashPurge(credentials, mailboxId)
+                repo.evictAll(credentials.id, repo.cachedIds(listOf(target)).map { it.emailId })
+                // An empty photo is not an order. A folder whose rows were never cached and whose
+                // server could not be asked arms no destroy at all, which is the safe failure: it
+                // leaves the mail where it is rather than guessing at what to delete.
+                if (purge.messageCount > 0) {
+                    MessageDestroyWorker.schedulePurge(
+                        getApplication(), credentials.id, mailboxId, purge.purgeId, holdBackMs = 0L,
+                    )
+                }
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                Log.w(TAG, "empty folder failed", t)
+            } finally {
+                // Cleared either way. A failure that latched this would leave the button permanently
+                // dead on the one folder the user is trying to clear.
+                if (emptyingFolder == target) emptyingFolder = null
+            }
+        }
+    }
+
+    /** The (account, mailbox) currently being emptied, so a second tap is a no-op. See [emptyFolder]. */
+    private var emptyingFolder: Pair<String, String>? = null
+
+    /**
      * Fetch the account's mail, and say whether that worked.
      *
      * The boolean is the whole contract with the chrome row: true stamps "Synced just now", false
@@ -792,7 +1129,36 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                     body.email.listUnsubscribePost,
                 ),
             )
+            // The message has just been marked read, so its new-mail notification is now about
+            // mail the user is looking at. See [dismissNotifications].
+            dismissNotifications(credentials, listOf(emailId))
         }
+    }
+
+    /**
+     * Clear the new-mail notifications for [ids] and rebuild the account's group summary.
+     *
+     * 🔴 This is the whole of "notifications stay up after the mail has been read". The dismissal
+     * machinery has always existed (Codeberg #19) but only the UPSTREAM reader called it: the
+     * Sterna message screen and its inbox list both dismiss, and neither of them is what this app
+     * shows. Every route by which mail becomes read in the Gridlink UI comes through this view
+     * model, and none of them told the notification manager anything, so a notification only ever
+     * went away when the user swiped it off the shade themselves, or when a later sync pass
+     * happened to notice the read flag ([app.gridlink.push.NewMailNotifier.notifyDiff] does clear
+     * read mail, but only for a folder it is diffing at the time, so a message read while the app
+     * was open sat there until the next arrival in that same folder).
+     *
+     * Safe to call with anything: [Notifications.dismiss] filters to ids that actually have a live
+     * notification and returns without touching the summary when none do, so the common case of
+     * reading already-seen mail costs one cheap read of the active list.
+     *
+     * Deliberately called for filing actions too, not only for read ones. Archiving or deleting a
+     * message leaves a notification pointing at mail that is no longer where the notification says
+     * it is, and tapping it lands the reader on a message the user just got rid of.
+     */
+    private fun dismissNotifications(credentials: AccountCredentials, ids: Collection<String>) {
+        if (ids.isEmpty()) return
+        Notifications.dismiss(getApplication(), credentials.id, credentials.username, ids)
     }
 
     /**
@@ -991,6 +1357,21 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                     GridlinkMailAction.MOVE ->
                         Log.w(TAG, "$action is not wired yet: ${targets.size} message(s) left untouched")
                 }
+                // Clear the shade for the actions that make a notification wrong, and only those.
+                // MARK_UNREAD is the obvious exclusion (the user is putting the message BACK into
+                // the unread pile, so taking its notification away would be the opposite of what
+                // they asked); starring is excluded because it says nothing about having read or
+                // filed the mail. MOVE is excluded because nothing happened to the mail: the
+                // branch above only logs.
+                when (action) {
+                    GridlinkMailAction.MARK_READ,
+                    GridlinkMailAction.ARCHIVE,
+                    GridlinkMailAction.DELETE,
+                    GridlinkMailAction.SPAM,
+                    GridlinkMailAction.UNSUBSCRIBE,
+                    -> dismissNotifications(credentials, targets)
+                    else -> Unit
+                }
             } catch (c: CancellationException) {
                 throw c
             } catch (t: Throwable) {
@@ -1022,6 +1403,9 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         viewModelScope.launch {
             try {
                 repo.moveAllToMailbox(credentials, targets, mailboxId)
+                // The mail is no longer where its notification says it is, and the tap intent
+                // carries the OLD mailbox id. See [dismissNotifications].
+                dismissNotifications(credentials, targets)
             } catch (c: CancellationException) {
                 throw c
             } catch (t: Throwable) {

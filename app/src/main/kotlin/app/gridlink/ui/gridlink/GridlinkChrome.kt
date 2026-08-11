@@ -168,13 +168,23 @@ fun Modifier.gridlinkGlow(
 /**
  * Screen title, drawn inline on the chrome row beside the hamburger.
  *
- * This used to be a stacked block of its own — 32sp title over a metadata subline, filling a row
- * below the chrome row — until Brandon collapsed the whole top of the screen into one line: "leave
- * the hamburger menu where it is, put INBOX on the same horizontal line, and put the search icon on
- * the same line. then extend both side panes upward." So the title and its metadata now sit side by
- * side on one baseline, and this composable no longer owns any horizontal padding or a right-hand
- * slot: it is a passenger in [GridlinkChromeRow]'s header seat, and the search pill rides in the
- * row's `trailing` seat instead of in here.
+ * This used to be a stacked block of its own, filling a whole row below the chrome row, until
+ * Brandon collapsed the top of the screen into one line: "leave the hamburger menu where it is, put
+ * INBOX on the same horizontal line, and put the search icon on the same line. then extend both side
+ * panes upward." That move is what this still is: the title RIDES the chrome row, it owns no
+ * horizontal padding and no right-hand slot, and the search pill sits in the row's `trailing` seat
+ * rather than in here.
+ *
+ * 🔴 What came back is only the internal stack. Brandon, 2026-08-10: "put 1 unread underneath
+ * inbox." Title and metadata are a Column again, not two things sharing a baseline, so the count
+ * reads as a property OF the title rather than as a second item on the chrome line. It costs the
+ * metadata line's height, ~16dp, which comes off the panels below — the whole chrome row grows,
+ * because it centres its children and this is now the tallest one. That is the trade he asked for
+ * and it is the only cost; nothing else on the row moved.
+ *
+ * ⚠️ The title no longer takes `weight(1f, fill = false)`. That was RowScope, and it is not needed:
+ * the box this rides in already carries the row's weight, so a long calendar title still ellipsizes
+ * inside its own seat and still cannot shove the sync chip or the search pill off the pad line.
  *
  * 🔴 The metadata beside the title is a plain unread count and nothing else, absent when [unread]
  * is zero. It used to print a derived split, "3 need you · 14 reports", on the theory that the
@@ -187,10 +197,6 @@ fun Modifier.gridlinkGlow(
  * date range there, the folder tree its mailbox total. It is drawn in secondary text rather than in
  * [GridlinkColors.attention][app.gridlink.ui.theme.GridlinkColors.attention], because that colour
  * means "unread" everywhere else in the app and a date wearing it would be making a claim.
- *
- * The title takes `weight(1f, fill = false)`: on one line it must be the thing that gives way, so a
- * long calendar range ellipsizes the title rather than shoving the metadata (or the sync chip, or
- * the search pill) off the edge.
  */
 @Composable
 fun GridlinkHeader(
@@ -202,7 +208,7 @@ fun GridlinkHeader(
 ) {
     val colors = GridlinkTheme.colors
     val selecting = selectedCount > 0
-    Row(
+    Column(
         // Tighter than the 0.9 default now that the circle spills past the header instead of
         // being cropped to it: the same multiplier would wash half the screen and swallow the
         // aurora, which is already doing the broad work behind this.
@@ -219,9 +225,6 @@ fun GridlinkHeader(
             color = colors.textPrimary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .weight(1f, fill = false)
-                .alignByBaseline(),
         )
         // The whole metadata Text is conditional, not just its string: an empty Text would still
         // cost its 12dp lead-in and hold a phantom seat beside the title.
@@ -249,11 +252,7 @@ fun GridlinkHeader(
                 style = GridlinkType.metadata,
                 color = metaColor,
                 maxLines = 1,
-                // Baseline-aligned with the 32sp title, not centre-aligned. Two different type
-                // sizes sharing a line only read as one line if their letters sit on one floor.
-                modifier = Modifier
-                    .padding(start = GridlinkSpacing.s12)
-                    .alignByBaseline(),
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -300,9 +299,25 @@ fun GridlinkSearchPill(
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier,
     initiallyExpanded: Boolean = false,
+    /**
+     * Told whenever the pill opens or closes, so the rest of the chrome row can get out of its way.
+     *
+     * The pill owns its own open/closed state and keeps owning it: nothing outside can force it
+     * open or shut, which is what stopped the focus and keyboard handling below from having to
+     * cope with a parent changing its mind mid-sentence. This is a report, not a control.
+     *
+     * The screen that cares is the message list, whose header title has to vanish rather than be
+     * squeezed: on a folded display the pill takes its width out of the title's slack and "Inbox"
+     * ellipsised down to "I…". See [GridlinkMessageListScreen].
+     */
+    onExpandedChange: (Boolean) -> Unit = {},
 ) {
     val colors = GridlinkTheme.colors
     var expanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
+    // Reported from an effect rather than from each of the two places that flip the flag, so a
+    // state RESTORED as open (rotation, process death, the gallery's deep link) reports itself
+    // too. Keyed on the value, so it fires once per change and not once per recomposition.
+    LaunchedEffect(expanded) { onExpandedChange(expanded) }
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     val shape = RoundedCornerShape(GridlinkRadii.pill)
@@ -700,11 +715,19 @@ fun gridlinkOnAccent(fill: Color): Color =
  * alpha instead of darkening it, which let whatever sat behind the control show through its own
  * fill and made a pressed-looking smudge on the darker half.
  */
-fun gridlinkAccentFill(accent: Color): Brush = Brush.linearGradient(
-    colors = listOf(accent, lerp(accent, Color.Black, 0.32f)),
+fun gridlinkAccentFill(accent: Color, darken: Float = 0.32f): Brush = Brush.linearGradient(
+    colors = listOf(accent, lerp(accent, Color.Black, darken)),
     start = Offset.Zero,
     end = Offset.Infinite,
 )
+
+/**
+ * How far the action button's warm fill darkens toward its far corner. See
+ * [app.gridlink.ui.theme.GridlinkColors.onAccentWarm] for why it is not the accent fill's 0.32:
+ * Day's amber runs out of contrast at both ends of a full-depth ramp, and the shallower one is what
+ * lets a single dark ink clear 4.5:1 across the whole button in every mode.
+ */
+const val GRIDLINK_WARM_FILL_DARKEN = 0.12f
 
 /**
  * Compose, detached and floating.
@@ -732,8 +755,8 @@ fun gridlinkAccentFill(accent: Color): Brush = Brush.linearGradient(
  * ## Why it delegates to [GridlinkDetailAccentButton] instead of drawing itself
  * "Like edit, reply" is the whole spec: the detail screens' accent circle already puts a 20dp
  * glyph over an 11sp label inside the same 64dp, same fill, same halo. Two hand-matched copies
- * would drift the first time one was touched, and this one deliberately keeps the accent fill —
- * a second color would spend a new palette signal on what the label already says.
+ * would drift the first time one was touched, and that delegation is what made the 2026-08 recolour
+ * a one-line change: the compose "+" went warm because the accent circle did, in the same edit.
  *
  * ## Where it sits is the scaffold's business, not this button's
  * It takes a [modifier] and uses it, and it does not position itself. [GridlinkScaffold] slides it

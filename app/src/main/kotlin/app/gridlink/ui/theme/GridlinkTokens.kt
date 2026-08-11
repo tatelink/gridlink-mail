@@ -165,11 +165,46 @@ data class GridlinkColors(
      */
     val onAccent: Color,
     /**
-     * Warm secondary accent. Currently unreferenced: the brief names it but never spends it, and
-     * Day's used to be an alias of [attention] before that went blue. Kept because §1 lists it, and
-     * a token the palette defines but nothing uses is cheaper than one a screen needs and lacks.
+     * The fill of the app's one action button: the compose "+" and every detail screen's accent
+     * circle (see `GridlinkDetailAccentButton`).
+     *
+     * ## 🔴 The name is a fossil, read the values
+     * It was the warm secondary accent, and it is warm in exactly one mode now. Brandon, 2026-08-10:
+     * "instead of orange, use a shade of blue on day and night, and a softer orange on oled." So Day
+     * and Night are deep blues and OLED is a muted orange. Renaming the token would touch every
+     * consumer for no behaviour change, so it keeps the name and carries this warning instead:
+     * nothing may assume this colour is warm, and nothing may pair a warm-only value with it.
+     *
+     * ## Why the action button left [accent]
+     * Brandon: "the action button needs to be a different color." It used to share [accent] with
+     * links, focus underlines, the selection wash and the filled nav item, on the logic that one
+     * accent is easier to learn than two. In practice that made the one control that *does* something
+     * look like the four things that merely indicate state. It is still a separate token for that
+     * reason even where it went back to blue: Day and Night sit two steps deeper than [accent], so
+     * the verb is a solid, and the decoration is not.
+     *
+     * 🔴 [accent] still owns links, focus, selection and nav. This is not a global recolour: it is
+     * one control.
      */
     val accentWarm: Color,
+    /**
+     * What goes ON TOP of an [accentWarm] fill. Same contract as [onAccent], same reason: a palette
+     * value rather than a computation.
+     *
+     * 🔴 Which ink is right follows the fill, not the mode. Day and Night are dark blues and take
+     * white (6.5:1 and 5:1 on the lit corner); OLED is a light orange and takes the warmed near-black
+     * (7.5:1). ⚠️ The fill only darkens 12%, not the accent fill's 32%, so the ramp is narrow and
+     * both ends clear 4.5:1 — but that margin was measured against THESE pairs. Changing either half
+     * alone breaks it, and OLED's is the tight one.
+     */
+    val onAccentWarm: Color,
+    /**
+     * The halo behind the action button, split from [actionGlow] when that button stopped matching
+     * [accent]. It still exists because the two can differ: a glow of the wrong hue around a fill
+     * reads as a rendering fault, not as light. Null in OLED for [actionGlow]'s reason, which is not
+     * a tuning question.
+     */
+    val warmGlow: Color?,
     val positive: Color,
     val attention: Color,
     /**
@@ -271,7 +306,15 @@ val GridlinkDayColors = GridlinkColors(
     accent = Color(0xFF1B7FE8),
     // White on this azure is about 4.0:1, which carries a glyph comfortably.
     onAccent = Color(0xFFFFFFFF),
-    accentWarm = Color(0xFFD97706),
+    // 🔴 Blue in Day by Brandon's call, and DEEPER than [accent] on purpose: a button the same blue
+    // as the links around it is the state-vs-verb problem the orange was brought in to solve. Two
+    // steps down the same hue keeps the verb readable as a verb without a second colour family.
+    accentWarm = Color(0xFF0E5BB5),
+    // White, because this fill went dark. 6.5:1 on the lit corner and better on the shaded one, so
+    // unlike the orange it clears 4.5:1 with room to spare at both ends of the ramp.
+    onAccentWarm = Color(0xFFFFFFFF),
+    // Cool near-white now, same as actionGlow: in Day the halo is light, not colour.
+    warmGlow = Color(0xFFEAF6FF),
     positive = Color(0xFF16A34A),
     // ⚠️ Blue, not the brief's amber, and Day is the only mode that departs.
     //
@@ -338,7 +381,15 @@ val GridlinkNightColors = GridlinkColors(
     textSecondary = Color(0xFF8CA0BC),
     accent = Color(0xFF3B82F6),
     onAccent = Color(0xFFFFFFFF),
-    accentWarm = Color(0xFFF6B87C),
+    // Blue in Night too, and deeper than [accent] for Day's reason. It sits BELOW the accent in
+    // lightness rather than above it, which on a dark surface is the harder call: a lighter blue
+    // would read as the brighter thing on the screen, and the action button is not the loudest
+    // thing here, it is the one solid thing.
+    accentWarm = Color(0xFF2B6CD4),
+    // White, matching Day now that both are dark fills. 5:1 on the lit corner.
+    onAccentWarm = Color(0xFFFFFFFF),
+    // The fill itself, mirroring actionGlow's logic on near-black: the thing glows its own colour.
+    warmGlow = Color(0xFF2B6CD4),
     positive = Color(0xFF34D399),
     attention = Color(0xFFFBBF24),
     caution = Color(0xFFFBBF24),
@@ -386,12 +437,21 @@ val GridlinkOledColors = GridlinkColors(
     // near-black is about 6.3:1. It is warmed rather than pure #000 so a glyph sitting on the accent
     // does not look like a hole punched through it.
     onAccent = Color(0xFF1A0C02),
-    accentWarm = Color(0xFFFB923C),
+    // 🔴 The one mode that is still warm, and the softer orange Brandon asked for: same lightness as
+    // the old #FB923C, meaningfully less chroma, so it stops shouting without going grey.
+    //
+    // ⚠️ OLED is the mode where the action button barely moves: its accent was already orange, so
+    // this reads as a half-step lighter rather than as a new colour. That is correct and not an
+    // oversight. The separation the other two modes get from hue, this one gets from value, and
+    // going blue here would have put a cold circle on a screen with no other cold pixel on it.
+    accentWarm = Color(0xFFE09257),
+    onAccentWarm = Color(0xFF1A0C02),
     positive = Color(0xFF34D399),
     attention = Color(0xFFFB923C),
     caution = Color(0xFFFB923C),
     destructive = Color(0xFFB91C1C),
     actionGlow = null,
+    warmGlow = null,
     // 🔴 The faintest of the three. See the field's KDoc: this is the one place OLED lights pixels
     // it would rather leave off, so it gets the minimum that still reads as a fill.
     selection = Color(0xFFF97316).copy(alpha = 0.14f),

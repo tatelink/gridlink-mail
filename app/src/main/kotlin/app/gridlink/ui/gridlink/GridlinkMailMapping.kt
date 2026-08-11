@@ -111,17 +111,48 @@ object GridlinkMailMapping {
      * be tested across a midnight and a time-zone change instead of only wherever the test machine
      * happens to sit.
      */
+    /**
+     * One cached message as the list's source, with the two facts a COLLAPSED row needs and a flat
+     * row does not.
+     *
+     * Exists so [map] takes one list in both modes instead of a list plus two side tables keyed by
+     * id. [threadCount] is 1 and [threadUnread] follows the message itself in flat mode, which is
+     * exactly what a one-message thread is, so nothing downstream has to ask which mode it is in.
+     */
+    data class Row(
+        val email: Email,
+        val threadCount: Int = 1,
+        val threadUnread: Boolean = !email.isSeen,
+    )
+
     fun map(
-        emails: List<Email>,
+        rows: List<Row>,
         labels: Labels,
         zone: ZoneId = ZoneId.systemDefault(),
         today: LocalDate = LocalDate.now(zone),
         locale: Locale = appLocale,
+        bundleAutomated: Boolean = false,
     ): Mail {
-        val rows = emails.map { message(it, labels, zone, today, locale) }
-        val robots = rows.filter { it.automated }
+        val mapped = rows.map {
+            message(
+                email = it.email,
+                labels = labels,
+                zone = zone,
+                today = today,
+                locale = locale,
+                bundleAutomated = bundleAutomated,
+                threadCount = it.threadCount,
+                threadUnread = it.threadUnread,
+            )
+        }
+        // 🔴 One list and no bundle when the setting is off, which is the default. See
+        // [SettingsRepository.bundleAutomated]: a list that reorganises itself has to be understood
+        // before it can be read. The rows still carry [GridlinkMessage.automated] because other
+        // things read it; what changes is that nothing acts on it here.
+        if (!bundleAutomated) return Mail(humans = mapped, bundle = null)
+        val robots = mapped.filter { it.automated }
         return Mail(
-            humans = rows.filterNot { it.automated },
+            humans = mapped.filterNot { it.automated },
             bundle = if (robots.isEmpty()) null else bundle(robots, labels.bundleTitle),
         )
     }
@@ -140,6 +171,21 @@ object GridlinkMailMapping {
         today: LocalDate = LocalDate.now(zone),
         locale: Locale = appLocale,
         showRecipient: Boolean = false,
+        /**
+         * 🔴 Affects the SECTION only, never [GridlinkMessage.automated]. Whether a sender is a robot
+         * is a fact about the address; whether the list gathers robots is a preference. With the
+         * preference off, an automated message takes the day heading its date earns and sits in the
+         * timeline with everything else, which is what "by default it should just show mail" means.
+         */
+        bundleAutomated: Boolean = false,
+        /** Messages the collapsed row stands for, 1 in flat mode. See [Row]. */
+        threadCount: Int = 1,
+        /**
+         * The THREAD's unread state, which is not the message's once a row stands for several: the
+         * newest message can be read while an older one under it is not. Null means "ask the
+         * message", which is the flat-mode answer and the only right one for a search hit.
+         */
+        threadUnread: Boolean? = null,
     ): GridlinkMessage {
         val from = email.from.firstOrNull()
         val address = from?.email.orEmpty()
@@ -159,11 +205,19 @@ object GridlinkMailMapping {
                 locale = locale,
                 yesterday = labels.yesterday,
             ),
-            unread = !email.isSeen,
+            unread = threadUnread ?: !email.isSeen,
             starred = email.isFlagged,
+            threadCount = threadCount,
+            // The key the expansion queries by, and the same expression the collapsed SQL groups on:
+            // a message with no server thread is a thread of one, keyed by itself.
+            threadKey = email.threadId ?: email.id,
             attachmentPending = email.hasAttachment,
             automated = automated,
-            section = if (automated) GridlinkSection.AUTOMATED else section(email, zone, today),
+            section = if (automated && bundleAutomated) {
+                GridlinkSection.AUTOMATED
+            } else {
+                section(email, zone, today)
+            },
             // Left empty on purpose: the body is not in the list cache. The thread fetches it.
             body = "",
             // The one piece of body text a list fetch DOES return, and the only reason a search

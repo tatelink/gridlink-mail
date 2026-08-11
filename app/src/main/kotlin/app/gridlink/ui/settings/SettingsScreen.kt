@@ -58,7 +58,9 @@ import androidx.compose.material.icons.filled.BeachAccess
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Feedback
 import androidx.compose.material.icons.filled.FilterAlt
+import androidx.compose.material.icons.filled.LocalCafe
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
@@ -128,6 +130,7 @@ import app.gridlink.core.data.settings.MessageTextSize
 import app.gridlink.core.data.settings.PreviewLines
 import app.gridlink.core.data.settings.SwipeAction
 import app.gridlink.core.data.settings.ThemeMode
+import app.gridlink.core.data.settings.ThreadToolbarAction
 import app.gridlink.core.data.settings.DeliveryMode
 import app.gridlink.core.data.settings.NotificationContent
 import app.gridlink.core.data.text.htmlToText
@@ -392,6 +395,30 @@ private fun SettingsHub(
                     stringResource(R.string.settings_about_author),
                     "emon",
                 ) { onOpenUrl("https://codeberg.org/emon") }
+                // 🔴 This app collects nothing, so this row is the ONLY way a problem reaches
+                // anyone. Brandon's call, 2026-08-10: a feedback address instead of telemetry.
+                // It is a mailto:, so it goes through the same [onOpenUrl] as the links above and
+                // lands in whatever mail app takes it — this one, normally, pre-addressed with the
+                // build stamped in the subject so a report says which version it came from.
+                SettingsCategoryRow(
+                    Icons.Filled.Feedback,
+                    stringResource(R.string.settings_about_feedback),
+                    FEEDBACK_ADDRESS,
+                ) {
+                    onOpenUrl(
+                        "mailto:$FEEDBACK_ADDRESS?subject=" +
+                            Uri.encode("GridLink feedback (${BuildConfig.VERSION_NAME})"),
+                    )
+                }
+                // Last row in the section on purpose: an ask that comes after the licence and the
+                // credit reads as an offer, and one placed above them reads as a toll. 🔴 A row and
+                // never a banner, a dialog or a first-run prompt — the app asks once, where someone
+                // who went looking will find it, and never again.
+                SettingsCategoryRow(
+                    Icons.Filled.LocalCafe,
+                    stringResource(R.string.settings_about_support),
+                    DONATE_URL.removePrefix("https://"),
+                ) { onOpenUrl(DONATE_URL) }
             }
         }
     }
@@ -409,6 +436,20 @@ private fun SettingsHub(
 private const val REPO_URL = "https://codeberg.org/emon/sterna-mail"
 
 /**
+ * Where the About section's feedback row writes to.
+ *
+ * 🔴 Not upstream's. A bug in the Gridlink layer is not emon's to answer, and this build carries
+ * changes their tree has never seen, so a report sent there wastes both people's time.
+ */
+private const val FEEDBACK_ADDRESS = "brandon@gridlink.me"
+
+/**
+ * The About section's support row. Brandon's, and deliberately the only one in the app: upstream's
+ * is not listed, his call on 2026-08-10 after the fork question was put to him.
+ */
+private const val DONATE_URL = "https://ko-fi.com/tatelink"
+
+/**
  * Hands a URL to whatever handles it, and says whether anything took it — a device with no browser
  * at all throws ActivityNotFound. Call it through the opener from [rememberLeaveOnce]: it has no
  * re-entrancy protection of its own, and firing it twice opens the browser twice (#106 follow-up).
@@ -422,6 +463,7 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val dynamicColor by viewModel.dynamicColor.collectAsStateWithLifecycle()
     val density by viewModel.listDensity.collectAsStateWithLifecycle()
     val previewLines by viewModel.previewLines.collectAsStateWithLifecycle()
+    val bundleAutomated by viewModel.bundleAutomated.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var language by remember { mutableStateOf(currentAppLanguage()) }
     DetailScaffold(title = stringResource(R.string.settings_appearance_screen_title), onBack = onBack) { padding ->
@@ -480,6 +522,16 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     optionLabel = { previewLabel(context, it) },
                     onSelect = viewModel::setPreviewLines,
                 )
+                // Lives beside density and preview because it is the same kind of decision: how the
+                // list is arranged, not what a message does. The subtitle states the heuristic's
+                // fallibility rather than burying it, for the same reason the conversation switch
+                // states the IMAP limit in its own subtitle instead of greying itself out.
+                SettingSwitch(
+                    title = stringResource(R.string.settings_bundle_automated_title),
+                    subtitle = stringResource(R.string.settings_bundle_automated_subtitle),
+                    checked = bundleAutomated,
+                    onCheckedChange = viewModel::setBundleAutomated,
+                )
             }
         }
     }
@@ -530,6 +582,7 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val signatureOnReplies by viewModel.signatureOnReplies.collectAsStateWithLifecycle()
     val signatureBelowQuote by viewModel.signatureBelowQuote.collectAsStateWithLifecycle()
     val signatureDelimiter by viewModel.signatureDelimiter.collectAsStateWithLifecycle()
+    val threadToolbarActions by viewModel.threadToolbarActions.collectAsStateWithLifecycle()
     val options = listOf(
         SwipeAction.TOGGLE_READ, SwipeAction.DELETE, SwipeAction.ARCHIVE, SwipeAction.FLAG, SwipeAction.NONE,
     )
@@ -604,6 +657,32 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     onSelect = viewModel::setSwipeLeft,
                 )
             }
+            // 🔴 Brandon, 2026-08-10: "the dynamic control bar at the bottom in unfolded mode should
+            // be customizable, make that an option in settings." One switch per action, listed in
+            // [ThreadToolbarAction]'s own order, which is also the order the bar fills its slots in:
+            // what you read down this list is what you get left to right, so there is nothing to
+            // drag and nothing to explain about position.
+            //
+            // ⚠️ The caption is load-bearing, not decoration. Enabling a fifth action does not widen
+            // the bar, it pushes the fourth and fifth under More, and a switch that says "on" over a
+            // control the reader cannot see is the failure this line exists to prevent. Turning
+            // every switch off is allowed and leaves the bar holding More alone; Reply is not on
+            // this list at all, so no combination can leave a thread with no way to answer it.
+            SettingsSection(stringResource(R.string.settings_thread_actions_section)) {
+                ThreadToolbarAction.entries.forEach { action ->
+                    SettingSwitch(
+                        title = threadActionLabel(context, action),
+                        checked = action in threadToolbarActions,
+                        onCheckedChange = { viewModel.setThreadToolbarAction(action, it) },
+                    )
+                }
+                Text(
+                    text = stringResource(R.string.settings_thread_actions_caption),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
             // When the signature is inserted, where, and what the block looks like. WHAT it says is
             // per identity (Accounts → identity). The three switches are independent: none of them
             // greys out another.
@@ -632,6 +711,29 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
             }
         }
     }
+}
+
+/**
+ * The name each toolbar action wears in settings.
+ *
+ * 🔴 The same words the bar and the More sheet use, and they have to stay the same words: this
+ * screen is a map of that bar, and a switch called "Junk" over a button called "Spam" makes the
+ * reader check whether they are the same thing. [app.gridlink.ui.gridlink.gridlinkToolbarLabel] is
+ * the other half of this pair.
+ *
+ * `when` with no else, so adding an entry to [ThreadToolbarAction] fails the build here rather than
+ * shipping a switch labelled with an enum name.
+ */
+private fun threadActionLabel(context: Context, action: ThreadToolbarAction): String = when (action) {
+    ThreadToolbarAction.REPLY_ALL -> context.getString(R.string.settings_thread_action_reply_all)
+    ThreadToolbarAction.FORWARD -> context.getString(R.string.settings_thread_action_forward)
+    ThreadToolbarAction.ARCHIVE -> context.getString(R.string.settings_thread_action_archive)
+    ThreadToolbarAction.DELETE -> context.getString(R.string.settings_thread_action_delete)
+    ThreadToolbarAction.MOVE -> context.getString(R.string.settings_thread_action_move)
+    ThreadToolbarAction.MARK_UNREAD -> context.getString(R.string.settings_thread_action_mark_unread)
+    ThreadToolbarAction.STAR -> context.getString(R.string.settings_thread_action_star)
+    ThreadToolbarAction.PRINT -> context.getString(R.string.settings_thread_action_print)
+    ThreadToolbarAction.JUNK -> context.getString(R.string.settings_thread_action_junk)
 }
 
 private fun swipeLabel(context: Context, action: SwipeAction): String = when (action) {

@@ -2,6 +2,8 @@ package app.gridlink.ui.gridlink
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -86,6 +88,19 @@ data class GridlinkRemoveRequest(
      * turn a caller's omission into destroyed mail.
      */
     val action: GridlinkMailAction = GridlinkMailAction.ARCHIVE,
+    /**
+     * The mailbox they are going to, when [action] is [GridlinkMailAction.MOVE].
+     *
+     * 🔴 Null for every other action, and the reason this field exists at all: MOVE is the one
+     * filing whose target is not implied by its name, and [GridlinkMailAction] is an enum with
+     * nowhere to put one. Without this, a move posted from the open thread would arrive here as a
+     * bare MOVE and be reported through `onAction`, which has no destination and correctly does
+     * nothing — a row leaving the list and the message never moving.
+     *
+     * ⚠️ Set it and `onMove` is called INSTEAD of `onAction`, not as well. Both would file the
+     * message twice.
+     */
+    val moveTo: String? = null,
 )
 
 /**
@@ -203,6 +218,17 @@ fun GridlinkMessageListScreen(
      */
     selectedIds: Set<String> = emptySet(),
     onSelectedIdsChange: (Set<String>) -> Unit = {},
+    /**
+     * A conversation row's count pill was tapped: unfold it, or fold it back. The key is
+     * [GridlinkMessage.threadKey].
+     *
+     * 🔴 Reported rather than handled, like every other thing on this screen that needs the
+     * database. Unfolding means fetching the thread's other messages, and the rows come back through
+     * [GridlinkMailContent.threads]; this screen only knows which key was tapped. With no supplier
+     * behind it (the gallery, the folder panel) the default no-op leaves the pill undrawn entirely,
+     * so nothing offers a tap that would go nowhere.
+     */
+    onToggleThread: (String) -> Unit = {},
     /** Screen-capture hook: opens with the search pill already unfolded. */
     initialSearchExpanded: Boolean = false,
     /**
@@ -677,7 +703,11 @@ fun GridlinkMessageListScreen(
             // 🔴 Reported, unlike [onFiled]. The thread posted this request BECAUSE this screen is
             // where filing means something; if the write did not happen here it would not happen at
             // all, and the thread's Archive button would be a row disappearing and nothing else.
-            onAction(it.ids, it.action)
+            //
+            // A move goes out through the callback that can carry a destination, and only that one.
+            // See [GridlinkRemoveRequest.moveTo].
+            val destination = it.moveTo
+            if (destination != null) onMove(it.ids, destination) else onAction(it.ids, it.action)
         }
     }
 
@@ -756,6 +786,36 @@ fun GridlinkMessageListScreen(
     // waiting for a state that is not coming.
     var refreshing by remember { mutableStateOf(false) }
 
+    // Whether the search pill is open, reported up by the pill itself. The pill still owns the
+    // state; this is a mirror kept only so the header can react to it.
+    //
+    // 🔴 Brandon, folded display: "the title 'Inbox' needs to just disappear and make way for the
+    // search pill when it's expanded. currently the 'Inbox' shrinks down to just an 'I' and it
+    // looks weird." The chrome row is a weight(1f) header followed by the fixed-width pill, so an
+    // opening pill takes its width out of the header's slack and the title ellipsises — which on a
+    // folded screen leaves exactly one letter and a "…", a shape that reads as a rendering fault
+    // rather than as a title making room.
+    var searchOpen by remember { mutableStateOf(initialSearchExpanded) }
+    // Faded rather than removed from the layout. The header keeps its weight either way, so the
+    // pill lands in the same place whichever this is, and nothing in the row moves sideways when
+    // the title goes; only the ink changes. Removing it would hand the pill the whole row and the
+    // pill would jump.
+    //
+    // Asymmetric on purpose: out fast, back at the pill's own pace. The exit has to beat the pill's
+    // spring or the eye still catches the "I…" on the way down, and a title that reappears at full
+    // speed under a closing pill reads as a flicker.
+    //
+    // ⚠️ `!selecting` is not belt-and-braces. Selecting swaps the pill out of the trailing slot
+    // entirely, and a composable that has left the composition cannot report anything: a pill that
+    // was open when the selection began would leave `searchOpen` stuck true and hide the
+    // "n selected" readout, which is the one thing the header has to show in that mode.
+    val titleHidden = searchOpen && !selecting
+    val titleAlpha by animateFloatAsState(
+        targetValue = if (titleHidden) 0f else 1f,
+        animationSpec = if (titleHidden) tween(90) else tween(220),
+        label = "listTitleAlpha",
+    )
+
     GridlinkScaffold(
         modifier = modifier,
         destination = destination,
@@ -771,6 +831,7 @@ fun GridlinkMessageListScreen(
         sidePane = sidePane,
         header = {
             GridlinkHeader(
+                modifier = Modifier.graphicsLayer { alpha = titleAlpha },
                 title = "Inbox",
                 // 🔴 Zero while loading, which suppresses the whole metadata line. The count is
                 // computed off lists this screen already holds, so it would happily render "21
@@ -781,35 +842,13 @@ fun GridlinkMessageListScreen(
                 selectedCount = selectedIds.size,
             )
         },
-        // 🔴 Passed unconditionally, never null. The scaffold zeroes the reading pane's top offset
-        // the moment this slot is empty, so hiding the chips during a search or a selection would
-        // shunt the whole list up a row and drag the second pane with it. They stay, and the two
-        // conflicts below are resolved by the chips putting the other mode away instead.
+        // 🔴 No `belowHeader` on this screen any more. The chips moved INSIDE the glass (see the
+        // panel below), which is what buys the height: an empty slot here zeroes the reading pane's
+        // top offset too, so both panels start one chip row higher. Brandon, 2026-08-10: "take
+        // unread filter, star, and attachment and inset them inside the mail list window rather
+        // than pills above it. that lets you extend the mail list window, and the mail detail
+        // window upward to give more reading room."
         //
-        // ⚠️ And they are never dimmed while they wait. Brandon reads opacity-dimming as broken
-        // rather than as off; the lit/unlit vocabulary is fill, and it is the only one used here.
-        belowHeader = {
-            GridlinkFilterChips(
-                filter = filter,
-                onFilter = {
-                    filter = it
-                    onFilter(it)
-                    // Search REPLACES this list rather than narrowing it, so a chip tapped over
-                    // results would be a control acting on a list that is not on screen — the
-                    // exact complaint that moved the contacts sort pill down here. The chip is the
-                    // more specific request, so it wins and the query goes.
-                    if (searchQuery.isNotEmpty()) {
-                        searchQuery = ""
-                        onSearchQuery("")
-                    }
-                    // A filter can hide a ticked row, and a toolbar that then archives eleven
-                    // messages of which the user can see four is the worst outcome on this screen.
-                    // Filtering is a decision to look at a different set of mail, so the selection
-                    // does not survive it.
-                    onSelectedIdsChange(emptySet())
-                },
-            )
-        },
         // 🔴 Search is hidden while selecting. A search field and a selection are two different modes
         // of the same list, and offering both at once invites you to start one and silently lose the
         // other. §6b spends the freed seat on select-all, which is the other half of the same trade:
@@ -832,13 +871,63 @@ fun GridlinkMessageListScreen(
                         onSearchQuery(it)
                     },
                     initiallyExpanded = initialSearchExpanded,
+                    onExpandedChange = { searchOpen = it },
                 )
             }
         },
     ) {
+      Column(modifier = Modifier.fillMaxSize()) {
+        // The filters, inset in the glass instead of floating above it.
+        //
+        // 🔴 Pinned above the list, NOT a first item inside it. Scrolled away, the one control that
+        // explains why the inbox is short would be off screen exactly when the list is shortest, and
+        // "where did my mail go" is the failure this row exists to prevent.
+        //
+        // ⚠️ Drawn in every state including the skeleton and the empty ones, which is why it sits
+        // outside the Box with all the early returns. A filtered-to-nothing inbox that also hid its
+        // filters would be unrecoverable except by guessing, and [GridlinkEmptyFiltered]'s clear
+        // button is a second way out, not the only one.
+        GridlinkFilterChips(
+            filter = filter,
+            onFilter = {
+                filter = it
+                onFilter(it)
+                // Search REPLACES this list rather than narrowing it, so a chip tapped over
+                // results would be a control acting on a list that is not on screen — the
+                // exact complaint that moved the contacts sort pill down here. The chip is the
+                // more specific request, so it wins and the query goes.
+                if (searchQuery.isNotEmpty()) {
+                    searchQuery = ""
+                    onSearchQuery("")
+                }
+                // A filter can hide a ticked row, and a toolbar that then archives eleven
+                // messages of which the user can see four is the worst outcome on this screen.
+                // Filtering is a decision to look at a different set of mail, so the selection
+                // does not survive it.
+                onSelectedIdsChange(emptySet())
+            },
+            // ⚠️ s8 down the sides, not the rows' s16. The three chips are within a few dp of the
+            // 380dp list pane's inner width, and the row scrolls sideways, so the wider inset spends
+            // the difference on clipping "Attachments" mid-word against the glass edge. Off-screen
+            // at the window edge reads as more to see; cut off inside a panel reads as broken.
+            modifier = Modifier.padding(
+                start = GridlinkSpacing.s8,
+                end = GridlinkSpacing.s8,
+                top = GridlinkSpacing.s12,
+                bottom = GridlinkSpacing.s12,
+            ),
+        )
+        // The list's own top edge, so the chips read as chrome belonging to the panel rather than
+        // as a row of the list. Full width, unlike the row dividers, because nothing is indented
+        // past it.
+        GridlinkRowDivider(startInset = 0.dp)
         Box(
             modifier = Modifier
-                .fillMaxSize()
+                // ⚠️ weight, not fillMaxSize: this Box is a Column child now, and a child that asks
+                // for the whole height beside the chip row above it would try to draw a panel taller
+                // than the panel.
+                .weight(1f)
+                .fillMaxWidth()
                 // 🔴 On the parent, not the LazyColumn. This is a nested-scroll connection: it has
                 // to see the child's overscroll before deciding the gesture is a pull.
                 //
@@ -940,9 +1029,15 @@ fun GridlinkMessageListScreen(
                     .fillMaxSize()
                     .gridlinkEdgeFade(),
                 flingBehavior = rememberGridlinkFlingBehavior(),
-                // Enough that the first and last rows can clear their fade and be read in full.
+                // Enough that the last row can clear its fade and be read in full.
+                //
+                // 🔴 The top is s12, not the full [GridlinkDimens.listFade], since the chips moved
+                // into the panel. The fade gradient is unchanged and still does its job; what the
+                // 40dp bought was a first row starting BELOW it, and with a chip row and a divider
+                // now sitting above, that reads as a gap rather than as breathing room. Reclaimed
+                // for rows, which is the height Brandon asked to get back.
                 contentPadding = PaddingValues(
-                    top = GridlinkDimens.listFade,
+                    top = GridlinkSpacing.s12,
                     bottom = GridlinkDimens.listFade,
                 ),
             ) {
@@ -1077,6 +1172,10 @@ fun GridlinkMessageListScreen(
                             key = { index -> inSection[index].id },
                         ) { index ->
                             val message = inSection[index]
+                            // Null on a row that stands only for itself, and that null is what
+                            // switches the whole conversation apparatus off for it: no pill, no
+                            // lookup, no children.
+                            val threadKey = message.threadKey?.takeIf { message.isConversation }
                             Column {
                                 GridlinkSwipeableRow(
                                     visible = isPresent(message),
@@ -1107,7 +1206,81 @@ fun GridlinkMessageListScreen(
                                         onLongClick = {
                                             onSelectedIdsChange(selectedIds + message.id)
                                         },
+                                        // 🔴 Expansion is read back out of the supplied content
+                                        // rather than kept as a set in this screen. The members
+                                        // themselves only exist because the supplier fetched them,
+                                        // so a local "expanded" flag could be true for a thread
+                                        // whose rows had not arrived, and the chevron would point
+                                        // down at nothing. One source of truth, and it is the one
+                                        // that actually holds the rows.
+                                        threadExpanded = threadKey != null &&
+                                            mail?.threads?.containsKey(threadKey) == true,
+                                        // Null on every list that has no supplier behind it (the
+                                        // gallery, the folder panel), which is what keeps the pill
+                                        // off rows whose tap could not do anything. See the
+                                        // parameter's own note in [GridlinkMessageRow].
+                                        onToggleThread = threadKey
+                                            ?.takeIf { mail != null }
+                                            ?.let { key -> { onToggleThread(key) } },
                                     )
+                                }
+                                // The other messages in this conversation, drawn in place under the
+                                // row that stands for them, reusing the bundle's child row: both are
+                                // "this row represents several, here they are", and giving them two
+                                // different indents and two different animations would make one
+                                // gesture look like two features.
+                                //
+                                // ⚠️ Drops the representative. The supplier hands over the whole
+                                // thread on purpose (see [GridlinkMailContent.threads]) so callers
+                                // that want to show a conversation whole can; this list already
+                                // drew the newest message as the row above, and repeating it here
+                                // would read as a duplicate that arrived from the server.
+                                val children = threadKey
+                                    ?.let { mail?.threads?.get(it) }
+                                    ?.filter { it.id != message.id }
+                                    .orEmpty()
+                                AnimatedVisibility(
+                                    visible = children.isNotEmpty(),
+                                    enter = expandVertically(
+                                        animationSpec = GridlinkMotion.standard(),
+                                    ) + fadeIn(),
+                                    exit = shrinkVertically(
+                                        animationSpec = GridlinkMotion.groupCollapse(),
+                                    ) + fadeOut(),
+                                ) {
+                                    Column {
+                                        children.forEach { child ->
+                                            key(child.id) {
+                                                GridlinkSwipeableRow(
+                                                    visible = isPresent(child),
+                                                    enabled = !selecting,
+                                                    onAction = {
+                                                        applySwipe(setOf(child.id), it)
+                                                    },
+                                                    divider = {
+                                                        GridlinkRowDivider(
+                                                            startInset = GridlinkSpacing.bundleIndent +
+                                                                GridlinkSpacing.rowHorizontal + gutter,
+                                                        )
+                                                    },
+                                                ) {
+                                                    GridlinkBundledChildRow(
+                                                        message = child,
+                                                        onClick = { onRowTap(child) },
+                                                        selected = child.id in selectedIds,
+                                                        current = child.id == currentId &&
+                                                            selectedIds.isEmpty(),
+                                                        gutter = gutter,
+                                                        onLongClick = {
+                                                            onSelectedIdsChange(
+                                                                selectedIds + child.id,
+                                                            )
+                                                        },
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1122,6 +1295,7 @@ fun GridlinkMessageListScreen(
                 modifier = Modifier.align(Alignment.TopCenter),
             )
         }
+      }
     }
 
     // A sibling of the scaffold rather than something inside it, which is how [GridlinkFolderScreen]
@@ -1204,7 +1378,12 @@ private fun GridlinkSearchResults(
     onOpenMessage: (GridlinkMessage) -> Unit,
 ) {
     val current = search?.takeIf { it.query == query }
-    if (current == null || current.searching) {
+    // Rows as soon as there are any, even while the answer is still being assembled. The local
+    // index answers within a frame and the server takes as long as the network takes, so waiting
+    // for `searching` to clear would put a skeleton over hits this phone already had. An answer
+    // still in flight with NOTHING in it stays under the skeleton: an empty local index must never
+    // flash "No results" over a search that has not finished asking.
+    if (current == null || (current.searching && current.results.isEmpty())) {
         // The same admission the first load makes, for the same reason: rows are coming, their
         // shape is known, and their content is not.
         GridlinkListSkeleton()
@@ -1221,8 +1400,12 @@ private fun GridlinkSearchResults(
 
     // Read-dots cleared on tap, locally, because these rows are transient copies: [onRowTap]'s
     // edit path only reaches the inbox lists, and nothing re-emits a search answer when a message
-    // inside it is opened. Keyed on the answer so a re-search starts from what the server said.
-    var readIds by remember(current) { mutableStateOf(emptySet<String>()) }
+    // inside it is opened.
+    //
+    // 🔴 Keyed on the QUERY, not on the answer. One question now produces several answers as its
+    // two legs land and the index grows behind them, and keying on the answer would put the unread
+    // dot back on a message the user had opened, every time one of those arrived.
+    var readIds by remember(query) { mutableStateOf(emptySet<String>()) }
 
     LazyColumn(
         modifier = Modifier
@@ -1268,10 +1451,14 @@ private fun GridlinkSearchResults(
                 }
             }
         }
-        if (!current.complete) {
+        // ⚠️ Only once the answer has stopped moving. While `searching` is true this list is the
+        // offline half of an answer whose other half is on its way, so it is incomplete BY DESIGN
+        // for those few hundred milliseconds, and saying so would put a caveat on screen that
+        // retracts itself — the worst kind, because the user has already started reading it.
+        if (!current.complete && !current.searching) {
             // The repository's own caveat, surfaced instead of swallowed: a capped page, a folder
-            // that refused, or an unsynced folder cache all mean this list may not be the whole
-            // answer, and a list that ends in silence claims it is.
+            // that refused, an unsynced folder cache, or a server leg that never answered all mean
+            // this list may not be the whole answer, and a list that ends in silence claims it is.
             item(key = "search-incomplete") {
                 GridlinkSearchStatus(
                     "There may be more than what is shown. Try narrowing the search.",

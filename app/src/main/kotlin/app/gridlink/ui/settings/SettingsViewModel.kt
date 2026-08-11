@@ -14,6 +14,7 @@ import app.gridlink.core.data.settings.SettingsBackupCodec
 import app.gridlink.core.data.settings.SettingsRepository
 import app.gridlink.core.data.settings.SwipeAction
 import app.gridlink.core.data.settings.ThemeMode
+import app.gridlink.core.data.settings.ThreadToolbarAction
 import app.gridlink.core.data.settings.DeliveryMode
 import app.gridlink.core.data.settings.NotificationContent
 import app.gridlink.push.NewMailNotifier
@@ -316,6 +317,46 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun setConversationView(enabled: Boolean) {
         viewModelScope.launch { settings.setConversationView(enabled) }
+    }
+
+    /**
+     * 🔴 `initialValue` is the real default, not a placeholder — same rule as [bundleAutomated]
+     * below. Seeded with anything else and the switches would all be drawn off for a frame and then
+     * snap on, which on a screen made entirely of switches reads as the setting resetting itself.
+     */
+    val threadToolbarActions = settings.threadToolbarActions.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = ThreadToolbarAction.DEFAULTS,
+    )
+
+    /**
+     * Flip one action on or off.
+     *
+     * Takes the action and the desired state rather than a whole set, so the caller is a switch row
+     * that knows about exactly one action. Building the new set here also means the "off" case
+     * cannot accidentally be written as a set of one.
+     */
+    fun setThreadToolbarAction(action: ThreadToolbarAction, enabled: Boolean) {
+        val next = threadToolbarActions.value.toMutableSet().apply {
+            if (enabled) add(action) else remove(action)
+        }
+        viewModelScope.launch { settings.setThreadToolbarActions(next) }
+    }
+
+    /**
+     * 🔴 `initialValue = false` and that is not a placeholder, it is the setting's default.
+     * See [SettingsRepository.bundleAutomated]: the list shows mail until the reader asks for it to
+     * be reorganised, so the first frame drawn before DataStore answers must be the unsorted one.
+     */
+    val bundleAutomated = settings.bundleAutomated.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = false,
+    )
+
+    fun setBundleAutomated(enabled: Boolean) {
+        viewModelScope.launch { settings.setBundleAutomated(enabled) }
     }
 
     val markReadOnDelete = settings.markReadOnDelete.stateIn(

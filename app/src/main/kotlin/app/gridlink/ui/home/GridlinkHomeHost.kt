@@ -18,6 +18,7 @@ import app.gridlink.EmailOpenTarget
 import app.gridlink.MailtoDraft
 import app.gridlink.container
 import app.gridlink.core.data.account.StoredAccount
+import app.gridlink.core.data.settings.ThreadToolbarAction
 import app.gridlink.ui.gridlink.GridlinkApp
 import app.gridlink.ui.gridlink.GridlinkChromeConfig
 import app.gridlink.ui.gridlink.GridlinkComposeDraft
@@ -113,6 +114,13 @@ fun GridlinkHomeHost(
     // are the same picture and a completely different fact, and the difference is the whole reason
     // this gate exists: see the wait below, and [GridlinkApp]'s `initialModeOverride`.
     val storedPalette by settings.gridlinkPalette.collectAsStateWithLifecycle(initialValue = null)
+
+    // The open message's bottom bar, as configured in Settings. Read straight off the repository
+    // rather than through the view model: nothing about it needs the account, and the initial value
+    // is the shipped default, so the one frame before DataStore answers draws the bar it will keep
+    // drawing for anyone who never changed it.
+    val toolbarActions by settings.threadToolbarActions
+        .collectAsStateWithLifecycle(initialValue = ThreadToolbarAction.DEFAULTS)
 
     val account = accounts.firstOrNull { it.id == accountId }
 
@@ -252,6 +260,7 @@ fun GridlinkHomeHost(
             onMailAction = viewModel::act,
             onOpenMail = viewModel::open,
             onSearchQuery = viewModel::search,
+            onToggleThread = viewModel::toggleThread,
             onFilter = viewModel::filter,
             onAllowImages = viewModel::setImagesAllowed,
             onOpenAttachment = viewModel::openAttachment,
@@ -269,7 +278,9 @@ fun GridlinkHomeHost(
             scheduled = scheduled,
             onCancelScheduled = viewModel::cancelScheduled,
             onEditDraft = viewModel::editDraft,
+            onEmptyFolder = viewModel::emptyFolder,
             openRequest = openRequest,
+            toolbarActions = toolbarActions,
             // Routed back to whichever payload built the request, so consuming one cannot cancel a
             // genuinely pending other. Reading `openRequest` rather than a captured flag keeps the
             // two halves impossible to get out of step.

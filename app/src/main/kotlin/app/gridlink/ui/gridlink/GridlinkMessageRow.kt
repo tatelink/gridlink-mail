@@ -2,10 +2,14 @@ package app.gridlink.ui.gridlink
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -109,6 +114,12 @@ private fun Dp.asGutter(): Dp = coerceAtLeast(0.dp)
  * into would otherwise add the line, and then remove it again on the first keystroke that fails to
  * match nothing, which is the list changing height while the user is reading it.
  */
+/**
+ * How far a row shrinks while held. Small enough to be felt rather than watched: see the note at
+ * the press animation in [GridlinkMessageRow].
+ */
+private const val PRESS_SCALE = 0.975f
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GridlinkMessageRow(
@@ -120,6 +131,17 @@ fun GridlinkMessageRow(
     gutter: Dp = 0.dp,
     onLongClick: (() -> Unit)? = null,
     highlight: String? = null,
+    /** True when this conversation's other messages are already showing beneath it. */
+    threadExpanded: Boolean = false,
+    /**
+     * Unfold or refold this conversation, or null when the row cannot be unfolded.
+     *
+     * 🔴 Null is what keeps the count control off every row that is not a conversation, and off
+     * every list that has no expansion to offer (search results, the folder panel). The count chip
+     * draws only when this is non-null AND [GridlinkMessage.isConversation] — a chip that announced
+     * "3" with nothing behind the tap would be worse than no chip.
+     */
+    onToggleThread: (() -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
@@ -138,6 +160,28 @@ fun GridlinkMessageRow(
         animationSpec = GridlinkMotion.standard(),
         label = "rowSelection",
     )
+    // Press feedback: the row takes a small step back under the finger and springs out again when
+    // it is let go. Brandon asked for "something small" on tapping a message open, and this is the
+    // smallest thing that answers it honestly — the row acknowledges the touch at the instant of
+    // the touch, which is well before the message body has been fetched and can be shown.
+    //
+    // 🔴 Deliberately NOT an opening transition. A row that flew out into the reader would have to
+    // survive the fetch behind it, and that fetch takes as long as the network takes: on a slow
+    // sync the animation would either finish over an empty pane or have to be held, and a held
+    // transition is a frozen screen. The reader's arrival is already animated on its own side.
+    //
+    // ⚠️ [PRESS_SCALE] is scale, not offset, and the row does not clip its children, so nothing is
+    // cropped at the edges as it shrinks. Kept just under 1 on purpose: at 64dp a row that visibly
+    // shrinks reads as the list wobbling, and the effect is meant to be felt more than seen.
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val press by animateFloatAsState(
+        targetValue = if (pressed) PRESS_SCALE else 1f,
+        // Down fast enough to land under the finger, back on the shared spring so the release
+        // matches everything else that settles in this UI.
+        animationSpec = if (pressed) tween(70) else GridlinkMotion.standard(),
+        label = "rowPress",
+    )
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -148,8 +192,19 @@ fun GridlinkMessageRow(
                     GridlinkDimens.messageRowHeight
                 },
             )
+            .graphicsLayer {
+                scaleX = press
+                scaleY = press
+            }
             .background(fill)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+            .combinedClickable(
+                interactionSource = interaction,
+                // 🔴 No ripple. The scale IS the feedback, and a Material ripple over it would put
+                // an expanding grey disc on top of a design layer that has no other ripples in it.
+                indication = null,
+                onClick = onClick,
+                onLongClick = onLongClick,
+            ),
     ) {
         GridlinkSelectionSlot(
             selected = selected,
@@ -247,6 +302,23 @@ fun GridlinkMessageRow(
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // The conversation count, and the ONE tappable thing inside a row besides the
+                    // row itself. It earns that against the ban two notes below (no tap targets on
+                    // line 2) on the ground the star could not meet: it exists only on rows that
+                    // stand for more than one message, so it costs nothing on an ordinary row and
+                    // cannot be a control the user has to already know about to find.
+                    //
+                    // ⚠️ Its target is about 34x24dp, under the 48dp guideline, and that is the
+                    // honest trade for a 64dp row with two lines in it. Missing it opens the newest
+                    // message, which is the row's own action, so a near-miss is never destructive.
+                    if (message.isConversation && onToggleThread != null) {
+                        GridlinkThreadCount(
+                            count = message.threadCount,
+                            expanded = threadExpanded,
+                            unread = message.unread,
+                            onClick = onToggleThread,
+                        )
+                    }
                     Text(
                         text = message.subject,
                         style = GridlinkType.subject.copy(
@@ -311,6 +383,72 @@ fun GridlinkMessageRow(
                 }
             }
         }
+    }
+}
+
+/**
+ * The count pill on a conversation row: how many messages are behind it, and the tap that unfolds
+ * them.
+ *
+ * ## Why it leads line 2 instead of joining the star and the paperclip
+ * 🔴 Those two are read-only reports and sit at the trailing edge, after a subject that already
+ * ellipsizes. This one is a control, and a control at the trailing edge of a shrinking subject would
+ * be at a different x on every row, drift as the subject changed, and be the first thing squeezed on
+ * a narrow folded screen. Leading, it is in the same place on every conversation row in the list,
+ * which is what makes it findable without being explained.
+ *
+ * ## Why the chevron is here at all when the count already says "more"
+ * The count alone says how many; it does not say that the row does anything, nor which way it is
+ * pointing right now. The rotation is the only thing on the row that distinguishes a folded
+ * conversation from an unfolded one once the children are scrolled off screen above.
+ *
+ * ⚠️ It borrows [GridlinkMotion.standard]'s spring for that rotation, which overshoots slightly.
+ * That is fine here for the same reason it is not fine for a gutter: an angle has no non-negative
+ * constraint to violate.
+ */
+@Composable
+private fun GridlinkThreadCount(
+    count: Int,
+    expanded: Boolean,
+    unread: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = GridlinkTheme.colors
+    val turn by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = GridlinkMotion.standard(),
+        label = "threadChevron",
+    )
+    // Outlined rather than filled, and that is the §4 unread ban doing its work one level down: a
+    // filled pill on a row would be the second fill in a list where a fill already means "this row
+    // is being acted on", and the two would compete on the same row.
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .padding(end = GridlinkSpacing.s8)
+            .height(20.dp)
+            .border(1.dp, colors.textSecondary, RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick)
+            .padding(start = 5.dp, end = 2.dp),
+    ) {
+        Text(
+            // No cap and no "9+". A thread of 40 is worth knowing about, the number is the only
+            // thing telling you, and truncating it would hide exactly the case the row exists for.
+            text = count.toString(),
+            style = GridlinkType.metadata,
+            color = if (unread) colors.textPrimary else colors.textSecondary,
+            maxLines = 1,
+        )
+        Icon(
+            imageVector = Icons.Filled.KeyboardArrowDown,
+            // Says what the tap DOES, not what the row is, because that is what a screen reader
+            // user is choosing between. The count is already announced by the Text beside it.
+            contentDescription = if (expanded) "Collapse conversation" else "Expand conversation",
+            tint = colors.textSecondary,
+            modifier = Modifier
+                .size(14.dp)
+                .rotate(turn),
+        )
     }
 }
 

@@ -37,6 +37,57 @@ enum class PreviewLines(val lines: Int) { NONE(0), ONE(1), THREE(3), FIVE(5) }
 enum class SwipeAction { NONE, TOGGLE_READ, DELETE, ARCHIVE, FLAG }
 
 /**
+ * An action the reader may put on the open thread's bottom bar.
+ *
+ * 🔴 Brandon, 2026-08-10: "the dynamic control bar at the bottom in unfolded mode should be
+ * customizable, make that an option in settings", and he picked the fixed-order variant over a
+ * drag-to-reorder one. So this enum IS the order: the settings screen lists it top to bottom and
+ * the bar fills its slots from the enabled ones in the same sequence. Nothing anywhere stores a
+ * position, which is what makes the stored value a plain Set and makes appending an action here a
+ * one-line change rather than a migration.
+ *
+ * ⚠️ Entries are persisted BY NAME, so appending is safe and reordering is NOT: moving an entry
+ * changes where an already-enabled action lands on everybody's bar. Append.
+ *
+ * REPLY is deliberately absent. It owns the accent circle beside the bar on every thread and is the
+ * one action this app will not let you lose; a switch for it would offer to leave a reading screen
+ * with no way to answer the mail. Everything else here is optional, [DEFAULTS] included.
+ */
+enum class ThreadToolbarAction {
+    // 🔴 Forward and Archive lead, and that is not a style choice: with [DEFAULTS] enabled they are
+    // the two that fit in front of More, which is precisely the bar this app already shipped. Put
+    // REPLY_ALL first and an untouched install opens to Reply all / Forward / More with Archive
+    // demoted a tap further away, which is a change nobody asked for dressed up as a default.
+    FORWARD,
+    ARCHIVE,
+    REPLY_ALL,
+    DELETE,
+    MOVE,
+    MARK_UNREAD,
+    STAR,
+    PRINT,
+    JUNK,
+    ;
+
+    companion object {
+        /**
+         * What the bar held before it was customisable, exactly.
+         *
+         * 🔴 Chosen to reproduce the shipped bar rather than to be a nicer default: Forward and
+         * Archive take the two visible slots, Reply all and Junk sit under More, and an install
+         * that never opens this setting sees no change at all. A default set that "improved" the
+         * bar would rearrange the controls of every existing reader to settle an argument they were
+         * not having.
+         *
+         * Star is off despite being on Brandon's list, because the lit star beside the subject is
+         * already on screen whenever this bar is; enabling it puts the same toggle in two places.
+         * It is offered because he asked for it, not recommended.
+         */
+        val DEFAULTS: Set<ThreadToolbarAction> = setOf(FORWARD, ARCHIVE, REPLY_ALL, JUNK)
+    }
+}
+
+/**
  * How the message list is ordered.
  *
  * [FLAGGED_FIRST] is a sort like any other, not a modifier: until 1.4.5 favourites were pinned
@@ -144,11 +195,49 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_SORT_ORDER] = order.name }
     }
 
+    /**
+     * Which actions the open thread's bottom bar may offer, in [ThreadToolbarAction]'s own order.
+     *
+     * 🔴 A Set, not a List, and that is the fixed-order decision made storable: order comes from the
+     * enum, so the only thing worth persisting is membership. It also means an unknown name (a build
+     * that removed an action, or a backup from a newer one) is simply dropped instead of leaving a
+     * hole at a stored position.
+     *
+     * ⚠️ An empty stored set is a real answer and NOT the same as absent. Turning every switch off
+     * leaves the bar with nothing but More, which is a legitimate thing to want; only a key that has
+     * never been written falls back to [ThreadToolbarAction.DEFAULTS]. The `?:` therefore hangs off
+     * the key lookup, not off `isEmpty()`.
+     */
+    val threadToolbarActions: Flow<Set<ThreadToolbarAction>> = dataStore.data.map { prefs ->
+        prefs[KEY_THREAD_TOOLBAR]
+            ?.mapNotNullTo(mutableSetOf()) { runCatching { ThreadToolbarAction.valueOf(it) }.getOrNull() }
+            ?: ThreadToolbarAction.DEFAULTS
+    }
+
+    suspend fun setThreadToolbarActions(actions: Set<ThreadToolbarAction>) {
+        dataStore.edit { prefs -> prefs[KEY_THREAD_TOOLBAR] = actions.mapTo(mutableSetOf()) { it.name } }
+    }
+
     /** Collapse threads into one conversation row in the list (on by default). */
     val conversationView: Flow<Boolean> = dataStore.data.map { it[KEY_CONVERSATION_VIEW] ?: true }
 
     suspend fun setConversationView(enabled: Boolean) {
         dataStore.edit { it[KEY_CONVERSATION_VIEW] = enabled }
+    }
+
+    /**
+     * Gather automated senders (no-reply@, notifications@, and the rest of the list in
+     * `GridlinkMailMapping`) into one collapsed row above the timeline.
+     *
+     * 🔴 OFF by default, and that default is the whole point. It shipped on, and Brandon's verdict
+     * was "lose the automated auto-sorter thing... by default it should just show mail." A list that
+     * silently reorganises itself has to be understood before it can be read, and the reader who
+     * wants that grouping can ask for it. The reader who does not never agreed to it.
+     */
+    val bundleAutomated: Flow<Boolean> = dataStore.data.map { it[KEY_BUNDLE_AUTOMATED] ?: false }
+
+    suspend fun setBundleAutomated(enabled: Boolean) {
+        dataStore.edit { it[KEY_BUNDLE_AUTOMATED] = enabled }
     }
 
     /** Mark a message as read when deleting it, so Trash doesn't accumulate unread
@@ -239,6 +328,38 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_HAS_SEEN_WELCOME] = seen }
     }
 
+    /**
+     * How many accounts existed the last time the animated intro played, or `null` if it has never
+     * played on this install.
+     *
+     * ## Why a count and not a "seen" boolean
+     *
+     * Brandon, 2026-08-10: *"i like the video but loading it every time seems like a lot - maybe
+     * only the first time after account added? every app open is too much tho."* So the intro is due
+     * exactly twice in a normal life: on the very first launch (nothing stored yet, `null`), and on
+     * the first launch after the account list GREW past what the intro last saw.
+     *
+     * A count gets that with no hook in the add path at all. `null` covers first launch; `count >
+     * stored` covers every account added afterwards, however it was added — the JMAP form, the IMAP
+     * form, the OAuth flow, a settings import, or any fourth path somebody writes next year. There
+     * is nothing to remember to call, so there is nothing a new path can forget, which is the same
+     * reasoning `addAccountThenPrime` is built on.
+     *
+     * ⚠️ Removing an account and adding it back does NOT replay it: the count dips and returns to a
+     * number the intro has already seen. That is the behaviour worth having. Re-authenticating a
+     * mailbox is not a new mailbox, and a brand animation in front of a repair is the app
+     * congratulating itself over the user's problem.
+     *
+     * 🔴 Deliberately NOT in [SettingsBackup], for the same reason [hasSeenWelcome] is not: it
+     * describes what this install has shown this user, not what the user chose. Restoring it onto a
+     * new device would suppress the intro on a device that has never played it.
+     */
+    val introSeenAccountCount: Flow<Int?> = dataStore.data.map { it[KEY_INTRO_SEEN_ACCOUNTS] }
+
+    suspend fun setIntroSeenAccountCount(count: Int) {
+        dataStore.edit { it[KEY_INTRO_SEEN_ACCOUNTS] = count }
+    }
+
     /** Whether the contacts-permission priming has already been offered at compose (shown once). */
     val hasPrimedContacts: Flow<Boolean> = dataStore.data.map { it[KEY_HAS_PRIMED_CONTACTS] ?: false }
 
@@ -318,6 +439,11 @@ class SettingsRepository(context: Context) {
         quietHoursStart = quietHoursStart.first(),
         quietHoursEnd = quietHoursEnd.first(),
         conversationView = conversationView.first(),
+        // Exported, unlike `introSeenAccountCount` next door. That one records what THIS install has
+        // played and would be a lie on a new device; this one is a choice the reader made about how
+        // their mail app is laid out, which is the whole category this file exists to carry.
+        threadToolbarActions = threadToolbarActions.first().map { it.name },
+        bundleAutomated = bundleAutomated.first(),
         messageTextSize = messageTextSize.first().name,
         markReadOnDelete = markReadOnDelete.first(),
         markReadOnArchive = markReadOnArchive.first(),
@@ -347,6 +473,16 @@ class SettingsRepository(context: Context) {
         backup.quietHoursStart?.let { setQuietHoursStart(it) }
         backup.quietHoursEnd?.let { setQuietHoursEnd(it) }
         backup.conversationView?.let { setConversationView(it) }
+        // 🔴 Unknown names are dropped, an empty result is still written. A backup naming only
+        // actions this build no longer has restores an EMPTY bar rather than silently reverting to
+        // the defaults, because the reader did choose to have those and no others; the defaults are
+        // for a key nobody has ever set, and a restore is somebody setting it.
+        backup.threadToolbarActions?.let { names ->
+            setThreadToolbarActions(
+                names.mapNotNullTo(mutableSetOf()) { runCatching { ThreadToolbarAction.valueOf(it) }.getOrNull() },
+            )
+        }
+        backup.bundleAutomated?.let { setBundleAutomated(it) }
         backup.messageTextSize?.let { v -> runCatching { MessageTextSize.valueOf(v) }.getOrNull()?.let { setMessageTextSize(it) } }
         backup.markReadOnDelete?.let { setMarkReadOnDelete(it) }
         backup.markReadOnArchive?.let { setMarkReadOnArchive(it) }
@@ -412,6 +548,8 @@ class SettingsRepository(context: Context) {
         private val KEY_SWIPE_LEFT = stringPreferencesKey("swipe_left")
         private val KEY_SORT_ORDER = stringPreferencesKey("sort_order")
         private val KEY_CONVERSATION_VIEW = booleanPreferencesKey("conversation_view")
+        private val KEY_THREAD_TOOLBAR = stringSetPreferencesKey("thread_toolbar_actions")
+        private val KEY_BUNDLE_AUTOMATED = booleanPreferencesKey("bundle_automated")
         private val KEY_MARK_READ_ON_DELETE = booleanPreferencesKey("mark_read_on_delete")
         private val KEY_MARK_READ_ON_ARCHIVE = booleanPreferencesKey("mark_read_on_archive")
         private val KEY_MARK_READ_ON_MOVE = booleanPreferencesKey("mark_read_on_move")
@@ -423,6 +561,7 @@ class SettingsRepository(context: Context) {
         private val KEY_CONTACT_SUGGESTIONS = booleanPreferencesKey("contact_suggestions")
         private val KEY_HAS_SEEN_WELCOME = booleanPreferencesKey("has_seen_welcome")
         private val KEY_HAS_PRIMED_CONTACTS = booleanPreferencesKey("has_primed_contacts")
+        private val KEY_INTRO_SEEN_ACCOUNTS = intPreferencesKey("intro_seen_account_count")
         private val KEY_STRIP_TRACKING = booleanPreferencesKey("strip_tracking_params")
         private val KEY_CONFIRM_LINKS = booleanPreferencesKey("confirm_links")
         private val KEY_IMAGE_ALLOWLIST = stringSetPreferencesKey("image_allowlist")

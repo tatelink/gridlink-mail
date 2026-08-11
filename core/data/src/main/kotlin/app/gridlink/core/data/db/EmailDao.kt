@@ -2,6 +2,7 @@ package app.gridlink.core.data.db
 
 import androidx.paging.PagingSource
 import androidx.room.Dao
+import androidx.room.Embedded
 import androidx.room.Query
 import androidx.room.RawQuery
 import androidx.room.Transaction
@@ -421,6 +422,74 @@ interface EmailDao {
     ): Flow<List<EmailEntity>>
 
     /**
+     * [observeMailboxWindow] with conversation view on: one row per thread instead of one per
+     * message, the thread's newest matching message representing it.
+     *
+     * ## 🔴 [threadCount] is counted WITHOUT the chip filters, and that is the point
+     * The representative comes from `g`, which the chips narrow, so the row a lit chip draws is
+     * always a message that matches it. The count comes from `c`, which they do not, so it is the
+     * number of messages the row unfolds into — see
+     * [app.gridlink.core.data.mail.MailRepository.observeThreadEmails], which is where the unfolded
+     * rows come from and which is likewise unfiltered. Counting the filtered set instead would put
+     * "2" on a row that opens six messages, which is the chip-versus-expansion divergence upstream's
+     * conversation query carries three sub-queries to avoid.
+     *
+     * [threadUnread] is `MIN(seen) = 0` over that same unfiltered in-folder set: the collapsed row
+     * is bold when ANY message under it is unread, because reading only the newest of six and
+     * watching the row go quiet would hide the five that are still new.
+     *
+     * ## Scoped to ONE mailbox, unlike the paged conversation query
+     * `MailRepository.conversationSql` widens the count to each account's Sent folder so a thread
+     * you have replied to counts the reply. This cannot: the window is one mailbox by construction
+     * and the rows it unfolds are that mailbox's. The count and the expansion agree with each other,
+     * which is the invariant that matters; both simply say "in this folder".
+     *
+     * 🔴 Grouping is by thread key alone, not by (accountId, thread key) as the unified list must:
+     * this query is pinned to a single [accountId] in its WHERE, so there is no second account whose
+     * colliding thread id could be folded in. Widen it to more than one account and that changes.
+     *
+     * [limit] now bounds THREADS rather than messages, which is the honest reading of a window over
+     * a list whose rows are threads, and means a mailbox of long conversations reaches further back
+     * in this mode than in the flat one.
+     */
+    @Query(
+        "SELECT e.*, c.threadCount AS threadCount, c.threadUnread AS threadUnread FROM emails e " +
+            "JOIN (SELECT COALESCE(threadId, id) AS tkey, MAX(sortKey) AS maxKey FROM emails " +
+            "WHERE accountId = :accountId AND mailboxId = :mailboxId " +
+            "AND (:unread = 0 OR seen = 0) " +
+            "AND (:starred = 0 OR flagged = 1) " +
+            "AND (:withAttachment = 0 OR hasAttachment = 1) " +
+            "AND NOT EXISTS (SELECT 1 FROM snoozed WHERE snoozed.emailId = emails.id " +
+            "AND snoozed.accountId = emails.accountId AND snoozed.until > " +
+            "(CAST(strftime('%s','now') AS INTEGER) * 1000)) " +
+            "GROUP BY tkey) g " +
+            "ON COALESCE(e.threadId, e.id) = g.tkey AND e.sortKey = g.maxKey " +
+            "JOIN (SELECT COALESCE(threadId, id) AS ckey, COUNT(*) AS threadCount, " +
+            "MIN(seen) = 0 AS threadUnread FROM emails " +
+            "WHERE accountId = :accountId AND mailboxId = :mailboxId " +
+            "AND NOT EXISTS (SELECT 1 FROM snoozed WHERE snoozed.emailId = emails.id " +
+            "AND snoozed.accountId = emails.accountId AND snoozed.until > " +
+            "(CAST(strftime('%s','now') AS INTEGER) * 1000)) " +
+            "GROUP BY ckey) c ON c.ckey = g.tkey " +
+            "WHERE e.accountId = :accountId AND e.mailboxId = :mailboxId " +
+            "AND (:unread = 0 OR e.seen = 0) " +
+            "AND (:starred = 0 OR e.flagged = 1) " +
+            "AND (:withAttachment = 0 OR e.hasAttachment = 1) " +
+            "AND NOT EXISTS (SELECT 1 FROM snoozed WHERE snoozed.emailId = e.id " +
+            "AND snoozed.accountId = e.accountId AND snoozed.until > " +
+            "(CAST(strftime('%s','now') AS INTEGER) * 1000)) " +
+            "GROUP BY g.tkey ORDER BY e.sortKey DESC LIMIT :limit",
+    )
+    fun observeMailboxThreadWindow(
+        accountId: String,
+        mailboxId: String,
+        limit: Int,
+        unread: Boolean,
+        starred: Boolean,
+        withAttachment: Boolean,
+    ): Flow<List<ThreadWindowRow>>
+
+    /**
      * Per-folder count of unread THREADS (the conversation-mode drawer badge): one row per
      * (accountId, mailboxId) with the number of threads whose in-folder part has an unread
      * member. Mirrors the collapsed list's folder-scoped sub-query `g` in
@@ -519,6 +588,19 @@ data class EmailRetentionRow(
 data class AccountMessageCount(
     val accountId: String,
     val messageCount: Int,
+)
+
+/**
+ * One collapsed conversation row of [EmailDao.observeMailboxThreadWindow]: the thread's newest
+ * matching message [embedded][Embedded], plus the two aggregates the row draws.
+ *
+ * [threadUnread] is a separate fact from `email.seen` and is the one the row must believe: the
+ * representative can be read while an older message under it is not.
+ */
+data class ThreadWindowRow(
+    @Embedded val email: EmailEntity,
+    val threadCount: Int,
+    val threadUnread: Boolean,
 )
 
 /** Per-(account, folder) unread aggregate for the drawer badge (see [EmailDao.observeThreadUnreadCounts]). */
