@@ -1,6 +1,7 @@
 package app.gridlink.ui.home
 
 import android.app.Application
+import android.os.Build
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -245,6 +246,10 @@ fun GridlinkHomeHost(
 
     // The attachment whose save is waiting on the document picker, and the picker itself.
     //
+    // ⚠️ Reached only below Android Q, where MediaStore's Downloads collection does not exist; on
+    // everything since, a save never opens a picker at all. Kept rather than dropped because the
+    // alternative on those releases is asking for WRITE_EXTERNAL_STORAGE.
+    //
     // 🔴 Two halves because the contract only carries a filename out and a destination back: the
     // picker has no idea which attachment it is for, so the answer has to be parked here between
     // the tap and the result. Cleared on the way out either way — a cancelled picker returns null,
@@ -288,9 +293,18 @@ fun GridlinkHomeHost(
             onFilter = viewModel::filter,
             onAllowImages = viewModel::setImagesAllowed,
             onOpenAttachment = viewModel::openAttachment,
+            // 🔴 No picker on anything modern. Android's document picker is another app's UI, in
+            // another app's theme, and putting it in front of a one-tap save would be the only
+            // white Material screen in this build. On Q and up the file goes straight to Downloads;
+            // the picker survives only below Q, where the alternative is a permission prompt for
+            // the whole of shared storage. See [GridlinkMailViewModel.saveAttachmentToDownloads].
             onSaveAttachment = { attachment ->
-                pendingSave = attachment
-                saveLauncher.launch(attachment.name)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    viewModel.saveAttachmentToDownloads(attachment)
+                } else {
+                    pendingSave = attachment
+                    saveLauncher.launch(attachment.name)
+                }
             },
             folders = folders,
             onFolderEdit = viewModel::editFolder,

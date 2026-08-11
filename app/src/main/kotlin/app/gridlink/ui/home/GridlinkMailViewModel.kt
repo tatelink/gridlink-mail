@@ -1,10 +1,16 @@
 package app.gridlink.ui.home
 
 import android.app.Application
+import android.content.ContentResolver
+import android.content.ContentValues
 import android.content.Intent
+import android.database.sqlite.SQLiteConstraintException
 import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
 import android.util.Log
 import android.widget.Toast
+import androidx.annotation.RequiresApi
 import androidx.core.content.FileProvider
 import androidx.core.text.HtmlCompat
 import androidx.lifecycle.AndroidViewModel
@@ -1295,18 +1301,131 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     }
 
     /**
-     * Write the tapped attachment to [destination], a document the user just picked themselves.
+     * Write the tapped attachment straight into the phone's Downloads folder.
      *
      * 🔴 The complaint this answers, verbatim from the review corpus: "it downloads attachments into
      * a black hole where you can never find them again… it should download into the system
      * 'Downloads' folder like a sane app". [openAttachment] hands the bytes to a viewer and leaves
      * them in a cache this app is free to evict; nothing survives that the file manager can see.
      *
-     * SAF and not MediaStore, on every API level: the picker needs no permission (MediaStore's
-     * Downloads collection is API 29+, and the pre-29 path wants WRITE_EXTERNAL_STORAGE), it
-     * defaults to Downloads anyway, and the user watches where the file lands rather than trusting
-     * a status line about it. One code path, no permission prompt, no duplicate-name rules of our
-     * own — the picker already has all three.
+     * ## 🔴 No document picker, by Brandon's call
+     * The obvious implementation launches SAF and lets the user choose. It works, and it puts
+     * Android's own DocumentsUI on screen — a white Material list in the middle of this app, which
+     * cannot be themed because it belongs to another package. One tap, no foreign screen, is also
+     * what the reviews are asking for: nobody complaining about a black hole wants a file browser,
+     * they want the file in Downloads.
+     *
+     * MediaStore needs no permission on API 29+, so a second save of the same invoice lands beside
+     * the first rather than over it. [saveAttachment] with an explicit destination is the pre-29
+     * path, where this collection does not exist. See [writeIntoDownloads] for why that collision
+     * naming cannot simply be trusted.
+     */
+    @RequiresApi(Build.VERSION_CODES.Q)
+    fun saveAttachmentToDownloads(attachment: GridlinkAttachment) {
+        val current = opened.value ?: return
+        val messageId = current.id
+        val part = attachment.id.toIntOrNull()?.let { openedParts.getOrNull(it) } ?: return
+        val id = accountId.value ?: return
+        val credentials = store.credentials(id) ?: return
+        val app = getApplication<Application>()
+        status(messageId, "Saving ${attachment.name}…")
+        viewModelScope.launch {
+            try {
+                val bytes = repo.downloadAttachment(credentials, part, messageId)
+                val saved = withContext(Dispatchers.IO) {
+                    writeIntoDownloads(app.contentResolver, attachment.name, part.type, bytes)
+                }
+                status(messageId, "Saved $saved to Downloads.")
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: ContentTooLargeException) {
+                status(
+                    messageId,
+                    "${attachment.name} is too big to save here " +
+                        "(over ${DownloadLimits.ATTACHMENT_MAX_BYTES / (1024 * 1024)} MB).",
+                )
+            } catch (t: Throwable) {
+                Log.w(TAG, "attachment save failed", t)
+                status(messageId, "Couldn't save ${attachment.name}.")
+            }
+        }
+    }
+
+    /**
+     * Put [bytes] in the Downloads collection under [name], or the closest free name to it, and
+     * return the name it actually got.
+     *
+     * ## 🔴 MediaStore's collision naming is not enough on its own
+     * It renames around files it knows about. It does not rename around its own stale rows, and
+     * those exist on any real phone: delete a download with a tool that writes the filesystem
+     * directly and the row outlives the file. The next save then inserts happily, writes every
+     * byte, and blows up on `UNIQUE constraint failed: files._data` at the moment it tries to
+     * publish — leaving the file on disk, permanently pending, visible to nothing. That is the same
+     * black hole this whole method exists to close, wearing a different hat. Observed on the first
+     * live test, so this is a fix, not a precaution.
+     *
+     * So a constraint failure is treated as "that name is taken": drop the row, add a counter, try
+     * again. Nine tries is well past the point where the real problem is something else, and the
+     * original failure is what gets thrown so the log says what actually went wrong.
+     *
+     * `IS_PENDING` holds from insert until the bytes are all down, so nothing indexes half a PDF,
+     * and any failure deletes the row rather than abandoning it — a pending row is unaddressable
+     * even to us, so leaving one behind would litter storage with files nobody can reach.
+     */
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun writeIntoDownloads(
+        resolver: ContentResolver,
+        name: String,
+        mime: String?,
+        bytes: ByteArray,
+    ): String {
+        val stem = name.substringBeforeLast('.', name)
+        val extension = name.substringAfterLast('.', "")
+        var taken: Throwable? = null
+        for (attempt in 0..8) {
+            val candidate = when {
+                attempt == 0 -> name
+                extension.isEmpty() -> "$stem ($attempt)"
+                else -> "$stem ($attempt).$extension"
+            }
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, candidate)
+                mime?.let { put(MediaStore.Downloads.MIME_TYPE, it) }
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val target = try {
+                resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            } catch (t: SQLiteConstraintException) {
+                taken = t
+                null
+            } ?: continue
+            try {
+                resolver.openOutputStream(target)?.use { it.write(bytes) }
+                    ?: error("no output stream")
+                resolver.update(
+                    target,
+                    ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) },
+                    null,
+                    null,
+                )
+                return candidate
+            } catch (t: Throwable) {
+                runCatching { resolver.delete(target, null, null) }
+                if (t !is SQLiteConstraintException) throw t
+                taken = t
+            }
+        }
+        throw taken ?: IllegalStateException("Downloads rejected $name")
+    }
+
+    /**
+     * Write the tapped attachment to [destination], a document the user picked themselves.
+     *
+     * The pre-API-29 half of [saveAttachmentToDownloads], and only that: MediaStore's Downloads
+     * collection does not exist before Q, and the legacy path to the same folder wants
+     * WRITE_EXTERNAL_STORAGE — a runtime permission prompt asking for the whole of shared storage
+     * in order to write one file. The picker asks for nothing and grants exactly one document, so
+     * on those three API levels the foreign screen is the better trade.
      *
      * The bytes are fetched AFTER the destination exists, so a cancelled picker costs no download.
      * Failure reporting is [openAttachment]'s, for the same reason: same fetch, same ceiling, same
