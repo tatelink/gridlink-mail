@@ -2,14 +2,18 @@ package app.gridlink.ui.home
 
 import android.app.Application
 import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -20,6 +24,7 @@ import app.gridlink.container
 import app.gridlink.core.data.account.StoredAccount
 import app.gridlink.core.data.settings.ThreadToolbarAction
 import app.gridlink.ui.gridlink.GridlinkApp
+import app.gridlink.ui.gridlink.GridlinkAttachment
 import app.gridlink.ui.gridlink.GridlinkChromeConfig
 import app.gridlink.ui.gridlink.GridlinkComposeDraft
 import app.gridlink.ui.gridlink.GridlinkMenuItem
@@ -238,6 +243,25 @@ fun GridlinkHomeHost(
         return
     }
 
+    // The attachment whose save is waiting on the document picker, and the picker itself.
+    //
+    // 🔴 Two halves because the contract only carries a filename out and a destination back: the
+    // picker has no idea which attachment it is for, so the answer has to be parked here between
+    // the tap and the result. Cleared on the way out either way — a cancelled picker returns null,
+    // and holding the attachment past that would make the NEXT save write the wrong file.
+    //
+    // "*/*" and not the file's real type: the contract fixes its mime at construction, one launcher
+    // ahead of knowing which file is coming. The suggested name carries the extension, which is
+    // what actually decides how the saved file opens later.
+    var pendingSave by remember { mutableStateOf<GridlinkAttachment?>(null) }
+    val saveLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("*/*"),
+    ) { destination ->
+        val attachment = pendingSave
+        pendingSave = null
+        if (destination != null && attachment != null) viewModel.saveAttachment(attachment, destination)
+    }
+
     GridlinkApp(
         initialModeOverride = palette.toModeOverride(),
         // 🔴 Starts SYNCING, not SYNCED. The launch sync below is already running by the time the
@@ -264,6 +288,10 @@ fun GridlinkHomeHost(
             onFilter = viewModel::filter,
             onAllowImages = viewModel::setImagesAllowed,
             onOpenAttachment = viewModel::openAttachment,
+            onSaveAttachment = { attachment ->
+                pendingSave = attachment
+                saveLauncher.launch(attachment.name)
+            },
             folders = folders,
             onFolderEdit = viewModel::editFolder,
             onMove = viewModel::move,

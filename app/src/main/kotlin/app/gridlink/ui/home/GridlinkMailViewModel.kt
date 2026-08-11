@@ -1295,6 +1295,58 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     }
 
     /**
+     * Write the tapped attachment to [destination], a document the user just picked themselves.
+     *
+     * 🔴 The complaint this answers, verbatim from the review corpus: "it downloads attachments into
+     * a black hole where you can never find them again… it should download into the system
+     * 'Downloads' folder like a sane app". [openAttachment] hands the bytes to a viewer and leaves
+     * them in a cache this app is free to evict; nothing survives that the file manager can see.
+     *
+     * SAF and not MediaStore, on every API level: the picker needs no permission (MediaStore's
+     * Downloads collection is API 29+, and the pre-29 path wants WRITE_EXTERNAL_STORAGE), it
+     * defaults to Downloads anyway, and the user watches where the file lands rather than trusting
+     * a status line about it. One code path, no permission prompt, no duplicate-name rules of our
+     * own — the picker already has all three.
+     *
+     * The bytes are fetched AFTER the destination exists, so a cancelled picker costs no download.
+     * Failure reporting is [openAttachment]'s, for the same reason: same fetch, same ceiling, same
+     * message-id guard against captioning a message the user has already left.
+     */
+    fun saveAttachment(attachment: GridlinkAttachment, destination: Uri) {
+        val current = opened.value ?: return
+        val messageId = current.id
+        val part = attachment.id.toIntOrNull()?.let { openedParts.getOrNull(it) } ?: return
+        val id = accountId.value ?: return
+        val credentials = store.credentials(id) ?: return
+        val app = getApplication<Application>()
+        status(messageId, "Saving ${attachment.name}…")
+        viewModelScope.launch {
+            try {
+                val bytes = repo.downloadAttachment(credentials, part, messageId)
+                withContext(Dispatchers.IO) {
+                    // "wt" truncates: the picker may have handed back a file that already existed
+                    // and that the user chose to overwrite, and an un-truncated write would leave
+                    // the tail of the old one glued to the new.
+                    app.contentResolver.openOutputStream(destination, "wt")?.use { it.write(bytes) }
+                        ?: error("no output stream")
+                }
+                status(messageId, "Saved ${attachment.name}.")
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: ContentTooLargeException) {
+                status(
+                    messageId,
+                    "${attachment.name} is too big to save here " +
+                        "(over ${DownloadLimits.ATTACHMENT_MAX_BYTES / (1024 * 1024)} MB).",
+                )
+            } catch (t: Throwable) {
+                Log.w(TAG, "attachment save failed", t)
+                status(messageId, "Couldn't save ${attachment.name}.")
+            }
+        }
+    }
+
+    /**
      * Put [text] on the open message's status line — IF the message it is about is still the one
      * open. A stale write would caption the wrong message, under the right chips, convincingly.
      */
