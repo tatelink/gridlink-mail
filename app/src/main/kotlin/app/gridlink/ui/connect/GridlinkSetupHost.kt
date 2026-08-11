@@ -93,9 +93,18 @@ fun GridlinkSetupHost(
     val error = when (val s = state) {
         is ConnectState.Error -> s.message
         // Not phrased as a failure: nothing is wrong, we just have to be told where the server is.
-        ConnectState.NeedsServer ->
+        is ConnectState.NeedsServer ->
             "No JMAP server was found for that address. Enter the server above and try again."
         else -> null
+    }
+
+    // The record of what was tried, for the user to copy out. Carried on both outcomes above,
+    // because "we could not find your server" is exactly the message somebody wants the evidence
+    // for: it is the one that sounds like the app did nothing.
+    val details = when (val s = state) {
+        is ConnectState.Error -> s.details
+        is ConnectState.NeedsServer -> s.details
+        else -> emptyList()
     }
 
     // Its own token host, because this screen renders before anything else in the app has provided
@@ -123,6 +132,7 @@ fun GridlinkSetupHost(
             onAdvanced = onAdvanced,
             busy = busy,
             error = error,
+            details = details,
             modifier = modifier,
         )
     }

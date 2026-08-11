@@ -95,6 +95,8 @@ import app.gridlink.util.isValidEmail
 import app.gridlink.core.data.account.AuthType
 import app.gridlink.core.data.account.ConnectionSecurity
 import app.gridlink.core.data.account.MailProtocol
+import app.gridlink.core.data.mail.SignInStep
+import app.gridlink.core.data.mail.asClipboardText
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -638,17 +640,74 @@ fun ConnectScreen(
             Spacer(Modifier.height(4.dp))
             when (val s = state) {
                 is ConnectState.Connecting, is ConnectState.Discovering -> CircularProgressIndicator()
-                is ConnectState.NeedsServer -> Text(
-                    text = stringResource(R.string.connect_server_not_found),
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                is ConnectState.Error -> Text(
-                    text = stringResource(R.string.connect_error, s.message),
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                is ConnectState.NeedsServer -> {
+                    Text(
+                        text = stringResource(R.string.connect_server_not_found),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    AttemptLog(s.details)
+                }
+                is ConnectState.Error -> {
+                    Text(
+                        text = stringResource(R.string.connect_error, s.message),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    AttemptLog(s.details)
+                }
                 else -> Unit
+            }
+        }
+    }
+}
+
+/**
+ * What was tried, and what each attempt answered, with a one-tap copy.
+ *
+ * ## 🔴 Why this exists at all
+ * The app collects no telemetry, so a sign-in that fails on somebody else's server produces exactly
+ * nothing anyone can act on unless the user can hand the record over themselves. The clipboard is
+ * that path. Collapsed by default because it is evidence, not an explanation: the sentence above it
+ * is what most people need.
+ *
+ * ⚠️ [SignInStep] is user-visible and user-copyable by construction. Nothing secret may be put in
+ * either of its fields; see the invariant on the type.
+ */
+@Composable
+private fun AttemptLog(steps: List<SignInStep>, modifier: Modifier = Modifier) {
+    if (steps.isEmpty()) return
+    val clipboard = LocalClipboardManager.current
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    var copied by remember { mutableStateOf(false) }
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { expanded = !expanded }) {
+                Text(
+                    stringResource(
+                        if (expanded) R.string.connect_details_hide else R.string.connect_details_show
+                    )
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = {
+                clipboard.setText(AnnotatedString(steps.asClipboardText()))
+                copied = true
+            }) {
+                Text(
+                    stringResource(
+                        if (copied) R.string.connect_details_copied else R.string.connect_details_copy
+                    )
+                )
+            }
+        }
+        if (expanded) {
+            steps.forEach { step ->
+                Text(
+                    text = "${step.what}: ${step.outcome}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

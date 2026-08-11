@@ -507,6 +507,14 @@
     <string name="connect_server_not_found">Nie udało się automatycznie znaleźć Twojego serwera. Wpisz go poniżej.</string>
     <string name="connect_bad_credentials">Nieprawidłowy adres e-mail lub hasło.</string>
     <string name="connect_host_unresolved">Nie znaleziono serwera o nazwie \"%1$s\". Sprawdź pisownię i połączenie z internetem.</string>
+    <string name="connect_offline">To urządzenie nie ma teraz połączenia z internetem, więc nie ma jeszcze do czego się logować. Z twoim kontem wszystko jest w porządku.</string>
+    <string name="connect_timed_out">Serwer odpowiadał zbyt długo. Może być wyłączony albo zapora blokuje połączenie. Sprawdź serwer i port, a potem spróbuj ponownie.</string>
+    <string name="connect_refused">Pod tym adresem i portem nic nie nasłuchiwało. Sprawdź port i to, czy serwer działa.</string>
+    <string name="connect_tls_failed">Szyfrowane połączenie zostało odrzucone. Certyfikat serwera może być wygasły, samopodpisany albo wystawiony na inną nazwę.</string>
+    <string name="connect_details_show">Pokaż szczegóły</string>
+    <string name="connect_details_hide">Ukryj szczegóły</string>
+    <string name="connect_details_copy">Kopiuj szczegóły</string>
+    <string name="connect_details_copied">Skopiowano</string>
     <string name="connect_provider_preset">Szybka konfiguracja</string>
     <string name="connect_provider_app_password_note">Niektórzy dostawcy (Gmail, Yahoo, iCloud…) wymagają hasła do aplikacji, a nie zwykłego hasła.</string>
     <string name="connect_app_password_help">Jak utworzyć hasło aplikacji</string>
@@ -795,4 +803,17 @@
     <string name="widget_empty_not_synced">Otwórz raz GridLink, aby to wypełnić.</string>
     <string name="widget_empty_inbox">Nic nie czeka.</string>
     <string name="widget_time_now">teraz</string>
+    <string name="settings_bundle_automated_title">Grupuj pocztę automatyczną</string>
+    <string name="settings_bundle_automated_subtitle">Zbiera nadawców typu no-reply, powiadomienia i alerty w jednym zwiniętym wierszu nad listą. Domyślnie wyłączone: lista pokazuje każdą wiadomość według daty. W żadnym przypadku nic nie jest ukrywane, a nadawca jest rozpoznawany po adresie, więc osoba pisząca z adresu notifications@ też trafi do grupy.</string>
+    <string name="settings_thread_actions_section">Akcje wiadomości</string>
+    <string name="settings_thread_actions_caption">Pasek na dole otwartej wiadomości pokazuje pierwsze trzy z nich. Wszystko inne, co włączysz, trafi pod Więcej. Odpowiedz zawsze zachowuje własny przycisk.</string>
+    <string name="settings_thread_action_reply_all">Odpowiedz wszystkim</string>
+    <string name="settings_thread_action_forward">Przekaż dalej</string>
+    <string name="settings_thread_action_archive">Archiwizuj</string>
+    <string name="settings_thread_action_delete">Usuń</string>
+    <string name="settings_thread_action_move">Przenieś</string>
+    <string name="settings_thread_action_mark_unread">Oznacz jako nieprzeczytane</string>
+    <string name="settings_thread_action_star">Oznacz gwiazdką</string>
+    <string name="settings_thread_action_print">Drukuj</string>
+    <string name="settings_thread_action_junk">Spam</string>
 </resources>

@@ -507,6 +507,14 @@
     <string name="connect_server_not_found">Impossible de trouver votre serveur automatiquement. Saisissez-le ci-dessous.</string>
     <string name="connect_bad_credentials">Adresse e-mail ou mot de passe incorrect.</string>
     <string name="connect_host_unresolved">Aucun serveur nommé \"%1$s\" n\'a été trouvé. Vérifiez l\'orthographe et votre connexion.</string>
+    <string name="connect_offline">Cet appareil n\'a pas de connexion internet pour le moment, il n\'y a donc encore rien à quoi se connecter. Votre compte n\'a aucun problème.</string>
+    <string name="connect_timed_out">Le serveur a mis trop de temps à répondre. Il est peut-être hors service, ou un pare-feu bloque la connexion. Vérifiez le serveur et le port, puis réessayez.</string>
+    <string name="connect_refused">Rien n\'écoutait à cette adresse et sur ce port. Vérifiez le port et que le serveur est en marche.</string>
+    <string name="connect_tls_failed">La connexion chiffrée a été refusée. Le certificat du serveur est peut-être expiré, auto-signé ou émis pour un autre nom.</string>
+    <string name="connect_details_show">Afficher les détails</string>
+    <string name="connect_details_hide">Masquer les détails</string>
+    <string name="connect_details_copy">Copier les détails</string>
+    <string name="connect_details_copied">Copié</string>
     <string name="connect_provider_preset">Configuration rapide</string>
     <string name="connect_provider_app_password_note">Certains fournisseurs (Gmail, Yahoo, iCloud…) nécessitent un mot de passe d\'application, et non votre mot de passe habituel.</string>
     <string name="connect_app_password_help">Comment créer un mot de passe d’application</string>
@@ -795,4 +803,17 @@
     <string name="widget_empty_not_synced">Ouvrez GridLink une fois pour remplir ceci.</string>
     <string name="widget_empty_inbox">Rien en attente.</string>
     <string name="widget_time_now">maintenant</string>
+    <string name="settings_bundle_automated_title">Regrouper le courrier automatique</string>
+    <string name="settings_bundle_automated_subtitle">Rassemble les expéditeurs de type no-reply, notifications et alertes dans une ligne repliée au-dessus de la liste. Désactivé par défaut : la liste affiche tous les messages par date. Dans les deux cas rien n\'est masqué, et l\'expéditeur est deviné d\'après son adresse, donc une personne qui écrit depuis une adresse notifications@ est regroupée elle aussi.</string>
+    <string name="settings_thread_actions_section">Actions du message</string>
+    <string name="settings_thread_actions_caption">La barre en bas d\'un message ouvert affiche les trois premières. Tout ce que vous activez en plus passe sous Plus. Répondre garde toujours son propre bouton.</string>
+    <string name="settings_thread_action_reply_all">Répondre à tous</string>
+    <string name="settings_thread_action_forward">Transférer</string>
+    <string name="settings_thread_action_archive">Archiver</string>
+    <string name="settings_thread_action_delete">Supprimer</string>
+    <string name="settings_thread_action_move">Déplacer</string>
+    <string name="settings_thread_action_mark_unread">Marquer comme non lu</string>
+    <string name="settings_thread_action_star">Suivi</string>
+    <string name="settings_thread_action_print">Imprimer</string>
+    <string name="settings_thread_action_junk">Indésirable</string>
 </resources>

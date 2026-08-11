@@ -507,6 +507,14 @@
     <string name="connect_server_not_found">Dein Server konnte nicht automatisch gefunden werden. Gib ihn unten ein.</string>
     <string name="connect_bad_credentials">Falsche E-Mail-Adresse oder falsches Passwort.</string>
     <string name="connect_host_unresolved">Es wurde kein Server namens \"%1$s\" gefunden. Prüfe die Schreibweise und ob du online bist.</string>
+    <string name="connect_offline">Dieses Gerät hat gerade keine Internetverbindung, es gibt also noch nichts, wo man sich anmelden könnte. Mit deinem Konto ist alles in Ordnung.</string>
+    <string name="connect_timed_out">Der Server hat zu lange nicht geantwortet. Vielleicht ist er offline, oder eine Firewall verschluckt die Verbindung. Prüfe Server und Port und versuche es erneut.</string>
+    <string name="connect_refused">Unter dieser Adresse und diesem Port hat nichts geantwortet. Prüfe den Port und ob der Server läuft.</string>
+    <string name="connect_tls_failed">Die verschlüsselte Verbindung wurde abgelehnt. Das Zertifikat des Servers ist möglicherweise abgelaufen, selbst signiert oder für einen anderen Namen ausgestellt.</string>
+    <string name="connect_details_show">Details anzeigen</string>
+    <string name="connect_details_hide">Details ausblenden</string>
+    <string name="connect_details_copy">Details kopieren</string>
+    <string name="connect_details_copied">Kopiert</string>
     <string name="connect_provider_preset">Schnelleinrichtung</string>
     <string name="connect_provider_app_password_note">Einige Anbieter (Gmail, Yahoo, iCloud…) benötigen ein App-spezifisches Passwort, nicht Ihr normales.</string>
     <string name="connect_app_password_help">So erstellen Sie ein App-Passwort</string>
@@ -791,4 +799,17 @@
     <string name="widget_empty_not_synced">Öffne GridLink einmal, damit hier etwas steht.</string>
     <string name="widget_empty_inbox">Nichts wartet.</string>
     <string name="widget_time_now">jetzt</string>
+    <string name="settings_bundle_automated_title">Automatische Mails gruppieren</string>
+    <string name="settings_bundle_automated_subtitle">Fasst Absender von No-Reply-, Benachrichtigungs- und Warnmails in einer eingeklappten Zeile über der Liste zusammen. Standardmäßig aus: die Liste zeigt jede Nachricht nach Datum. So oder so wird nichts versteckt, und der Absender wird an seiner Adresse erkannt, also wird auch eine Person, die von einer notifications@-Adresse schreibt, mitgruppiert.</string>
+    <string name="settings_thread_actions_section">Nachrichtenaktionen</string>
+    <string name="settings_thread_actions_caption">Die Leiste am unteren Rand einer geöffneten Nachricht zeigt die ersten drei davon. Alles Weitere, was du aktivierst, wandert unter Mehr. Antworten behält immer seine eigene Schaltfläche.</string>
+    <string name="settings_thread_action_reply_all">Allen antworten</string>
+    <string name="settings_thread_action_forward">Weiterleiten</string>
+    <string name="settings_thread_action_archive">Archivieren</string>
+    <string name="settings_thread_action_delete">Löschen</string>
+    <string name="settings_thread_action_move">Verschieben</string>
+    <string name="settings_thread_action_mark_unread">Als ungelesen markieren</string>
+    <string name="settings_thread_action_star">Markieren</string>
+    <string name="settings_thread_action_print">Drucken</string>
+    <string name="settings_thread_action_junk">Spam</string>
 </resources>

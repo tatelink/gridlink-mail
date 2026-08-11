@@ -507,6 +507,14 @@
     <string name="connect_server_not_found">Não foi possível encontrar o seu servidor automaticamente. Insira-o abaixo.</string>
     <string name="connect_bad_credentials">E-mail ou palavra-passe incorretos.</string>
     <string name="connect_host_unresolved">Não foi encontrado nenhum servidor com o nome \"%1$s\". Verifique a ortografia e a sua ligação.</string>
+    <string name="connect_offline">Este dispositivo não tem ligação à internet neste momento, por isso ainda não há nada onde iniciar sessão. Não há nada de errado com a sua conta.</string>
+    <string name="connect_timed_out">O servidor demorou demasiado a responder. Pode estar em baixo, ou uma firewall pode estar a bloquear a ligação. Verifique o servidor e a porta e tente novamente.</string>
+    <string name="connect_refused">Não estava nada à escuta nesse endereço e nessa porta. Verifique a porta e se o servidor está a funcionar.</string>
+    <string name="connect_tls_failed">A ligação encriptada foi recusada. O certificado do servidor pode estar expirado, ser autoassinado ou ter sido emitido para outro nome.</string>
+    <string name="connect_details_show">Mostrar detalhes</string>
+    <string name="connect_details_hide">Ocultar detalhes</string>
+    <string name="connect_details_copy">Copiar detalhes</string>
+    <string name="connect_details_copied">Copiado</string>
     <string name="connect_provider_preset">Configuração rápida</string>
     <string name="connect_provider_app_password_note">Alguns fornecedores (Gmail, Yahoo, iCloud…) exigem uma palavra-passe específica da aplicação, e não a sua palavra-passe normal.</string>
     <string name="connect_app_password_help">Como criar uma senha de aplicativo</string>
@@ -797,4 +805,17 @@
     <string name="widget_empty_not_synced">Abra o GridLink uma vez para preencher isto.</string>
     <string name="widget_empty_inbox">Nada à espera.</string>
     <string name="widget_time_now">agora</string>
+    <string name="settings_bundle_automated_title">Agrupar correio automático</string>
+    <string name="settings_bundle_automated_subtitle">Junta os remetentes do tipo no-reply, de notificação e de alerta numa linha recolhida acima da lista. Desligado por predefinição: a lista mostra todas as mensagens por data. Em nenhum dos casos se esconde alguma coisa, e o remetente é deduzido do seu endereço, por isso uma pessoa que escreva de um endereço notifications@ também é agrupada.</string>
+    <string name="settings_thread_actions_section">Ações da mensagem</string>
+    <string name="settings_thread_actions_caption">A barra no fundo de uma mensagem aberta mostra as três primeiras. Tudo o resto que ligar passa para Mais. Responder mantém sempre o seu próprio botão.</string>
+    <string name="settings_thread_action_reply_all">Responder a todos</string>
+    <string name="settings_thread_action_forward">Reencaminhar</string>
+    <string name="settings_thread_action_archive">Arquivar</string>
+    <string name="settings_thread_action_delete">Eliminar</string>
+    <string name="settings_thread_action_move">Mover</string>
+    <string name="settings_thread_action_mark_unread">Marcar como não lida</string>
+    <string name="settings_thread_action_star">Marcar com estrela</string>
+    <string name="settings_thread_action_print">Imprimir</string>
+    <string name="settings_thread_action_junk">Spam</string>
 </resources>

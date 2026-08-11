@@ -655,6 +655,14 @@
     <string name="connect_server_not_found">Couldn\'t find your server automatically. Enter it below.</string>
     <string name="connect_bad_credentials">Wrong email or password.</string>
     <string name="connect_host_unresolved">Couldn\'t find a server called \"%1$s\". Check the spelling, and that you\'re online.</string>
+    <string name="connect_offline">This device has no internet connection right now, so there is nothing to sign in to yet. Nothing is wrong with your account.</string>
+    <string name="connect_timed_out">The server took too long to answer. It may be down, or a firewall may be swallowing the connection. Check the server and port, then try again.</string>
+    <string name="connect_refused">Nothing was listening at that address and port. Check the port, and that the server is running.</string>
+    <string name="connect_tls_failed">The encrypted connection was refused. The server\'s certificate may be expired, self-signed, or issued for a different name.</string>
+    <string name="connect_details_show">Show details</string>
+    <string name="connect_details_hide">Hide details</string>
+    <string name="connect_details_copy">Copy details</string>
+    <string name="connect_details_copied">Copied</string>
     <string name="connect_provider_preset">Quick setup</string>
     <string name="connect_provider_app_password_note">Some providers (Gmail, Yahoo, iCloud…) need an app-specific password, not your normal one.</string>
     <string name="connect_app_password_help">How to create an app password</string>

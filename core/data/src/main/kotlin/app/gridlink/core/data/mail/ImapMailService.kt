@@ -350,8 +350,19 @@ class ImapMailService(
         withSession(credentials) { it.append(draftsMailbox, OutgoingMime.build(message), "\\Draft") }
 
     /** Connect + authenticate (and list folders) to verify the account's IMAP settings. */
+    /**
+     * Prove an account's IMAP credentials: connect, log in, list folders, cache nothing.
+     *
+     * 🔴 [SIGN_IN_BUDGET_MS] is the whole point of the parameter list here. This runs behind the
+     * sign-in button with somebody watching it, and until it was given a budget it inherited the
+     * default — no deadline, every socket blocking, "until the OS gives up", which on a wrong port
+     * or a firewalled host is minutes. [runWithRetry] then reconnected and did it again. That is
+     * the sign-in hang the store reviews are about, and it is fixed by this one argument: the
+     * connect, the login, the folder list and the retry all now share one wall-clock ceiling, and
+     * an expired budget arrives as a [SocketTimeoutException] the caller can name.
+     */
     suspend fun testConnection(credentials: AccountCredentials) {
-        withSession(credentials) { it.listFolders() }
+        withSession(credentials, budgetMs = SIGN_IN_BUDGET_MS) { it.listFolders() }
     }
 
     /**
@@ -769,6 +780,20 @@ class ImapMailService(
          * difference between minutes and never. A real Trash answers in well under a second.
          */
         const val ENUMERATE_BUDGET_MS = 15_000
+
+        /**
+         * Wall-clock budget for proving credentials on the sign-in screen ([testConnection]).
+         *
+         * Shorter than [ENUMERATE_BUDGET_MS] because the work is smaller (connect, LOGIN, LIST) and
+         * the audience is different: emptying Trash happens behind a screen that has already moved
+         * on, while this one is a person holding a phone watching a spinner and deciding whether
+         * the app works. A reachable server finishes it in a second or two.
+         *
+         * ⚠️ Inherits the same caveat as its neighbour: this bounds the connect and each read, not
+         * their sum, so a peer that trickles a byte before every expiry can still outlast it. It
+         * cannot outlast it indefinitely, which is the difference that matters here.
+         */
+        const val SIGN_IN_BUDGET_MS = 12_000
 
         /** Stable, globally-unique cache id for an IMAP message. */
         fun emailId(accountId: String, mailboxId: String, uid: Long): String = "imap:$accountId:$mailboxId:$uid"

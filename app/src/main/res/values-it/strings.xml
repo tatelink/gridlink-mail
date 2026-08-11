@@ -507,6 +507,14 @@
     <string name="connect_server_not_found">Impossibile trovare automaticamente il tuo server. Inseriscilo qui sotto.</string>
     <string name="connect_bad_credentials">Email o password errati.</string>
     <string name="connect_host_unresolved">Nessun server chiamato \"%1$s\" trovato. Controlla che sia scritto correttamente e che tu sia online.</string>
+    <string name="connect_offline">Questo dispositivo non ha una connessione a internet in questo momento, quindi non c\'è ancora nulla a cui accedere. Il tuo account non ha problemi.</string>
+    <string name="connect_timed_out">Il server ha impiegato troppo tempo a rispondere. Potrebbe essere spento, oppure un firewall sta bloccando la connessione. Controlla server e porta, poi riprova.</string>
+    <string name="connect_refused">Nessuno era in ascolto a quell\'indirizzo e su quella porta. Controlla la porta e che il server sia in funzione.</string>
+    <string name="connect_tls_failed">La connessione cifrata è stata rifiutata. Il certificato del server potrebbe essere scaduto, autofirmato o emesso per un nome diverso.</string>
+    <string name="connect_details_show">Mostra dettagli</string>
+    <string name="connect_details_hide">Nascondi dettagli</string>
+    <string name="connect_details_copy">Copia dettagli</string>
+    <string name="connect_details_copied">Copiato</string>
     <string name="connect_provider_preset">Configurazione rapida</string>
     <string name="connect_provider_app_password_note">Alcuni provider (Gmail, Yahoo, iCloud…) richiedono una password specifica per l\'app, non quella normale.</string>
     <string name="connect_app_password_help">Come creare una password per l’app</string>
@@ -793,4 +801,17 @@
     <string name="widget_empty_not_synced">Apri GridLink una volta per riempire questo spazio.</string>
     <string name="widget_empty_inbox">Nulla in attesa.</string>
     <string name="widget_time_now">ora</string>
+    <string name="settings_bundle_automated_title">Raggruppa la posta automatica</string>
+    <string name="settings_bundle_automated_subtitle">Raccoglie i mittenti no-reply, di notifica e di avviso in una riga compressa sopra l\'elenco. Disattivato per impostazione predefinita: l\'elenco mostra ogni messaggio in ordine di data. In nessuno dei due casi viene nascosto qualcosa, e il mittente viene dedotto dal suo indirizzo, quindi anche una persona che scrive da un indirizzo notifications@ viene raggruppata.</string>
+    <string name="settings_thread_actions_section">Azioni del messaggio</string>
+    <string name="settings_thread_actions_caption">La barra in fondo a un messaggio aperto mostra le prime tre. Tutto ciò che attivi in più finisce sotto Altro. Rispondi mantiene sempre il suo pulsante.</string>
+    <string name="settings_thread_action_reply_all">Rispondi a tutti</string>
+    <string name="settings_thread_action_forward">Inoltra</string>
+    <string name="settings_thread_action_archive">Archivia</string>
+    <string name="settings_thread_action_delete">Elimina</string>
+    <string name="settings_thread_action_move">Sposta</string>
+    <string name="settings_thread_action_mark_unread">Segna come da leggere</string>
+    <string name="settings_thread_action_star">Aggiungi a speciali</string>
+    <string name="settings_thread_action_print">Stampa</string>
+    <string name="settings_thread_action_junk">Spam</string>
 </resources>

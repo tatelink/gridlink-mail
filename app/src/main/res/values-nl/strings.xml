@@ -507,6 +507,14 @@
     <string name="connect_server_not_found">Kon je server niet automatisch vinden. Voer deze hieronder in.</string>
     <string name="connect_bad_credentials">Onjuist e-mailadres of wachtwoord.</string>
     <string name="connect_host_unresolved">Geen server met de naam \"%1$s\" gevonden. Controleer de spelling en of je online bent.</string>
+    <string name="connect_offline">Dit apparaat heeft nu geen internetverbinding, dus er is nog nergens om in te loggen. Er is niets mis met je account.</string>
+    <string name="connect_timed_out">De server deed er te lang over om te antwoorden. Mogelijk is hij offline, of slikt een firewall de verbinding in. Controleer de server en de poort en probeer het opnieuw.</string>
+    <string name="connect_refused">Er luisterde niets op dat adres en die poort. Controleer de poort en of de server draait.</string>
+    <string name="connect_tls_failed">De versleutelde verbinding werd geweigerd. Het certificaat van de server is mogelijk verlopen, zelfondertekend of voor een andere naam uitgegeven.</string>
+    <string name="connect_details_show">Details tonen</string>
+    <string name="connect_details_hide">Details verbergen</string>
+    <string name="connect_details_copy">Details kopiëren</string>
+    <string name="connect_details_copied">Gekopieerd</string>
     <string name="connect_provider_preset">Snelle installatie</string>
     <string name="connect_provider_app_password_note">Sommige providers (Gmail, Yahoo, iCloud…) vereisen een app-specifiek wachtwoord, niet je normale wachtwoord.</string>
     <string name="connect_app_password_help">Een app-wachtwoord aanmaken</string>
@@ -794,4 +802,17 @@
     <string name="widget_empty_not_synced">Open GridLink één keer om dit te vullen.</string>
     <string name="widget_empty_inbox">Niets in afwachting.</string>
     <string name="widget_time_now">nu</string>
+    <string name="settings_bundle_automated_title">Automatische post groeperen</string>
+    <string name="settings_bundle_automated_subtitle">Verzamelt no-reply-, notificatie- en waarschuwingsafzenders in één ingeklapte rij boven de lijst. Standaard uit: de lijst toont elk bericht op datum. In beide gevallen wordt niets verborgen, en de afzender wordt afgeleid uit het adres, dus iemand die vanaf een notifications@-adres schrijft wordt ook gegroepeerd.</string>
+    <string name="settings_thread_actions_section">Berichtacties</string>
+    <string name="settings_thread_actions_caption">De balk onderaan een geopend bericht toont de eerste drie hiervan. Al het andere dat je aanzet, verhuist naar Meer. Beantwoorden houdt altijd zijn eigen knop.</string>
+    <string name="settings_thread_action_reply_all">Allen beantwoorden</string>
+    <string name="settings_thread_action_forward">Doorsturen</string>
+    <string name="settings_thread_action_archive">Archiveren</string>
+    <string name="settings_thread_action_delete">Verwijderen</string>
+    <string name="settings_thread_action_move">Verplaatsen</string>
+    <string name="settings_thread_action_mark_unread">Markeren als ongelezen</string>
+    <string name="settings_thread_action_star">Ster</string>
+    <string name="settings_thread_action_print">Afdrukken</string>
+    <string name="settings_thread_action_junk">Spam</string>
 </resources>
