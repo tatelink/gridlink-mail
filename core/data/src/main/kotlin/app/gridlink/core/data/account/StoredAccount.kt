@@ -9,6 +9,27 @@ data class StoredAccount(
     val server: String,
     val username: String,
     /**
+     * The login name, when the server will not accept [username] as one. Null on every record
+     * written before this field existed, which is what makes it a safe addition: null means "the
+     * address is the login", the only behaviour those records ever had.
+     *
+     * 🔴 A credential, never an identity. See [AccountCredentials.login] for what depends on that.
+     */
+    val login: String? = null,
+    /**
+     * True once the server has rejected this account's stored credential (HTTP 401/403, or a
+     * refused IMAP LOGIN). Cleared the moment the credential is changed.
+     *
+     * ## 🔴 Why a rejection is remembered instead of retried
+     * A password that a server just refused will be refused again in thirty minutes, and again
+     * thirty minutes after that, forever. Nothing about that loop can succeed: the fix lives in the
+     * user's hands, not in a retry. What it CAN do is get the account locked out — repeated auth
+     * failures are exactly what fail2ban and Stalwart's own rate limiter are watching for — so the
+     * background poll that was meant to keep mail flowing is what ends up banning the device from
+     * the server. Held here rather than in memory because the poll runs in a fresh process.
+     */
+    val authRejected: Boolean = false,
+    /**
      * The server-side JMAP account id this record maps to (RFC 8620 §1.6.2). A single login can
      * expose several mail accounts in `Session.accounts`; each becomes its own [StoredAccount].
      * null = resolve via the session's primary mail account (legacy/standalone records,

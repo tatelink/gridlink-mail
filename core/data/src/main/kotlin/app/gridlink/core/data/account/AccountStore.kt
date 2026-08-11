@@ -65,7 +65,29 @@ data class AccountCredentials(
     val oauth: OAuthCredentials? = null,
     /** For API_TOKEN accounts [password] holds the token, sent as a Bearer header. */
     val authType: AuthType = AuthType.BASIC,
+    /**
+     * The login name, when the server will not take the address as one. Null or blank means they
+     * are the same thing, which is the case for most servers and every account created before this
+     * field existed.
+     *
+     * ## 🔴 Why this is separate from [username] and must stay that way
+     * [username] is the account's IDENTITY: it is the From address, the address notifications are
+     * grouped under, the seed for the avatar, the value matched against a message's recipients to
+     * decide "is this me". This is a CREDENTIAL and nothing else. Stalwart routinely issues logins
+     * that are not addresses at all, so the two genuinely differ, and folding the login into
+     * [username] would send mail from a name that is not an address while leaving the real one
+     * unrecognised.
+     *
+     * Use [loginName] wherever a server is being authenticated to, and [username] everywhere else.
+     */
+    val login: String? = null,
 ) {
+    /**
+     * What to authenticate as: the login when the server needs a distinct one, otherwise the
+     * address. The single place that decision is made, so no auth site has to remember the rule.
+     */
+    val loginName: String get() = login?.trim()?.takeIf { it.isNotEmpty() } ?: username
+
     /**
      * Masked on purpose: [password] holds the account password (or an API token), which the
      * synthesised data-class toString() would print verbatim into any log line or error message
@@ -73,7 +95,7 @@ data class AccountCredentials(
      * makes that stay true.
      */
     override fun toString(): String =
-        "AccountCredentials(id=$id, server=$server, username=$username, password=***, " +
+        "AccountCredentials(id=$id, server=$server, username=$username, login=$login, password=***, " +
             "protocol=$protocol, jmapAccountId=$jmapAccountId, imap=$imap, smtp=$smtp, " +
             "oauth=$oauth, authType=$authType)"
 }
@@ -231,6 +253,8 @@ class AccountStore(context: Context) {
         smtpHost: String = "",
         smtpPort: Int = 465,
         smtpSecurity: ConnectionSecurity = ConnectionSecurity.TLS,
+        /** Blank = the address is the login, which is the ordinary case. */
+        login: String = "",
     ): String {
         val id = UUID.randomUUID().toString()
         writePassword(id, password)
@@ -238,6 +262,7 @@ class AccountStore(context: Context) {
             id = id,
             server = server.trim(),
             username = username.trim(),
+            login = login.trim().takeIf { it.isNotEmpty() },
             accountName = accountName,
             protocol = protocol,
             authType = authType,
@@ -384,6 +409,14 @@ class AccountStore(context: Context) {
     fun updatePassword(id: String, password: String) {
         val loginId = account(id)?.loginKey() ?: return
         writePassword(loginId, password)
+        // A new password is the one event that can make a refused account work again, so it is the
+        // one that re-arms background sync. Cleared for the login AND its sub-accounts: they share
+        // this secret, so they were refused together and they recover together.
+        saveAccounts(
+            accounts().map {
+                if (it.loginKey() == loginId && it.authRejected) it.copy(authRejected = false) else it
+            },
+        )
     }
 
     /** Optional signature for an account (null id = current account); blank if none. */
@@ -462,6 +495,32 @@ class AccountStore(context: Context) {
     @Synchronized
     fun setNotificationsEnabled(id: String, enabled: Boolean) {
         saveAccounts(accounts().map { if (it.id == id) it.copy(notificationsEnabled = enabled) else it })
+    }
+
+    /**
+     * Has the server refused this account's stored credential? See [StoredAccount.authRejected] for
+     * why background work stops rather than retrying.
+     */
+    fun authRejected(id: String): Boolean = account(id)?.authRejected ?: false
+
+    /**
+     * Record that the server refused this account's credential, or that it works again.
+     *
+     * Writes only on a CHANGE, because [saveAccounts] publishes to every observer and the rejection
+     * path is reached from a poll that repeats: re-storing `true` on each cycle would redraw the UI
+     * on a timer to say nothing new. No-op if the id is unknown.
+     *
+     * Returns whether the flag actually moved, which is also the caller's cue to TELL the user:
+     * parking an account stops its mail, and a background worker that goes quiet without saying so
+     * is indistinguishable from a mail server with nothing to send. Every caller is on a repeating
+     * schedule, so "did it change" is the only honest trigger for a one-off notification.
+     */
+    @Synchronized
+    fun setAuthRejected(id: String, rejected: Boolean): Boolean {
+        val list = accounts()
+        if (list.firstOrNull { it.id == id }?.authRejected == rejected) return false
+        saveAccounts(list.map { if (it.id == id) it.copy(authRejected = rejected) else it })
+        return true
     }
 
     /** Extra folders watched for new mail (beyond the Inbox, which is always watched). */
@@ -575,6 +634,9 @@ class AccountStore(context: Context) {
         return AccountCredentials(
             server = account.server,
             username = account.username,
+            // The login's, for the same reason its auth type is: a sub-account authenticates as
+            // whoever its login authenticates as, and it has no credential of its own.
+            login = login.login,
             password = if (oauth == null) secret else "",
             id = id,
             protocol = account.protocol,
@@ -632,6 +694,7 @@ class AccountStore(context: Context) {
                 id = UUID.randomUUID().toString(),
                 server = login.server,
                 username = login.username,
+                login = login.login,
                 accountName = sub.name,
                 loginId = loginId,
                 jmapAccountId = sub.jmapAccountId,

@@ -13,7 +13,11 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import app.gridlink.container
+import app.gridlink.core.data.account.AccountCredentials
+import app.gridlink.core.data.account.AccountStore
 import app.gridlink.core.data.account.MailProtocol
+import app.gridlink.core.data.mail.SignInFailure
+import app.gridlink.core.data.mail.classifySignInFailure
 import java.util.concurrent.TimeUnit
 
 /**
@@ -38,7 +42,12 @@ class MailFetchWorker(context: Context, params: WorkerParameters) : CoroutineWor
         val container = (applicationContext as Application).container
         val store = container.accountStore
         val watched = if (store.pushAllAccounts()) store.allCredentials() else listOfNotNull(store.load())
-        val accounts = watched.filter { store.notificationsEnabled(it.id) }
+        // 🔴 A refused credential is skipped entirely, not polled and logged. This worker runs every
+        // 30 minutes forever, so an account whose password has changed server-side would otherwise
+        // spend the rest of the install failing to log in on a timer — which is what gets a device
+        // banned by fail2ban or Stalwart's rate limiter, and it would be this app's own safety net
+        // doing it. Cleared by [AccountStore.updatePassword]; see [StoredAccount.authRejected].
+        val accounts = watched.filter { store.notificationsEnabled(it.id) && !store.authRejected(it.id) }
         // Coverage matrix (issues #16/#17): a JMAP EventSource that is OPEN FOR THIS ACCOUNT
         // covers its whole watched set; IMAP IDLE only ever watches the INBOX — its watched
         // extras are polled here even while push runs. A UnifiedPush-active account is normally
@@ -56,7 +65,10 @@ class MailFetchWorker(context: Context, params: WorkerParameters) : CoroutineWor
                 .onFailure { Log.w(TAG, "UnifiedPush renew check failed for ${credentials.id}", it) }
             if (up.isActive(credentials.id)) {
                 runCatching { FetchAndNotify.run(applicationContext, credentials) }
-                    .onFailure { Log.w(TAG, "Safety poll failed for account ${credentials.id}", it) }
+                    .onFailure {
+                        Log.w(TAG, "Safety poll failed for account ${credentials.id}", it)
+                        noteAuthOutcome(store, credentials, it)
+                    }
                 continue
             }
             // A linked sub-account gets no live push of its own (issue #31): Stalwart only
@@ -82,9 +94,28 @@ class MailFetchWorker(context: Context, params: WorkerParameters) : CoroutineWor
             if (!pollInbox && !pollExtras) continue
             runCatching {
                 FetchAndNotify.run(applicationContext, credentials, includeInbox = pollInbox)
-            }.onFailure { Log.w(TAG, "Fallback fetch failed for account ${credentials.id}", it) }
+            }.onFailure {
+                Log.w(TAG, "Fallback fetch failed for account ${credentials.id}", it)
+                noteAuthOutcome(store, credentials, it)
+            }
         }
         return Result.success()
+    }
+
+    /**
+     * Park the account when the server refused its credential; leave every other failure alone.
+     *
+     * ⚠️ Only a refusal counts. A timeout, a dead network or a 500 says nothing about the password,
+     * and parking on one of those would stop mail for a server that is merely having a bad
+     * afternoon — the opposite failure, and a worse one, because nothing on screen would explain it.
+     */
+    private fun noteAuthOutcome(store: AccountStore, credentials: AccountCredentials, failure: Throwable) {
+        if (classifySignInFailure(failure) != SignInFailure.REJECTED) return
+        // Only on the FLIP: this worker runs every 30 minutes, and a notification that reposts on
+        // that cadence is the thing users turn off, taking the one message that mattered with it.
+        if (store.setAuthRejected(credentials.id, true)) {
+            Notifications.notifyAuthRejected(applicationContext, credentials.id, credentials.username)
+        }
     }
 
     companion object {

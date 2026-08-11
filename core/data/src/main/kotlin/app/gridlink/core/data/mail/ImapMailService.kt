@@ -337,7 +337,7 @@ class ImapMailService(
         val smtp = credentials.smtp ?: error("Account has no SMTP server configured.")
         val token = tokenRefresher.freshAccessToken(credentials)
         smtpClient.send(
-            MailServerConfig(smtp.host, smtp.port, smtp.security.toMailSecurity(), credentials.username, credentials.password, token),
+            MailServerConfig(smtp.host, smtp.port, smtp.security.toMailSecurity(), credentials.loginName, credentials.password, token),
             message,
         )
         if (sentMailbox != null) {
@@ -738,7 +738,7 @@ class ImapMailService(
         host = endpoint.host,
         port = endpoint.port,
         security = endpoint.security.toMailSecurity(),
-        username = credentials.username,
+        username = credentials.loginName,
         password = credentials.password,
         // OAuth accounts authenticate with a fresh bearer token (XOAUTH2); null = password.
         accessToken = tokenRefresher.freshAccessToken(credentials),

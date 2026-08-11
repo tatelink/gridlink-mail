@@ -201,10 +201,19 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun connect(server: String, username: String, password: String, accountName: String) {
+    fun connect(
+        server: String,
+        username: String,
+        password: String,
+        accountName: String,
+        /** Blank = the address is the login. See [connectAuto] for why the two stay apart. */
+        login: String = "",
+    ) {
         if (_state.value is ConnectState.Connecting || _state.value is ConnectState.Discovering) return
         _state.value = ConnectState.Connecting
-        viewModelScope.launch { finishJmapConnect(server.trim(), username, password, accountName) }
+        viewModelScope.launch {
+            finishJmapConnect(server.trim(), username, password, accountName, login = login)
+        }
     }
 
     /**
@@ -214,7 +223,20 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
      * manually ([ConnectState.NeedsServer]); a credential rejection is reported
      * as such.
      */
-    fun connectAuto(email: String, password: String, accountName: String) {
+    fun connectAuto(
+        email: String,
+        password: String,
+        accountName: String,
+        /**
+         * The login, when the server will not accept the address as one. Blank means they match.
+         *
+         * 🔴 Not merged into [email] anywhere below. The address is the account's identity and the
+         * domain discovery works from; the login is only ever a credential. Stalwart hands out
+         * logins that are neither an address nor even domain-qualified, and treating one as the
+         * other is how a correct password gets reported as wrong.
+         */
+        login: String = "",
+    ) {
         if (_state.value is ConnectState.Connecting || _state.value is ConnectState.Discovering) return
         val log = SignInLog()
         // Asked before anything is attempted, because a device with no route out produces a DNS
@@ -228,7 +250,12 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
         _state.value = ConnectState.Discovering
         viewModelScope.launch {
             val result = try {
-                container.mailRepository.discoverJmapServer(email.trim(), password, log = log)
+                container.mailRepository.discoverJmapServer(
+                    email.trim(),
+                    password,
+                    login = login,
+                    log = log,
+                )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (t: Throwable) {
@@ -238,7 +265,7 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
             when (result) {
                 is MailRepository.DiscoveryResult.Found -> {
                     _state.value = ConnectState.Connecting
-                    finishJmapConnect(result.server, email, password, accountName, log)
+                    finishJmapConnect(result.server, email, password, accountName, log, login)
                 }
                 is MailRepository.DiscoveryResult.BadCredentials ->
                     _state.value = ConnectState.Error(string(R.string.connect_bad_credentials), result.steps)
@@ -776,11 +803,18 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
         password: String,
         accountName: String,
         log: SignInLog = SignInLog(),
+        /** Blank = the address is the login. Validated with, and stored beside, the address. */
+        login: String = "",
     ) {
         try {
             // Blank id on purpose: this copy only ever proves the credentials. The cache is
             // primed from the id-stamped copy [addAccountThenPrime] builds (#121).
-            val probe = AccountCredentials(server, username.trim(), password)
+            val probe = AccountCredentials(
+                server,
+                username.trim(),
+                password,
+                login = login.trim().takeIf { it.isNotEmpty() },
+            )
             val added = addAccountThenPrime(
                 probe = probe,
                 // Writes nothing — only persist once we know they work.
@@ -788,7 +822,13 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
                 // A blank name falls back to the address.
                 persist = {
                     AddedAccount(
-                        container.accountStore.add(server, username, password, accountName.trim()),
+                        container.accountStore.add(
+                            server,
+                            username,
+                            password,
+                            accountName.trim(),
+                            login = login,
+                        ),
                         created = true,
                     )
                 },

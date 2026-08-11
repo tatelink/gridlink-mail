@@ -574,7 +574,9 @@ class DavRepository(
         if (server.isBlank()) {
             return Access.Refused("No server address is stored for this account")
         }
-        return Access.Ready(DavCredentials(credentials.username, credentials.password), server)
+        // loginName for the credential, username above for the SERVER: the domain to talk to comes
+        // from the address, and a login need not have one at all.
+        return Access.Ready(DavCredentials(credentials.loginName, credentials.password), server)
     }
 
     private suspend fun sync(accountId: String, kind: DavKind): DavSyncOutcome {

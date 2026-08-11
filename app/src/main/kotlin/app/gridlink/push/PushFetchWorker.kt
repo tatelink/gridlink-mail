@@ -14,6 +14,8 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import app.gridlink.container
+import app.gridlink.core.data.mail.SignInFailure
+import app.gridlink.core.data.mail.classifySignInFailure
 
 /**
  * One-shot fetch+notify for a single account, expedited — the fetch path when a
@@ -30,11 +32,28 @@ class PushFetchWorker(context: Context, params: WorkerParameters) : CoroutineWor
         val credentials = store.allCredentials().firstOrNull { it.id == accountId }
             ?: return Result.success()
         if (!store.notificationsEnabled(accountId)) return Result.success()
+        // Nothing to fetch with: the credential this account holds is one the server has already
+        // refused, and a push event does not make it valid. Retrying here is how a stale password
+        // turns into an IP ban (see [StoredAccount.authRejected]).
+        if (store.authRejected(accountId)) return Result.success()
         return runCatching { FetchAndNotify.run(applicationContext, credentials, resetBaselines = reset) }
             .fold(
-                { Result.success() },
+                { store.setAuthRejected(accountId, false); Result.success() },
                 {
                     Log.w(TAG, "Push-triggered fetch failed for account $accountId", it)
+                    // A refusal is not a transient failure and does not get the retry ladder: the
+                    // fix is a password, which no number of attempts will produce.
+                    if (classifySignInFailure(it) == SignInFailure.REJECTED) {
+                        // Notify only where the flag moves: the same push can arrive repeatedly.
+                        if (store.setAuthRejected(accountId, true)) {
+                            Notifications.notifyAuthRejected(
+                                applicationContext,
+                                accountId,
+                                credentials.username,
+                            )
+                        }
+                        return Result.failure()
+                    }
                     if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure()
                 },
             )

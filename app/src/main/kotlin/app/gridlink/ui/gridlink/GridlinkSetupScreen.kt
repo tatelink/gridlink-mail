@@ -39,6 +39,11 @@ data class GridlinkSetupRequest(
     /** The server as typed. **Blank is meaningful**: it means "find it for me" (RFC 8620 §2.2). */
     val server: String,
     val email: String,
+    /**
+     * The login, when the server will not take the address as one. **Blank is the normal answer**
+     * and means they are the same.
+     */
+    val login: String,
     val password: String,
     val sync: SyncSelection,
 )
@@ -118,12 +123,16 @@ fun GridlinkSetupScreen(
     // The cost is retyping it after a fold or a rotation mid-setup, which is a worse trade than
     // leaking it, and the field is on screen for about a minute in the app's whole lifetime.
     var password by remember { mutableStateOf(TextFieldValue()) }
+    // Saveable, unlike the password: a login name is not a secret, it is the same class of thing as
+    // the address sitting above it.
+    var login by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
     var reveal by rememberSaveable { mutableStateOf(false) }
     var calendar by rememberSaveable { mutableStateOf(false) }
     var contacts by rememberSaveable { mutableStateOf(false) }
 
     val serverFocus = remember { FocusRequester() }
     val emailFocus = remember { FocusRequester() }
+    val loginFocus = remember { FocusRequester() }
     val passwordFocus = remember { FocusRequester() }
     // The address, not the server: the server is the field most people will leave alone, and opening
     // the keyboard on an optional field asks the user to decide about it before they have read it.
@@ -157,6 +166,7 @@ fun GridlinkSetupScreen(
                 GridlinkSetupRequest(
                     server = server.text.trim(),
                     email = email.text.trim(),
+                    login = login.text.trim(),
                     password = password.text,
                     sync = SyncSelection(mail = true, calendar = calendar, contacts = contacts),
                 ),
@@ -209,6 +219,29 @@ fun GridlinkSetupScreen(
             // keystroke into "Tate@…", and the local part of an address is case sensitive.
             capitalization = KeyboardCapitalization.None,
             keyboardType = KeyboardType.Email,
+            imeAction = ImeAction.Next,
+            onImeAction = { loginFocus.requestFocus() },
+        )
+        GridlinkFormDivider()
+
+        // 🔴 Optional, and placed AFTER the address rather than instead of it. Most servers take the
+        // address as the login, so this is blank for most people; but Stalwart (which is what
+        // Gridlink's own server runs) routinely issues a login that is not an address at all, and
+        // without this field that account simply cannot be added: the sign-in returns 401 and the
+        // only fix on screen is to re-type a password that was never wrong. The placeholder carries
+        // the instruction, because an empty field labelled "Username" next to one already holding
+        // an address reads as a duplicate and gets filled in with the same value.
+        GridlinkFormTextRow(
+            value = login,
+            onValueChange = { login = it },
+            placeholder = "Username, if different from your address",
+            placeholderStyle = GridlinkType.body,
+            style = GridlinkType.body,
+            focusRequester = loginFocus,
+            onFocused = {},
+            singleLine = true,
+            capitalization = KeyboardCapitalization.None,
+            keyboardType = KeyboardType.Text,
             imeAction = ImeAction.Next,
             onImeAction = { passwordFocus.requestFocus() },
         )

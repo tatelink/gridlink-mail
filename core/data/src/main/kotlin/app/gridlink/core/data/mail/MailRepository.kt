@@ -1761,13 +1761,23 @@ class MailRepository(
         email: String,
         password: String,
         token: String? = null,
+        /**
+         * The login name, when the server does not accept the address as one. Blank or null means
+         * they are the same thing, which is the common case and the only one JMAP's own discovery
+         * assumes.
+         *
+         * 🔴 The candidate hosts are still derived from [email]'s domain, never from this. Stalwart
+         * routinely issues logins with no domain part at all, and a login is not a place.
+         */
+        login: String? = null,
         log: SignInLog = SignInLog(),
     ): DiscoveryResult {
         val hosts = autodiscoverHosts(email)
         log.add("Looking up servers for this address", if (hosts.isEmpty()) "no candidates" else hosts.joinToString(", "))
         if (hosts.isEmpty()) return DiscoveryResult.NotFound(SignInFailure.DNS, log.steps())
+        val user = login?.trim()?.takeIf { it.isNotEmpty() } ?: email.trim()
         // A non-null [token] is an API token (e.g. Fastmail): Bearer, never Basic.
-        val auth = if (token != null) BearerAuth(token) else BasicAuth(email.trim(), password)
+        val auth = if (token != null) BearerAuth(token) else BasicAuth(user, password)
         var sawAuthFailure = false
         // The most specific thing learned so far. A DNS miss on `jmap.` says nothing (that name is a
         // guess); a TLS failure or a refusal does, so anything more specific than OTHER outranks it.
@@ -1845,7 +1855,10 @@ class MailRepository(
     private suspend fun jmapAuth(credentials: AccountCredentials): JmapAuth {
         if (credentials.authType == AuthType.API_TOKEN) return BearerAuth(credentials.password)
         val token = tokenRefresher.freshAccessToken(credentials)
-            ?: return BasicAuth(credentials.username, credentials.password)
+            // loginName, not username: on a server that issues logins separate from addresses
+            // (Stalwart does, routinely) the address is not a credential and Basic auth with it
+            // is a 401 the user cannot fix by re-typing their password.
+            ?: return BasicAuth(credentials.loginName, credentials.password)
         return BearerAuth(token)
     }
 

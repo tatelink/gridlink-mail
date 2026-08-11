@@ -786,6 +786,8 @@
     <!-- Notifications -->
     <string name="notif_channel_mail">New mail</string>
     <string name="notif_send_failed_title">Message not sent</string>
+    <string name="notif_auth_rejected_title">Sign in again</string>
+    <string name="notif_auth_rejected_text">%1$s was refused by the server. Mail has stopped arriving for this account until you enter the password again.</string>
     <string name="notif_channel_sync">Mail sync</string>
     <string name="notif_channel_sync_desc">Keeps a live connection to your mail server for instant mail.</string>
     <string name="notif_watching">In flight, watching for new mail</string>

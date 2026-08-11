@@ -631,6 +631,8 @@
     <!-- Notifications -->
     <string name="notif_channel_mail">Correo nuevo</string>
     <string name="notif_send_failed_title">Mensaje no enviado</string>
+    <string name="notif_auth_rejected_title">Vuelve a iniciar sesión</string>
+    <string name="notif_auth_rejected_text">El servidor rechazó %1$s. Esta cuenta dejará de recibir correo hasta que vuelvas a introducir la contraseña.</string>
     <string name="notif_channel_sync">Sincronización de correo</string>
     <string name="notif_channel_sync_desc">Mantiene una conexión activa con tu servidor de correo para recibir mensajes al instante.</string>
     <string name="notif_watching">En vuelo, atenta al correo nuevo</string>
