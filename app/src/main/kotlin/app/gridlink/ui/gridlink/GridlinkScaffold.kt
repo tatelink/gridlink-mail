@@ -701,6 +701,12 @@ fun GridlinkRoot(
      */
     onOpenAttachment: ((GridlinkAttachment) -> Unit)? = null,
     /**
+     * Write the tapped attachment to a document the user picks, or null when nobody behind this
+     * screen can. Null for [onOpenAttachment]'s reason, and with the same effect: the save button
+     * is not drawn at all rather than drawn dead.
+     */
+    onSaveAttachment: ((GridlinkAttachment) -> Unit)? = null,
+    /**
      * The account's mailboxes, or null to draw [GridlinkSampleTree]'s. See [GridlinkFolderContent].
      */
     folders: GridlinkFolderContent? = null,
@@ -1744,6 +1750,7 @@ fun GridlinkRoot(
                             (mail?.imageAllowlist ?: emptySet()),
                         onAlwaysAllowImages = { onAllowImages(current.message.address, it) },
                         onOpenAttachment = onOpenAttachment,
+                        onSaveAttachment = onSaveAttachment,
                         // Same id guard as the body merge above: a status line about a message that
                         // is no longer the open one is a caption under the wrong chips.
                         attachmentStatus = mail?.open

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Reply
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.Email
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.HideImage
 import androidx.compose.material.icons.outlined.MarkEmailUnread
 import androidx.compose.material.icons.outlined.MoreHoriz
@@ -120,6 +122,12 @@ fun GridlinkThreadScreen(
      * this is nullable where the screen's other callbacks are no-ops.
      */
     onOpenAttachment: ((GridlinkAttachment) -> Unit)? = null,
+    /**
+     * Keep the tapped attachment somewhere the phone's file manager can find it. Nullable for
+     * [onOpenAttachment]'s reason: null draws no save button at all, rather than one that cannot
+     * save anything.
+     */
+    onSaveAttachment: ((GridlinkAttachment) -> Unit)? = null,
     /** One line under the chips about the download in flight, or null — which is almost always. */
     attachmentStatus: String? = null,
     /**
@@ -304,6 +312,7 @@ fun GridlinkThreadScreen(
                         GridlinkThreadAttachment(
                             attachment = attachment,
                             onOpen = onOpenAttachment?.let { open -> { open(attachment) } },
+                            onSave = onSaveAttachment?.let { save -> { save(attachment) } },
                         )
                     }
                     attachmentStatus?.let { line ->
@@ -569,12 +578,21 @@ private fun GridlinkImagesBannerAction(
  * Clickable exactly when [onOpen] is non-null. The rule this replaces ("deliberately not clickable,
  * nothing in this prototype can open a file") survives as the null branch: a fixture's chip, with
  * no bytes anywhere behind it, still refuses to highlight under the thumb and then do nothing.
+ *
+ * ## 🔴 Save is a separate button, not a long-press
+ * The body of the chip keeps doing exactly what it did — one tap, opens. The review corpus's
+ * clearest single warning is against changing a gesture people already have in their fingers
+ * ("the long press timing has been changed so now opens an email if you don't hold it long
+ * enough and has ruined [it]", and a whole cluster of 1-stars behind it), so saving gets its own
+ * visible target instead of a hidden hold. It is also the discoverable answer: nobody long-presses
+ * a file to find out whether an app they just installed can keep it.
  */
 @Composable
 private fun GridlinkThreadAttachment(
     attachment: GridlinkAttachment,
     modifier: Modifier = Modifier,
     onOpen: (() -> Unit)? = null,
+    onSave: (() -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
     val shape = RoundedCornerShape(GridlinkRadii.pill)
@@ -584,7 +602,16 @@ private fun GridlinkThreadAttachment(
             .background(colors.surfaceRaised, shape)
             .border(GridlinkDimens.hairline, colors.surfaceBorder, shape)
             .then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier)
-            .padding(horizontal = GridlinkSpacing.s16, vertical = GridlinkSpacing.s12),
+            // 🔴 The padding shrinks around the save button so the chip does NOT get taller for
+            // having one. The button is a 36dp target that already contains its own breathing room,
+            // and 12dp of chip padding on top of it would grow a 44dp chip to 60 — a third again
+            // for one icon, in the one place a message with four files can least afford it.
+            .padding(
+                start = GridlinkSpacing.s16,
+                end = if (onSave != null) GridlinkSpacing.s4 else GridlinkSpacing.s16,
+                top = if (onSave != null) GridlinkSpacing.s4 else GridlinkSpacing.s12,
+                bottom = if (onSave != null) GridlinkSpacing.s4 else GridlinkSpacing.s12,
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -609,6 +636,28 @@ private fun GridlinkThreadAttachment(
             color = colors.textSecondary,
             modifier = Modifier.padding(start = GridlinkSpacing.s12),
         )
+        if (onSave != null) {
+            Box(
+                modifier = Modifier
+                    .padding(start = GridlinkSpacing.s8)
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    // Its own clickable INSIDE the chip's: Compose gives the tap to the innermost
+                    // handler, so the save target does not also open the file behind it.
+                    .clickable(onClick = onSave),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.FileDownload,
+                    // Named for where it ends up, not for the mechanism: "download" is what the
+                    // tap already did when it opened the file, and the difference the user cares
+                    // about is that this one is still there tomorrow.
+                    contentDescription = "Save ${attachment.name} to the phone",
+                    tint = colors.textSecondary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
     }
 }
 
