@@ -14,6 +14,11 @@ import app.gridlink.core.data.account.StoredAccount
 import app.gridlink.core.data.mail.MailRepository
 import app.gridlink.core.data.mail.OAuthDeniedException
 import app.gridlink.core.data.mail.OAuthProvider
+import app.gridlink.core.data.mail.SignInFailure
+import app.gridlink.core.data.mail.SignInLog
+import app.gridlink.core.data.mail.SignInStep
+import app.gridlink.core.data.mail.classifySignInFailure
+import app.gridlink.net.hasUsableNetwork
 import app.gridlink.core.data.net.ImapEndpoints
 import app.gridlink.core.data.net.MailSrv
 import app.gridlink.core.jmap.BearerAuth
@@ -36,15 +41,29 @@ sealed interface ConnectState {
     data object Connecting : ConnectState
     data object Discovering : ConnectState
     data object Connected : ConnectState
-    /** Autodiscovery found no server; the user must enter it manually. */
-    data object NeedsServer : ConnectState
+    /**
+     * Autodiscovery found no server; the user must enter it manually.
+     *
+     * 🔴 Reached ONLY when nothing answered at all, which is the one situation where "type your
+     * server in" is the right instruction. Every other way discovery can fail — offline, a refused
+     * port, a bad certificate, a server that answered too slowly — is an [Error] with its own
+     * sentence now. Sending all of them here was how somebody on a dead network got told to go and
+     * find a hostname.
+     */
+    data class NeedsServer(val details: List<SignInStep> = emptyList()) : ConnectState
     /** Device flow started: show the user code and wait for browser approval. */
     data class AwaitingApproval(
         val userCode: String,
         val verificationUri: String,
         val verificationUriComplete: String?,
     ) : ConnectState
-    data class Error(val message: String) : ConnectState
+    /**
+     * The attempt failed. [details] is the step-by-step record of what was tried, for the user to
+     * copy out: this app collects no telemetry, so a failure on somebody's own server reaches a
+     * person who can act on it only if the person holding the phone can paste it into an email.
+     * Empty for the paths that have no sweep to describe.
+     */
+    data class Error(val message: String, val details: List<SignInStep> = emptyList()) : ConnectState
 }
 
 /** True when a JMAP password sign-in is aimed at Fastmail — their endpoint only accepts API
@@ -197,22 +216,57 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
      */
     fun connectAuto(email: String, password: String, accountName: String) {
         if (_state.value is ConnectState.Connecting || _state.value is ConnectState.Discovering) return
+        val log = SignInLog()
+        // Asked before anything is attempted, because a device with no route out produces a DNS
+        // failure per candidate and a 20-second sweep whose honest summary is "you are offline".
+        // Cheap, synchronous, and the same reading the send path uses for queued-vs-sent (#70).
+        if (!hasUsableNetwork(getApplication())) {
+            log.add("Checking this device's network", "no connection")
+            _state.value = ConnectState.Error(string(R.string.connect_offline), log.steps())
+            return
+        }
         _state.value = ConnectState.Discovering
         viewModelScope.launch {
-            val result = runCatching {
-                container.mailRepository.discoverJmapServer(email.trim(), password)
-            }.getOrElse { MailRepository.DiscoveryResult.NotFound }
+            val result = try {
+                container.mailRepository.discoverJmapServer(email.trim(), password, log = log)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (t: Throwable) {
+                log.add("Looking for a server", t)
+                MailRepository.DiscoveryResult.NotFound(classifySignInFailure(t), log.steps())
+            }
             when (result) {
                 is MailRepository.DiscoveryResult.Found -> {
                     _state.value = ConnectState.Connecting
-                    finishJmapConnect(result.server, email, password, accountName)
+                    finishJmapConnect(result.server, email, password, accountName, log)
                 }
-                MailRepository.DiscoveryResult.BadCredentials ->
-                    _state.value = ConnectState.Error(getApplication<Application>().getString(R.string.connect_bad_credentials))
-                MailRepository.DiscoveryResult.NotFound ->
-                    _state.value = ConnectState.NeedsServer
+                is MailRepository.DiscoveryResult.BadCredentials ->
+                    _state.value = ConnectState.Error(string(R.string.connect_bad_credentials), result.steps)
+                is MailRepository.DiscoveryResult.NotFound -> {
+                    val explained = discoveryFailureMessage(result.failure)
+                    _state.value =
+                        if (explained == null) ConnectState.NeedsServer(result.steps)
+                        else ConnectState.Error(explained, result.steps)
+                }
             }
         }
+    }
+
+    /**
+     * The sentence for a discovery that found nothing, or null when the honest answer is "we simply
+     * could not find it" and the user should be asked for the server ([ConnectState.NeedsServer]).
+     *
+     * ⚠️ Only the failures a user can act on get their own message. A guessed subdomain that does
+     * not resolve is not a fault, it is the expected answer for most domains, so it stays null and
+     * the flow ends where it always did: at the server field, which is already on screen.
+     */
+    private fun discoveryFailureMessage(failure: SignInFailure): String? = when (failure) {
+        SignInFailure.OFFLINE -> string(R.string.connect_offline)
+        SignInFailure.TLS -> string(R.string.connect_tls_failed)
+        SignInFailure.REFUSED -> string(R.string.connect_refused)
+        SignInFailure.TIMEOUT -> string(R.string.connect_timed_out)
+        SignInFailure.REJECTED -> string(R.string.connect_credentials_rejected)
+        SignInFailure.NOT_A_SERVER, SignInFailure.DNS, SignInFailure.OTHER -> null
     }
 
     /**
@@ -231,19 +285,29 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
             return
         }
         _state.value = ConnectState.Discovering
+        val log = SignInLog()
         viewModelScope.launch {
-            val result = runCatching {
-                container.mailRepository.discoverJmapServer(emailTrim, password = "", token = token)
-            }.getOrElse { MailRepository.DiscoveryResult.NotFound }
+            val result = try {
+                container.mailRepository.discoverJmapServer(emailTrim, password = "", token = token, log = log)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (t: Throwable) {
+                log.add("Looking for a server", t)
+                MailRepository.DiscoveryResult.NotFound(classifySignInFailure(t), log.steps())
+            }
             when (result) {
                 is MailRepository.DiscoveryResult.Found -> {
                     _state.value = ConnectState.Connecting
                     finishTokenConnect(result.server, emailTrim, token, accountName)
                 }
-                MailRepository.DiscoveryResult.BadCredentials ->
-                    _state.value = ConnectState.Error(string(R.string.connect_token_rejected))
-                MailRepository.DiscoveryResult.NotFound ->
-                    _state.value = ConnectState.NeedsServer
+                is MailRepository.DiscoveryResult.BadCredentials ->
+                    _state.value = ConnectState.Error(string(R.string.connect_token_rejected), result.steps)
+                is MailRepository.DiscoveryResult.NotFound -> {
+                    val explained = discoveryFailureMessage(result.failure)
+                    _state.value =
+                        if (explained == null) ConnectState.NeedsServer(result.steps)
+                        else ConnectState.Error(explained, result.steps)
+                }
             }
         }
     }
@@ -706,7 +770,13 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /** Validate against [server], persist on success. Runs in the caller's coroutine. */
-    private suspend fun finishJmapConnect(server: String, username: String, password: String, accountName: String) {
+    private suspend fun finishJmapConnect(
+        server: String,
+        username: String,
+        password: String,
+        accountName: String,
+        log: SignInLog = SignInLog(),
+    ) {
         try {
             // Blank id on purpose: this copy only ever proves the credentials. The cache is
             // primed from the id-stamped copy [addAccountThenPrime] builds (#121).
@@ -725,6 +795,7 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
                 prime = { primeInbox(it) },
             )
             warnIfNotPrimed(added)
+            log.add("Signing in to $server", "signed in")
             // Surface linked sub-accounts before navigating, so the accounts list the flow
             // lands on is already complete (#31).
             container.mailRepository.reconcileLinkedAccountsAfterAdd(added.id)
@@ -733,12 +804,13 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
             // Leaving the screen cancels this coroutine: not something to show an error for.
             throw cancelled
         } catch (t: Throwable) {
+            val steps = log.also { it.add("Signing in to $server", t) }.steps()
             // A typo'd server is the most common way this screen fails, and DNS reports it as
             // "Unable to resolve host …: No address associated with hostname" — accurate, and
             // written for whoever wrote the socket library. Named here rather than left raw,
             // because it is the one failure whose fix is a character in a field on screen.
             if (t is UnknownHostException) {
-                _state.value = ConnectState.Error(string(R.string.connect_host_unresolved, server))
+                _state.value = ConnectState.Error(string(R.string.connect_host_unresolved, server), steps)
                 return
             }
             // Fastmail's endpoint refuses password auth outright (API tokens only, #54):
@@ -746,7 +818,7 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
             val msg = t.message ?: t.javaClass.simpleName
             val code = (t as? JmapException)?.httpCode
             if (code == 401 && isFastmailTarget(username, server)) {
-                _state.value = ConnectState.Error(msg + " " + string(R.string.connect_fastmail_token_hint))
+                _state.value = ConnectState.Error(msg + " " + string(R.string.connect_fastmail_token_hint), steps)
                 return
             }
             // Any other 401/403 means the server was reached, spoke JMAP, and turned the
@@ -756,10 +828,19 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
             // guessing "wrong password" sends someone re-typing a password when the account name
             // is the part their server wants in a different form.
             if (code == 401 || code == 403) {
-                _state.value = ConnectState.Error(string(R.string.connect_credentials_rejected))
+                _state.value = ConnectState.Error(string(R.string.connect_credentials_rejected), steps)
                 return
             }
-            _state.value = ConnectState.Error(msg)
+            // A bounded failure now has a name worth using: "took too long" and "nothing was
+            // listening" are different problems with different fixes, and both used to arrive as
+            // whatever the socket library called them.
+            val named = when (classifySignInFailure(t)) {
+                SignInFailure.TIMEOUT -> string(R.string.connect_timed_out)
+                SignInFailure.REFUSED -> string(R.string.connect_refused)
+                SignInFailure.TLS -> string(R.string.connect_tls_failed)
+                else -> msg
+            }
+            _state.value = ConnectState.Error(named, steps)
         }
     }
 
@@ -775,6 +856,12 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
         smtpSecurity: ConnectionSecurity,
     ) {
         if (_state.value is ConnectState.Connecting) return
+        val log = SignInLog()
+        if (!hasUsableNetwork(getApplication())) {
+            log.add("Checking this device's network", "no connection")
+            _state.value = ConnectState.Error(string(R.string.connect_offline), log.steps())
+            return
+        }
         _state.value = ConnectState.Connecting
         viewModelScope.launch {
             try {
@@ -823,13 +910,26 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
                 val msg = t.message.orEmpty()
                 val authRejected = msg.contains("LOGIN", ignoreCase = true) ||
                     msg.contains("AUTHENTICATE", ignoreCase = true)
+                val steps = log.also { it.add("Connecting to $imapHost:$imapPort", t) }.steps()
                 _state.value = ConnectState.Error(
                     if (authRejected) {
                         string(R.string.connect_bad_credentials) + " " +
                             string(R.string.connect_provider_app_password_note)
                     } else {
-                        t.message ?: t.javaClass.simpleName
+                        // 🔴 The IMAP connect is time-bounded now (ImapMailService.SIGN_IN_BUDGET_MS),
+                        // so a wrong port arrives here as a socket timeout in seconds instead of
+                        // spinning for minutes. It is worth saying which of the two it was: the fix
+                        // for "nothing was listening" is the port field, and the fix for "took too
+                        // long" is usually the host or the network.
+                        when (classifySignInFailure(t)) {
+                            SignInFailure.TIMEOUT -> string(R.string.connect_timed_out)
+                            SignInFailure.REFUSED -> string(R.string.connect_refused)
+                            SignInFailure.TLS -> string(R.string.connect_tls_failed)
+                            SignInFailure.DNS -> string(R.string.connect_host_unresolved, imapHost)
+                            else -> t.message ?: t.javaClass.simpleName
+                        }
                     },
+                    steps,
                 )
             }
         }

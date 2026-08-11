@@ -95,6 +95,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -154,6 +155,25 @@ private const val PREFETCH_COUNT = 20
 
 /** Max cached message bodies kept per account (LRU); bounds on-device storage. */
 private const val BODY_CACHE_CAP = 100
+
+/**
+ * How long one candidate host gets during autodiscovery, in ms.
+ *
+ * Well under the HTTP client's own 20s connect + 30s read, because this is a GUESS being checked
+ * while somebody watches a spinner, not a request they asked for. A real JMAP server answers its
+ * session endpoint in well under a second; anything taking longer than this is not the server, or
+ * is in no state to be signed into.
+ */
+private const val PROBE_TIMEOUT_MS = 6_000L
+
+/**
+ * Wall-clock ceiling on the whole autodiscovery sweep, in ms, candidates not yet reached included.
+ *
+ * 🔴 This is the number that decides whether sign-in can hang. Without it, the ceiling was the
+ * candidate count times the client's read timeout: over two minutes of spinner for a domain whose
+ * guessed subdomains are firewalled.
+ */
+private const val DISCOVERY_BUDGET_MS = 20_000L
 
 /**
  * Largest body row we will write (characters of JSON, body + inline images). SQLite's cursor
@@ -1682,16 +1702,37 @@ class MailRepository(
      * Refresh the mailbox list and the emails of [mailboxId] (or the inbox when
      * null), updating the cache and the in-memory session context.
      */
-    /** Outcome of JMAP autodiscovery for an email address. */
+    /**
+     * Outcome of JMAP autodiscovery for an email address.
+     *
+     * Every variant carries [steps]: the copyable record of what was tried. A discovery that ends
+     * in [NotFound] is the one the user most needs an explanation for, and "we tried these four
+     * hosts and here is what each one said" is the explanation.
+     */
     sealed interface DiscoveryResult {
-        /** A server host responded and authenticated; store this as the account `server`. */
-        data class Found(val server: String) : DiscoveryResult
-        /** A server was reached but rejected the credentials (HTTP 401/403). */
-        data object BadCredentials : DiscoveryResult
-        /** No candidate host responded as a JMAP server. */
-        data object NotFound : DiscoveryResult
-    }
+        val steps: List<SignInStep>
 
+        /** A server host responded and authenticated; store this as the account `server`. */
+        data class Found(
+            val server: String,
+            override val steps: List<SignInStep> = emptyList(),
+        ) : DiscoveryResult
+
+        /** A server was reached but rejected the credentials (HTTP 401/403). */
+        data class BadCredentials(
+            override val steps: List<SignInStep> = emptyList(),
+        ) : DiscoveryResult
+
+        /**
+         * No candidate host answered as a JMAP server. [failure] is why the best candidate failed,
+         * which decides whether the user is told to type a server in, fix their network, or look at
+         * their certificate.
+         */
+        data class NotFound(
+            val failure: SignInFailure = SignInFailure.OTHER,
+            override val steps: List<SignInStep> = emptyList(),
+        ) : DiscoveryResult
+    }
 
     /**
      * JMAP autodiscovery (RFC 8620 §2.2): probe the email domain's
@@ -1699,25 +1740,72 @@ class MailRepository(
      * credentials, returning the host whose session authenticates. A 401/403 from
      * any reachable candidate means the server was found but the password is wrong
      * — reported distinctly so the UI can give a precise error.
+     *
+     * ## 🔴 Why this is bounded twice
+     * The candidate list is up to five hosts and they are probed one after another. The HTTP client
+     * allows 20s to connect and 30s to read, so a domain whose `mail.` and `jmap.` names are
+     * firewalled (which is the ordinary shape of a wrong guess, not an exotic one) held the sign-in
+     * button spinning for over two minutes and then said "no server found". Nobody waits that long;
+     * they conclude the app is broken and uninstall it, which is precisely the abandonment the
+     * review measured.
+     *
+     * So: [PROBE_TIMEOUT_MS] bounds any single candidate, and [DISCOVERY_BUDGET_MS] bounds the whole
+     * sweep, including the candidates not yet reached. Both are wall-clock and neither can be
+     * exceeded by a server that accepts a connection and then says nothing.
+     *
+     * ⚠️ The candidates stay SEQUENTIAL. Probing them at once would be faster, but every probe
+     * carries the user's password, and a parallel sweep would hand it to four hosts that a
+     * sequential one would never have contacted once the first succeeded.
      */
-    suspend fun discoverJmapServer(email: String, password: String, token: String? = null): DiscoveryResult {
+    suspend fun discoverJmapServer(
+        email: String,
+        password: String,
+        token: String? = null,
+        log: SignInLog = SignInLog(),
+    ): DiscoveryResult {
         val hosts = autodiscoverHosts(email)
-        if (hosts.isEmpty()) return DiscoveryResult.NotFound
+        log.add("Looking up servers for this address", if (hosts.isEmpty()) "no candidates" else hosts.joinToString(", "))
+        if (hosts.isEmpty()) return DiscoveryResult.NotFound(SignInFailure.DNS, log.steps())
         // A non-null [token] is an API token (e.g. Fastmail): Bearer, never Basic.
         val auth = if (token != null) BearerAuth(token) else BasicAuth(email.trim(), password)
         var sawAuthFailure = false
+        // The most specific thing learned so far. A DNS miss on `jmap.` says nothing (that name is a
+        // guess); a TLS failure or a refusal does, so anything more specific than OTHER outranks it.
+        var failure = SignInFailure.OTHER
+        val deadline = System.currentTimeMillis() + DISCOVERY_BUDGET_MS
         for (host in hosts) {
+            val remaining = deadline - System.currentTimeMillis()
+            if (remaining <= 0) {
+                log.add("Trying $host", "skipped, discovery ran out of time")
+                failure = moreTelling(failure, SignInFailure.TIMEOUT)
+                break
+            }
             try {
-                val session = client.fetchSession(Jmap.sessionUrlFor(host), auth)
-                if (session.mailAccountId() != null) return DiscoveryResult.Found(host)
-            } catch (e: JmapException) {
-                if (e.httpCode == 401 || e.httpCode == 403) sawAuthFailure = true
-                // Other failures (host unreachable, not JMAP): try the next candidate.
-            } catch (_: Throwable) {
-                // Transport error (DNS, TLS, timeout): try the next candidate.
+                val session = withTimeoutOrNull(minOf(PROBE_TIMEOUT_MS, remaining)) {
+                    client.fetchSession(Jmap.sessionUrlFor(host), auth)
+                }
+                if (session == null) {
+                    log.add("Trying $host", "no answer in time")
+                    failure = moreTelling(failure, SignInFailure.TIMEOUT)
+                    continue
+                }
+                if (session.mailAccountId() != null) {
+                    log.add("Trying $host", "signed in")
+                    return DiscoveryResult.Found(host, log.steps())
+                }
+                log.add("Trying $host", "answered, but this login has no mail account on it")
+                failure = SignInFailure.NOT_A_SERVER
+            } catch (cancelled: CancellationException) {
+                // The user left the screen. Not a discovery outcome.
+                throw cancelled
+            } catch (t: Throwable) {
+                val kind = log.add("Trying $host", t)
+                if (kind == SignInFailure.REJECTED) sawAuthFailure = true
+                failure = moreTelling(failure, kind)
             }
         }
-        return if (sawAuthFailure) DiscoveryResult.BadCredentials else DiscoveryResult.NotFound
+        return if (sawAuthFailure) DiscoveryResult.BadCredentials(log.steps())
+        else DiscoveryResult.NotFound(failure, log.steps())
     }
 
     /**

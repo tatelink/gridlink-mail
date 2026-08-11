@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,13 +17,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.res.stringResource
+import app.gridlink.R
 import app.gridlink.core.data.account.SyncSelection
+import app.gridlink.core.data.mail.SignInStep
+import app.gridlink.core.data.mail.asClipboardText
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
@@ -93,6 +100,16 @@ fun GridlinkSetupScreen(
      * places means learning where to look twice.
      */
     error: String? = null,
+    /**
+     * Step by step, what the last attempt tried and what each step said. Empty until something
+     * fails.
+     *
+     * Shown collapsed under the error, with a copy button, because the app sends no telemetry: if
+     * somebody cannot sign in to their own server, this is the only path by which the evidence
+     * reaches a person who can do anything about it. [SignInStep] is documented as never carrying
+     * a secret, which is what makes putting it on the clipboard safe.
+     */
+    details: List<SignInStep> = emptyList(),
 ) {
     var server by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
     var email by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
@@ -252,8 +269,79 @@ fun GridlinkSetupScreen(
         // No caption under this section any more. It used to admit that the two toggles fetched
         // nothing; they fetch now, so the admission would be its own kind of lie.
 
+        if (details.isNotEmpty()) {
+            GridlinkFormDivider()
+            GridlinkSetupAttemptLog(details)
+        }
+
         // Clears the panel's bottom fade so the last row is never half-dissolved.
         Spacer(Modifier.height(GridlinkSpacing.s16))
+    }
+}
+
+/**
+ * The failed attempt, step by step, collapsed by default with a copy button.
+ *
+ * ## Why it is collapsed and not simply shown
+ * Somebody whose sign-in just worked never sees this, and somebody whose sign-in failed has already
+ * been told what went wrong in one sentence above. This is the second question, "what did it
+ * actually do", and answering it before it is asked turns a form into a stack trace.
+ *
+ * ## Why the copy button is the point
+ * Gridlink collects no telemetry, by design. That means a failure on a stranger's self-hosted server
+ * produces exactly nothing anybody can look at, unless the person holding the phone can get it out
+ * of the phone. A screenshot of a truncated error is what people send today; this is the version
+ * that pastes as text.
+ */
+@Composable
+private fun GridlinkSetupAttemptLog(
+    steps: List<SignInStep>,
+    modifier: Modifier = Modifier,
+) {
+    val colors = GridlinkTheme.colors
+    val clipboard = LocalClipboardManager.current
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    var copied by remember { mutableStateOf(false) }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = GridlinkSpacing.rowHorizontal, vertical = GridlinkSpacing.s12),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            GridlinkTextButton(
+                label = stringResource(
+                    if (expanded) R.string.connect_details_hide else R.string.connect_details_show
+                ),
+                onClick = { expanded = !expanded },
+            )
+            Spacer(Modifier.weight(1f))
+            GridlinkTextButton(
+                label = stringResource(
+                    if (copied) R.string.connect_details_copied else R.string.connect_details_copy
+                ),
+                onClick = {
+                    clipboard.setText(AnnotatedString(steps.asClipboardText()))
+                    copied = true
+                },
+            )
+        }
+
+        if (expanded) {
+            steps.forEach { step ->
+                Text(
+                    text = "${step.what}: ${step.outcome}",
+                    style = GridlinkType.metadata,
+                    color = colors.textSecondary,
+                    modifier = Modifier.padding(
+                        horizontal = GridlinkSpacing.rowHorizontal,
+                        vertical = GridlinkSpacing.s4,
+                    ),
+                )
+            }
+            Spacer(Modifier.height(GridlinkSpacing.s8))
+        }
     }
 }
 

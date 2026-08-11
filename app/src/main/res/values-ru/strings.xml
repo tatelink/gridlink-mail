@@ -507,6 +507,14 @@
     <string name="connect_server_not_found">Не удалось найти сервер автоматически. Введите его ниже.</string>
     <string name="connect_bad_credentials">Неверный адрес электронной почты или пароль.</string>
     <string name="connect_host_unresolved">Сервер с именем «%1$s» не найден. Проверьте написание и подключение к интернету.</string>
+    <string name="connect_offline">У этого устройства сейчас нет подключения к интернету, поэтому входить пока некуда. С вашей учётной записью всё в порядке.</string>
+    <string name="connect_timed_out">Сервер слишком долго не отвечал. Возможно, он выключен или брандмауэр блокирует подключение. Проверьте сервер и порт и попробуйте снова.</string>
+    <string name="connect_refused">По этому адресу и порту никто не отвечал. Проверьте порт и то, что сервер запущен.</string>
+    <string name="connect_tls_failed">Зашифрованное подключение отклонено. Сертификат сервера мог истечь, быть самоподписанным или выписанным на другое имя.</string>
+    <string name="connect_details_show">Показать подробности</string>
+    <string name="connect_details_hide">Скрыть подробности</string>
+    <string name="connect_details_copy">Копировать подробности</string>
+    <string name="connect_details_copied">Скопировано</string>
     <string name="connect_provider_preset">Быстрая настройка</string>
     <string name="connect_provider_app_password_note">Некоторым провайдерам (Gmail, Yahoo, iCloud…) требуется пароль приложения, а не ваш обычный пароль.</string>
     <string name="connect_app_password_help">Как создать пароль приложения</string>
@@ -798,4 +806,17 @@
     <string name="widget_empty_not_synced">Откройте GridLink один раз, чтобы это заполнить.</string>
     <string name="widget_empty_inbox">Ничего не ждёт.</string>
     <string name="widget_time_now">сейчас</string>
+    <string name="settings_bundle_automated_title">Группировать автоматические письма</string>
+    <string name="settings_bundle_automated_subtitle">Собирает отправителей вида no-reply, уведомлений и оповещений в одну свёрнутую строку над списком. По умолчанию выключено: список показывает все письма по дате. В обоих случаях ничего не скрывается, а отправитель определяется по адресу, поэтому человек, пишущий с адреса notifications@, тоже попадёт в группу.</string>
+    <string name="settings_thread_actions_section">Действия с письмом</string>
+    <string name="settings_thread_actions_caption">Панель внизу открытого письма показывает первые три из них. Всё остальное, что вы включите, уйдёт в меню «Ещё». У кнопки «Ответить» всегда своё место.</string>
+    <string name="settings_thread_action_reply_all">Ответить всем</string>
+    <string name="settings_thread_action_forward">Переслать</string>
+    <string name="settings_thread_action_archive">В архив</string>
+    <string name="settings_thread_action_delete">Удалить</string>
+    <string name="settings_thread_action_move">Переместить</string>
+    <string name="settings_thread_action_mark_unread">Отметить как непрочитанное</string>
+    <string name="settings_thread_action_star">В избранное</string>
+    <string name="settings_thread_action_print">Печать</string>
+    <string name="settings_thread_action_junk">Спам</string>
 </resources>
