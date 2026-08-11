@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Gridlink Mail</string>
+    <string name="app_name">GridLink</string>
 
     <!-- Compose -->
     <string name="compose_title_new">Nova mensagem</string>
@@ -58,7 +58,7 @@
     <string name="inbox_delete">Excluir</string>
     <string name="inbox_delete_forever">Eliminar permanentemente</string>
     <string name="inbox_undo">Desfazer</string>
-    <string name="inbox_app_name">Gridlink Mail</string>
+    <string name="inbox_app_name">GridLink</string>
     <string name="inbox_switch_account">Mudar de conta</string>
     <string name="inbox_all_inboxes">Todas as caixas de entrada</string>
     <string name="inbox_all_inboxes_unread">Todas as caixas de entrada  (%1$d)</string>
@@ -323,7 +323,7 @@
     <string name="settings_filters_add">Adicionar regra</string>
     <string name="settings_filters_saved">Filtros guardados</string>
     <string name="settings_filters_untitled">Regra sem título</string>
-    <string name="settings_filters_foreign_warning">Outro script de filtro está ativo no servidor; ao guardar, o do Gridlink Mail passará a ser o ativo.</string>
+    <string name="settings_filters_foreign_warning">Outro script de filtro está ativo no servidor; ao guardar, o do GridLink passará a ser o ativo.</string>
     <string name="settings_filters_edit_title">Editar regra</string>
     <string name="settings_filter_name">Nome da regra</string>
     <string name="settings_filter_if">Se</string>
@@ -346,7 +346,7 @@
     <string name="settings_privacy_screen_title">Privacidade e segurança</string>
     <string name="settings_security_section">Segurança</string>
     <string name="settings_app_lock_title">Bloqueio do app</string>
-    <string name="settings_app_lock_subtitle">Exigir sua impressão digital, rosto ou PIN da tela para abrir o Gridlink Mail.</string>
+    <string name="settings_app_lock_subtitle">Exigir sua impressão digital, rosto ou PIN da tela para abrir o GridLink.</string>
     <string name="settings_app_lock_unavailable">Configure primeiro uma impressão digital, desbloqueio facial ou bloqueio de tela nas configurações do seu aparelho.</string>
     <string name="settings_links_section">Links</string>
     <string name="settings_image_allowlist_section">Imagens remotas</string>
@@ -357,7 +357,7 @@
     <string name="settings_confirm_links_subtitle">Mostra o destino e pede confirmação antes de abrir um link de uma mensagem.</string>
     <string name="settings_recipient_suggestions_section">Sugestões de destinatários</string>
     <string name="settings_suggest_contacts_title">Sugerir a partir dos contatos</string>
-    <string name="settings_suggest_contacts_subtitle">Autocompletar destinatários a partir dos contatos deste aparelho enquanto você digita. O Gridlink Mail os lê apenas no aparelho e nunca os envia. Quando desativado, ele ainda sugere pessoas para quem você enviou e-mails recentemente.</string>
+    <string name="settings_suggest_contacts_subtitle">Autocompletar destinatários a partir dos contatos deste aparelho enquanto você digita. O GridLink os lê apenas no aparelho e nunca os envia. Quando desativado, ele ainda sugere pessoas para quem você enviou e-mails recentemente.</string>
     <string name="settings_storage_screen_title">Armazenamento</string>
     <string name="settings_on_device_usage_section">Uso no aparelho</string>
     <string name="settings_storage_total">Total</string>
@@ -494,7 +494,7 @@
     <string name="connect_imap_smtp">IMAP / SMTP</string>
     <string name="connect_jmap_server">Servidor JMAP</string>
     <string name="connect_jmap_server_placeholder">mail.example.com</string>
-    <string name="connect_jmap_autodiscover_hint">Basta inserir o seu e-mail e a palavra-passe — o Gridlink Mail encontrará o seu servidor automaticamente.</string>
+    <string name="connect_jmap_autodiscover_hint">Basta inserir o seu e-mail e a palavra-passe — o GridLink encontrará o seu servidor automaticamente.</string>
     <string name="connect_auth_method">Iniciar sessão com</string>
     <string name="connect_auth_api_token">Token de API</string>
     <string name="connect_api_token_hint">Cole um token de API gerado pelo seu fornecedor (p. ex. Fastmail) em vez de uma palavra-passe. Pode deixar o servidor vazio ou colar o URL da sessão.</string>
@@ -583,10 +583,10 @@
     <string name="search_button">Pesquisar</string>
 
     <!-- App lock -->
-    <string name="lock_title">O Gridlink Mail está bloqueado</string>
+    <string name="lock_title">O GridLink está bloqueado</string>
     <string name="lock_subtitle">Desbloqueie para ler seus e-mails.</string>
     <string name="lock_unlock">Desbloquear</string>
-    <string name="lock_prompt_title">Desbloquear Gridlink Mail</string>
+    <string name="lock_prompt_title">Desbloquear GridLink</string>
     <string name="lock_prompt_subtitle">Confirme sua identidade</string>
 
     <!-- ViewModel status / errors -->
@@ -678,7 +678,7 @@
     <string name="settings_image_allowlist_remove">Remover remetente</string>
     <string name="settings_image_allowlist_hint">sender@example.com</string>
     <string name="settings_sign_out_title">Terminar sessão desta conta?</string>
-    <string name="settings_sign_out_message">Esta conta será removida do Gridlink Mail e o correio transferido será limpo deste dispositivo.</string>
+    <string name="settings_sign_out_message">Esta conta será removida do GridLink e o correio transferido será limpo deste dispositivo.</string>
     <string name="connect_welcome_title">O seu email, finalmente seu.</string>
     <string name="connect_welcome_subtitle">Sem anúncios, sem rastreio. No servidor que você escolher.</string>
     <string name="connect_import_header">Já tem contas noutro lado?</string>
@@ -756,12 +756,12 @@
     <!-- Onboarding: privacy welcome + contacts priming -->
     <string name="welcome_body">Sem anúncios, sem rastreio, sem serviços Google. No servidor que você escolher.</string>
     <string name="welcome_screen2_title">O que é seu continua seu.</string>
-    <string name="welcome_screen2_body">O Gridlink Mail não coleta telemetria. Seus contatos ficam neste aparelho e só são lidos se você permitir.</string>
+    <string name="welcome_screen2_body">O GridLink não coleta telemetria. Seus contatos ficam neste aparelho e só são lidos se você permitir.</string>
     <string name="welcome_next">Avançar</string>
     <string name="welcome_get_started">Começar</string>
     <string name="welcome_skip">Pular</string>
     <string name="compose_contacts_priming_title">Sugerir a partir dos seus contatos?</string>
-    <string name="compose_contacts_priming_body">Autocompletar destinatários a partir dos contatos deste aparelho. O Gridlink Mail os lê apenas no aparelho e nunca os envia.</string>
+    <string name="compose_contacts_priming_body">Autocompletar destinatários a partir dos contatos deste aparelho. O GridLink os lê apenas no aparelho e nunca os envia.</string>
     <string name="compose_contacts_priming_enable">Ativar</string>
     <string name="compose_contacts_priming_not_now">Agora não</string>
     <string name="settings_mark_read_title">Marcar como lida ao</string>
@@ -773,11 +773,13 @@
     <string name="settings_about_version">Versão</string>
     <string name="settings_about_source">Código-fonte</string>
     <string name="settings_about_license">Licença</string>
+    <string name="settings_about_feedback">Send feedback</string>
+    <string name="settings_about_support">Support GridLink</string>
     <string name="settings_about_author">Autor</string>
 
     <!-- Home-screen widgets -->
     <string name="widget_inbox_title">Caixa de entrada</string>
-    <string name="widget_inbox_label">Gridlink Mail</string>
+    <string name="widget_inbox_label">GridLink</string>
     <string name="widget_unread_label">Gridlink não lidas</string>
     <string name="widget_inbox_description">O correio recente, e o caminho direto para ele.</string>
     <string name="widget_unread_description">Quanto correio não lido está à espera.</string>
@@ -792,7 +794,7 @@
     <string name="widget_label_signed_out">Iniciar sessão</string>
     <string name="widget_label_not_synced">Ainda não sincronizado</string>
     <string name="widget_empty_signed_out">Inicie sessão para ver aqui o seu correio.</string>
-    <string name="widget_empty_not_synced">Abra o Gridlink Mail uma vez para preencher isto.</string>
+    <string name="widget_empty_not_synced">Abra o GridLink uma vez para preencher isto.</string>
     <string name="widget_empty_inbox">Nada à espera.</string>
     <string name="widget_time_now">agora</string>
 </resources>

@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Gridlink Mail</string>
+    <string name="app_name">GridLink</string>
 
     <!-- Compose -->
     <string name="compose_title_new">Nieuw bericht</string>
@@ -58,7 +58,7 @@
     <string name="inbox_delete">Verwijderen</string>
     <string name="inbox_delete_forever">Permanent verwijderen</string>
     <string name="inbox_undo">Ongedaan maken</string>
-    <string name="inbox_app_name">Gridlink Mail</string>
+    <string name="inbox_app_name">GridLink</string>
     <string name="inbox_switch_account">Account wisselen</string>
     <string name="inbox_all_inboxes">Alle postvakken IN</string>
     <string name="inbox_all_inboxes_unread">Alle postvakken IN  (%1$d)</string>
@@ -323,7 +323,7 @@
     <string name="settings_filters_add">Regel toevoegen</string>
     <string name="settings_filters_saved">Filters opgeslagen</string>
     <string name="settings_filters_untitled">Naamloze regel</string>
-    <string name="settings_filters_foreign_warning">Er is al een ander filterscript actief op de server; door op te slaan wordt dat van Gridlink Mail het actieve script.</string>
+    <string name="settings_filters_foreign_warning">Er is al een ander filterscript actief op de server; door op te slaan wordt dat van GridLink het actieve script.</string>
     <string name="settings_filters_edit_title">Regel bewerken</string>
     <string name="settings_filter_name">Regelnaam</string>
     <string name="settings_filter_if">Als</string>
@@ -346,7 +346,7 @@
     <string name="settings_privacy_screen_title">Privacy en beveiliging</string>
     <string name="settings_security_section">Beveiliging</string>
     <string name="settings_app_lock_title">App-vergrendeling</string>
-    <string name="settings_app_lock_subtitle">Vereis je vingerafdruk, gezicht of schermpincode om Gridlink Mail te openen.</string>
+    <string name="settings_app_lock_subtitle">Vereis je vingerafdruk, gezicht of schermpincode om GridLink te openen.</string>
     <string name="settings_app_lock_unavailable">Stel eerst een vingerafdruk, gezichtsontgrendeling of schermvergrendeling in bij je apparaatinstellingen.</string>
     <string name="settings_links_section">Links</string>
     <string name="settings_image_allowlist_section">Externe afbeeldingen</string>
@@ -357,7 +357,7 @@
     <string name="settings_confirm_links_subtitle">Toon de bestemming en vraag om bevestiging voordat een link uit een bericht wordt geopend.</string>
     <string name="settings_recipient_suggestions_section">Ontvangersuggesties</string>
     <string name="settings_suggest_contacts_title">Suggesties uit contacten</string>
-    <string name="settings_suggest_contacts_subtitle">Vul ontvangers aan uit de contacten van dit apparaat terwijl je typt. Gridlink Mail leest ze alleen op het apparaat en uploadt ze nooit. Uitgeschakeld stelt het nog steeds mensen voor die je onlangs hebt gemaild.</string>
+    <string name="settings_suggest_contacts_subtitle">Vul ontvangers aan uit de contacten van dit apparaat terwijl je typt. GridLink leest ze alleen op het apparaat en uploadt ze nooit. Uitgeschakeld stelt het nog steeds mensen voor die je onlangs hebt gemaild.</string>
     <string name="settings_storage_screen_title">Opslag</string>
     <string name="settings_on_device_usage_section">Gebruik op apparaat</string>
     <string name="settings_storage_total">Totaal</string>
@@ -494,7 +494,7 @@
     <string name="connect_imap_smtp">IMAP / SMTP</string>
     <string name="connect_jmap_server">JMAP-server</string>
     <string name="connect_jmap_server_placeholder">mail.example.com</string>
-    <string name="connect_jmap_autodiscover_hint">Voer gewoon je e-mailadres en wachtwoord in — Gridlink Mail vindt je server automatisch.</string>
+    <string name="connect_jmap_autodiscover_hint">Voer gewoon je e-mailadres en wachtwoord in — GridLink vindt je server automatisch.</string>
     <string name="connect_auth_method">Inloggen met</string>
     <string name="connect_auth_api_token">API-token</string>
     <string name="connect_api_token_hint">Plak een API-token dat je provider (bijv. Fastmail) heeft aangemaakt in plaats van een wachtwoord. Je kunt de server leeg laten of de sessie-URL plakken.</string>
@@ -581,10 +581,10 @@
     <string name="search_button">Zoeken</string>
 
     <!-- App lock -->
-    <string name="lock_title">Gridlink Mail is vergrendeld</string>
+    <string name="lock_title">GridLink is vergrendeld</string>
     <string name="lock_subtitle">Ontgrendel om je e-mail te lezen.</string>
     <string name="lock_unlock">Ontgrendelen</string>
-    <string name="lock_prompt_title">Gridlink Mail ontgrendelen</string>
+    <string name="lock_prompt_title">GridLink ontgrendelen</string>
     <string name="lock_prompt_subtitle">Verifieer dat jij het bent</string>
 
     <!-- ViewModel status / errors -->
@@ -679,7 +679,7 @@
     <string name="settings_image_allowlist_remove">Afzender verwijderen</string>
     <string name="settings_image_allowlist_hint">sender@example.com</string>
     <string name="settings_sign_out_title">Afmelden bij dit account?</string>
-    <string name="settings_sign_out_message">Dit account wordt uit Gridlink Mail verwijderd en de gedownloade e-mail wordt van dit apparaat gewist.</string>
+    <string name="settings_sign_out_message">Dit account wordt uit GridLink verwijderd en de gedownloade e-mail wordt van dit apparaat gewist.</string>
     <string name="connect_welcome_title">Je e-mail, eindelijk van jou.</string>
     <string name="connect_welcome_subtitle">Geen advertenties, geen tracking. Op de server die jij kiest.</string>
     <string name="connect_import_header">Heb je al accounts ergens anders?</string>
@@ -753,12 +753,12 @@
     <!-- Onboarding: privacy welcome + contacts priming -->
     <string name="welcome_body">Geen advertenties, geen tracking, geen Google-diensten. Op de server die jij kiest.</string>
     <string name="welcome_screen2_title">Wat van jou is, blijft van jou.</string>
-    <string name="welcome_screen2_body">Gridlink Mail verzamelt geen telemetrie. Je contacten blijven op dit apparaat en worden alleen gelezen als jij het toestaat.</string>
+    <string name="welcome_screen2_body">GridLink verzamelt geen telemetrie. Je contacten blijven op dit apparaat en worden alleen gelezen als jij het toestaat.</string>
     <string name="welcome_next">Volgende</string>
     <string name="welcome_get_started">Aan de slag</string>
     <string name="welcome_skip">Overslaan</string>
     <string name="compose_contacts_priming_title">Voorstellen uit je contacten?</string>
-    <string name="compose_contacts_priming_body">Ontvangers aanvullen uit de contacten van dit apparaat. Gridlink Mail leest ze alleen op het apparaat en uploadt ze nooit.</string>
+    <string name="compose_contacts_priming_body">Ontvangers aanvullen uit de contacten van dit apparaat. GridLink leest ze alleen op het apparaat en uploadt ze nooit.</string>
     <string name="compose_contacts_priming_enable">Inschakelen</string>
     <string name="compose_contacts_priming_not_now">Niet nu</string>
     <string name="settings_mark_read_title">Als gelezen markeren bij</string>
@@ -770,11 +770,13 @@
     <string name="settings_about_version">Versie</string>
     <string name="settings_about_source">Broncode</string>
     <string name="settings_about_license">Licentie</string>
+    <string name="settings_about_feedback">Send feedback</string>
+    <string name="settings_about_support">Support GridLink</string>
     <string name="settings_about_author">Auteur</string>
 
     <!-- Home-screen widgets -->
     <string name="widget_inbox_title">Postvak IN</string>
-    <string name="widget_inbox_label">Gridlink Mail</string>
+    <string name="widget_inbox_label">GridLink</string>
     <string name="widget_unread_label">Gridlink ongelezen</string>
     <string name="widget_inbox_description">Recente post, en de directe weg ernaartoe.</string>
     <string name="widget_unread_description">Hoeveel ongelezen post er wacht.</string>
@@ -789,7 +791,7 @@
     <string name="widget_label_signed_out">Aanmelden</string>
     <string name="widget_label_not_synced">Nog niet gesynchroniseerd</string>
     <string name="widget_empty_signed_out">Meld je aan om je post hier te zien.</string>
-    <string name="widget_empty_not_synced">Open Gridlink Mail één keer om dit te vullen.</string>
+    <string name="widget_empty_not_synced">Open GridLink één keer om dit te vullen.</string>
     <string name="widget_empty_inbox">Niets in afwachting.</string>
     <string name="widget_time_now">nu</string>
 </resources>
