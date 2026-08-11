@@ -20,6 +20,8 @@ import app.gridlink.ui.gridlink.GridlinkRoot
 import app.gridlink.ui.gridlink.GridlinkSample
 import app.gridlink.ui.gridlink.GridlinkSampleContacts
 import app.gridlink.ui.gridlink.GridlinkSampleTree
+import app.gridlink.ui.gridlink.GridlinkAttacher
+import app.gridlink.ui.gridlink.GridlinkFileAttacher
 import app.gridlink.ui.gridlink.GridlinkSender
 import app.gridlink.ui.gridlink.GridlinkSyncState
 import app.gridlink.ui.gridlink.GridlinkUndoFrame
@@ -495,14 +497,23 @@ class GridlinkGalleryActivity : ComponentActivity() {
         //
         // The account comes from the store the stock Gridlink icon writes to: the two launcher entries
         // in this build are one app sharing one account and one database.
-        val sender = GridlinkOutboxSender(
+        // Same pairing the app makes: one attacher, and the sender built around it. See
+        // [GridlinkFileAttacher] — a sender holding a different instance refuses every attached send.
+        val attacher = GridlinkFileAttacher(
             context = applicationContext,
             repository = application.container.mailRepository,
             accounts = application.container.accountStore,
         )
+        val sender = GridlinkOutboxSender(
+            context = applicationContext,
+            repository = application.container.mailRepository,
+            accounts = application.container.accountStore,
+            attacher = attacher,
+        )
         setContent {
             GridlinkGallery(
                 sender = sender,
+                attacher = attacher,
                 initialOverride = mode,
                 initiallyExpanded = expanded,
                 initiallySelected = selected,
@@ -539,6 +550,7 @@ class GridlinkGalleryActivity : ComponentActivity() {
 @Composable
 private fun GridlinkGallery(
     sender: GridlinkSender,
+    attacher: GridlinkAttacher,
     initialOverride: GridlinkMode? = null,
     initiallyExpanded: Boolean = false,
     initiallySelected: Set<String> = emptySet(),
@@ -592,6 +604,7 @@ private fun GridlinkGallery(
     ) {
         GridlinkRoot(
             sender = sender,
+            attacher = attacher,
             initialDestination = initialDestination,
             initiallyExpanded = initiallyExpanded,
             initiallySelected = initiallySelected,
