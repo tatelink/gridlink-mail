@@ -631,6 +631,8 @@
     <!-- Notifications -->
     <string name="notif_channel_mail">Nouveaux messages</string>
     <string name="notif_send_failed_title">Message non envoyé</string>
+    <string name="notif_auth_rejected_title">Reconnectez-vous</string>
+    <string name="notif_auth_rejected_text">Le serveur a refusé %1$s. Ce compte ne reçoit plus de courrier tant que vous n\'avez pas saisi de nouveau le mot de passe.</string>
     <string name="notif_channel_sync">Synchronisation</string>
     <string name="notif_channel_sync_desc">Maintient une connexion active à votre serveur de messagerie pour recevoir les messages instantanément.</string>
     <string name="notif_watching">En vol, à l\'affût des nouveaux messages</string>

@@ -119,6 +119,7 @@ fun GridlinkSetupHost(
                         email = request.email,
                         password = request.password,
                         accountName = "",
+                        login = request.login,
                     )
                 } else {
                     viewModel.connect(
@@ -126,6 +127,7 @@ fun GridlinkSetupHost(
                         username = request.email,
                         password = request.password,
                         accountName = "",
+                        login = request.login,
                     )
                 }
             },

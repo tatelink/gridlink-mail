@@ -631,6 +631,8 @@
     <!-- Notifications -->
     <string name="notif_channel_mail">Nuova posta</string>
     <string name="notif_send_failed_title">Messaggio non inviato</string>
+    <string name="notif_auth_rejected_title">Accedi di nuovo</string>
+    <string name="notif_auth_rejected_text">Il server ha rifiutato %1$s. Questo account non riceve più posta finché non inserisci di nuovo la password.</string>
     <string name="notif_channel_sync">Sincronizzazione posta</string>
     <string name="notif_channel_sync_desc">Mantiene una connessione attiva al tuo server di posta per ricevere i messaggi immediatamente.</string>
     <string name="notif_watching">In volo, in attesa di nuova posta</string>

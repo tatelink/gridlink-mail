@@ -174,6 +174,42 @@ object Notifications {
             .notify(("sendfail:$subject").hashCode(), notification)
     }
 
+    /**
+     * The server refused this account's stored credential, so background sync has been parked
+     * ([app.gridlink.core.data.account.StoredAccount.authRejected]). Tapping it opens the app.
+     *
+     * 🔴 Why a notification and not a banner in the UI: parking stops mail arriving, and the whole
+     * symptom is that the user is NOT looking at the app — an inbox that has quietly stopped
+     * updating looks exactly like an inbox nobody has written to. This has to reach them with the
+     * app closed, which leaves the notification shade as the only surface that qualifies.
+     *
+     * Keyed on the account id so a second account being refused adds a line rather than replacing
+     * the first, and so the same account re-posting cannot stack. Fired only where the flag
+     * actually flips (see [app.gridlink.core.data.account.AccountStore.setAuthRejected]), never on
+     * each poll cycle.
+     */
+    fun notifyAuthRejected(context: Context, accountId: String, accountLabel: String) {
+        ensureChannels(context)
+        val open = PendingIntent.getActivity(
+            context,
+            "authrejected:$accountId".hashCode(),
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val text = context.getString(R.string.notif_auth_rejected_text, accountLabel)
+        val notification = NotificationCompat.Builder(context, CHANNEL_MAIL)
+            .setSmallIcon(R.drawable.ic_stat_mail)
+            .setContentTitle(context.getString(R.string.notif_auth_rejected_title))
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setAutoCancel(true)
+            .setContentIntent(open)
+            .setCategory(NotificationCompat.CATEGORY_ERROR)
+            .build()
+        context.getSystemService(NotificationManager::class.java)
+            .notify(("authrejected:$accountId").hashCode(), notification)
+    }
+
     /** The ongoing notification required for the foreground service. */
     fun serviceNotification(context: Context): Notification =
         NotificationCompat.Builder(context, CHANNEL_SERVICE)

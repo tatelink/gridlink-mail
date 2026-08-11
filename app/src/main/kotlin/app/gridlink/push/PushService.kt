@@ -12,6 +12,8 @@ import androidx.core.content.ContextCompat
 import app.gridlink.container
 import app.gridlink.core.data.account.AccountCredentials
 import app.gridlink.core.data.account.MailProtocol
+import app.gridlink.core.data.mail.SignInFailure
+import app.gridlink.core.data.mail.classifySignInFailure
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -105,7 +107,14 @@ class PushService : Service() {
         val watched = if (store.pushAllAccounts()) store.allCredentials() else listOfNotNull(store.load())
         // Honour the per-account notification opt-out; UnifiedPush-active accounts are
         // served by their endpoint (issue #17) and hold no direct connection here.
-        val accounts = watched.filter { store.notificationsEnabled(it.id) && !up.isActive(it.id) }
+        // 🔴 And never an account whose credential the server has already refused. This loop
+        // reconnects on a fixed delay and never gives up, so a 401 here is not one failed login, it
+        // is a failed login every few seconds for as long as the phone is on — the fastest possible
+        // way to get banned by the very server we are trying to read mail from. See
+        // [StoredAccount.authRejected]; a new password re-arms it.
+        val accounts = watched.filter {
+            store.notificationsEnabled(it.id) && !up.isActive(it.id) && !store.authRejected(it.id)
+        }
         if (accounts.isEmpty()) {
             stopSelf()
             return
@@ -167,6 +176,22 @@ class PushService : Service() {
             )
         }.onFailure {
             Log.e(TAG, "Push watch failed for login $loginId", it)
+            // A refusal ends the arm instead of restarting it. Every account on this socket shares
+            // the login's credential, so they are all refused together and all park together; the
+            // next successful sign-in from the UI clears them.
+            if (classifySignInFailure(it) == SignInFailure.REJECTED) {
+                val store = application.container.accountStore
+                val parked = group.count { account -> store.setAuthRejected(account.id, true) }
+                // One notification for the login, not one per sub-account: the user has a single
+                // password to re-enter, and the sub-accounts are shares they never signed into.
+                // Only when something actually flipped, so a reconnect storm cannot repost it.
+                if (parked > 0) {
+                    group.firstOrNull()?.let { first ->
+                        Notifications.notifyAuthRejected(application, first.id, first.username)
+                    }
+                }
+                return
+            }
             scheduleReconnect(loginId, group, gen)
         }
     }

@@ -629,6 +629,8 @@
     <!-- Notifications -->
     <string name="notif_channel_mail">Nieuwe e-mail</string>
     <string name="notif_send_failed_title">Bericht niet verzonden</string>
+    <string name="notif_auth_rejected_title">Opnieuw aanmelden</string>
+    <string name="notif_auth_rejected_text">De server heeft %1$s geweigerd. Voor dit account komt geen e-mail meer binnen totdat je het wachtwoord opnieuw invoert.</string>
     <string name="notif_channel_sync">E-mailsynchronisatie</string>
     <string name="notif_channel_sync_desc">Houdt een actieve verbinding met je mailserver voor directe e-mail.</string>
     <string name="notif_watching">In vlucht, speurend naar nieuwe post</string>
