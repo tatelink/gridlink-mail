@@ -23,6 +23,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.pullToRefresh
@@ -140,6 +142,17 @@ private val PULL_INDICATOR_HEIGHT = 28.dp
 
 /** The dot in front of the pull label, matching the sync chip's. Punctuation, not a badge. */
 private val PULL_INDICATOR_DOT = 8.dp
+
+/**
+ * How long the indicator stays open at minimum once a pull has committed.
+ *
+ * 🔴 Not a fake delay on the sync: the fetch is already finished when this is waited out, and the
+ * floor only ever applies to a sync that beat it. It exists because a refresh against a warm
+ * connection with no new mail on it returns in well under a tenth of a second, and an indicator that
+ * appears and disappears inside one blink is read as a gesture that did not take. Long enough to be
+ * seen and read, short enough that nobody waiting on real mail notices it.
+ */
+private const val PULL_MIN_VISIBLE_MS = 550L
 
 /**
  * Screen 1 and 2 of the brief: the message list, mixed read and unread, with the automated-sender
@@ -636,10 +649,24 @@ fun GridlinkMessageListScreen(
     // a session that no longer exists.
     var pendingMove: Set<String>? by remember { mutableStateOf(null) }
 
+    /**
+     * True while the toolbar's overflow sheet is open.
+     *
+     * ⚠️ A flag and not a copy of the ids, unlike [pendingMove]. Everything in the sheet acts on the
+     * live selection and the sheet cannot outlive it (dismissing writes nothing, and every action in
+     * it closes the sheet), so there is no window for the two to drift.
+     */
+    var moreOpen by remember { mutableStateOf(false) }
+
     fun applySelectionAction(action: GridlinkSelectionAction) {
         val ids = selectedIds
         if (ids.isEmpty()) return
         when (action) {
+            // Writes nothing, files nothing, and must not clear the selection: it is a request for
+            // the rest of the actions. See [GridlinkSelectionAction.MORE].
+            GridlinkSelectionAction.MORE -> {
+                moreOpen = true
+            }
             // 🔴 Move writes nothing here and removes nothing here. It is the one selection action
             // whose target is not implied by its name, so all it does is ask; the rows leave in
             // [confirmMove] once a folder has been picked, and dismissing the sheet is a complete,
@@ -648,24 +675,34 @@ fun GridlinkMessageListScreen(
                 pendingMove = ids
             }
 
+            // 🔴 Spam files exactly like these two and is listed with them for that reason: the
+            // message leaves the inbox for Junk, so the row has to go the same way an archived one
+            // does. Grouped rather than given its own branch so the three can never drift apart.
             GridlinkSelectionAction.ARCHIVE,
             GridlinkSelectionAction.DELETE,
+            GridlinkSelectionAction.SPAM,
             -> {
                 remove(ids)
                 onFiled(ids)
                 onAction(
                     ids,
-                    if (action == GridlinkSelectionAction.DELETE) {
-                        GridlinkMailAction.DELETE
-                    } else {
-                        GridlinkMailAction.ARCHIVE
+                    when (action) {
+                        GridlinkSelectionAction.DELETE -> GridlinkMailAction.DELETE
+                        GridlinkSelectionAction.SPAM -> GridlinkMailAction.SPAM
+                        else -> GridlinkMailAction.ARCHIVE
                     },
                 )
             }
 
-            GridlinkSelectionAction.MARK_READ -> {
-                edit(ids) { it.copy(unread = false) }
-                onAction(ids, GridlinkMailAction.MARK_READ)
+            GridlinkSelectionAction.MARK_READ,
+            GridlinkSelectionAction.MARK_UNREAD,
+            -> {
+                val read = action == GridlinkSelectionAction.MARK_READ
+                edit(ids) { it.copy(unread = !read) }
+                onAction(
+                    ids,
+                    if (read) GridlinkMailAction.MARK_READ else GridlinkMailAction.MARK_UNREAD,
+                )
                 // Cleared, so the bar morphs back. The alternative is a selection still ticked over
                 // rows that no longer respond to the action you just used, which reads as a no-op.
                 onSelectedIdsChange(emptySet())
@@ -948,11 +985,30 @@ fun GridlinkMessageListScreen(
                     onRefresh = {
                         scope.launch {
                             refreshing = true
-                            // Every account, not this folder. See the class doc: you pull because
-                            // you suspect you are not being told about something, and scoping that
-                            // to one mailbox answers a question nobody asked.
-                            chrome.syncAllAccounts()
-                            refreshing = false
+                            val startedAt = System.currentTimeMillis()
+                            try {
+                                // Every account, not this folder. See the class doc: you pull
+                                // because you suspect you are not being told about something, and
+                                // scoping that to one mailbox answers a question nobody asked.
+                                chrome.syncAllAccounts()
+                                // 🔴 Held open for a beat if the sync came back faster than the eye
+                                // can follow. A refresh that answers in 80ms (a warm connection with
+                                // nothing new on it) used to flash the indicator and vanish, which
+                                // reads as a gesture that failed rather than one that found nothing
+                                // — the second half of Brandon's "release to refresh not working".
+                                // The floor only ever ADDS time to a sync that already finished, so
+                                // it cannot make a slow one look faster than it was.
+                                val elapsed = System.currentTimeMillis() - startedAt
+                                if (elapsed < PULL_MIN_VISIBLE_MS) delay(PULL_MIN_VISIBLE_MS - elapsed)
+                            } finally {
+                                // 🔴 In a `finally`. Set only on the success path, a sync that threw
+                                // — or a pull cancelled by the screen going away mid-fetch — left
+                                // this true forever, and `isRefreshing = true` disables the gesture
+                                // that sets it: one failed refresh and pull-to-refresh was dead for
+                                // the life of the screen, with the indicator parked open saying
+                                // "Syncing all accounts".
+                                refreshing = false
+                            }
                         }
                     },
                 ),
@@ -1325,6 +1381,54 @@ fun GridlinkMessageListScreen(
                 ?.folder
                 ?.id,
         )
+    }
+
+    // The toolbar's fourth seat, opened out. A sibling of the scaffold for [pendingMove]'s reason,
+    // and like it, the selection stays ticked underneath: dismissing this writes nothing and leaves
+    // the toolbar exactly as it was.
+    if (moreOpen && selecting) {
+        GridlinkSelectionMoreSheet(
+            count = selectedIds.size,
+            onDismiss = { moreOpen = false },
+            onAction = { action ->
+                moreOpen = false
+                applySelectionAction(action)
+            },
+        )
+    }
+}
+
+/**
+ * The three selection actions that did not fit in the toolbar.
+ *
+ * 🔴 Built from the same sheet parts as every other sheet in the app rather than as a menu hanging
+ * off the pill: a popup anchored to a floating toolbar would be the app's only anchored menu, and
+ * on a folded Fold it would have nowhere to open into that is not on top of the toolbar itself.
+ *
+ * The heading counts, because this is the one place in the selection flow where the number is not
+ * already on screen — the "n selected" readout is in the chrome row at the top and this sheet comes
+ * up from the bottom, over it on a small screen.
+ */
+@Composable
+private fun GridlinkSelectionMoreSheet(
+    count: Int,
+    onDismiss: () -> Unit,
+    onAction: (GridlinkSelectionAction) -> Unit,
+) {
+    GridlinkCenterSheet(onDismiss = onDismiss) {
+        GridlinkSheetHeading(
+            title = if (count == 1) "1 message" else "$count messages",
+            icon = Icons.Outlined.MoreHoriz,
+        )
+        GridlinkSheetDivider()
+        GridlinkSelectionAction.entries.filterNot { it.inPill }.forEach { action ->
+            GridlinkSheetAction(
+                label = action.label,
+                icon = action.icon,
+                onClick = { onAction(action) },
+            )
+        }
+        GridlinkSheetFooterSpace()
     }
 }
 

@@ -15,6 +15,7 @@ import app.gridlink.core.data.settings.GridlinkPalette
 import app.gridlink.ui.theme.GridlinkMode
 import app.gridlink.ui.theme.ProvideGridlinkTokens
 import app.gridlink.ui.theme.gridlinkModeAt
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import java.time.ZonedDateTime
 
@@ -183,8 +184,17 @@ class GridlinkChromeState(
      *
      * Deliberately NOT `by mutableStateOf`: nothing draws it, and making it observable would invite
      * exactly the confusion with [sync] that this field exists to end.
+     *
+     * 🔴 A [CompletableDeferred] and no longer a Boolean, so a second caller can WAIT on the sync
+     * that is already out instead of being turned away. See [syncAllAccounts]: a dropped call used
+     * to return instantly, which made the pull gesture do nothing at all for as long as any other
+     * sync was running — including the one every cold launch fires — and "I pulled and nothing
+     * happened" is indistinguishable from a broken gesture.
+     *
+     * Completed in a `finally`, so cancelling the coroutine that owns a sync releases everyone
+     * waiting on it rather than parking them until the process dies.
      */
-    private var syncInFlight = false
+    private var syncInFlight: CompletableDeferred<Unit>? = null
 
     /** null = follow [autoMode]; non-null = the user picked a palette and it wins. */
     var modeOverride by mutableStateOf(initialModeOverride)
@@ -225,17 +235,27 @@ class GridlinkChromeState(
      * that failed is how "Synced just now" ends up on a mailbox that has not spoken to a server in
      * a day, and that single line is the first thing a user checks when mail stops arriving.
      *
-     * Re-entrant calls are dropped rather than queued: two overlapping syncs would race on the
-     * timestamp, and the second one has nothing to add.
+     * 🔴 Re-entrant calls WAIT for the sync already in flight and then return, rather than starting
+     * a second one (two would race on the timestamp) or returning immediately (which is what this
+     * used to do, and it is Brandon's "release to refresh not working": every cold launch fires a
+     * sync from [GridlinkHomeHost], so a pull in the first seconds of the app was answered by an
+     * instant no-op, and the indicator snapped back before it had finished appearing). Waiting is
+     * the honest answer to "refresh": the caller is released when fresh mail has actually landed.
      */
     suspend fun syncAllAccounts() {
         // Guarded on [syncInFlight], NOT on the chip reading SYNCING. See that field: a caller may
         // legitimately open on SYNCING before any sync has started, and reading the display state
         // here made the very first sync mistake itself for a duplicate and do nothing.
-        if (syncInFlight) return
+        syncInFlight?.let { running ->
+            // `runCatching`, because this deferred is only ever completed and never failed — but a
+            // waiter must not inherit an exception from a sync it did not start either way.
+            runCatching { running.await() }
+            return
+        }
         val wasOffline = sync == GridlinkSyncState.OFFLINE
         val action = config.sync
-        syncInFlight = true
+        val gate = CompletableDeferred<Unit>()
+        syncInFlight = gate
         sync = GridlinkSyncState.SYNCING
         val succeeded = try {
             if (action == null) {
@@ -246,10 +266,11 @@ class GridlinkChromeState(
             }
         } finally {
             // In a `finally` so a cancelled pull gesture (the composition leaving mid-sync) does not
-            // leave the flag stuck true and every later sync silently dropped. The chip is left
-            // alone on that path on purpose: a cancelled sync has no result to report, and painting
-            // OFFLINE over a healthy mailbox is the failure this whole class is careful about.
-            syncInFlight = false
+            // leave the flag stuck and every later sync silently dropped. The chip is left alone on
+            // that path on purpose: a cancelled sync has no result to report, and painting OFFLINE
+            // over a healthy mailbox is the failure this whole class is careful about.
+            syncInFlight = null
+            gate.complete(Unit)
         }
         if (succeeded) {
             sync = GridlinkSyncState.SYNCED

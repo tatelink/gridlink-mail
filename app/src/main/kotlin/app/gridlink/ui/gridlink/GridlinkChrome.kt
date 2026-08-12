@@ -35,7 +35,10 @@ import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.icons.outlined.MarkEmailRead
+import androidx.compose.material.icons.outlined.MarkEmailUnread
+import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.PeopleOutline
+import androidx.compose.material.icons.outlined.Report
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -519,6 +522,18 @@ enum class GridlinkDestination(
  * Delete / Mark Read". His set has no single-selection member, so the dimmed-Reply state the brief
  * asks for has nothing to apply to and is not built. Bring it back with Reply, not before.
  *
+ * ## 🔴 Six actions, four seats
+ * Brandon, using the app: "multi-mail-selection actions arent working. Everything should be
+ * available: mark as spam, delete, move, archive." Spam was simply missing — there was no way to
+ * report a selection at all — and adding it made six things wanting four places, because the pill
+ * cannot grow (see [GridlinkNavPill]: a fifth item ellipsises the labels, and this pill is drawn at
+ * the width of a folded Fold's cover screen).
+ *
+ * So [inPill] is the split, and it is the same "hide it behind the ... where you have to" he allowed
+ * for the folder lists: Archive, Move and Delete keep their seats, [MORE] opens a sheet, and the
+ * three that read as settings rather than as filing (spam, read, unread) live in it. Nothing was
+ * removed to make room — Mark read is still there, one tap further in, and Mark unread is new.
+ *
  * [destructive] is on exactly one of these. §1 spends red on delete and on nothing else in the
  * entire app, which is what lets a single red glyph carry the warning without extra size or weight.
  */
@@ -526,11 +541,23 @@ enum class GridlinkSelectionAction(
     val label: String,
     val icon: ImageVector,
     val destructive: Boolean = false,
+    /** Whether the toolbar gives this one of its four seats. False = it lives in [MORE]'s sheet. */
+    val inPill: Boolean = true,
 ) {
     ARCHIVE("Archive", Icons.Outlined.Archive),
     MOVE("Move", Icons.Outlined.DriveFileMove),
     DELETE("Delete", Icons.Outlined.Delete, destructive = true),
-    MARK_READ("Mark read", Icons.Outlined.MarkEmailRead),
+
+    /**
+     * 🔴 The one member that writes nothing. It opens the sheet holding the three below, and the
+     * screen that owns the selection is what handles it — the same shape [GridlinkSelectionAction]
+     * .MOVE already has, where the toolbar asks and something else answers.
+     */
+    MORE("More", Icons.Outlined.MoreHoriz),
+
+    SPAM("Mark spam", Icons.Outlined.Report, inPill = false),
+    MARK_READ("Mark read", Icons.Outlined.MarkEmailRead, inPill = false),
+    MARK_UNREAD("Mark unread", Icons.Outlined.MarkEmailUnread, inPill = false),
 }
 
 /**
@@ -613,7 +640,9 @@ fun GridlinkNavPill(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (isSelecting) {
-                    GridlinkSelectionAction.entries.forEach { action ->
+                    // Filtered, for [GridlinkDestination.inPill]'s reason and with the same shape:
+                    // four seats, and what does not fit is reachable rather than gone.
+                    GridlinkSelectionAction.entries.filter { it.inPill }.forEach { action ->
                         GridlinkPillItem(
                             label = action.label,
                             icon = action.icon,
