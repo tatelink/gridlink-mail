@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -46,12 +47,21 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import app.gridlink.R
 import app.gridlink.ui.components.Monogram
+import app.gridlink.ui.theme.GridlinkDimens
+import app.gridlink.ui.theme.GridlinkSpacing
+import java.util.Locale
 
 /**
  * Shared settings component kit (see DESIGN.md → "Settings & secondary screens").
  * Hub and detail screens use these so preferences stay visually consistent:
  * no cards, 16dp margins, icon tint `onSurfaceVariant`, summary in
  * `bodyMedium` / `onSurfaceVariant`, section headers in the single accent.
+ *
+ * 🔴 Every colour and type role below is read through [MaterialTheme], and inside
+ * [app.gridlink.ui.theme.GridlinkMaterialSkin] those roles ARE the Gridlink palette and Outfit. So
+ * this kit is styled by the values it already asks for rather than by rewriting its call sites, and
+ * the metrics here sit on [GridlinkSpacing]'s ladder so the rows match the grammar of the message
+ * list rather than Material's defaults.
  */
 
 /** Hub row: icon · title · value-summary · chevron. Navigates to a detail screen. */
@@ -66,7 +76,10 @@ fun SettingsCategoryRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(
+                horizontal = GridlinkSpacing.rowHorizontal,
+                vertical = GridlinkSpacing.rowVertical,
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -74,7 +87,7 @@ fun SettingsCategoryRow(
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.width(16.dp))
+        Spacer(Modifier.width(GridlinkSpacing.s16))
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
             Text(
@@ -83,13 +96,29 @@ fun SettingsCategoryRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Spacer(Modifier.width(16.dp))
+        Spacer(Modifier.width(GridlinkSpacing.s16))
         Icon(
             Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+    // The list grammar, not Material's: rows are separated by a hairline and nothing else — no
+    // cards, no gaps. A hub of tappable rows that runs edge to edge inside the panel needs the same
+    // rule the message list uses, or the taller ones read as paragraphs rather than as targets.
+    SettingsRowDivider()
+}
+
+/**
+ * The hairline between rows, inset to clear the leading icon column the way the message list's rule
+ * clears the sender bar.
+ */
+@Composable
+internal fun SettingsRowDivider() {
+    HorizontalDivider(
+        thickness = GridlinkDimens.hairline,
+        color = MaterialTheme.colorScheme.outlineVariant,
+    )
 }
 
 /** Accent-tinted header grouping rows in a detail screen. */
@@ -97,10 +126,18 @@ fun SettingsCategoryRow(
 fun SettingsSection(title: String, content: @Composable () -> Unit) {
     Column(Modifier.fillMaxWidth()) {
         Text(
-            title,
-            style = MaterialTheme.typography.labelLarge,
+            // Uppercased here because the caps are content, not a font feature — the rule
+            // [GridlinkType.sectionLabel] is written under, and the reason the same style can hold a
+            // localised string without the caps being baked into the translation.
+            title.uppercase(Locale.getDefault()),
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
+            modifier = Modifier.padding(
+                start = GridlinkSpacing.rowHorizontal,
+                end = GridlinkSpacing.rowHorizontal,
+                top = GridlinkSpacing.s20,
+                bottom = GridlinkSpacing.s8,
+            ),
         )
         content()
     }
@@ -126,7 +163,10 @@ fun SettingSwitch(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(
+                horizontal = GridlinkSpacing.rowHorizontal,
+                vertical = GridlinkSpacing.rowVertical,
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -148,7 +188,7 @@ fun SettingSwitch(
                 )
             }
         }
-        Spacer(Modifier.width(16.dp))
+        Spacer(Modifier.width(GridlinkSpacing.s16))
         Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
@@ -170,7 +210,10 @@ fun <T> SettingChoiceRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { showDialog = true }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(
+                horizontal = GridlinkSpacing.rowHorizontal,
+                vertical = GridlinkSpacing.rowVertical,
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -216,7 +259,10 @@ fun <T> SettingMultiChoiceRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { showDialog = true }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(
+                horizontal = GridlinkSpacing.rowHorizontal,
+                vertical = GridlinkSpacing.rowVertical,
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -302,11 +348,14 @@ fun AccountRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(
+                horizontal = GridlinkSpacing.rowHorizontal,
+                vertical = GridlinkSpacing.rowVertical,
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Monogram(seed = seed, label = label, color = color)
-        Spacer(Modifier.width(16.dp))
+        Spacer(Modifier.width(GridlinkSpacing.s16))
         Column(Modifier.weight(1f)) {
             Text(label, style = MaterialTheme.typography.titleMedium)
             Text(
@@ -323,7 +372,7 @@ fun AccountRow(
             }
         }
         if (isCurrent) {
-            Spacer(Modifier.width(16.dp))
+            Spacer(Modifier.width(GridlinkSpacing.s16))
             Icon(
                 Icons.Filled.Check,
                 contentDescription = stringResource(R.string.settings_current_account),
@@ -331,6 +380,8 @@ fun AccountRow(
             )
         }
     }
+    // A list of accounts is a list, so it takes the same hairline the hub's rows take.
+    SettingsRowDivider()
 }
 
 /** Labelled outlined text field for editable settings (server URL, username, …). */
@@ -367,7 +418,7 @@ fun SettingTextField(
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(horizontal = GridlinkSpacing.rowHorizontal, vertical = GridlinkSpacing.s4),
     )
 }
 
