@@ -209,7 +209,14 @@ fun AppNavHost(
                 // back on the Gridlink form after choosing IMAP would look like the tap was ignored.
                 var advanced by rememberSaveable { mutableStateOf(false) }
                 if (advanced) {
-                    ConnectScreen(onConnected = viewModel::refresh, firstRun = true)
+                    ConnectScreen(
+                        onConnected = viewModel::refresh,
+                        // Back returns to the Gridlink setup form rather than leaving the app: this
+                        // branch was entered by tapping "advanced" on it, and that tap has to be
+                        // reversible for the same reason the hand-off is saveable.
+                        onBack = { advanced = false },
+                        firstRun = true,
+                    )
                 } else {
                     GridlinkSetupHost(
                         onConnected = viewModel::refresh,

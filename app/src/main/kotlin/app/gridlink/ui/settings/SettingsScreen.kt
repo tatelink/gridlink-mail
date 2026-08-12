@@ -262,6 +262,7 @@ fun SettingsScreen(
         }
         composable("addAccount") { entry ->
             ConnectScreen(
+                onBack = { entry.navigateOnce { nav.popBackStack() } },
                 onConnected = {
                     accountsViewModel.refresh()
                     onAccountsChanged()
