@@ -404,6 +404,20 @@ fun GridlinkScaffold(
                     // and watch the app behind it repaint.
                     onSelectMode = chrome::selectMode,
                     counts = chrome.config.menuCounts,
+                    // Published up by whichever [GridlinkRoot] is composed, not passed down by the
+                    // host: the tree is resolved below this point in the tree. See
+                    // [GridlinkChromeState.folders].
+                    folders = chrome.folders,
+                    // Both close FIRST, for the same reason every other row does: a drawer left up
+                    // over the mailbox it just opened is the app talking over itself.
+                    onSelectFolder = {
+                        menuOpen = false
+                        chrome.routeFolder(it.id)
+                    },
+                    onManageFolders = {
+                        menuOpen = false
+                        chrome.routeFolder(null)
+                    },
                     // Closes FIRST, then acts. A row that navigates out from under an open drawer
                     // leaves the drawer up over the thing it just opened; and a row wired to
                     // nothing (which most of them still are) then simply dismisses, which is the
@@ -1053,6 +1067,14 @@ fun GridlinkRoot(
     var sampleFolderTree by remember { mutableStateOf(GridlinkSampleTree.mailboxes) }
     val folderTree = folders?.tree ?: sampleFolderTree
 
+    // 🔴 The drawer's folder list, stated once, here. The drawer is composed by the scaffold, which
+    // is composed by the four screens BELOW this function, so there is no way to pass the tree down
+    // to it; it is published onto the chrome holder instead and read from there. A SideEffect and
+    // not a plain assignment: writing observable state during composition is what makes a frame
+    // depend on the order two composables happened to run in.
+    val chromeHolder = LocalGridlinkChrome.current
+    SideEffect { chromeHolder.folders = folderTree }
+
     /**
      * Which branch the folder tree opens on: the real inbox when there is one, else the sample's.
      *
@@ -1487,6 +1509,25 @@ fun GridlinkRoot(
                     else -> Unit
                 }
                 chromeState.consumeMenuRoute()
+            }
+
+            // The drawer's folder rows, on the same channel and for the same reason. A null id is
+            // Manage folders, which is the folder screen itself; an id opens that mailbox exactly
+            // the way tapping it in the tree does, so the two routes cannot drift apart.
+            LaunchedEffect(chromeState.folderRoute) {
+                val (folderId, _) = chromeState.folderRoute ?: return@LaunchedEffect
+                destination = GridlinkDestination.FOLDERS
+                if (folderId == null) {
+                    // 🔴 Clears any open mailbox. Without this, Manage folders lands on the folder
+                    // screen with the last-opened mailbox's mail still panelled over it, and the row
+                    // the user tapped to go and rename a folder appears to have done nothing.
+                    openFolderId = null
+                    progress.snapTo(0f)
+                } else {
+                    openFolderId = folderId
+                    if (!twoPane) progress.animateTo(1f, GridlinkMotion.standard())
+                }
+                chromeState.consumeFolderRoute()
             }
 
             // The other half of [onEditDraft]'s round trip: the body arrived, open the composer on

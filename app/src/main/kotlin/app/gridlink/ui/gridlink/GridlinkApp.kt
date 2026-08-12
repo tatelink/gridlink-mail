@@ -123,6 +123,45 @@ class GridlinkChromeState(
         menuRoute = null
     }
 
+    /**
+     * The account's mailboxes, as the drawer lists them.
+     *
+     * 🔴 Published UP from [GridlinkRoot] rather than passed DOWN from the host, which is backwards
+     * from everything else on this holder and is the only shape available. The tree is resolved
+     * inside the root (real mailboxes when there are any, the sample tree otherwise), the drawer is
+     * composed by the scaffold, and the scaffold is composed by the four screens *below* the root.
+     * There is no common parent holding the tree, so the root states it here and the drawer reads it.
+     *
+     * Empty is the honest default: before a root has composed, nobody has said what the mailboxes
+     * are, and the drawer draws no folder group at all rather than an empty one.
+     */
+    var folders by mutableStateOf<List<GridlinkFolder>>(emptyList())
+        internal set
+
+    /**
+     * A mailbox the drawer wants opened, or null. [GridlinkFolder.id] of null means "the folder
+     * screen itself" — the drawer's Manage folders row, which is the only route to it now that the
+     * nav pill has no Folders seat.
+     *
+     * Same event-not-fact rules as [menuRoute], including the nonce: tapping the same mailbox twice
+     * has to be two events, or the second tap is equal to the first and is never observed.
+     */
+    var folderRoute by mutableStateOf<Pair<String?, Int>?>(null)
+        private set
+
+    private var folderRouteNonce = 0
+
+    /** Post a mailbox to open, or null for the folder screen. Called by the drawer, on the main thread. */
+    fun routeFolder(id: String?) {
+        folderRouteNonce += 1
+        folderRoute = id to folderRouteNonce
+    }
+
+    /** Mark the pending mailbox wish handled. Idempotent. */
+    fun consumeFolderRoute() {
+        folderRoute = null
+    }
+
     /** What the chrome row's chip says, and the dot beside the address in the menu sheet. */
     var sync by mutableStateOf(initialSync)
         private set
