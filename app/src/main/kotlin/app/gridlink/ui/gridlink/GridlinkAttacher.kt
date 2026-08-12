@@ -47,6 +47,21 @@ interface GridlinkAttacher {
     suspend fun stage(uri: Uri): GridlinkAttachment
 
     /**
+     * Take over the files already hanging on the saved draft [emailId], and return their chips.
+     *
+     * 🔴 This is what stops resuming a draft from destroying its attachment. A saved draft is
+     * reopened with [GridlinkComposeDraft.draftEmailId] set, which makes the next save a REPLACE of
+     * the server copy — so a composer that came back holding no files replaces a message that had
+     * one with a message that has none, and the file is gone with no error and nothing to undo. The
+     * chips have to come back, and something has to be holding the parts behind them.
+     *
+     * Returns empty for a draft with nothing attached, and for a build with no engine. Throws with a
+     * showable message when a file that IS there cannot be taken over, for [stage]'s reason: coming
+     * back one file short is the failure this whole thing exists to prevent.
+     */
+    suspend fun adopt(emailId: String): List<GridlinkAttachment>
+
+    /**
      * Whether this attacher has a file behind [attachment].
      *
      * Pure and fast, because [GridlinkSender.check] runs on the send tap, on the main thread, over
@@ -115,16 +130,8 @@ class GridlinkFileAttacher(
         } ?: error("Couldn't read $name.")
 
         val part = if (credentials.protocol == MailProtocol.IMAP) {
-            val safe = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
-            val file = withContext(Dispatchers.IO) {
-                File(context.cacheDir, "outgoing").apply { mkdirs() }
-                    // Nano-time prefixed so two files sharing a name cannot overwrite each other in
-                    // the staging dir, which the outbox copies out of at enqueue.
-                    .let { File(it, "${System.nanoTime()}-$safe") }
-                    .apply { writeBytes(bytes) }
-            }
             EmailBodyPart(
-                partId = file.absolutePath,
+                partId = spool(name, bytes).absolutePath,
                 type = type,
                 size = bytes.size.toLong(),
                 name = name,
@@ -133,13 +140,45 @@ class GridlinkFileAttacher(
         } else {
             repository.uploadAttachment(credentials, bytes, type, name)
         }
-        val id = "staged:${counter.incrementAndGet()}"
-        staged[id] = part
-        return GridlinkAttachment(
-            name = name,
-            size = Formatter.formatShortFileSize(context, bytes.size.toLong()),
-            id = id,
-        )
+        return keep(part, name, bytes.size.toLong())
+    }
+
+    override suspend fun adopt(emailId: String): List<GridlinkAttachment> {
+        val credentials = accounts.load() ?: error("No account to reopen that draft's files from.")
+        // Cheap: the draft's body was fetched moments ago to rebuild the composer, and this reads
+        // it back out of the same cache. `markRead = false` for the reason the draft fetch has it —
+        // resuming your own draft must not flip it to read on the server.
+        val body = repository.openMessage(credentials, emailId, markRead = false)
+        // Same filter the reader's chips use: a part with a Content-ID is an image the body draws
+        // inline, and re-attaching one as a file would grow a paperclip the draft never had.
+        val parts = body.email.attachments.filter { it.cid.isNullOrBlank() }
+        return parts.map { part ->
+            val name = part.name?.takeIf { it.isNotBlank() } ?: "attachment"
+            // The outgoing ceiling, not the download one: this file is about to be sent again, and a
+            // draft written by a client with a bigger limit must fail here rather than at delivery.
+            DownloadLimits.enforce(part.size, OutgoingLimits.ATTACHMENT_MAX_BYTES)
+            val held = if (credentials.protocol == MailProtocol.IMAP) {
+                // 🔴 IMAP has to come down and go back up. The part's `partId` is a SECTION NUMBER
+                // in the stored message, and the IMAP delivery path reads `partId` as a local file
+                // path — handing it the section would have the outbox try to read a file called "2".
+                val bytes = repository.downloadAttachment(
+                    credentials, part, emailId, OutgoingLimits.ATTACHMENT_MAX_BYTES,
+                )
+                EmailBodyPart(
+                    partId = spool(name, bytes).absolutePath,
+                    type = part.type,
+                    size = bytes.size.toLong(),
+                    name = name,
+                    disposition = "attachment",
+                )
+            } else {
+                // JMAP needs nothing: the blob is already on the server and the id in this part is
+                // what the next send would reference anyway. Re-uploading it would spend a round
+                // trip to arrive at the same blob.
+                part
+            }
+            keep(held, name, held.size)
+        }
     }
 
     override fun holds(attachment: GridlinkAttachment): Boolean = staged.containsKey(attachment.id)
@@ -148,4 +187,27 @@ class GridlinkFileAttacher(
         attachments.map { attachment ->
             staged[attachment.id] ?: error("${attachment.name} has no file behind it.")
         }
+
+    /** Record [part] under a fresh id and return the chip that points at it. */
+    private fun keep(part: EmailBodyPart, name: String, size: Long): GridlinkAttachment {
+        val id = "staged:${counter.incrementAndGet()}"
+        staged[id] = part
+        return GridlinkAttachment(
+            name = name,
+            size = Formatter.formatShortFileSize(context, size),
+            id = id,
+        )
+    }
+
+    /** [bytes] parked in the outgoing staging dir, which is where IMAP delivery reads them from. */
+    private suspend fun spool(name: String, bytes: ByteArray): File {
+        val safe = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        return withContext(Dispatchers.IO) {
+            File(context.cacheDir, "outgoing").apply { mkdirs() }
+                // Nano-time prefixed so two files sharing a name cannot overwrite each other in the
+                // staging dir, which the outbox copies out of at enqueue.
+                .let { File(it, "${System.nanoTime()}-$safe") }
+                .apply { writeBytes(bytes) }
+        }
+    }
 }
