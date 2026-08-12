@@ -41,16 +41,34 @@ Tier 0 closes here.
 The standing rule, and the reason the document picker came out of the save flow. Two screens still
 break it, and both are reachable in normal use.
 
-3. **Settings, restyled into the Gridlink layer.** Currently upstream Sterna: wrong type scale,
+3. ✅ **Settings, restyled into the Gridlink layer.** Currently upstream Sterna: wrong type scale,
    wrong spacing, wrong colour.
-4. **Setup / connect, same.** First thing a new user sees.
-5. **Retire the dead upstream screens.** `AppNavHost.kt:306` already marks `ui/inbox` unreachable
+4. ✅ **Setup / connect, same.** First thing a new user sees.
+5. ✅ **Retire the dead upstream screens.** `AppNavHost.kt:306` already marks `ui/inbox` unreachable
    for a signed-in user. `ui/message`, `ui/compose`, `ui/connect`, `ui/settings`, `ui/inbox`,
    `ui/components/EmailListItem.kt` are a second parallel UI carrying its own bugs and its own
    translation load. Delete what nothing reaches, once 3 and 4 replace what does.
 
 Doing 5 after 3 and 4 is deliberate: the density setting in Phase 4 is only worth building against
 one list, and this decides which list survives.
+
+### What item 5 left owing
+
+Deleting `MainNavHost` and its seven packages did not break anything a signed-in user can reach, but
+it did make two pre-existing gaps impossible to keep ignoring. Neither was CAUSED by the deletion:
+Gridlink's own composer and list were already the only ones running.
+
+- **Snooze and outbox went with it.** `ui/snoozed`, `ui/outbox` and `ui/scheduled` were screens over
+  data layers that are still there and still working (the scheduler still fires, the outbox table
+  still holds unsent mail). What is gone is the only UI that showed them. Gridlink needs its own if
+  we want them back; the retired screens are readable in the commit before this one.
+- **Settings that nothing reads.** Configurable today, inert today, because the Gridlink composer
+  and list never ask for them: the whole signature group (signature, below-quote, delimiter, on
+  replies), swipe left/right actions, message text size, confirm links, strip tracking params, and
+  contact suggestions. The signature helpers were kept out of the retired composer for exactly this
+  reason (`ui/settings/SignatureText.kt`) — a Gridlink composer should call them rather than spell
+  the delimiter out a second time. Until then these switches are a promise the app does not keep,
+  and either the feature lands or the switch comes off the screen.
 
 ## Phase 3 — Tier 1, the differentiators
 

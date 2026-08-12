@@ -1,6 +1,5 @@
 package app.gridlink.ui.settings
 
-import app.gridlink.ui.compose.bodyWithSignature
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull

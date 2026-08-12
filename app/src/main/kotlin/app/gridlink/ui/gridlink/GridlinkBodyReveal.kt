@@ -1,4 +1,4 @@
-package app.gridlink.ui.message
+package app.gridlink.ui.gridlink
 
 /** What one tick of the body height poll decides (see [BodyReveal.step]). */
 internal sealed interface HeightPoll {

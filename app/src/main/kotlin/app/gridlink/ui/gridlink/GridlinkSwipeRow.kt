@@ -52,8 +52,6 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
-import app.gridlink.ui.inbox.SwipeLock
-import app.gridlink.ui.inbox.swipeDirectionLock
 import app.gridlink.ui.theme.GridlinkMotion
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkSwipe
@@ -566,4 +564,44 @@ fun ColumnScope.GridlinkSwipeableRow(
             divider()
         }
     }
+}
+
+/** Horizontal travel must exceed touch-slop x this before a swipe locks in. */
+private const val SWIPE_SLOP_FACTOR = 1.5f
+
+/**
+ * How decisively horizontal a drag must be to arm a swipe: |dx| must reach this
+ * multiple of |dy|. A plain 1:1 lead (Codeberg #97) armed too eagerly: an arc that
+ * begins with a slight sideways nudge then curves vertical would momentarily satisfy
+ * |dx| > |dy| and fire archive/delete when the user meant to scroll. Requiring |dx| to
+ * be at least twice |dy| means a mostly-vertical arc scrolls, while a deliberate
+ * sideways swipe (which is near-flat, |dy| ~ 0) still arms on a normal short drag.
+ * The same ratio gates the vertical veto below, so the two decisions stay complementary.
+ */
+private const val SWIPE_HORIZONTAL_DOMINANCE = 2.0f
+
+/** Outcome of this row's direction lock for the accumulated drag (dx, dy). */
+internal enum class SwipeLock { PENDING, HORIZONTAL, VERTICAL }
+
+/**
+ * Three-way direction lock evaluated on each accumulated drag delta.
+ *
+ * - VERTICAL: vertical travel has cleared the slop and horizontal does NOT dominate
+ *   (|dx| < |dy| x [SWIPE_HORIZONTAL_DOMINANCE]) so abandon to the list's scroll. This
+ *   fires as soon as a meaningful vertical component appears, even while dx currently
+ *   leads, which is what rejects the mostly-vertical arc of Codeberg #97.
+ * - HORIZONTAL: horizontal travel has cleared slop x [SWIPE_SLOP_FACTOR] AND decisively
+ *   dominates (|dx| >= |dy| x [SWIPE_HORIZONTAL_DOMINANCE]) so arm the swipe.
+ * - PENDING: neither yet, keep accumulating.
+ *
+ * Vertical is checked first so an ambiguous diagonal resolves to scroll, never a swipe.
+ *
+ * Lived in the upstream list until that list was retired; this row is now its only caller.
+ */
+internal fun swipeDirectionLock(dx: Float, dy: Float, slop: Float): SwipeLock {
+    val ax = abs(dx)
+    val ay = abs(dy)
+    if (ay > slop && ax < ay * SWIPE_HORIZONTAL_DOMINANCE) return SwipeLock.VERTICAL
+    if (ax > slop * SWIPE_SLOP_FACTOR && ax >= ay * SWIPE_HORIZONTAL_DOMINANCE) return SwipeLock.HORIZONTAL
+    return SwipeLock.PENDING
 }

@@ -145,19 +145,12 @@ class NavHostSourceRulesTest {
         assertTrue("motion not gated on the reduced-motion setting: $ungated", ungated.isEmpty())
     }
 
-    /**
-     * The reader's fade must test the crash sentinel FIRST: on devices latched after the #10
-     * GL-functor SIGSEGV, a running fade over a hardware WebView is a hard crash, not a taste.
-     */
-    @Test
-    fun `the crash sentinel still short-circuits the reader fade`() {
-        val text = source("app/gridlink/ui/AppNavHost.kt").readText()
-        assertTrue(
-            "the #10 latch must come first in both reader fade lambdas",
-            "if (messageFadeDisabled || !motionEnabled) EnterTransition.None" in text &&
-                "if (messageFadeDisabled || !motionEnabled) ExitTransition.None" in text,
-        )
-    }
+    // The reader-fade rule that used to sit here went with the route it guarded. It required the
+    // #10 crash sentinel to be tested first in both of the message route's transition lambdas; that
+    // route, those lambdas and the sentinel itself were all part of the upstream reader, retired
+    // with the rest of that UI. Gridlink's reader does not fade a hardware WebView through an
+    // offscreen layer, which is the only thing that could reach the GL-functor SIGSEGV. Rewriting
+    // the rule against a fade nobody performs would be a green check on nothing.
 
     private fun navGraphs() = listOf(
         source("app/gridlink/ui/AppNavHost.kt"),

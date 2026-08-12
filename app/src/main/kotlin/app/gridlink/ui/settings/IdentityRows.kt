@@ -1,7 +1,5 @@
 package app.gridlink.ui.settings
 
-import app.gridlink.ui.compose.SIGNATURE_DELIMITER
-import app.gridlink.ui.compose.signatureBlock
 
 /**
  * Display rules for the Identities editor: which row opens on entry, what a collapsed row says
