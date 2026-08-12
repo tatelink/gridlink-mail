@@ -28,7 +28,7 @@ import app.gridlink.ui.theme.GridlinkType
 import kotlinx.coroutines.launch
 
 /**
- * The mail inside one folder, opened by tapping it in the tree.
+ * The mail inside one folder, opened from the drawer or from the tree.
  *
  * ## 🔴 A folder is its contents, not a properties sheet
  * Brandon picked this over a panel describing the folder, and the choice decides the whole screen: a
@@ -58,10 +58,22 @@ import kotlinx.coroutines.launch
  * above never arises: the row is hidden locally the moment it is acted on and the next sync is what
  * makes that permanent.
  *
- * 🔴 Tapping a row hands off to the Inbox tab with the thread open, the same move the contact card and
- * the event card make. Opening a thread inside this panel would put a third screen on the detail
- * layer, and the paint order this app relies on (destination, detail, composer) only holds while each
- * layer is one screen deep.
+ * ## 🔴 This screen is a LIST PANE, not a detail panel
+ * Brandon, 2026-08-12: "theres some glitching with the folders, its still showing in the left window
+ * pane even when its in the sidebar menu now." Until this change a folder opened as a *detail* over
+ * the Folders tab, so the left pane went on painting the mailbox tree that had just been moved into
+ * the drawer, and you were looking at the same list twice.
+ *
+ * A folder is a mailbox, so it now opens the way the Inbox opens: this screen IS the left pane, with
+ * the app's own frame around it ([GridlinkScaffold] — chrome row, nav pill, reading pane), and threads
+ * open beside it in [sidePane]. The tree survives behind "Manage folders", which is the one place it
+ * is the thing you came to look at.
+ *
+ * ⚠️ Consequence worth stating: tapping a message here does NOT hand off to the Inbox tab any more,
+ * which is what it used to do and what the contact and event cards still do. That hand-off existed
+ * because a thread could not open on top of a detail panel without stacking two screens on one layer.
+ * There is no such stack now — the folder is the destination and the thread is its detail, the same
+ * shape the Inbox has always had — so the tap keeps you in the mailbox you are reading.
  *
  * ## Empty is a real state here, unlike in the inbox
  * Six of the sample's mailboxes have nothing in them, because Sent, Trash, Junk and the archive years
@@ -72,10 +84,16 @@ import kotlinx.coroutines.launch
 @Composable
 fun GridlinkFolderMailScreen(
     folder: GridlinkFolder,
-    onBack: () -> Unit,
     onOpenMessage: (GridlinkMessage) -> Unit,
+    /**
+     * The tab the nav pill should light, which is always [GridlinkDestination.FOLDERS]: a mailbox is
+     * the folder tab's business even when the tree is not the thing on screen. Taken as a parameter
+     * rather than hard-coded for the reason every other screen takes it — the pill is state the app
+     * owns, and a screen that asserted its own tab would be a second opinion about where you are.
+     */
+    destination: GridlinkDestination,
+    onSelectDestination: (GridlinkDestination) -> Unit,
     modifier: Modifier = Modifier,
-    embedded: Boolean = false,
     /**
      * The real mail in this mailbox, or null to draw [GridlinkSampleFolders]'.
      *
@@ -110,6 +128,15 @@ fun GridlinkFolderMailScreen(
      * inbox's toolbar makes, for the same reason.
      */
     onMoveMessage: ((GridlinkMessage) -> Unit)? = null,
+    onCompose: () -> Unit = {},
+    /** §7's reading pane, or null when the window is too narrow for one. */
+    sidePane: (@Composable () -> Unit)? = null,
+    /**
+     * The message the reading pane is showing, so its row can be marked. 🔴 Null in one pane, the same
+     * rule the inbox and the tree follow: a row marked open for a panel that is not on screen is a row
+     * that looks stuck.
+     */
+    currentId: String? = null,
 ) {
     val chrome = LocalGridlinkChrome.current
     val scope = rememberCoroutineScope()
@@ -146,46 +173,42 @@ fun GridlinkFolderMailScreen(
             .groupBy { it.gridlinkFolderSection() }
     }
 
-    GridlinkDetailFrame(
-        title = folder.name,
-        onBack = onBack,
-        modifier = modifier,
-        embedded = embedded,
-        // 🔴 Null, and this is the case [GridlinkDetailFrame] wrote that parameter for. Compose is the
-        // only action a folder list could honestly offer, and it is already the tab's own control; the
-        // rest (mark all read) would be a write this fork cannot make. Empty IS wired now, and it is
-        // deliberately not down here: see [titleAction] below.
-        bottom = null,
-        // Beside the name, which is where Brandon asked for it and also the only place it reads
-        // correctly. The bottom pill is the row of things you do to the mail you are looking AT; this
-        // is a thing you do to the FOLDER, and the folder is what the title names.
-        //
-        // ⚠️ Hidden on a folder that already shows nothing. There is no work for it to do, and a
-        // destructive control sitting over the words "Nothing in Deleted Items" is an invitation to
-        // find out what it does.
-        titleAction = if (emptiable && onEmpty != null && sections.isNotEmpty()) {
-            {
-                GridlinkDetailTextAction(
-                    label = "Empty",
-                    icon = Icons.Outlined.DeleteSweep,
-                    onClick = { confirmingEmpty = true },
-                    tint = GridlinkTheme.colors.destructive,
-                )
-            }
-        } else {
-            null
-        },
-    ) {
+    // The Empty control, hoisted out of the frame because both frames want it in the same place
+    // relative to the folder's name: beside it. In the detail frame that is [titleAction]; in the app
+    // frame the name is on the chrome row, so it is the row's trailing seat. Same control, same
+    // sentence, and a null here is the honest "there is nothing to empty" in both.
+    //
+    // ⚠️ Hidden on a folder that already shows nothing. There is no work for it to do, and a
+    // destructive control sitting over the words "Nothing in Deleted Items" is an invitation to find
+    // out what it does.
+    val emptyAction: (@Composable () -> Unit)? = if (emptiable && onEmpty != null && sections.isNotEmpty()) {
+        {
+            GridlinkDetailTextAction(
+                label = "Empty",
+                icon = Icons.Outlined.DeleteSweep,
+                onClick = { confirmingEmpty = true },
+                tint = GridlinkTheme.colors.destructive,
+            )
+        }
+    } else {
+        null
+    }
+
+    /**
+     * The list itself, drawn identically in both frames.
+     *
+     * 🔴 If/else rather than the early `return@GridlinkDetailFrame` this used to be. A `return@label`
+     * binds to one frame's lambda, so it cannot be shared, and duplicating the three states per frame
+     * is exactly the drift this hoist exists to prevent.
+     */
+    val body: @Composable () -> Unit = {
         // 🔴 Before the empty state, not after it. A mailbox other than the Inbox is routinely in
         // the folder table with nothing cached, because nothing has ever fetched it; saying
         // "Nothing in Sent" while that fetch is still out is the app asserting something it has not
         // checked. See [GridlinkOpenFolder.loading].
         if (loading) {
             GridlinkListSkeleton()
-            return@GridlinkDetailFrame
-        }
-
-        if (sections.isEmpty()) {
+        } else if (sections.isEmpty()) {
             GridlinkEmptyInbox(
                 sync = chrome.sync,
                 lastSyncedAt = chrome.lastSyncedAt,
@@ -195,50 +218,74 @@ fun GridlinkFolderMailScreen(
                 // and the tree beside it are both on screen and only one of them is being talked about.
                 headline = "Nothing in ${folder.name}",
             )
-            return@GridlinkDetailFrame
-        }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .gridlinkEdgeFade(),
+                flingBehavior = rememberGridlinkFlingBehavior(),
+                contentPadding = PaddingValues(
+                    top = GridlinkDimens.listFade,
+                    bottom = GridlinkDimens.listFade,
+                ),
+            ) {
+                // ⚠️ Driven by the enum's own order rather than by the map's, so the headings run TODAY,
+                // YESTERDAY, EARLIER whatever order the messages happened to be filed in. AUTOMATED is
+                // filtered out on principle as well as in practice: `gridlinkFolderSection` never returns
+                // it, and this says why rather than relying on the reader to go and check.
+                GridlinkSection.entries
+                    .filter { it != GridlinkSection.AUTOMATED }
+                    .forEach { section ->
+                        val inSection = sections[section].orEmpty()
+                        if (inSection.isEmpty()) return@forEach
 
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .gridlinkEdgeFade(),
-            flingBehavior = rememberGridlinkFlingBehavior(),
-            contentPadding = PaddingValues(
-                top = GridlinkDimens.listFade,
-                bottom = GridlinkDimens.listFade,
-            ),
-        ) {
-            // ⚠️ Driven by the enum's own order rather than by the map's, so the headings run TODAY,
-            // YESTERDAY, EARLIER whatever order the messages happened to be filed in. AUTOMATED is
-            // filtered out on principle as well as in practice: `gridlinkFolderSection` never returns
-            // it, and this says why rather than relying on the reader to go and check.
-            GridlinkSection.entries
-                .filter { it != GridlinkSection.AUTOMATED }
-                .forEach { section ->
-                    val inSection = sections[section].orEmpty()
-                    if (inSection.isEmpty()) return@forEach
-
-                    item(key = "label-${section.name}") {
-                        GridlinkSectionLabel(section.label)
-                    }
-                    items(items = inSection, key = { it.id }) { message ->
-                        Column {
-                            GridlinkMessageRow(
-                                message = message,
-                                onClick = { onOpenMessage(message) },
-                                // 🔴 Null when nothing can carry an action out, so the gesture does
-                                // not respond at all rather than opening a sheet of dead rows.
-                                onLongClick = if (onMailAction != null) {
-                                    { actionOn = message }
-                                } else {
-                                    null
-                                },
-                            )
-                            GridlinkRowDivider(startInset = GridlinkSpacing.rowHorizontal)
+                        item(key = "label-${section.name}") {
+                            GridlinkSectionLabel(section.label)
+                        }
+                        items(items = inSection, key = { it.id }) { message ->
+                            Column {
+                                GridlinkMessageRow(
+                                    message = message,
+                                    onClick = { onOpenMessage(message) },
+                                    current = message.id == currentId,
+                                    // 🔴 Null when nothing can carry an action out, so the gesture does
+                                    // not respond at all rather than opening a sheet of dead rows.
+                                    onLongClick = if (onMailAction != null) {
+                                        { actionOn = message }
+                                    } else {
+                                        null
+                                    },
+                                )
+                                GridlinkRowDivider(startInset = GridlinkSpacing.rowHorizontal)
+                            }
                         }
                     }
-                }
+            }
         }
+    }
+
+    GridlinkScaffold(
+        modifier = modifier,
+        destination = destination,
+        onSelectDestination = onSelectDestination,
+        onCompose = onCompose,
+        sidePane = sidePane,
+        // Beside the name, which is where Brandon asked for it and also the only place it reads
+        // correctly. The nav pill is the row of places you can go; this is a thing you do to the
+        // FOLDER, and the folder is what the chrome row's title names.
+        trailing = emptyAction,
+        header = {
+            GridlinkHeader(
+                title = folder.name,
+                unread = folder.unread,
+                // 🔴 No count of what is listed. The list holds what has been cached, which on a
+                // mailbox nothing has fully fetched is a fraction of what is really there, so a
+                // number under the name would be the app being precise about a figure it made up.
+                subline = null,
+            )
+        },
+    ) {
+        body()
     }
 
     actionOn?.let { message ->

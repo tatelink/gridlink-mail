@@ -1045,6 +1045,18 @@ fun GridlinkRoot(
     var openFolderId by rememberSaveable(initialFolderId) { mutableStateOf(initialFolderId) }
 
     /**
+     * Which door the open mailbox was walked through, because back has to lead where you came from.
+     *
+     * 🔴 A mailbox has two entrances now. From the drawer it is a destination in its own right, the way
+     * the Inbox is, so leaving it goes to the Inbox; from "Manage folders" it is a row in a tree that
+     * is still the thing you were looking at, so leaving it goes back to that tree. Same screen, same
+     * state, two exits, and without this the app has to guess — which in practice means the tree
+     * appears after a drawer tap, and the "still showing in the left window pane" complaint that
+     * started this work comes straight back.
+     */
+    var folderFromTree by rememberSaveable(initialFolderId) { mutableStateOf(false) }
+
+    /**
      * The folder tree, which [GridlinkFolderScreen] used to own privately.
      *
      * 🔴 It had to come up here the moment a folder could be opened. [openFolderId] is an id, and an
@@ -1374,7 +1386,12 @@ fun GridlinkRoot(
         GridlinkDestination.INBOX -> open?.let(GridlinkDetail::Thread)
         GridlinkDestination.CONTACTS -> openContact?.let(GridlinkDetail::Contact)
         GridlinkDestination.CALENDAR -> openEvent?.let(GridlinkDetail::Event)
-        GridlinkDestination.FOLDERS -> openFolder?.let(GridlinkDetail::Folder)
+        // 🔴 A THREAD, not the folder. The folder itself is no longer a detail layer: it is the list
+        // pane, exactly as the Inbox is, so what floats over it is the message you tapped in it. The
+        // `openFolder != null` guard is what keeps a thread left open in a folder from painting over
+        // the bare tree after the folder is closed.
+        GridlinkDestination.FOLDERS ->
+            if (openFolder != null) open?.let(GridlinkDetail::Thread) else null
     }
 
     // Seeded from the RESTORED ids rather than from the parameters, so a detail that survived the
@@ -1406,7 +1423,6 @@ fun GridlinkRoot(
             is GridlinkDetail.Thread -> openId = null
             is GridlinkDetail.Contact -> openContactId = null
             is GridlinkDetail.Event -> openEventId = null
-            is GridlinkDetail.Folder -> openFolderId = null
             null -> Unit
         }
     }
@@ -1513,7 +1529,14 @@ fun GridlinkRoot(
                             ?.let { drafts ->
                                 destination = GridlinkDestination.FOLDERS
                                 openFolderId = drafts.id
-                                if (!twoPane) progress.animateTo(1f, GridlinkMotion.standard())
+                                folderFromTree = false
+                                // 🔴 No entrance animation any more, and no open thread carried in.
+                                // A mailbox is a LIST PANE now rather than a panel that slides over
+                                // one, so there is nothing to slide; and `openId` is shared with the
+                                // Inbox, so a thread left open there would paint straight over the
+                                // mailbox the user just asked for.
+                                openId = null
+                                progress.snapTo(0f)
                             }
                     }
                     GridlinkMenuItem.SCHEDULED -> scheduledOpen = true
@@ -1536,7 +1559,13 @@ fun GridlinkRoot(
                     progress.snapTo(0f)
                 } else {
                     openFolderId = folderId
-                    if (!twoPane) progress.animateTo(1f, GridlinkMotion.standard())
+                    // 🔴 From the DRAWER, so back leaves for the Inbox rather than revealing a tree
+                    // the user never opened. See [folderFromTree].
+                    folderFromTree = false
+                    // Same two reasons as the Drafts route above: nothing slides, and the Inbox's
+                    // open thread must not follow the user into a different mailbox.
+                    openId = null
+                    progress.snapTo(0f)
                 }
                 chromeState.consumeFolderRoute()
             }
@@ -1660,6 +1689,23 @@ fun GridlinkRoot(
                     detail == null && selectedIds.isEmpty() && !formOpen,
             ) {
                 destination = GridlinkDestination.INBOX
+            }
+
+            /**
+             * Leave an open mailbox, by whichever door it was entered. See [folderFromTree].
+             *
+             * 🔴 Registered AFTER the tab handler above and BEFORE the detail handlers below, and that
+             * is the whole of its behaviour: back callbacks fire most-recently-added first, so an open
+             * thread is peeled off first, then the mailbox, and only then does the app go home. Reading
+             * a message in Archive and pressing back three times walks that path in the order the user
+             * built it, which is the only order that does not feel like the app skipped a screen.
+             */
+            BackHandler(
+                enabled = destination == GridlinkDestination.FOLDERS && openFolderId != null &&
+                    detail == null && selectedIds.isEmpty() && !formOpen,
+            ) {
+                openFolderId = null
+                if (!folderFromTree) destination = GridlinkDestination.INBOX
             }
 
             if (twoPane) {
@@ -1894,88 +1940,6 @@ fun GridlinkRoot(
                         },
                         embedded = embedded,
                     )
-
-                    is GridlinkDetail.Folder -> GridlinkFolderMailScreen(
-                        folder = current.folder,
-                        mail = folders?.open,
-                        onBack = { if (embedded) clearDetail(current) else closeDetail() },
-                        // The third screen to make this hand-off, and the reason has not changed: reading
-                        // mail means being on the tab that reads mail. ⚠️ It is the most tempting one to
-                        // do differently, because a folder list and a thread genuinely could nest, and
-                        // that is exactly what "paint order is the stack" cannot survive. The folder stays
-                        // open behind it, so Folders is where you left it when you come back.
-                        //
-                        // 🔴 Except in Drafts, where a tap RESUMES rather than reads. A draft opened
-                        // as a thread would be a read-only page of your own unfinished sentence with
-                        // Reply buttons on it, and — worse than useless — opening it live would mark
-                        // your own draft read. Live drafts round-trip through [onEditDraft] because
-                        // the body has to be fetched; the sample opens directly on what the row has.
-                        onOpenMessage = { message ->
-                            if (current.folder.role == GridlinkFolderRole.DRAFTS) {
-                                if (folders == null) {
-                                    composing = GridlinkComposeRequest(
-                                        draft = GridlinkComposeDraft(
-                                            title = "Draft",
-                                            // The recipient the row itself just named. Left empty,
-                                            // the composer would open on a blank To field one tap
-                                            // after a line reading "To Sysco Charlotte", which is
-                                            // the app contradicting itself inside one gesture.
-                                            // The address book wins where it knows them.
-                                            recipients = message.sentTo?.let { to ->
-                                                listOfNotNull(
-                                                    GridlinkSampleContacts
-                                                        .forSender(to.name, to.domain)
-                                                        ?: gridlinkTypedRecipient(to.address),
-                                                )
-                                            }.orEmpty(),
-                                            recipientQuery = "",
-                                            subject = message.subject,
-                                            // Fixture bodies are HTML by construction and the
-                                            // composer is a plain-text field, so flatten.
-                                            body = HtmlCompat.fromHtml(
-                                                message.body,
-                                                HtmlCompat.FROM_HTML_MODE_COMPACT,
-                                            ).toString().trim(),
-                                            quoted = null,
-                                            attachments = emptyList(),
-                                        ),
-                                    )
-                                } else {
-                                    onEditDraft(message.id)
-                                }
-                            } else {
-                                destination = GridlinkDestination.INBOX
-                                openId = message.id
-                                filedOpenId = null
-                                // The same call the inbox rows make, and just as required here: the
-                                // row carries headers only, so without it the thread opens to a
-                                // blank page and the message stays unread on the server.
-                                onOpenMail(message.id)
-                                if (!twoPane) scope.launch { progress.snapTo(1f) }
-                            }
-                        },
-                        embedded = embedded,
-                        // Bound to the folder that is OPEN, not to the one the callback is handed
-                        // later: `current` is captured here, so an Empty confirmed on Junk can never
-                        // be carried out against whatever folder the tree has moved on to.
-                        onEmpty = onEmptyFolder?.let { empty -> { empty(current.folder.id) } },
-                        // 🔴 Straight through to the host, with no `fileOpenThread` in between. That
-                        // helper exists to file the message the DETAIL layer is showing and it calls
-                        // `closeDetail()` on the way out — here the detail layer IS this folder list,
-                        // so routing through it would close the mailbox the moment you archived one
-                        // message in it. The row's own local hiding is what stands in for the
-                        // list-collapse that helper buys elsewhere.
-                        //
-                        // Gated on a live account for the reason the whole screen is: with the sample
-                        // behind it nothing can carry a Delete out, and [GridlinkFolderMailScreen]
-                        // does not open the sheet at all rather than offering one that lies.
-                        onMailAction = if (folders != null) onMailAction else null,
-                        onMoveMessage = if (folders != null) {
-                            { message -> movingFromFolder = message.id }
-                        } else {
-                            null
-                        },
-                    )
                 }
             }
 
@@ -1990,7 +1954,12 @@ fun GridlinkRoot(
                 GridlinkDestination.INBOX -> "Select a message"
                 GridlinkDestination.CONTACTS -> "Select a contact"
                 GridlinkDestination.CALENDAR -> "Select an event"
-                GridlinkDestination.FOLDERS -> "Select a folder"
+                // 🔴 Two answers on one tab, because the tab now has two screens. Standing in a
+                // mailbox the pane is waiting for a message, exactly as it is on the Inbox; standing
+                // in the tree it is waiting for a mailbox. One label for both would be wrong half the
+                // time, and it is wrong about the only instruction the empty pane gives.
+                GridlinkDestination.FOLDERS ->
+                    if (openFolder != null) "Select a message" else "Select a folder"
             }
             val readingPane: (@Composable () -> Unit)? =
                 if (twoPane) {
@@ -2159,43 +2128,159 @@ fun GridlinkRoot(
                             onMove = onMove,
                         )
 
-                        GridlinkDestination.FOLDERS -> GridlinkFolderScreen(
-                            destination = destination,
-                            onSelectDestination = { destination = it },
-                            tree = folderTree,
-                            // 🔴 Dropped on the floor when a real account is behind the tree, and
-                            // that is the whole of the no-optimistic-overlay decision above. The
-                            // edit still happens: [onEdit] below is what performs it, and the tree
-                            // redraws from the server's own answer.
-                            onTreeChange = { if (folders == null) sampleFolderTree = it },
-                            onEdit = onFolderEdit,
-                            loading = folders?.loading == true,
-                            // The account's inbox, once there is one to name. The parameter's
-                            // default is the sample's literal "inbox" id, which no real server ever
-                            // uses, so without this a signed-in user opens the tab on a tree that is
-                            // entirely collapsed and has to expand the inbox by hand every time.
-                            initiallyExpanded = folderInitiallyExpanded,
-                            onCompose = { composing = GridlinkComposeRequest.Fresh },
-                            initialActionFolderId = initialFolderActionId,
-                            initialStage = initialFolderStage,
-                            initialCreateUnder = initialCreateUnder,
-                            initialDragFolderId = initialDragFolderId,
-                            initialDropTargetId = initialDropTargetId,
-                            sidePane = readingPane,
-                            // Same rule as the other three lists: only in two panes, or the marked row
-                            // sits under a full-screen panel and just looks stuck.
-                            currentId = if (twoPane) openFolderId else null,
-                            onOpenFolder = { folder ->
-                                openFolderId = folder.id
-                                // 🔴 No animation in two panes, for the reason none of the others run one
-                                // either: the panel is not travelling anywhere, and playing the entrance
-                                // would slide it in from off-screen every time you tapped a different
-                                // mailbox in a tree sitting right beside it.
-                                if (!twoPane) {
-                                    scope.launch { progress.animateTo(1f, GridlinkMotion.standard()) }
-                                }
-                            },
-                        )
+                        // 🔴 One destination, two screens, and which one shows depends on whether a
+                        // mailbox is open. That fork is the fix for "its still showing in the left
+                        // window pane even when its in the sidebar menu now": a folder tapped in the
+                        // drawer REPLACES the tree in this pane instead of panelling itself over it,
+                        // so the mailbox list exists in exactly one place at a time. The tree is what
+                        // you get when nothing is open, which is what "Manage folders" asks for.
+                        GridlinkDestination.FOLDERS -> if (openFolder != null) {
+                            GridlinkFolderMailScreen(
+                                folder = openFolder,
+                                mail = folders?.open,
+                                destination = destination,
+                                // 🔴 Tapping Folders while INSIDE a mailbox goes up to the tree
+                                // rather than doing nothing. The pill is already lit for this tab,
+                                // so a plain re-select would be the one tap on it with no effect;
+                                // treating it as "up" gives the tree a route back that does not
+                                // depend on the hardware back gesture.
+                                onSelectDestination = { picked ->
+                                    if (picked == GridlinkDestination.FOLDERS) {
+                                        openFolderId = null
+                                        folderFromTree = true
+                                    } else {
+                                        destination = picked
+                                    }
+                                },
+                                onCompose = { composing = GridlinkComposeRequest.Fresh },
+                                sidePane = readingPane,
+                                // Same rule as every other list: only in two panes, or the marked
+                                // row sits under a full-screen thread and just looks stuck.
+                                currentId = if (twoPane) visibleOpenId else null,
+                                // 🔴 Stays in the mailbox. This used to jump to the Inbox tab
+                                // because the folder was itself a detail panel and a thread could
+                                // not stack on top of one; the folder is the destination now, so
+                                // the thread opens over it exactly as it does over the Inbox.
+                                //
+                                // Except in Drafts, where a tap RESUMES rather than reads. A draft
+                                // opened as a thread would be a read-only page of your own
+                                // unfinished sentence with Reply buttons on it, and, worse than
+                                // useless, opening it live would mark your own draft read. Live
+                                // drafts round-trip through [onEditDraft] because the body has to
+                                // be fetched; the sample opens directly on what the row has.
+                                onOpenMessage = { message ->
+                                    if (openFolder.role == GridlinkFolderRole.DRAFTS) {
+                                        if (folders == null) {
+                                            composing = GridlinkComposeRequest(
+                                                draft = GridlinkComposeDraft(
+                                                    title = "Draft",
+                                                    // The recipient the row itself just named. Left
+                                                    // empty, the composer would open on a blank To
+                                                    // field one tap after a line reading "To Sysco
+                                                    // Charlotte", which is the app contradicting
+                                                    // itself inside one gesture. The address book
+                                                    // wins where it knows them.
+                                                    recipients = message.sentTo?.let { to ->
+                                                        listOfNotNull(
+                                                            GridlinkSampleContacts
+                                                                .forSender(to.name, to.domain)
+                                                                ?: gridlinkTypedRecipient(to.address),
+                                                        )
+                                                    }.orEmpty(),
+                                                    recipientQuery = "",
+                                                    subject = message.subject,
+                                                    // Fixture bodies are HTML by construction and
+                                                    // the composer is a plain-text field, so flatten.
+                                                    body = HtmlCompat.fromHtml(
+                                                        message.body,
+                                                        HtmlCompat.FROM_HTML_MODE_COMPACT,
+                                                    ).toString().trim(),
+                                                    quoted = null,
+                                                    attachments = emptyList(),
+                                                ),
+                                            )
+                                        } else {
+                                            onEditDraft(message.id)
+                                        }
+                                    } else {
+                                        openId = message.id
+                                        filedOpenId = null
+                                        // The same call the inbox rows make, and just as required
+                                        // here: the row carries headers only, so without it the
+                                        // thread opens to a blank page and the message stays unread
+                                        // on the server.
+                                        onOpenMail(message.id)
+                                        if (!twoPane) {
+                                            scope.launch {
+                                                progress.animateTo(1f, GridlinkMotion.standard())
+                                            }
+                                        }
+                                    }
+                                },
+                                // Bound to the folder that is OPEN, not to the one the callback is
+                                // handed later: `openFolder` is captured here, so an Empty confirmed
+                                // on Junk can never be carried out against whatever folder the tree
+                                // has moved on to.
+                                onEmpty = onEmptyFolder?.let { empty -> { empty(openFolder.id) } },
+                                // 🔴 Straight through to the host, with no `fileOpenThread` in
+                                // between. That helper files the message the DETAIL layer is showing
+                                // and calls `closeDetail()` on the way out, which here would close
+                                // the THREAD every time you archived a row in the list behind it.
+                                // The row's own local hiding is what stands in for the list-collapse
+                                // that helper buys elsewhere.
+                                //
+                                // Gated on a live account for the reason the whole screen is: with
+                                // the sample behind it nothing can carry a Delete out, and
+                                // [GridlinkFolderMailScreen] does not open the sheet at all rather
+                                // than offering one that lies.
+                                onMailAction = if (folders != null) onMailAction else null,
+                                onMoveMessage = if (folders != null) {
+                                    { message -> movingFromFolder = message.id }
+                                } else {
+                                    null
+                                },
+                            )
+                        } else {
+                            GridlinkFolderScreen(
+                                destination = destination,
+                                onSelectDestination = { destination = it },
+                                tree = folderTree,
+                                // 🔴 Dropped on the floor when a real account is behind the tree, and
+                                // that is the whole of the no-optimistic-overlay decision above. The
+                                // edit still happens: [onEdit] below is what performs it, and the tree
+                                // redraws from the server's own answer.
+                                onTreeChange = { if (folders == null) sampleFolderTree = it },
+                                onEdit = onFolderEdit,
+                                loading = folders?.loading == true,
+                                // The account's inbox, once there is one to name. The parameter's
+                                // default is the sample's literal "inbox" id, which no real server ever
+                                // uses, so without this a signed-in user opens the tab on a tree that is
+                                // entirely collapsed and has to expand the inbox by hand every time.
+                                initiallyExpanded = folderInitiallyExpanded,
+                                onCompose = { composing = GridlinkComposeRequest.Fresh },
+                                initialActionFolderId = initialFolderActionId,
+                                initialStage = initialFolderStage,
+                                initialCreateUnder = initialCreateUnder,
+                                initialDragFolderId = initialDragFolderId,
+                                initialDropTargetId = initialDropTargetId,
+                                sidePane = readingPane,
+                                // Same rule as the other three lists: only in two panes, or the marked row
+                                // sits under a full-screen panel and just looks stuck.
+                                currentId = if (twoPane) openFolderId else null,
+                                onOpenFolder = { folder ->
+                                    openFolderId = folder.id
+                                    // 🔴 From the TREE, so back comes back here rather than dropping
+                                    // the user on the Inbox. See [folderFromTree].
+                                    folderFromTree = true
+                                    // No entrance animation in either layout any more. The mailbox is
+                                    // not a panel arriving over this screen, it IS this pane a moment
+                                    // later, and sliding a list pane in from off-screen is an
+                                    // animation about a stack that no longer exists.
+                                    openId = null
+                                    scope.launch { progress.snapTo(0f) }
+                                },
+                            )
+                        }
 
                         // Calendar and Contacts deliberately do NOT open the composer. Their compose button
                         // is already a "+" that promises a new appointment or a new contact, and having it
@@ -2530,9 +2615,11 @@ sealed interface GridlinkCreation {
  * code that draws a detail is handed the thing it draws instead of looking it up again. The lookup
  * happens exactly once, where the id lives.
  *
- * ⚠️ [Folder] resolves against the scaffold's editable tree rather than against [GridlinkSampleTree],
- * which is what lets a deleted mailbox close its own panel: the lookup simply stops finding it, this
- * value goes null, and every branch that asks about it agrees on the same frame.
+ * ⚠️ There is deliberately no `Folder` here any more. A mailbox used to be a fourth kind of detail,
+ * panelled over the folder tree, and that is exactly what produced Brandon's "its still showing in the
+ * left window pane even when its in the sidebar menu now" on 2026-08-12: the tree stayed on screen
+ * underneath it. A folder is a LIST now, drawn in the list pane like the Inbox, so what floats over it
+ * on the Folders tab is a [Thread] — the same detail the Inbox has, resolved from the same [openId].
  */
 private sealed interface GridlinkDetail {
     data class Thread(val message: GridlinkMessage) : GridlinkDetail
@@ -2540,6 +2627,4 @@ private sealed interface GridlinkDetail {
     data class Contact(val contact: GridlinkContact) : GridlinkDetail
 
     data class Event(val event: GridlinkEvent) : GridlinkDetail
-
-    data class Folder(val folder: GridlinkFolder) : GridlinkDetail
 }

@@ -372,8 +372,9 @@ fun GridlinkSyncChip(
  * [MenuFolders]) and the nav pill gave up its Folders seat, so there is still exactly one place to
  * go looking for a mailbox. The rows in this enum are what is left that is not one.
  *
- * 🔴 Declaration order is the render order, and [MAILBOX_ITEMS] is what splits the list into its two
- * groups. Anything added here that is not named in that list falls into the lower group by default
+ * 🔴 Declaration order is the render order WITHIN a group, and [MAILBOX_ITEMS] is what splits the
+ * list. [SETTINGS] is drawn out of order, pinned at the top of the panel beside the appearance
+ * control; everything else not named in that list falls into the group at the bottom by default
  * rather than disappearing, which is the failure mode worth designing against: a menu row that
  * compiles and is simply never drawn.
  */
@@ -389,7 +390,13 @@ enum class GridlinkMenuItem(
     SETTINGS("Settings", Icons.Outlined.Settings),
 }
 
-/** The mailboxes, which sit above the appearance control. Everything else sits below it. */
+/**
+ * The two rows that are mailboxes rather than places, drawn as their own group under the folder tree.
+ *
+ * ⚠️ This no longer means "above the appearance control". Appearance and Settings were pinned to the
+ * top of the drawer on 2026-08-12, so this list is now only the split between the mailbox group and
+ * the leftovers below it.
+ */
 private val MAILBOX_ITEMS = listOf(GridlinkMenuItem.SCHEDULED, GridlinkMenuItem.DRAFTS)
 
 /**
@@ -528,6 +535,20 @@ fun GridlinkMenuPanel(
             }
         }
 
+        // 🔴 Directly under the account row, above everything else. Brandon, 2026-08-12: "pin
+        // appearance, auto, and settings at the top of the sidebar below accounts." They used to sit
+        // at the bottom, which was fine while the drawer held four rows and became wrong the moment
+        // folders moved into it: a mailbox tree is as long as the account has mailboxes, so the two
+        // controls that are not mail were pushed off the bottom of a scrolling panel on any real
+        // account. The things that are always the same distance away belong where the drawer opens.
+        GridlinkSheetDivider()
+        GridlinkModeRow(
+            mode = mode,
+            followingClock = followingClock,
+            onSelect = onSelectMode,
+        )
+        MenuRow(GridlinkMenuItem.SETTINGS, counts, accountCount, onSelect)
+
         if (folders.isNotEmpty()) {
             GridlinkSheetDivider()
             MenuFolders(folders, onSelectFolder, onManageFolders)
@@ -536,16 +557,12 @@ fun GridlinkMenuPanel(
         GridlinkSheetDivider()
         MAILBOX_ITEMS.forEach { item -> MenuRow(item, counts, accountCount, onSelect) }
 
-        GridlinkSheetDivider()
-        GridlinkModeRow(
-            mode = mode,
-            followingClock = followingClock,
-            onSelect = onSelectMode,
-        )
-
+        // Whatever is left over, which today is Accounts alone. ⚠️ Written as a subtraction rather
+        // than a literal list so a row added to [GridlinkMenuItem] still appears somewhere: the
+        // failure mode this file already warns about is a menu row that compiles and is never drawn.
         GridlinkSheetDivider()
         GridlinkMenuItem.entries
-            .filter { it !in MAILBOX_ITEMS }
+            .filter { it !in MAILBOX_ITEMS && it != GridlinkMenuItem.SETTINGS }
             .forEach { item -> MenuRow(item, counts, accountCount, onSelect) }
     }
 }
