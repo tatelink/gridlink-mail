@@ -1,4 +1,4 @@
-package app.gridlink.ui.connect
+﻿package app.gridlink.ui.connect
 
 import android.content.Intent
 import android.net.Uri
@@ -43,7 +43,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -51,7 +50,6 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -88,9 +86,12 @@ import app.gridlink.R
 import app.gridlink.ui.components.AppPasswordHelpLink
 import app.gridlink.ui.components.PendingImportAccountsSection
 import app.gridlink.ui.components.autofill
+import app.gridlink.ui.gridlink.GridlinkDetailFrame
 import app.gridlink.ui.rememberLeaveOnce
 import app.gridlink.ui.settings.SettingsViewModel
 import app.gridlink.ui.settings.applyAppLanguage
+import app.gridlink.ui.theme.GridlinkMaterialSkin
+import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.util.isValidEmail
 import app.gridlink.core.data.account.AuthType
 import app.gridlink.core.data.account.ConnectionSecurity
@@ -108,6 +109,13 @@ private const val SRV_LOOKUP_TYPING_PAUSE_MS = 700L
 @Composable
 fun ConnectScreen(
     onConnected: () -> Unit,
+    /**
+     * Where the frame's back control goes. Required rather than defaulted, because this screen is
+     * now drawn in [GridlinkDetailFrame] and that frame always has a way out — a control that goes
+     * nowhere would be worse than the Material top bar it replaced. Both callers have a real answer:
+     * settings pops the entry, and the first-run advanced branch returns to the Gridlink setup form.
+     */
+    onBack: () -> Unit,
     firstRun: Boolean = false,
     viewModel: ConnectViewModel = viewModel(),
 ) {
@@ -269,395 +277,413 @@ fun ConnectScreen(
         preset.imapHost, preset.imapPort, preset.smtpHost, preset.smtpPort,
     )
 
-    Scaffold(
-        topBar = { TopAppBar(title = { Text(stringResource(R.string.connect_add_account)) }) },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                // Keep the form scrollable above the keyboard so the focused field (password…)
-                // stays visible while typing (#52) — same recipe as the compose screen.
-                .imePadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+    // The app's own frame, not a Material scaffold: this screen is reached from the Gridlink setup
+    // form and from Gridlink's settings, and a Material top bar in the middle of either flow reads
+    // as a different app. The skin around it does the rest — see [GridlinkMaterialSkin], and the
+    // matching change to Settings' DetailScaffold.
+    GridlinkMaterialSkin {
+        GridlinkDetailFrame(
+            title = stringResource(R.string.connect_add_account),
+            onBack = onBack,
+            // The form's own Connect button is the action, and it lives in the scroll with the
+            // fields it depends on. Nothing is held back for an action row.
+            bottom = null,
         ) {
-            val focusManager = LocalFocusManager.current
-            val awaiting = state as? ConnectState.AwaitingApproval
-            if (awaiting != null) {
-                DeviceApprovalPanel(awaiting, onCancel = viewModel::cancelOAuth)
-                return@Column
-            }
-            (importSignIn as? ConnectViewModel.ImportSignIn.Listing)?.let { listing ->
-                val sel = listing.selected
-                if (sel == null) {
-                    Spacer(Modifier.height(8.dp))
-                    // The section renders its own "Accounts to sign in" header (shared with
-                    // Settings → Backup), so no extra title here.
-                    PendingImportAccountsSection(
-                        // Re-read the StoredAccounts each recomposition (driven by importSignIn) so the
-                        // list reflects the just-signed-in / dismissed accounts dropping off.
-                        accounts = viewModel.pendingStoredAccounts,
-                        onSignIn = { viewModel.selectImportAccount(it.id) },
-                        onDismiss = { dismissWithUndo(it) },
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    // Keep the form scrollable above the keyboard so the focused field (password…)
+                    // stays visible while typing (#52) — same recipe as the compose screen.
+                    .imePadding()
+                    .verticalScroll(rememberScrollState())
+                    .padding(
+                        horizontal = GridlinkSpacing.chrome,
+                        vertical = GridlinkSpacing.s12,
+                    ),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                val focusManager = LocalFocusManager.current
+                val awaiting = state as? ConnectState.AwaitingApproval
+                if (awaiting != null) {
+                    DeviceApprovalPanel(awaiting, onCancel = viewModel::cancelOAuth)
+                    return@Column
+                }
+                (importSignIn as? ConnectViewModel.ImportSignIn.Listing)?.let { listing ->
+                    val sel = listing.selected
+                    if (sel == null) {
+                        Spacer(Modifier.height(8.dp))
+                        // The section renders its own "Accounts to sign in" header (shared with
+                        // Settings → Backup), so no extra title here.
+                        PendingImportAccountsSection(
+                            // Re-read the StoredAccounts each recomposition (driven by importSignIn) so the
+                            // list reflects the just-signed-in / dismissed accounts dropping off.
+                            accounts = viewModel.pendingStoredAccounts,
+                            onSignIn = { viewModel.selectImportAccount(it.id) },
+                            onDismiss = { dismissWithUndo(it) },
+                        )
+                        // Always offer the normal add-account form from here (same button as
+                        // Settings → Accounts). When every imported account is still deferred there
+                        // is no signed-in account, so nothing else on screen leads to adding one —
+                        // without this exit the listing was an onboarding dead end.
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = viewModel::leaveImportListing,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Filled.Add, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.connect_add_account))
+                        }
+                    } else {
+                        ImportAccountSignIn(sel, viewModel)
+                    }
+                    return@Column
+                }
+                if (firstRun) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        stringResource(R.string.connect_welcome_title),
+                        style = MaterialTheme.typography.headlineSmall,
                     )
-                    // Always offer the normal add-account form from here (same button as
-                    // Settings → Accounts). When every imported account is still deferred there
-                    // is no signed-in account, so nothing else on screen leads to adding one —
-                    // without this exit the listing was an onboarding dead end.
-                    Spacer(Modifier.height(8.dp))
-                    Button(
-                        onClick = viewModel::leaveImportListing,
+                    Text(
+                        stringResource(R.string.connect_welcome_subtitle),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                // Reached from the pending-imports list via its "Add account" exit (or after dismissing
+                // the last pending row): while deferred imported accounts remain, offer the way back to
+                // their sign-in list so leaving it is never one-way either.
+                if (viewModel.pendingStoredAccounts.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    OutlinedButton(
+                        onClick = viewModel::resumeImportSignIn,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Icon(Icons.Filled.Add, contentDescription = null)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.connect_add_account))
+                        Text(stringResource(R.string.import_pending_title))
                     }
-                } else {
-                    ImportAccountSignIn(sel, viewModel)
                 }
-                return@Column
-            }
-            if (firstRun) {
+                // Import entry points, shown whenever adding an account (not just first run): migrating
+                // from K-9 / Thunderbird or a Gridlink backup belongs here, where people add accounts, not
+                // buried in Settings → Backup.
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    stringResource(R.string.connect_welcome_title),
-                    style = MaterialTheme.typography.headlineSmall,
-                )
-                Text(
-                    stringResource(R.string.connect_welcome_subtitle),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            // Reached from the pending-imports list via its "Add account" exit (or after dismissing
-            // the last pending row): while deferred imported accounts remain, offer the way back to
-            // their sign-in list so leaving it is never one-way either.
-            if (viewModel.pendingStoredAccounts.isNotEmpty()) {
-                Spacer(Modifier.height(4.dp))
+                Text(stringResource(R.string.connect_import_header), style = MaterialTheme.typography.labelLarge)
                 OutlinedButton(
-                    onClick = viewModel::resumeImportSignIn,
+                    onClick = {
+                        importK9Launcher.launch(
+                            arrayOf("application/octet-stream", "text/xml", "application/xml", "*/*"),
+                        )
+                    },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                    Icon(Icons.Filled.SettingsBackupRestore, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.import_pending_title))
+                    Text(stringResource(R.string.connect_import_k9))
                 }
-            }
-            // Import entry points, shown whenever adding an account (not just first run): migrating
-            // from K-9 / Thunderbird or a Gridlink backup belongs here, where people add accounts, not
-            // buried in Settings → Backup.
-            Spacer(Modifier.height(4.dp))
-            Text(stringResource(R.string.connect_import_header), style = MaterialTheme.typography.labelLarge)
-            OutlinedButton(
-                onClick = {
-                    importK9Launcher.launch(
-                        arrayOf("application/octet-stream", "text/xml", "application/xml", "*/*"),
-                    )
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(Icons.Filled.SettingsBackupRestore, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.connect_import_k9))
-            }
-            OutlinedButton(
-                onClick = {
-                    importSettingsLauncher.launch(
-                        arrayOf("application/json", "application/octet-stream", "text/plain"),
-                    )
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(Icons.Filled.SettingsBackupRestore, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.connect_import_settings))
-            }
-            Text(stringResource(R.string.connect_protocol), style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = protocol == MailProtocol.JMAP,
+                OutlinedButton(
                     onClick = {
-                        protocol = MailProtocol.JMAP
-                        // Leaving IMAP disarms an OAuth preset, so Connect can't still be
-                        // pointing at the Microsoft flow while the screen says JMAP (#105).
-                        preset = presetForProtocol(preset, MailProtocol.JMAP)
+                        importSettingsLauncher.launch(
+                            arrayOf("application/json", "application/octet-stream", "text/plain"),
+                        )
                     },
-                    label = { Text(stringResource(R.string.connect_jmap)) },
-                )
-                FilterChip(
-                    selected = protocol == MailProtocol.IMAP,
-                    onClick = {
-                        protocol = MailProtocol.IMAP
-                        preset = presetForProtocol(preset, MailProtocol.IMAP)
-                    },
-                    label = { Text(stringResource(R.string.connect_imap_smtp)) },
-                )
-            }
-
-            if (protocol == MailProtocol.JMAP) {
-                Text(stringResource(R.string.connect_auth_method), style = MaterialTheme.typography.labelLarge)
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Filled.SettingsBackupRestore, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.connect_import_settings))
+                }
+                Text(stringResource(R.string.connect_protocol), style = MaterialTheme.typography.labelLarge)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
-                        selected = !useApiToken,
-                        onClick = { useApiToken = false },
-                        label = { Text(stringResource(R.string.connect_password)) },
+                        selected = protocol == MailProtocol.JMAP,
+                        onClick = {
+                            protocol = MailProtocol.JMAP
+                            // Leaving IMAP disarms an OAuth preset, so Connect can't still be
+                            // pointing at the Microsoft flow while the screen says JMAP (#105).
+                            preset = presetForProtocol(preset, MailProtocol.JMAP)
+                        },
+                        label = { Text(stringResource(R.string.connect_jmap)) },
                     )
                     FilterChip(
-                        selected = useApiToken,
-                        onClick = { useApiToken = true },
-                        label = { Text(stringResource(R.string.connect_auth_api_token)) },
+                        selected = protocol == MailProtocol.IMAP,
+                        onClick = {
+                            protocol = MailProtocol.IMAP
+                            preset = presetForProtocol(preset, MailProtocol.IMAP)
+                        },
+                        label = { Text(stringResource(R.string.connect_imap_smtp)) },
                     )
                 }
-                Text(
-                    stringResource(
-                        if (useApiToken) R.string.connect_api_token_hint else R.string.connect_jmap_autodiscover_hint,
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                // Fastmail's JMAP endpoint refuses password (Basic) auth — API tokens only
-                // (#54) — so steer its users to the token option before they hit the 401.
-                if (!useApiToken && isFastmailTarget(username, server)) {
-                    Surface(
-                        shape = MaterialTheme.shapes.small,
-                        color = MaterialTheme.colorScheme.tertiaryContainer,
-                    ) {
-                        Text(
-                            stringResource(R.string.connect_fastmail_token_hint),
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+
+                if (protocol == MailProtocol.JMAP) {
+                    Text(stringResource(R.string.connect_auth_method), style = MaterialTheme.typography.labelLarge)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = !useApiToken,
+                            onClick = { useApiToken = false },
+                            label = { Text(stringResource(R.string.connect_password)) },
+                        )
+                        FilterChip(
+                            selected = useApiToken,
+                            onClick = { useApiToken = true },
+                            label = { Text(stringResource(R.string.connect_auth_api_token)) },
                         )
                     }
-                }
-                TextButton(
-                    onClick = { showAdvanced = !showAdvanced },
-                    contentPadding = PaddingValues(0.dp),
-                ) {
                     Text(
                         stringResource(
-                            if (showAdvanced) R.string.connect_advanced_hide else R.string.connect_advanced_show,
+                            if (useApiToken) R.string.connect_api_token_hint else R.string.connect_jmap_autodiscover_hint,
                         ),
-                    )
-                }
-                if (showAdvanced) {
-                    OutlinedTextField(
-                        value = server,
-                        onValueChange = { server = it },
-                        label = { Text(stringResource(R.string.connect_jmap_server)) },
-                        placeholder = { Text(stringResource(R.string.connect_jmap_server_placeholder)) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            } else {
-                Text(stringResource(R.string.connect_provider_preset), style = MaterialTheme.typography.labelLarge)
-                Row(
-                    Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    MAIL_PROVIDERS.forEach { provider ->
-                        // FilterChip, not AssistChip: the selected provider is visible, and
-                        // tapping it again lets go of it. Outlook used to be a one-way door —
-                        // it hid the server fields with nothing on screen to bring them back
-                        // (#105).
-                        FilterChip(
-                            selected = preset.selected == provider.name,
-                            onClick = { preset = presetChipTapped(preset, provider) },
-                            label = { Text(provider.name) },
-                        )
-                    }
-                }
-                // Outlook signs in by OAuth, so the app-password note and the manual
-                // server/port fields don't apply — hide them while it's selected.
-                if (preset.serverFieldsVisible) {
-                    Text(
-                        stringResource(R.string.connect_provider_app_password_note),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    // Selected preset needs an app-specific password (Gmail…): one tap to
-                    // the provider's page to create one, since their normal password is refused.
-                    preset.appPasswordUrl?.let { url ->
-                        TextButton(
-                            onClick = {
-                                leaveOnce {
-                                    runCatching {
-                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                                    }.isSuccess
-                                }
-                            },
-                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                    // Fastmail's JMAP endpoint refuses password (Basic) auth — API tokens only
+                    // (#54) — so steer its users to the token option before they hit the 401.
+                    if (!useApiToken && isFastmailTarget(username, server)) {
+                        Surface(
+                            shape = MaterialTheme.shapes.small,
+                            color = MaterialTheme.colorScheme.tertiaryContainer,
                         ) {
-                            Icon(
-                                Icons.Filled.OpenInNew,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
+                            Text(
+                                stringResource(R.string.connect_fastmail_token_hint),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
                             )
-                            Spacer(Modifier.width(6.dp))
-                            Text(stringResource(R.string.connect_app_password_help))
                         }
                     }
-
-                    Text(stringResource(R.string.connect_incoming_imap), style = MaterialTheme.typography.labelLarge)
-                    HostPortRow(
-                        host = preset.imapHost, onHost = { preset = preset.copy(imapHost = it) },
-                        port = preset.imapPort, onPort = { preset = preset.copy(imapPort = it) },
-                        hostPlaceholder = stringResource(R.string.connect_imap_host_placeholder),
-                    )
-                    SecurityChips(preset.imapSecurity) { preset = preset.copy(imapSecurity = it) }
-
-                    Text(stringResource(R.string.connect_outgoing_smtp), style = MaterialTheme.typography.labelLarge)
-                    HostPortRow(
-                        host = preset.smtpHost, onHost = { preset = preset.copy(smtpHost = it) },
-                        port = preset.smtpPort, onPort = { preset = preset.copy(smtpPort = it) },
-                        hostPlaceholder = stringResource(R.string.connect_smtp_host_placeholder),
-                    )
-                    SecurityChips(preset.smtpSecurity) { preset = preset.copy(smtpSecurity = it) }
-
-                    // Fields that fill themselves in are unsettling without a reason on screen, and
-                    // these are a claim the domain's DNS makes, not something that has been dialled
-                    // yet. Say both: where they came from, and that they can be changed.
-                    srvAppliedFor?.let { domain ->
+                    TextButton(
+                        onClick = { showAdvanced = !showAdvanced },
+                        contentPadding = PaddingValues(0.dp),
+                    ) {
                         Text(
-                            stringResource(R.string.connect_srv_found, domain),
+                            stringResource(
+                                if (showAdvanced) R.string.connect_advanced_hide else R.string.connect_advanced_show,
+                            ),
+                        )
+                    }
+                    if (showAdvanced) {
+                        OutlinedTextField(
+                            value = server,
+                            onValueChange = { server = it },
+                            label = { Text(stringResource(R.string.connect_jmap_server)) },
+                            placeholder = { Text(stringResource(R.string.connect_jmap_server_placeholder)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                } else {
+                    Text(stringResource(R.string.connect_provider_preset), style = MaterialTheme.typography.labelLarge)
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        MAIL_PROVIDERS.forEach { provider ->
+                            // FilterChip, not AssistChip: the selected provider is visible, and
+                            // tapping it again lets go of it. Outlook used to be a one-way door —
+                            // it hid the server fields with nothing on screen to bring them back
+                            // (#105).
+                            FilterChip(
+                                selected = preset.selected == provider.name,
+                                onClick = { preset = presetChipTapped(preset, provider) },
+                                label = { Text(provider.name) },
+                            )
+                        }
+                    }
+                    // Outlook signs in by OAuth, so the app-password note and the manual
+                    // server/port fields don't apply — hide them while it's selected.
+                    if (preset.serverFieldsVisible) {
+                        Text(
+                            stringResource(R.string.connect_provider_app_password_note),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        // Selected preset needs an app-specific password (Gmail…): one tap to
+                        // the provider's page to create one, since their normal password is refused.
+                        preset.appPasswordUrl?.let { url ->
+                            TextButton(
+                                onClick = {
+                                    leaveOnce {
+                                        runCatching {
+                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                        }.isSuccess
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                            ) {
+                                Icon(
+                                    Icons.Filled.OpenInNew,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(stringResource(R.string.connect_app_password_help))
+                            }
+                        }
+
+                        Text(stringResource(R.string.connect_incoming_imap), style = MaterialTheme.typography.labelLarge)
+                        HostPortRow(
+                            host = preset.imapHost, onHost = { preset = preset.copy(imapHost = it) },
+                            port = preset.imapPort, onPort = { preset = preset.copy(imapPort = it) },
+                            hostPlaceholder = stringResource(R.string.connect_imap_host_placeholder),
+                        )
+                        SecurityChips(preset.imapSecurity) { preset = preset.copy(imapSecurity = it) }
+
+                        Text(stringResource(R.string.connect_outgoing_smtp), style = MaterialTheme.typography.labelLarge)
+                        HostPortRow(
+                            host = preset.smtpHost, onHost = { preset = preset.copy(smtpHost = it) },
+                            port = preset.smtpPort, onPort = { preset = preset.copy(smtpPort = it) },
+                            hostPlaceholder = stringResource(R.string.connect_smtp_host_placeholder),
+                        )
+                        SecurityChips(preset.smtpSecurity) { preset = preset.copy(smtpSecurity = it) }
+
+                        // Fields that fill themselves in are unsettling without a reason on screen, and
+                        // these are a claim the domain's DNS makes, not something that has been dialled
+                        // yet. Say both: where they came from, and that they can be changed.
+                        srvAppliedFor?.let { domain ->
+                            Text(
+                                stringResource(R.string.connect_srv_found, domain),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
-            }
 
-            // One container for the whole credential block (fields + action buttons): revealing it
-            // as a unit brings ALL of it above the keyboard when it fits, so the next field and
-            // the Connect button are reachable without dismissing the keyboard first.
-            Column(
-                modifier = Modifier.bringIntoViewRequester(credentialReveal.block),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                OutlinedTextField(
-                    value = accountName,
-                    onValueChange = { accountName = it },
-                    label = { Text(stringResource(R.string.connect_account_name_optional)) },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
-                    modifier = Modifier.fillMaxWidth().credentialField(credentialReveal),
-                )
-                // Flag an obviously malformed email (missing @ or a too-short/absent extension) as the
-                // user types, without hard-blocking: some IMAP servers accept a non-email username.
-                val emailLooksInvalid = username.isNotBlank() && !isValidEmail(username)
-                OutlinedTextField(
-                    value = username,
-                    onValueChange = { username = it },
-                    label = { Text(stringResource(R.string.connect_email_username)) },
-                    singleLine = true,
-                    isError = emailLooksInvalid,
-                    supportingText = if (emailLooksInvalid) {
-                        { Text(stringResource(R.string.connect_email_invalid)) }
-                    } else {
-                        null
-                    },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
-                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
-                    modifier = Modifier.fillMaxWidth().credentialField(credentialReveal).autofill(
-                        listOf(AutofillType.EmailAddress, AutofillType.Username),
-                    ) { username = it },
-                )
-                // In API-token mode this same secret field holds the token (labelled accordingly).
-                val tokenMode = route == ConnectRoute.JMAP_TOKEN
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = {
-                        Text(
-                            stringResource(
-                                if (tokenMode) R.string.connect_auth_api_token else R.string.connect_password,
-                            ),
-                        )
-                    },
-                    singleLine = true,
-                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                            Icon(
-                                if (passwordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                                contentDescription = stringResource(
-                                    if (passwordVisible) R.string.connect_password_hide else R.string.connect_password_show,
+                // One container for the whole credential block (fields + action buttons): revealing it
+                // as a unit brings ALL of it above the keyboard when it fits, so the next field and
+                // the Connect button are reachable without dismissing the keyboard first.
+                Column(
+                    modifier = Modifier.bringIntoViewRequester(credentialReveal.block),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    OutlinedTextField(
+                        value = accountName,
+                        onValueChange = { accountName = it },
+                        label = { Text(stringResource(R.string.connect_account_name_optional)) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                        keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+                        modifier = Modifier.fillMaxWidth().credentialField(credentialReveal),
+                    )
+                    // Flag an obviously malformed email (missing @ or a too-short/absent extension) as the
+                    // user types, without hard-blocking: some IMAP servers accept a non-email username.
+                    val emailLooksInvalid = username.isNotBlank() && !isValidEmail(username)
+                    OutlinedTextField(
+                        value = username,
+                        onValueChange = { username = it },
+                        label = { Text(stringResource(R.string.connect_email_username)) },
+                        singleLine = true,
+                        isError = emailLooksInvalid,
+                        supportingText = if (emailLooksInvalid) {
+                            { Text(stringResource(R.string.connect_email_invalid)) }
+                        } else {
+                            null
+                        },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+                        keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+                        modifier = Modifier.fillMaxWidth().credentialField(credentialReveal).autofill(
+                            listOf(AutofillType.EmailAddress, AutofillType.Username),
+                        ) { username = it },
+                    )
+                    // In API-token mode this same secret field holds the token (labelled accordingly).
+                    val tokenMode = route == ConnectRoute.JMAP_TOKEN
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = {
+                            Text(
+                                stringResource(
+                                    if (tokenMode) R.string.connect_auth_api_token else R.string.connect_password,
                                 ),
                             )
-                        }
-                    },
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Password,
-                        imeAction = ImeAction.Done,
-                    ),
-                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
-                    modifier = Modifier.fillMaxWidth().credentialField(credentialReveal)
-                        .autofill(listOf(AutofillType.Password)) { password = it },
-                )
-                val busy = state is ConnectState.Connecting || state is ConnectState.Discovering
-                Button(
-                    onClick = {
-                        when (route) {
-                            ConnectRoute.OUTLOOK_OAUTH -> viewModel.connectOutlookOAuth(username, accountName)
-                            ConnectRoute.JMAP_TOKEN -> viewModel.connectToken(server, username, password, accountName)
-                            ConnectRoute.JMAP_AUTODISCOVER -> viewModel.connectAuto(username, password, accountName)
-                            ConnectRoute.JMAP_SERVER -> viewModel.connect(server, username, password, accountName)
-                            ConnectRoute.IMAP_PASSWORD -> viewModel.connectImap(
-                                username, password, accountName,
-                                preset.imapHost, preset.imapPort.toInt(), preset.imapSecurity,
-                                preset.smtpHost, preset.smtpPort.toInt(), preset.smtpSecurity,
-                            )
-                        }
-                    },
-                    enabled = !busy && ready,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        when (state) {
-                            is ConnectState.Discovering -> stringResource(R.string.connect_discovering)
-                            is ConnectState.Connecting -> stringResource(R.string.connect_connecting)
-                            else -> stringResource(R.string.connect_connect)
                         },
+                        singleLine = true,
+                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                Icon(
+                                    if (passwordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                    contentDescription = stringResource(
+                                        if (passwordVisible) R.string.connect_password_hide else R.string.connect_password_show,
+                                    ),
+                                )
+                            }
+                        },
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Done,
+                        ),
+                        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                        modifier = Modifier.fillMaxWidth().credentialField(credentialReveal)
+                            .autofill(listOf(AutofillType.Password)) { password = it },
                     )
-                }
-
-                if (protocol == MailProtocol.JMAP && !useApiToken) {
-                    TextButton(
-                        onClick = { viewModel.connectOAuth(username, server, accountName) },
-                        enabled = !busy && username.isNotBlank(),
+                    val busy = state is ConnectState.Connecting || state is ConnectState.Discovering
+                    Button(
+                        onClick = {
+                            when (route) {
+                                ConnectRoute.OUTLOOK_OAUTH -> viewModel.connectOutlookOAuth(username, accountName)
+                                ConnectRoute.JMAP_TOKEN -> viewModel.connectToken(server, username, password, accountName)
+                                ConnectRoute.JMAP_AUTODISCOVER -> viewModel.connectAuto(username, password, accountName)
+                                ConnectRoute.JMAP_SERVER -> viewModel.connect(server, username, password, accountName)
+                                ConnectRoute.IMAP_PASSWORD -> viewModel.connectImap(
+                                    username, password, accountName,
+                                    preset.imapHost, preset.imapPort.toInt(), preset.imapSecurity,
+                                    preset.smtpHost, preset.smtpPort.toInt(), preset.smtpSecurity,
+                                )
+                            }
+                        },
+                        enabled = !busy && ready,
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text(stringResource(R.string.connect_oauth_button)) }
-                }
-                // Outlook has no separate button — its provider chip launches the OAuth flow.
-            }
+                    ) {
+                        Text(
+                            when (state) {
+                                is ConnectState.Discovering -> stringResource(R.string.connect_discovering)
+                                is ConnectState.Connecting -> stringResource(R.string.connect_connecting)
+                                else -> stringResource(R.string.connect_connect)
+                            },
+                        )
+                    }
 
-            Spacer(Modifier.height(4.dp))
-            when (val s = state) {
-                is ConnectState.Connecting, is ConnectState.Discovering -> CircularProgressIndicator()
-                is ConnectState.NeedsServer -> {
-                    Text(
-                        text = stringResource(R.string.connect_server_not_found),
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    AttemptLog(s.details)
+                    if (protocol == MailProtocol.JMAP && !useApiToken) {
+                        TextButton(
+                            onClick = { viewModel.connectOAuth(username, server, accountName) },
+                            enabled = !busy && username.isNotBlank(),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(stringResource(R.string.connect_oauth_button)) }
+                    }
+                    // Outlook has no separate button — its provider chip launches the OAuth flow.
                 }
-                is ConnectState.Error -> {
-                    Text(
-                        text = stringResource(R.string.connect_error, s.message),
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    AttemptLog(s.details)
+
+                Spacer(Modifier.height(4.dp))
+                when (val s = state) {
+                    is ConnectState.Connecting, is ConnectState.Discovering -> CircularProgressIndicator()
+                    is ConnectState.NeedsServer -> {
+                        Text(
+                            text = stringResource(R.string.connect_server_not_found),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        AttemptLog(s.details)
+                    }
+                    is ConnectState.Error -> {
+                        Text(
+                            text = stringResource(R.string.connect_error, s.message),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        AttemptLog(s.details)
+                    }
+                    else -> Unit
                 }
-                else -> Unit
             }
+            // The scaffold used to host this. Inside the frame it hangs off the panel's own Box, at
+            // the foot of the glass rather than the foot of the window, so a message about the
+            // sign-in lands over the form it is about.
+            SnackbarHost(
+                snackbarHostState,
+                Modifier.align(Alignment.BottomCenter).padding(GridlinkSpacing.s12),
+            )
         }
     }
 }
