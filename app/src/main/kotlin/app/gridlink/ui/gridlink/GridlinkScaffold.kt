@@ -1439,6 +1439,17 @@ fun GridlinkRoot(
      */
     var movingThread by remember { mutableStateOf<String?>(null) }
 
+    /**
+     * The message a folder list's long-press is waiting on a destination for, or null.
+     *
+     * 🔴 A second variable rather than a reuse of [movingThread], because the two are picked from
+     * different screens and file by different routes: that one is the OPEN thread and files through
+     * [fileOpenThread], which closes the detail layer afterwards. This one is a row in a folder list
+     * that is ITSELF the detail layer, so it calls `onMove` directly and leaves the mailbox open.
+     * Sharing one variable would mean one of the two pickers doing the other's filing.
+     */
+    var movingFromFolder by remember { mutableStateOf<String?>(null) }
+
     // Print is the one thread action that leaves the app's own world and hands a document to the
     // system spooler, so it needs a Context. Read once here rather than at the dispatch site, which
     // is a lambda and not a composable scope.
@@ -1948,6 +1959,22 @@ fun GridlinkRoot(
                         // later: `current` is captured here, so an Empty confirmed on Junk can never
                         // be carried out against whatever folder the tree has moved on to.
                         onEmpty = onEmptyFolder?.let { empty -> { empty(current.folder.id) } },
+                        // 🔴 Straight through to the host, with no `fileOpenThread` in between. That
+                        // helper exists to file the message the DETAIL layer is showing and it calls
+                        // `closeDetail()` on the way out — here the detail layer IS this folder list,
+                        // so routing through it would close the mailbox the moment you archived one
+                        // message in it. The row's own local hiding is what stands in for the
+                        // list-collapse that helper buys elsewhere.
+                        //
+                        // Gated on a live account for the reason the whole screen is: with the sample
+                        // behind it nothing can carry a Delete out, and [GridlinkFolderMailScreen]
+                        // does not open the sheet at all rather than offering one that lies.
+                        onMailAction = if (folders != null) onMailAction else null,
+                        onMoveMessage = if (folders != null) {
+                            { message -> movingFromFolder = message.id }
+                        } else {
+                            null
+                        },
                     )
                 }
             }
@@ -2387,6 +2414,21 @@ fun GridlinkRoot(
                         },
                         // The mailbox being read, when there is one. On Inbox and on search there
                         // is no folder id to name, and the picker's own contract for that is null.
+                        excludeId = openFolderId,
+                    )
+                }
+
+                // Move, raised from a long-press in a folder list. Same picker, same tree, same
+                // exclusion; only the filing differs, and [movingFromFolder] says why.
+                movingFromFolder?.let { id ->
+                    GridlinkMovePicker(
+                        tree = folderTree,
+                        count = 1,
+                        onDismiss = { movingFromFolder = null },
+                        onPick = { folder ->
+                            movingFromFolder = null
+                            onMove(setOf(id), folder.id)
+                        },
                         excludeId = openFolderId,
                     )
                 }
