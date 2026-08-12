@@ -782,8 +782,7 @@
     <string name="settings_about_source">Code source</string>
     <string name="settings_about_license">Licence</string>
     <string name="settings_about_feedback">Send feedback</string>
-    <string name="settings_about_support">Support GridLink</string>
-    <string name="settings_about_author">Auteur</string>
+    <string name="settings_about_upstream">Basé sur</string>
 
     <!-- Home-screen widgets -->
     <string name="widget_inbox_title">Boîte de réception</string>

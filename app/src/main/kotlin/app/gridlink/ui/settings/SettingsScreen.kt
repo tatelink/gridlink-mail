@@ -60,7 +60,6 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Feedback
 import androidx.compose.material.icons.filled.FilterAlt
-import androidx.compose.material.icons.filled.LocalCafe
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
@@ -392,13 +391,18 @@ private fun SettingsHub(
                 SettingsCategoryRow(
                     Icons.Filled.Description,
                     stringResource(R.string.settings_about_license),
-                    "GPL-3.0-only",
-                ) { onOpenUrl("$REPO_URL/src/branch/main/LICENSE") }
+                    "GPL-3.0-or-later",
+                ) { onOpenUrl(LICENSE_URL) }
+                // 🔴 "Based on", not "Author". It used to credit emon as this app's author with a
+                // link to their Codeberg page, which was upstream's row surviving the fork: emon
+                // wrote Sterna and has never seen a line of the Gridlink layer, so the row was both
+                // taking their name in vain and telling Tate someone else wrote his mail client.
+                // The credit itself stays — a GPL fork says what it forked — it just says what it is.
                 SettingsCategoryRow(
                     Icons.Filled.Person,
-                    stringResource(R.string.settings_about_author),
-                    "emon",
-                ) { onOpenUrl("https://codeberg.org/emon") }
+                    stringResource(R.string.settings_about_upstream),
+                    "Sterna Mail by emon",
+                ) { onOpenUrl(UPSTREAM_URL) }
                 // 🔴 This app collects nothing, so this row is the ONLY way a problem reaches
                 // anyone. Tate's call, 2026-08-10: a feedback address instead of telemetry.
                 // It is a mailto:, so it goes through the same [onOpenUrl] as the links above and
@@ -414,30 +418,36 @@ private fun SettingsHub(
                             Uri.encode("GridLink feedback (${BuildConfig.VERSION_NAME})"),
                     )
                 }
-                // Last row in the section on purpose: an ask that comes after the licence and the
-                // credit reads as an offer, and one placed above them reads as a toll. 🔴 A row and
-                // never a banner, a dialog or a first-run prompt — the app asks once, where someone
-                // who went looking will find it, and never again.
-                SettingsCategoryRow(
-                    Icons.Filled.LocalCafe,
-                    stringResource(R.string.settings_about_support),
-                    DONATE_URL.removePrefix("https://"),
-                ) { onOpenUrl(DONATE_URL) }
+                // ⛔ There is NO support/donate row here and there must not be one. Tate, using
+                // the app: "Remove any kofi or donation to emon content." The row that was here
+                // linked to a Ko-fi page and its subtitle — the bare URL — was being truncated on
+                // his device, so what he actually saw was a clipped begging line in his own mail
+                // app. An app with exactly one user has nobody to ask for money.
             }
         }
     }
 }
 
 /**
- * Upstream: Sterna Mail by emon, which Gridlink is a GPLv3 fork of. The About section links here
- * for source, releases and licence.
+ * This fork's own repo, which the About section links to for source, releases and licence.
  *
- * 🔴 Deliberately upstream's repo and not this fork's. Gridlink has no public repo, and the GPL's
- * point is that whoever holds the binary can get at the source it was built from. Pointing "source"
- * at a URL that does not serve this tree would be worse than pointing at the one it came from, so
- * if Gridlink is ever published this constant has to move with it.
+ * 🔴 It used to point at codeberg.org/emon/sterna-mail, on the grounds that Gridlink had no repo of
+ * its own and the GPL's point is that whoever holds the binary can reach the source it was built
+ * from. That reasoning expired the day this tree got pushed: upstream's repo does not serve THIS
+ * source, and "Source code → someone else's tree" is the fork telling the user a version of events
+ * that stopped being true. Private, and that is fine for what the GPL asks — it binds distribution,
+ * and the only person this binary is distributed to is the person holding the repo.
+ *
+ * [UPSTREAM_URL] is where the credit goes, and it is a separate constant so that neither link can
+ * quietly become the other again.
  */
-private const val REPO_URL = "https://codeberg.org/emon/sterna-mail"
+private const val REPO_URL = "https://github.com/tatelink/gridlink-mail"
+
+/** Where the licence text is served from. 🔴 GitHub's path shape, not Codeberg's `/src/branch/`. */
+private const val LICENSE_URL = "$REPO_URL/blob/main/LICENSE"
+
+/** What Gridlink is a fork of, credited in About. */
+private const val UPSTREAM_URL = "https://codeberg.org/emon/sterna-mail"
 
 /**
  * Where the About section's feedback row writes to.
@@ -446,12 +456,6 @@ private const val REPO_URL = "https://codeberg.org/emon/sterna-mail"
  * changes their tree has never seen, so a report sent there wastes both people's time.
  */
 private const val FEEDBACK_ADDRESS = "tate@gridlink.me"
-
-/**
- * The About section's support row. Tate's, and deliberately the only one in the app: upstream's
- * is not listed, his call on 2026-08-10 after the fork question was put to him.
- */
-private const val DONATE_URL = "https://ko-fi.com/tatelink"
 
 /**
  * Hands a URL to whatever handles it, and says whether anything took it — a device with no browser
