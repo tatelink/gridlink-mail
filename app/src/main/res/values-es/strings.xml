@@ -780,8 +780,7 @@
     <string name="settings_about_source">Código fuente</string>
     <string name="settings_about_license">Licencia</string>
     <string name="settings_about_feedback">Send feedback</string>
-    <string name="settings_about_support">Support GridLink</string>
-    <string name="settings_about_author">Autor</string>
+    <string name="settings_about_upstream">Basado en</string>
 
     <!-- Home-screen widgets -->
     <string name="widget_inbox_title">Bandeja de entrada</string>
