@@ -169,6 +169,101 @@ internal fun retentionEvictions(
 }
 
 /**
+ * Which cached ids a PAGE RECONCILE evicts: the rows a fresh full `Email/query` of the mailbox
+ * proves are no longer there, and only those.
+ *
+ * The reconcile exists because every other path in this file can only ever REMOVE rows. Deltas add
+ * what they are told about, the sweep deletes ghosts, retention deletes what aged out — but a row
+ * the cache lost for any reason the deltas will never mention again is invisible for ever, since
+ * `Email/queryChanges` reports changes since a cursor and that cursor has long since moved past it.
+ * On this repo's own mailbox that is not hypothetical: six Inbox messages the server was still
+ * serving stayed missing from the app across every refresh and every relaunch, because after the
+ * first sync the Inbox is only ever synced incrementally. Re-querying periodically is the only
+ * thing that puts a lost row back.
+ *
+ * What makes it safe to run on a WARM cache — unlike `EmailDao.replaceMailbox`, which prunes the
+ * folder to the page and would delete everything the user has scrolled past — is that it only
+ * judges the range the page actually covers:
+ * - [pageIds] and [spareIds] are never evicted (the page is what the server just said is there, the
+ *   spare is what we mutated locally and the server has not caught up on);
+ * - when the page came back SHORTER than the limit it asked for, it IS the whole mailbox
+ *   ([pageCoversWholeMailbox]) and anything else cached under that mailbox has left it;
+ * - otherwise only rows NEWER than the page's oldest message are judged. Anything older sits below
+ *   the page's horizon, where the query said nothing at all, and deleting it would empty a deep
+ *   folder on the first reconcile.
+ *
+ * Undated rows (`sortKey == 0`) are never evicted by the age clause, matching [retentionEvictions]:
+ * undated is undated, not ancient. An EMPTY page is handled by the caller and evicts nothing.
+ */
+internal fun reconcileEvictions(
+    cached: List<EmailRetentionRow>,
+    pageIds: Set<String>,
+    pageCoversWholeMailbox: Boolean,
+    oldestInPage: Long,
+    spareIds: Set<String>,
+): List<String> = cached
+    .filter {
+        it.id !in pageIds && it.id !in spareIds &&
+            // Strictly newer, never equal: two messages can share a sortKey to the millisecond, and
+            // the one at the page's cut may well have a twin the limit chopped off.
+            (pageCoversWholeMailbox || (it.sortKey > 0 && it.sortKey > oldestInPage))
+    }
+    .map { it.id }
+
+/**
+ * Floor between two page reconciles of the SAME mailbox, plus one on the first sync of a process.
+ *
+ * Fifteen minutes, against the ghost sweep's five, because a reconcile is the more expensive of the
+ * two (a full `Email/query` plus the `Email/get` that fills it, versus one ids-only get) and it is
+ * covering a rarer failure: the sweep answers "is this row still real", which goes wrong whenever a
+ * destroy is missed, while the reconcile answers "is the cache still the folder", which only goes
+ * wrong when the cache has already diverged. The first-of-process claim is what heals a divergence
+ * inherited from a previous run without making the user wait out an interval.
+ */
+internal const val RECONCILE_MIN_INTERVAL_MS = 15 * 60_000L
+
+/**
+ * When each (account, mailbox) may be page-reconciled again. Same shape, same monotonic clock and
+ * the same per-(account, mailbox) scoping as [GhostSweepSchedule] — and separate from it on purpose,
+ * so the two intervals can be tuned against their own costs.
+ *
+ * There is no `releaseFailed` counterpart: a reconcile that fails in transport has evicted nothing
+ * and added nothing, and the next interval retries it. The sweep needs one because its
+ * once-per-process credit is the only thing that prunes ghosts inherited from a previous run; a
+ * reconcile's equivalent is simply the next claim.
+ */
+internal class ReconcileSchedule(
+    private val minIntervalMs: Long = RECONCILE_MIN_INTERVAL_MS,
+    private val clock: () -> Long = SystemClock::elapsedRealtime,
+) {
+    private val lastReconcile = ConcurrentHashMap<String, Long>()
+    private val seenThisSession = ConcurrentHashMap.newKeySet<String>()
+
+    // Length-prefixed rather than NUL-separated (the shape [GhostSweepSchedule] uses): same
+    // guarantee that "$account$mailbox" cannot collide with another pair, without putting a
+    // control character in the source.
+    private fun key(accountId: String, mailboxId: String) = "${accountId.length}:$accountId$mailboxId"
+
+    /**
+     * Decide whether this sync should reconcile [mailboxId] of [accountId], recording a granted
+     * claim so concurrent syncs (push, the fallback worker, a pull-to-refresh) cannot each open the
+     * same window. A REFUSED claim leaves the clock alone, or refreshing every few seconds would
+     * postpone the reconcile for ever.
+     */
+    fun claim(accountId: String, mailboxId: String): Boolean {
+        val k = key(accountId, mailboxId)
+        val firstThisSession = seenThisSession.add(k)
+        val now = clock()
+        var claimed = false
+        lastReconcile.compute(k) { _, last ->
+            claimed = firstThisSession || now - (last ?: 0L) >= minIntervalMs
+            if (claimed) now else (last ?: 0L)
+        }
+        return claimed
+    }
+}
+
+/**
  * Whether this sync cycle should run a mailbox's existence sweep. The sweep costs one
  * `Email/get` per 200 cached rows, so it cannot ride on every incremental sync — and it would,
  * if it keyed off [stateAdvanced] alone: `Email/changes`' state is ACCOUNT-WIDE, so it advances
