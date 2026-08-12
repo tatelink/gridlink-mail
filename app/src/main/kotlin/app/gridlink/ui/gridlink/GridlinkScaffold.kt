@@ -1493,7 +1493,29 @@ fun GridlinkRoot(
             // it. Acknowledged immediately so the answer cannot replay on a later recomposition.
             LaunchedEffect(mail?.draftEdit) {
                 mail?.draftEdit?.let { draft ->
-                    composing = GridlinkComposeRequest(draft = draft)
+                    // 🔴 The files come back before the composer opens, not after. The draft arrives
+                    // carrying its id, which makes the next save a REPLACE of the stored copy — so a
+                    // composer that opened empty-handed would replace a draft that had a file with
+                    // one that has none, silently, on the first character typed.
+                    val id = draft.draftEmailId
+                    val ready = if (id == null || attacher == null) {
+                        draft
+                    } else {
+                        runCatching { attacher.adopt(id) }.fold(
+                            onSuccess = { draft.copy(attachments = it) },
+                            onFailure = { failure ->
+                                // Could not take the files over, so this composer is no longer
+                                // allowed to speak for the stored draft: the id is dropped and the
+                                // save becomes a new message. The user gets a second copy to sort
+                                // out, which is recoverable. Replacing the original with a copy
+                                // missing its attachment is not.
+                                sendError = failure.message
+                                    ?: "Couldn't reopen that draft's attachments, so this will save as a new draft."
+                                draft.copy(draftEmailId = null)
+                            },
+                        )
+                    }
+                    composing = GridlinkComposeRequest(draft = ready)
                     onEditDraft(null)
                 }
             }
