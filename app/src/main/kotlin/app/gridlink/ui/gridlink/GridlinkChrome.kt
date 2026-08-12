@@ -492,9 +492,21 @@ enum class GridlinkDestination(
     val label: String,
     val icon: ImageVector,
     val composeLabel: String,
+    /**
+     * Whether the pill offers a seat for this destination.
+     *
+     * 🔴 False on exactly one of them, and it is not a fifth-tab overflow: Brandon asked for the
+     * folders themselves to live in the drawer ("move all folders to the hamburger menu to popup on
+     * slideout"), and a tab that opens a *list of folders* beside a drawer that opens *the folders*
+     * is the two-navigation-systems problem [GridlinkMenuItem] used to warn about, now pointing the
+     * other way. So the mailboxes are reached from the drawer and this destination is what the
+     * drawer's "Manage folders" row opens: still a real screen, still the only place a mailbox is
+     * renamed, created or moved, just not a place the thumb lands on by accident.
+     */
+    val inPill: Boolean = true,
 ) {
     INBOX("Inbox", Icons.Outlined.Inbox, "New message"),
-    FOLDERS("Folders", Icons.Outlined.FolderOpen, "New message"),
+    FOLDERS("Folders", Icons.Outlined.FolderOpen, "New message", inPill = false),
     CALENDAR("Calendar", Icons.Outlined.CalendarMonth, "New appointment"),
     CONTACTS("Contacts", Icons.Outlined.PeopleOutline, "New contact"),
 }
@@ -615,7 +627,12 @@ fun GridlinkNavPill(
                         )
                     }
                 } else {
-                    GridlinkDestination.entries.forEach { destination ->
+                    // 🔴 Filtered, not `entries`. Folders has no seat any more (see
+                    // [GridlinkDestination.inPill]) and it is still a destination the app can BE on,
+                    // so nothing is highlighted while the folder screen is up. That is correct: the
+                    // pill says where the four places are, and the manage-folders screen is reached
+                    // from the drawer the same way Settings is.
+                    GridlinkDestination.entries.filter { it.inPill }.forEach { destination ->
                         val active = destination == selected
                         GridlinkPillItem(
                             label = destination.label,

@@ -55,6 +55,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -696,6 +697,14 @@ fun GridlinkSheetAction(
     modifier: Modifier = Modifier,
     subline: String? = null,
     tint: Color? = null,
+    /**
+     * Extra start padding on the row's CONTENT, for a nested folder.
+     *
+     * 🔴 Inside the clickable, not around it. Indenting the row itself would make a child mailbox's
+     * tap target narrower than its parent's and leave a dead strip down the left of the drawer that
+     * looks tappable and is not.
+     */
+    indent: Dp = 0.dp,
 ) {
     val colors = GridlinkTheme.colors
     val enabled = onClick != null
@@ -708,7 +717,8 @@ fun GridlinkSheetAction(
         modifier = modifier
             .fillMaxWidth()
             .then(if (enabled) Modifier.clickable(onClick = onClick!!) else Modifier)
-            .padding(horizontal = GridlinkSpacing.chrome, vertical = GridlinkSpacing.s12),
+            .padding(horizontal = GridlinkSpacing.chrome, vertical = GridlinkSpacing.s12)
+            .padding(start = indent),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(

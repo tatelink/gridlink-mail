@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AlternateEmail
 import androidx.compose.material.icons.outlined.Brightness4
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.DoneAll
 import androidx.compose.material.icons.outlined.Drafts
 import androidx.compose.material.icons.outlined.ManageAccounts
@@ -362,11 +363,14 @@ fun GridlinkSyncChip(
 /**
  * What the menu sheet can take you to.
  *
- * Four, and deliberately not more. Everything that is a *place mail lives* is already in the nav
- * pill; what is left over are the two mailboxes that are states rather than places (a draft is a
- * message you have not finished, a scheduled message is one you have not sent) plus the two rows
- * that configure the app. A menu that also listed Inbox and Folders would be a second navigation
- * system disagreeing with the first one about which of them is the way around the app.
+ * Four, and they are no longer the whole drawer. These are the two mailboxes that are states rather
+ * than places (a draft is a message you have not finished, a scheduled message is one you have not
+ * sent) plus the two rows that configure the app.
+ *
+ * ⚠️ This used to argue that listing mailboxes here "would be a second navigation system disagreeing
+ * with the first one". Brandon settled that the other way: the mailboxes ARE the drawer now (see
+ * [MenuFolders]) and the nav pill gave up its Folders seat, so there is still exactly one place to
+ * go looking for a mailbox. The rows in this enum are what is left that is not one.
  *
  * 🔴 Declaration order is the render order, and [MAILBOX_ITEMS] is what splits the list into its two
  * groups. Anything added here that is not named in that list falls into the lower group by default
@@ -459,6 +463,14 @@ fun GridlinkMenuPanel(
     lastSyncedAt: Long? = null,
     counts: Map<GridlinkMenuItem, Int> = emptyMap(),
     accountCount: Int = 1,
+    /**
+     * The account's mailboxes, nested as the server nests them. Empty draws no folder group at all,
+     * which is the honest state before anything has said what the mailboxes are.
+     */
+    folders: List<GridlinkFolder> = emptyList(),
+    onSelectFolder: (GridlinkFolder) -> Unit = {},
+    /** Opens the folder screen, the only place a mailbox is created, renamed or moved. */
+    onManageFolders: () -> Unit = {},
 ) {
     val colors = GridlinkTheme.colors
     // Frozen at the moment the sheet opens rather than read on every recomposition. The sheet is a
@@ -516,6 +528,11 @@ fun GridlinkMenuPanel(
             }
         }
 
+        if (folders.isNotEmpty()) {
+            GridlinkSheetDivider()
+            MenuFolders(folders, onSelectFolder, onManageFolders)
+        }
+
         GridlinkSheetDivider()
         MAILBOX_ITEMS.forEach { item -> MenuRow(item, counts, accountCount, onSelect) }
 
@@ -532,6 +549,70 @@ fun GridlinkMenuPanel(
             .forEach { item -> MenuRow(item, counts, accountCount, onSelect) }
     }
 }
+
+/**
+ * Every mailbox, depth-first, above the two rows that are states rather than places.
+ *
+ * 🔴 This is the drawer's whole reason to be tall now. Brandon: "move all folders to the hamburger
+ * menu to popup on slideout". They used to be a nav-pill tab over a management screen, which meant
+ * the fastest route from the Inbox to a mailbox was two taps through a tree you first had to expand.
+ * Here they are one tap from anywhere in the app, on every screen, because the drawer is app chrome.
+ *
+ * ## Why the tree is flattened rather than expandable
+ * A drawer is a list you scan, not a thing you operate. Collapsible branches would mean the mailbox
+ * you want is sometimes one tap away and sometimes three, depending on state left over from the last
+ * time the drawer was open, and the indent already says everything a twisty would. The folder SCREEN
+ * still expands and collapses, because that is where a tree is edited.
+ *
+ * ⚠️ Drafts is filtered out, and it is the one omission. It is right above this group as a menu row
+ * carrying its unsent count, opening the very same mailbox by role, so listing it here would be the
+ * drawer offering one mailbox twice, once with a better subline than the other.
+ */
+@Composable
+private fun MenuFolders(
+    folders: List<GridlinkFolder>,
+    onSelectFolder: (GridlinkFolder) -> Unit,
+    onManageFolders: () -> Unit,
+) {
+    folders.forEach { folder -> MenuFolderRow(folder, depth = 0, onSelectFolder = onSelectFolder) }
+    GridlinkSheetAction(
+        label = "Manage folders",
+        icon = Icons.Outlined.CreateNewFolder,
+        // The only route to the folder screen now that the pill has no seat for it. Named for the
+        // verb rather than the place ("Folders" would read as a sixth mailbox in a list of mailboxes).
+        onClick = onManageFolders,
+        tint = GridlinkTheme.colors.textSecondary,
+    )
+}
+
+/** One mailbox and everything under it. Recursive, so the indent is the depth and nothing tracks it. */
+@Composable
+private fun MenuFolderRow(
+    folder: GridlinkFolder,
+    depth: Int,
+    onSelectFolder: (GridlinkFolder) -> Unit,
+) {
+    if (folder.role != GridlinkFolderRole.DRAFTS) {
+        GridlinkSheetAction(
+            label = folder.name,
+            icon = folder.role.icon(),
+            // Counted, never a bare dot, for [MenuRow]'s reason: a number is a fact and a dot is a
+            // question. Absent at zero rather than "0 unread", which is a claim nobody asked for.
+            subline = folder.unread.takeIf { it > 0 }?.let { "$it unread" },
+            onClick = { onSelectFolder(folder) },
+            indent = FOLDER_INDENT * depth,
+        )
+    }
+    folder.children.forEach { child ->
+        // 🔴 The children of a filtered-out Drafts still draw, at the depth Drafts would have given
+        // them. A server that nests mailboxes under the drafts role is unusual and not forbidden,
+        // and silently dropping a whole branch is not something a drawer may do.
+        MenuFolderRow(child, depth = depth + 1, onSelectFolder = onSelectFolder)
+    }
+}
+
+/** How far one level of nesting shifts a mailbox row. Half the row's own leading pad: legible, cheap. */
+private val FOLDER_INDENT = 16.dp
 
 @Composable
 private fun MenuRow(
