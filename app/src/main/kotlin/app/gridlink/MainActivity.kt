@@ -30,7 +30,6 @@ import app.gridlink.ui.AppNavHost
 import app.gridlink.ui.gridlink.GridlinkIntroOverlay
 import app.gridlink.ui.gridlink.LocalGridlinkIntroPlaying
 import app.gridlink.ui.gridlink.rememberGridlinkIntroMode
-import app.gridlink.ui.message.NavFadeGuard
 import app.gridlink.ui.components.LocalListDensity
 import app.gridlink.ui.components.LocalPreviewLines
 import app.gridlink.ui.theme.AppTheme
@@ -291,9 +290,6 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         application.container.appLock.onAppBackgrounded(System.currentTimeMillis())
-        // Stopped activity → no frames → the reader's GL functor cannot draw, so a process
-        // kill while backgrounded (LMK, swipe-away) must not count as a fade-window crash.
-        NavFadeGuard.onActivityStop(this)
         // A session's reading, deleting and archiving is invisible to the home screen until
         // something redraws it, and the user is on their way back to the home screen right now —
         // this is the exact moment a stale widget gets looked at. Background sync pokes the
@@ -304,7 +300,6 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         application.container.appLock.onAppForegrounded(System.currentTimeMillis())
-        NavFadeGuard.onActivityStart(this)
         applySecureFlag()
     }
 

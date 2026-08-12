@@ -1,4 +1,4 @@
-package app.gridlink.ui.inbox
+package app.gridlink.ui.gridlink
 
 import org.junit.Assert.assertEquals
 import org.junit.Test

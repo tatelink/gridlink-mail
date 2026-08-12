@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import app.gridlink.container
 import app.gridlink.core.data.filter.FilterRule
 import app.gridlink.core.data.mail.FilterRulesState
-import app.gridlink.ui.inbox.mailboxFilePath
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first

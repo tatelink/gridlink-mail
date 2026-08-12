@@ -1,4 +1,4 @@
-package app.gridlink.ui.message
+package app.gridlink.ui.gridlink
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

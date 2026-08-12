@@ -28,8 +28,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import app.gridlink.ui.emailhtml.EmailRemoteContent
 import app.gridlink.ui.emailhtml.EmailTheme
 import app.gridlink.ui.emailhtml.buildEmailHtmlDocument
-import app.gridlink.ui.message.BodyReveal
-import app.gridlink.ui.message.HeightPoll
 import app.gridlink.ui.rememberLeaveOnce
 import java.io.ByteArrayInputStream
 
