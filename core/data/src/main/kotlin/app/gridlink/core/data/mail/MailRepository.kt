@@ -1011,7 +1011,8 @@ class MailRepository(
                 val isProtected: (String) -> Boolean = { id ->
                     protectionVerdict.getOrPut(id) { isRecentlyMutated(localAccountId, id) }
                 }
-                val toRemove = deltaEvictions(queryChanges.removed, added, changes.destroyed, isProtected)
+                val proposed = deltaEvictions(queryChanges.removed, added, changes.destroyed, isProtected)
+                val toRemove = confirmedEvictions(session, accountId, auth, mailboxId, proposed)
                 if (toRemove.isNotEmpty()) emailDao.deleteByIds(localAccountId, toRemove)
                 // Every eviction the recently-mutated spare skipped, named and motivated. A
                 // `destroy` here is the one-shot loss [deltaEvictions] documents: the row survives
@@ -1060,7 +1061,8 @@ class MailRepository(
                 // doing its work: an existence check on an account whose deltas reported nothing.
                 android.util.Log.i(
                     "MailSync",
-                    "incremental $localAccountId/$mailboxId: +${toFetch.size} -${toRemove.size} " +
+                    "incremental $localAccountId/$mailboxId: +${toFetch.size} " +
+                        "-${toRemove.size} of ${proposed.size} proposed " +
                         "spared=${spared.size} sweep=${claim.reason}",
                 )
                 if (claim.sweep) {
@@ -1069,12 +1071,23 @@ class MailRepository(
                     // once-per-process credit back and the next sync retries immediately.
                     if (!swept) ghostSweeps.releaseFailed(localAccountId, mailboxId, claim)
                 }
+                // Page reconcile: everything above this line can only ever REMOVE rows, so a row
+                // the cache has lost is lost for good — the deltas report changes since a cursor
+                // that moved past it long ago, and after the very first sync a mailbox is only
+                // ever synced incrementally. See [reconcileEvictions] for why this is safe to run
+                // over a warm, deeply-scrolled cache and [ReconcileSchedule] for how often.
+                val restored = if (reconciles.claim(localAccountId, mailboxId)) {
+                    reconcileMailboxPage(session, accountId, auth, mailboxId, limit, localAccountId)
+                } else {
+                    emptyList()
+                }
                 // The rows this delta just wrote (line above): mostly ids the cache NEVER held —
                 // `added - cachedIds` — so the retention prune has to spare them exactly as it
                 // spares a full query's page. Returning nothing here was Codeberg #110 again on
                 // the other branch: a 2019 message filed into a deep Inbox by a Sieve rule was
-                // fetched, written, and deleted by the prune in the very same refresh.
-                return toFetch
+                // fetched, written, and deleted by the prune in the very same refresh. The
+                // reconcile's page is in here for exactly the same reason.
+                return if (restored.isEmpty()) toFetch else (toFetch + restored).distinct()
             }
         }
         // Cold cache, or the server can't compute changes — full query.
@@ -1151,6 +1164,120 @@ class MailRepository(
      * swept at most once per [GHOST_SWEEP_MIN_INTERVAL_MS], whether or not its deltas moved.
      */
     private val ghostSweeps = GhostSweepSchedule()
+
+    /** When each (account, mailbox) may be page-reconciled again — see [ReconcileSchedule]. */
+    private val reconciles = ReconcileSchedule()
+
+    /**
+     * The subset of [proposed] the SERVER agrees has left [mailboxId]: destroyed, or still alive
+     * but no longer filed there. Anything it does not confirm keeps its cached row.
+     *
+     * The delta's own verdict is not good enough to delete mail on. `Email/queryChanges` diffs two
+     * snapshots of a QUERY, and a server may drop an id out of that query and put it back for
+     * reasons that have nothing to do with folder membership — Stalwart moves a row when a keyword
+     * changes, which is what a Bulwark tag does. When the re-add lands in the same delta,
+     * [deltaEvictions] already spares it as a reorder; when the two halves fall either side of a
+     * cursor, the row is evicted and NOTHING puts it back, because every other eviction path only
+     * ever deletes. That is how six tagged Inbox messages went missing from this repo's own mailbox
+     * and stayed missing across every refresh and every relaunch.
+     *
+     * `Email/get` is the authority a snapshot diff is not: a point lookup cannot be stale. It costs
+     * one request per [MAX_CHANGES] ids, and only when a delta proposed an eviction at all — a
+     * quiet folder pays nothing.
+     *
+     * A check that does not answer (transport error, malformed response, a chunk that threw after
+     * an earlier one succeeded) confirms NOTHING and therefore evicts nothing, the same contract
+     * [ghostEvictions] and [retentionEvictions] keep for the same reason. What that defers is a
+     * real removal, which the ghost sweep and the page reconcile both still heal; what it avoids is
+     * deleting live mail on the strength of a request that failed.
+     */
+    private suspend fun confirmedEvictions(
+        session: JmapSession,
+        accountId: String,
+        auth: JmapAuth,
+        mailboxId: String,
+        proposed: List<String>,
+    ): List<String> {
+        if (proposed.isEmpty()) return emptyList()
+        val gone = runCatching {
+            proposed.chunked(MAX_CHANGES).flatMapTo(mutableSetOf()) { chunk ->
+                client.emailsNoLongerIn(session, accountId, chunk, mailboxId, auth)
+            }
+        }.getOrElseUnlessCancelled { null }
+        if (gone == null) {
+            android.util.Log.i(
+                "MailSync",
+                "evict check $accountId/$mailboxId: failed over ${proposed.size} proposed, evicting none",
+            )
+            return emptyList()
+        }
+        val kept = proposed.filterNot { it in gone }
+        if (kept.isNotEmpty()) {
+            // The delta named these and the server disagreed. One line, ids included: this is the
+            // shape of the tagged-mail loss, and on a device it is the only way to see it happen.
+            android.util.Log.i(
+                "MailSync",
+                "evict check $accountId/$mailboxId: ${kept.size} still in the mailbox, kept: " +
+                    kept.joinToString(),
+            )
+        }
+        return proposed.filter { it in gone }
+    }
+
+    /**
+     * Re-query [mailboxId]'s newest [limit] messages and make the cache agree with them: write back
+     * anything missing, drop anything the page proves has left. The only path in the sync that can
+     * put a lost row BACK, which is why it runs on a schedule rather than only on a cold cache.
+     *
+     * Returns the page's ids — everything it wrote — so the caller can hand them to the retention
+     * prune as `freshIds`. Best-effort: a failed query reconciles nothing and returns nothing,
+     * and the next claim retries.
+     *
+     * An EMPTY page evicts nothing, deliberately. A folder that really did empty is cleaned up by
+     * the deltas and the ghost sweep within one interval anyway, whereas a server answering an
+     * `Email/query` with an empty page it should not have would wipe the folder here — the two
+     * mistakes are not the same size.
+     */
+    private suspend fun reconcileMailboxPage(
+        session: JmapSession,
+        accountId: String,
+        auth: JmapAuth,
+        mailboxId: String,
+        limit: Int,
+        localAccountId: String,
+    ): List<String> {
+        val page = runCatching { client.queryEmailsPage(session, accountId, mailboxId, limit, auth) }
+            .getOrElseUnlessCancelled { null }
+        if (page == null) {
+            android.util.Log.i("MailSync", "reconcile $localAccountId/$mailboxId: query failed")
+            return emptyList()
+        }
+        if (page.emails.isEmpty()) {
+            android.util.Log.i("MailSync", "reconcile $localAccountId/$mailboxId: empty page, no change")
+            return emptyList()
+        }
+        val rows = page.emails.map { it.toEntity(localAccountId, mailboxId) }
+        val cachedBefore = emailDao.idsForMailbox(localAccountId, mailboxId).toSet()
+        emailDao.upsertAll(rows)
+        val pageIds = rows.mapTo(HashSet()) { it.id }
+        val gone = reconcileEvictions(
+            cached = emailDao.retentionRows(localAccountId, mailboxId),
+            pageIds = pageIds,
+            // Short of what it asked for means it reached the end: the page IS the whole mailbox.
+            pageCoversWholeMailbox = page.emails.size < limit,
+            oldestInPage = rows.minOf { it.sortKey },
+            spareIds = recentlyMutatedIds(localAccountId).toSet(),
+        )
+        // deleteByIds, not evictFromCacheKeepingIndex: inside the range the page covers, a row the
+        // page omits is a message that has LEFT this folder, which is this delete's own case.
+        if (gone.isNotEmpty()) gone.chunked(MAX_CHANGES).forEach { emailDao.deleteByIds(localAccountId, it) }
+        android.util.Log.i(
+            "MailSync",
+            "reconcile $localAccountId/$mailboxId: page ${page.emails.size}, " +
+                "restored ${(pageIds - cachedBefore).size}, -${gone.size}",
+        )
+        return page.emails.map { it.id }
+    }
 
     /**
      * Existence sweep for one mailbox's cached rows: ids-only `Email/get` on everything still

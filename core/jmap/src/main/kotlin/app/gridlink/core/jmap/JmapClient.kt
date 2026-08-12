@@ -478,6 +478,66 @@ class JmapClient internal constructor(
     }
 
     /**
+     * The subset of [ids] the server confirms have LEFT [mailboxId] — either destroyed (listed in
+     * `notFound`) or still alive with [mailboxId] absent from their `mailboxIds`.
+     *
+     * [missingEmailIds]'s stronger sibling, and for the same reason: a point `Email/get` is
+     * authoritative where an `Email/queryChanges` delta is a snapshot diff that can name a row
+     * `removed` for reasons that have nothing to do with folder membership (a keyword the server
+     * treats as re-filing the row in the query, a thread re-collapse, a reordered page). Believing
+     * such a delta deletes mail the server is still offering, and nothing in the sync ever puts it
+     * back — the cache only ever loses rows outside a full query.
+     *
+     * An id the response mentions in NEITHER place cannot be judged and is not returned, so the
+     * failure direction is "keep the row", the survivable one. A transport or parse failure throws,
+     * exactly as [missingEmailIds] does, rather than answering "all of them left".
+     */
+    suspend fun emailsNoLongerIn(
+        session: JmapSession,
+        accountId: String,
+        ids: List<String>,
+        mailboxId: String,
+        auth: JmapAuth,
+    ): Set<String> = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext emptySet()
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.MAIL_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Email/get")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonArray("ids") { ids.forEach { add(it) } }
+                        putJsonArray("properties") {
+                            add("id")
+                            add("mailboxIds")
+                        }
+                    }
+                    add("g0")
+                }
+            }
+        }
+        val body = postJmap(session, auth, payload)
+        val args = methodResponseArgs(body, "Email/get")
+        val gone = mutableSetOf<String>()
+        args["notFound"]?.jsonArray?.mapNotNullTo(gone) { it.jsonPrimitive.contentOrNull }
+        args["list"]?.jsonArray?.forEach { entry ->
+            val obj = entry as? JsonObject ?: return@forEach
+            val id = obj["id"]?.jsonPrimitive?.contentOrNull ?: return@forEach
+            // A message whose mailboxIds we cannot read is a message we cannot judge: skip it and
+            // keep the row. `{}` from a server that really did unfile it is indistinguishable from
+            // a property it declined to send, and only one of those two readings destroys mail.
+            val boxes = obj["mailboxIds"]?.jsonObject ?: return@forEach
+            if (boxes.isEmpty()) return@forEach
+            if (boxes[mailboxId] == null) gone.add(id)
+        }
+        gone
+    }
+
+    /**
      * Full-text search across the account (Email/query `text` filter + Email/get).
      *
      * Returns both counts — see [SearchPage]: the caller has to know whether the query hit its cap
