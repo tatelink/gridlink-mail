@@ -142,6 +142,9 @@ import app.gridlink.ui.navigateOnce
 import app.gridlink.ui.rememberLeaveOnce
 import app.gridlink.ui.rememberMotionEnabled
 import app.gridlink.R
+import app.gridlink.ui.gridlink.GridlinkDetailFrame
+import app.gridlink.ui.theme.GridlinkMaterialSkin
+import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.connect.ConnectScreen
 import app.gridlink.ui.components.AppPasswordHelpLink
 import app.gridlink.ui.components.PendingImportAccountsSection
@@ -2620,32 +2623,42 @@ private fun formatVacationDate(millis: Long): String =
         .format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
 
 /**
- * Shared scaffold for the hub and detail screens: a [LargeTopAppBar] that collapses
- * on scroll, matching the inbox pattern (DESIGN.md).
+ * Shared frame for the hub and every detail screen under it.
+ *
+ * 🔴 This is the whole of Brandon's "no screen may look like it came from another app" for settings,
+ * and it is one function because every screen in this file goes through it. It used to be a Material
+ * [Scaffold] with a collapsing [LargeTopAppBar] — upstream Sterna's chrome, and unmistakably not
+ * this app's: a grey bar, Roboto, a title that slid away as you scrolled.
+ *
+ * Now it is [GridlinkDetailFrame], the same frame a thread, a contact, an event and a folder are
+ * drawn in: the app's backdrop, a title with a round back control above it, and the content on a
+ * single sheet of glass. Settings stops being a place you visit in a different app and becomes
+ * another detail view.
+ *
+ * [GridlinkMaterialSkin] wraps it because what goes INSIDE is still upstream's composables reading
+ * `MaterialTheme` — see that function for why the values move instead of the call sites.
+ *
+ * The [PaddingValues] handed to [content] is the frame's inner breathing room rather than a window
+ * inset: the frame already took the system bars, and the panel's own edge is drawn glass, so content
+ * that started hard against it would look clipped to the rounding.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun DetailScaffold(
     title: String,
     onBack: () -> Unit,
     content: @Composable (PaddingValues) -> Unit,
 ) {
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            LargeTopAppBar(
-                title = { Text(title) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.settings_back))
-                    }
-                },
-                scrollBehavior = scrollBehavior,
-            )
-        },
-        content = content,
-    )
+    GridlinkMaterialSkin {
+        GridlinkDetailFrame(
+            title = title,
+            onBack = onBack,
+            // Every action on a settings screen is on its own row. Nothing is held back for a
+            // confirm bar, so the panel runs to the bottom margin instead.
+            bottom = null,
+        ) {
+            content(PaddingValues(vertical = GridlinkSpacing.s12))
+        }
+    }
 }
 
 /**
