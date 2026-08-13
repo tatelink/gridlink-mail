@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import app.gridlink.core.data.db.EmailKeywords
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -441,6 +442,76 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_NOTIFICATION_CONTENT] = mode.name }
     }
 
+    /**
+     * The reader's colour-coded tags: wire keyword, display label, palette colour.
+     *
+     * 🔴 Only the definitions live here. WHICH messages carry a tag is the server's business and
+     * is cached in `emails.keywordsJson`; this is the label and the colour, which no mail protocol
+     * carries (see [MailTag]). That split is why a tag can be recoloured in one tap without a
+     * single message being touched.
+     *
+     * Ordered, and the order is the reader's: new tags append. Everything that lists tags reads
+     * this flow, so the manager, the chip picker and the filter row can never disagree about which
+     * tags exist or what order they come in.
+     */
+    val mailTags: Flow<List<MailTag>> = dataStore.data.map { MailTagCodec.decode(it[KEY_MAIL_TAGS]) }
+
+    /**
+     * Create a tag from a label the reader typed, or return the existing one if its wire name is
+     * already taken.
+     *
+     * ⚠️ Collisions are resolved TOWARDS the existing tag rather than by minting "work-2". Two
+     * different labels can slug to the same keyword ("Follow up" and "follow-up"), and the wire
+     * name is the identity as far as every server and every other client is concerned, so two tags
+     * sharing one would be two chips that apply and remove each other.
+     *
+     * Returns null when the label has no usable wire name at all, which the caller shows as
+     * "pick another name".
+     */
+    suspend fun createMailTag(label: String, color: TagColor): MailTag? {
+        val keyword = EmailKeywords.toKeyword(label) ?: return null
+        val existing = mailTags.first()
+        existing.firstOrNull { it.keyword == keyword }?.let { return it }
+        val tag = MailTag(keyword = keyword, label = label.trim(), color = color.name)
+        dataStore.edit { it[KEY_MAIL_TAGS] = MailTagCodec.encode(existing + tag) }
+        return tag
+    }
+
+    /**
+     * Rename or recolour an existing tag, matched by its wire [MailTag.keyword].
+     *
+     * 🔴 The keyword is NOT rewritten by a rename, and cannot be: it is on every message that
+     * carries the tag, on the server. Renaming changes what the chip reads on this device only.
+     * Anything that wants a different wire name is a different tag, applied and removed message by
+     * message, which is what the manager makes the reader do explicitly instead of pretending a
+     * rename could do it silently.
+     */
+    suspend fun updateMailTag(keyword: String, label: String, color: TagColor) {
+        val updated = mailTags.first().map {
+            if (it.keyword == keyword) it.copy(label = label.trim(), color = color.name) else it
+        }
+        dataStore.edit { it[KEY_MAIL_TAGS] = MailTagCodec.encode(updated) }
+    }
+
+    /**
+     * Forget a tag's definition.
+     *
+     * ⚠️ Forget, not un-tag: the messages carrying the keyword keep carrying it, here and on every
+     * other client, and their chips fall back to the wire name in an auto-assigned colour. Deleting
+     * the definition cannot strip a keyword off mail that may not even be cached, and a delete that
+     * quietly rewrote as much of the mailbox as it could reach would be the more surprising of the
+     * two behaviours. The manager says which it is.
+     */
+    suspend fun deleteMailTag(keyword: String) {
+        val remaining = mailTags.first().filterNot { it.keyword == keyword }
+        dataStore.edit { it[KEY_MAIL_TAGS] = MailTagCodec.encode(remaining) }
+    }
+
+    /** Replace the whole set (a settings restore, and the tag manager's reorder if it gains one). */
+    suspend fun setMailTags(tags: List<MailTag>) {
+        dataStore.edit { it[KEY_MAIL_TAGS] = MailTagCodec.encode(tags) }
+    }
+
     /** Captures every DataStore-backed preference into a portable [SettingsBackup]. */
     suspend fun snapshotBackup(): SettingsBackup = SettingsBackup(
         themeMode = themeMode.first().name,
@@ -474,6 +545,9 @@ class SettingsRepository(context: Context) {
         signatureDelimiter = signatureDelimiter.first(),
         deliveryMode = deliveryMode.first().name,
         notificationContent = notificationContent.first().name,
+        // The label and the colour of every tag — the half of a tag that no mail protocol carries,
+        // and therefore the half that a fresh install cannot get back from the server.
+        mailTags = mailTags.first(),
     )
 
     /** Applies the DataStore-backed fields of [backup]; unknown enum values are skipped. */
@@ -514,6 +588,11 @@ class SettingsRepository(context: Context) {
         backup.signatureDelimiter?.let { setSignatureDelimiter(it) }
         backup.deliveryMode?.let { v -> runCatching { DeliveryMode.valueOf(v) }.getOrNull()?.let { setDeliveryMode(it) } }
         backup.notificationContent?.let { v -> runCatching { NotificationContent.valueOf(v) }.getOrNull()?.let { setNotificationContent(it) } }
+        // Restored wholesale, replacing rather than merging: a backup is a picture of the reader's
+        // tags at one moment, and merging would resurrect every tag they had deleted since. An
+        // empty list in the backup is a real answer (they deleted them all); absent is not, and
+        // leaves whatever this device already has.
+        backup.mailTags?.let { setMailTags(it) }
     }
 
     /**
@@ -589,6 +668,7 @@ class SettingsRepository(context: Context) {
         private val KEY_IMAGE_ALLOWLIST = stringSetPreferencesKey("image_allowlist")
         private val KEY_DELIVERY_MODE = stringPreferencesKey("delivery_mode")
         private val KEY_NOTIFICATION_CONTENT = stringPreferencesKey("notification_content")
+        private val KEY_MAIL_TAGS = stringPreferencesKey("mail_tags")
         private val KEY_QUIET_ENABLED = booleanPreferencesKey("quiet_hours_enabled")
         private val KEY_QUIET_START = intPreferencesKey("quiet_hours_start")
         private val KEY_QUIET_END = intPreferencesKey("quiet_hours_end")
