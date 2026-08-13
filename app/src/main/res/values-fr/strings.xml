@@ -66,6 +66,7 @@
     <string name="inbox_folder_options">Options du dossier</string>
     <string name="inbox_folder_watch">Notifier les nouveaux messages</string>
     <string name="settings_delivery_section">Réception des nouveaux messages</string>
+    <string name="settings_delivery_mode_title">Comment le courrier arrive</string>
     <string name="settings_delivery_instant">Instantanée</string>
     <string name="settings_delivery_instant_desc">Le courrier arrive dès sa réception. Peut maintenir une connexion en arrière-plan.</string>
     <string name="settings_delivery_saver">Économie de batterie</string>
@@ -274,6 +275,7 @@
     <string name="settings_notifications_screen_title">Notifications</string>
     <string name="settings_new_mail_section">Nouveaux messages</string>
     <string name="settings_notif_content_section">Contenu des notifications</string>
+    <string name="settings_notif_content_title">Ce que montrent les notifications</string>
     <string name="settings_notif_content_full">Expéditeur et objet</string>
     <string name="settings_notif_content_full_desc">Affiche l\'expéditeur et l\'objet.</string>
     <string name="settings_notif_content_sender">Expéditeur seul</string>

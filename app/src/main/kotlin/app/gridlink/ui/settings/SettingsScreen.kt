@@ -776,8 +776,31 @@ private fun textSizeLabel(context: Context, size: MessageTextSize): String = whe
     MessageTextSize.HUGE -> context.getString(R.string.settings_text_size_huge)
 }
 
+private fun deliveryModeLabel(context: Context, mode: DeliveryMode): String = when (mode) {
+    DeliveryMode.INSTANT -> context.getString(R.string.settings_delivery_instant)
+    DeliveryMode.BATTERY_SAVER -> context.getString(R.string.settings_delivery_saver)
+}
+
+private fun deliveryModeDesc(context: Context, mode: DeliveryMode): String = when (mode) {
+    DeliveryMode.INSTANT -> context.getString(R.string.settings_delivery_instant_desc)
+    DeliveryMode.BATTERY_SAVER -> context.getString(R.string.settings_delivery_saver_desc)
+}
+
+private fun notifContentLabel(context: Context, content: NotificationContent): String = when (content) {
+    NotificationContent.SENDER_AND_SUBJECT -> context.getString(R.string.settings_notif_content_full)
+    NotificationContent.SENDER_ONLY -> context.getString(R.string.settings_notif_content_sender)
+    NotificationContent.NONE -> context.getString(R.string.settings_notif_content_none)
+}
+
+private fun notifContentDesc(context: Context, content: NotificationContent): String = when (content) {
+    NotificationContent.SENDER_AND_SUBJECT -> context.getString(R.string.settings_notif_content_full_desc)
+    NotificationContent.SENDER_ONLY -> context.getString(R.string.settings_notif_content_sender_desc)
+    NotificationContent.NONE -> context.getString(R.string.settings_notif_content_none_desc)
+}
+
 @Composable
 private fun NotificationsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    val context = LocalContext.current
     val pushAll by viewModel.pushAllAccounts.collectAsStateWithLifecycle()
     val deliveryMode by viewModel.deliveryMode.collectAsStateWithLifecycle()
     val notifContent by viewModel.notificationContent.collectAsStateWithLifecycle()
@@ -789,17 +812,13 @@ private fun NotificationsScreen(viewModel: SettingsViewModel, onBack: () -> Unit
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
         ) {
             SettingsSection(stringResource(R.string.settings_delivery_section)) {
-                DeliveryModeOption(
-                    title = stringResource(R.string.settings_delivery_instant),
-                    subtitle = stringResource(R.string.settings_delivery_instant_desc),
-                    selected = deliveryMode == DeliveryMode.INSTANT,
-                    onClick = { viewModel.setDeliveryMode(DeliveryMode.INSTANT) },
-                )
-                DeliveryModeOption(
-                    title = stringResource(R.string.settings_delivery_saver),
-                    subtitle = stringResource(R.string.settings_delivery_saver_desc),
-                    selected = deliveryMode == DeliveryMode.BATTERY_SAVER,
-                    onClick = { viewModel.setDeliveryMode(DeliveryMode.BATTERY_SAVER) },
+                SettingChoiceRow(
+                    title = stringResource(R.string.settings_delivery_mode_title),
+                    options = listOf(DeliveryMode.INSTANT, DeliveryMode.BATTERY_SAVER),
+                    selected = deliveryMode,
+                    optionLabel = { deliveryModeLabel(context, it) },
+                    optionSubtitle = { deliveryModeDesc(context, it) },
+                    onSelect = viewModel::setDeliveryMode,
                 )
             }
             SettingsSection(stringResource(R.string.settings_new_mail_section)) {
@@ -811,23 +830,17 @@ private fun NotificationsScreen(viewModel: SettingsViewModel, onBack: () -> Unit
                 )
             }
             SettingsSection(stringResource(R.string.settings_notif_content_section)) {
-                DeliveryModeOption(
-                    title = stringResource(R.string.settings_notif_content_full),
-                    subtitle = stringResource(R.string.settings_notif_content_full_desc),
-                    selected = notifContent == NotificationContent.SENDER_AND_SUBJECT,
-                    onClick = { viewModel.setNotificationContent(NotificationContent.SENDER_AND_SUBJECT) },
-                )
-                DeliveryModeOption(
-                    title = stringResource(R.string.settings_notif_content_sender),
-                    subtitle = stringResource(R.string.settings_notif_content_sender_desc),
-                    selected = notifContent == NotificationContent.SENDER_ONLY,
-                    onClick = { viewModel.setNotificationContent(NotificationContent.SENDER_ONLY) },
-                )
-                DeliveryModeOption(
-                    title = stringResource(R.string.settings_notif_content_none),
-                    subtitle = stringResource(R.string.settings_notif_content_none_desc),
-                    selected = notifContent == NotificationContent.NONE,
-                    onClick = { viewModel.setNotificationContent(NotificationContent.NONE) },
+                SettingChoiceRow(
+                    title = stringResource(R.string.settings_notif_content_title),
+                    options = listOf(
+                        NotificationContent.SENDER_AND_SUBJECT,
+                        NotificationContent.SENDER_ONLY,
+                        NotificationContent.NONE,
+                    ),
+                    selected = notifContent,
+                    optionLabel = { notifContentLabel(context, it) },
+                    optionSubtitle = { notifContentDesc(context, it) },
+                    onSelect = viewModel::setNotificationContent,
                 )
             }
             SettingsSection(stringResource(R.string.settings_quiet_hours_section)) {
@@ -854,13 +867,29 @@ private fun NotificationsScreen(viewModel: SettingsViewModel, onBack: () -> Unit
     }
 }
 
-private fun formatMinutes(minutes: Int): String = "%02d:%02d".format(minutes / 60, minutes % 60)
+/**
+ * ⚠️ Follows the phone's clock, it does not pick one. Quiet hours used to render as a bare
+ * "%02d:%02d", so a US phone showing 7:16 PM everywhere else in the app suddenly said 22:00 here
+ * (settings audit, 2026-08-12). [use24Hour] comes from [android.text.format.DateFormat.is24HourFormat],
+ * which is the same switch the system clock and the Material time picker read, so the row, the
+ * picker, and the rest of the OS now agree.
+ */
+private fun formatMinutes(minutes: Int, use24Hour: Boolean): String {
+    val hour24 = minutes / 60
+    val minute = minutes % 60
+    if (use24Hour) return "%02d:%02d".format(hour24, minute)
+    // 0 and 12 both display as 12; everything else is the remainder.
+    val hour12 = when (val h = hour24 % 12) { 0 -> 12; else -> h }
+    return "%d:%02d %s".format(hour12, minute, if (hour24 < 12) "AM" else "PM")
+}
 
-/** A row showing a time (HH:mm) that opens a Material time picker when tapped. */
+/** A row showing a time that opens a Material time picker when tapped. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TimePickerRow(label: String, minutes: Int, onChange: (Int) -> Unit) {
     var show by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val use24Hour = remember(context) { android.text.format.DateFormat.is24HourFormat(context) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -870,7 +899,7 @@ private fun TimePickerRow(label: String, minutes: Int, onChange: (Int) -> Unit) 
     ) {
         Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         Text(
-            formatMinutes(minutes),
+            formatMinutes(minutes, use24Hour),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.primary,
         )
@@ -879,7 +908,7 @@ private fun TimePickerRow(label: String, minutes: Int, onChange: (Int) -> Unit) 
         val state = rememberTimePickerState(
             initialHour = minutes / 60,
             initialMinute = minutes % 60,
-            is24Hour = true,
+            is24Hour = use24Hour,
         )
         AlertDialog(
             onDismissRequest = { show = false },
@@ -2814,30 +2843,8 @@ private fun DefaultIdentityRadioRow(selected: Boolean, onSelect: () -> Unit) {
     }
 }
 
-/** One outcome-framed delivery choice (radio + explanation), issue #17. */
-@Composable
-private fun DeliveryModeOption(
-    title: String,
-    subtitle: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(selected = selected, onClick = null)
-        Spacer(Modifier.width(16.dp))
-        Column {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
+// ⛔ DeliveryModeOption (an always-open radio + explanation, issue #17) is gone as of the settings
+// audit (2026-08-12). Delivery mode and notification content were the only two pick-one settings in
+// the app rendered as an open radio stack while every other one was a SettingChoiceRow dialog, and
+// that read as two different kinds of control for the same kind of decision. Both are choice rows
+// now; the per-option explanations survive as SettingChoiceRow's optionSubtitle.

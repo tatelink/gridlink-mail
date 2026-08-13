@@ -66,6 +66,7 @@
     <string name="inbox_folder_options">Ordneroptionen</string>
     <string name="inbox_folder_watch">Bei neuen E-Mails benachrichtigen</string>
     <string name="settings_delivery_section">Zustellung neuer E-Mails</string>
+    <string name="settings_delivery_mode_title">Wie E-Mails ankommen</string>
     <string name="settings_delivery_instant">Sofort</string>
     <string name="settings_delivery_instant_desc">E-Mails kommen an, sobald sie eintreffen. Kann eine Hintergrundverbindung offen halten.</string>
     <string name="settings_delivery_saver">Energiesparmodus</string>
@@ -274,6 +275,7 @@
     <string name="settings_notifications_screen_title">Benachrichtigungen</string>
     <string name="settings_new_mail_section">Neue E-Mails</string>
     <string name="settings_notif_content_section">Benachrichtigungsinhalt</string>
+    <string name="settings_notif_content_title">Was Benachrichtigungen zeigen</string>
     <string name="settings_notif_content_full">Absender und Betreff</string>
     <string name="settings_notif_content_full_desc">Zeigt Absender und Betreff an.</string>
     <string name="settings_notif_content_sender">Nur Absender</string>

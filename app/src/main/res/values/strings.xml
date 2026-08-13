@@ -79,6 +79,7 @@
     <string name="inbox_folder_options">Folder options</string>
     <string name="inbox_folder_watch">Notify about new mail</string>
     <string name="settings_delivery_section">New mail delivery</string>
+    <string name="settings_delivery_mode_title">How mail arrives</string>
     <string name="settings_delivery_instant">Instant</string>
     <string name="settings_delivery_instant_desc">Mail arrives as it lands. May keep a background connection open.</string>
     <string name="settings_delivery_saver">Battery saver</string>
@@ -382,6 +383,7 @@
     <string name="settings_notifications_screen_title">Notifications</string>
     <string name="settings_new_mail_section">New mail</string>
     <string name="settings_notif_content_section">Notification content</string>
+    <string name="settings_notif_content_title">What notifications show</string>
     <string name="settings_notif_content_full">Sender and subject</string>
     <string name="settings_notif_content_full_desc">Show who it\'s from and the subject.</string>
     <string name="settings_notif_content_sender">Sender only</string>
