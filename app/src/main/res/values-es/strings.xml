@@ -245,14 +245,9 @@
     <string name="settings_language_dutch">Nederlands</string>
     <string name="settings_language_russian">Русский</string>
     <string name="settings_language_polish">Polski</string>
-    <string name="settings_theme_section">Tema</string>
-    <string name="settings_theme_title">Tema</string>
     <string name="settings_message_list_section">Lista de mensajes</string>
     <string name="settings_density_title">Densidad</string>
     <string name="settings_preview_title">Vista previa</string>
-    <string name="settings_theme_auto">Automático</string>
-    <string name="settings_theme_light">Claro</string>
-    <string name="settings_theme_dark">Oscuro</string>
     <string name="settings_density_compact">Compacta</string>
     <string name="settings_density_normal">Normal</string>
     <string name="settings_density_spaced">Espaciada</string>
@@ -741,9 +736,6 @@
     <string name="a11y_conversation_expanded">Expandida</string>
     <string name="a11y_conversation_collapsed">Contraída</string>
     <string name="a11y_flagged">Destacado</string>
-    <string name="settings_theme_gridlink_caption">Paleta Gridlink: Arctic (claro) · Pelagic (oscuro).</string>
-    <string name="settings_dynamic_color_title">Colores Material You</string>
-    <string name="settings_dynamic_color_subtitle">Usa los colores de tu fondo de pantalla en lugar de la paleta de Gridlink (Android 12+).</string>
     <string name="empty_inbox_title">Todo al día</string>
     <string name="empty_inbox_body">Nada en vuelo. El correo nuevo aterrizará aquí.</string>
     <string name="empty_folder_title">Aquí todavía no hay nada</string>

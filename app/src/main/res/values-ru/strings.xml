@@ -245,14 +245,9 @@
     <string name="settings_language_dutch">Nederlands</string>
     <string name="settings_language_russian">Русский</string>
     <string name="settings_language_polish">Polski</string>
-    <string name="settings_theme_section">Тема</string>
-    <string name="settings_theme_title">Тема</string>
     <string name="settings_message_list_section">Список писем</string>
     <string name="settings_density_title">Плотность</string>
     <string name="settings_preview_title">Предпросмотр</string>
-    <string name="settings_theme_auto">Авто</string>
-    <string name="settings_theme_light">Светлая</string>
-    <string name="settings_theme_dark">Тёмная</string>
     <string name="settings_density_compact">Компактная</string>
     <string name="settings_density_normal">Обычная</string>
     <string name="settings_density_spaced">Просторная</string>
@@ -746,9 +741,6 @@
     <string name="a11y_conversation_expanded">Развёрнуто</string>
     <string name="a11y_conversation_collapsed">Свёрнуто</string>
     <string name="a11y_flagged">Помечено</string>
-    <string name="settings_theme_gridlink_caption">Палитра Gridlink: Arctic (светлая) · Pelagic (тёмная).</string>
-    <string name="settings_dynamic_color_title">Цвета Material You</string>
-    <string name="settings_dynamic_color_subtitle">Использовать цвета из ваших обоев вместо палитры Gridlink (Android 12+).</string>
     <string name="empty_inbox_title">Всё разобрано</string>
     <string name="empty_inbox_body">Ничего в пути. Новые письма приземлятся здесь.</string>
     <string name="empty_folder_title">Здесь пока пусто</string>

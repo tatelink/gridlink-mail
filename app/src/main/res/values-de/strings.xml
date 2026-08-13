@@ -245,14 +245,9 @@
     <string name="settings_language_dutch">Nederlands</string>
     <string name="settings_language_russian">Русский</string>
     <string name="settings_language_polish">Polski</string>
-    <string name="settings_theme_section">Design</string>
-    <string name="settings_theme_title">Design</string>
     <string name="settings_message_list_section">Nachrichtenliste</string>
     <string name="settings_density_title">Dichte</string>
     <string name="settings_preview_title">Vorschau</string>
-    <string name="settings_theme_auto">Automatisch</string>
-    <string name="settings_theme_light">Hell</string>
-    <string name="settings_theme_dark">Dunkel</string>
     <string name="settings_density_compact">Kompakt</string>
     <string name="settings_density_normal">Normal</string>
     <string name="settings_density_spaced">Luftig</string>
@@ -739,9 +734,6 @@
     <string name="a11y_conversation_expanded">Ausgeklappt</string>
     <string name="a11y_conversation_collapsed">Eingeklappt</string>
     <string name="a11y_flagged">Markiert</string>
-    <string name="settings_theme_gridlink_caption">Gridlink-Palette: Arctic (hell) · Pelagic (dunkel).</string>
-    <string name="settings_dynamic_color_title">Material You-Farben</string>
-    <string name="settings_dynamic_color_subtitle">Farben aus deinem Hintergrundbild statt der Gridlink-Palette verwenden (Android 12+).</string>
     <string name="empty_inbox_title">Alles erledigt</string>
     <string name="empty_inbox_body">Nichts unterwegs. Neue Post landet hier.</string>
     <string name="empty_folder_title">Noch nichts hier</string>
