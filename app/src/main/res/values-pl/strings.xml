@@ -811,4 +811,22 @@
     <string name="settings_thread_action_star">Oznacz gwiazdką</string>
     <string name="settings_thread_action_print">Drukuj</string>
     <string name="settings_thread_action_junk">Spam</string>
+    <string name="settings_tags_title">Tagi</string>
+    <string name="settings_tags_summary">Kolorowe oznaczenia poczty</string>
+    <string name="settings_tags_section">Twoje tagi</string>
+    <string name="settings_tags_empty">Brak tagów. Utwórz pierwszy, aby oznaczać pocztę.</string>
+    <string name="settings_tags_add">Nowy tag</string>
+    <string name="settings_tags_new">Nowy tag</string>
+    <string name="settings_tags_edit">Edytuj tag</string>
+    <string name="settings_tags_name_hint">Nazwa tagu</string>
+    <string name="settings_tags_colour">Kolor</string>
+    <string name="settings_tags_delete">Usuń tag</string>
+    <string name="settings_tags_delete_title">Usunąć „%1$s”?</string>
+    <string name="settings_tags_delete_body">Wiadomości z tym tagiem zachowają go. Przestanie tu tylko mieć nazwę i kolor.</string>
+    <string name="settings_tags_delete_confirm">Usuń</string>
+    <string name="settings_tags_keyword">Wysyłany na serwer jako %1$s</string>
+    <string name="settings_tags_note">Nazwy tagów podróżują z pocztą, więc widzą je też inne aplikacje. Kolory pozostają na tym urządzeniu i w kopii ustawień.</string>
+    <string name="settings_tags_unknown_section">Znalezione w poczcie</string>
+    <string name="settings_tags_unknown_note">Tagi na poczcie, dla których to urządzenie nie ma nazwy ani koloru. Przejmij tag, aby nadać mu oba.</string>
+    <string name="settings_tags_adopt">Przejmij</string>
 </resources>

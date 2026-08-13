@@ -7,12 +7,14 @@ import androidx.lifecycle.viewModelScope
 import app.gridlink.container
 import app.gridlink.core.data.account.K9SettingsImporter
 import app.gridlink.core.data.settings.ListDensity
+import app.gridlink.core.data.settings.MailTag
 import app.gridlink.core.data.settings.MessageTextSize
 import app.gridlink.core.data.settings.PreviewLines
 import app.gridlink.core.data.settings.SettingsBackup
 import app.gridlink.core.data.settings.SettingsBackupCodec
 import app.gridlink.core.data.settings.SettingsRepository
 import app.gridlink.core.data.settings.SwipeAction
+import app.gridlink.core.data.settings.TagColor
 import app.gridlink.core.data.settings.ThemeMode
 import app.gridlink.core.data.settings.ThreadToolbarAction
 import app.gridlink.core.data.settings.DeliveryMode
@@ -24,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -32,6 +35,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val store = application.container.accountStore
     private val appLock = application.container.appLock
     private val settings = application.container.settingsRepository
+
+    /** Only for the tag manager's "tags in use" scan; nothing else on this screen touches mail. */
+    private val mail = application.container.mailRepository
 
     private val _pushAllAccounts = MutableStateFlow(store.pushAllAccounts())
     val pushAllAccounts = _pushAllAccounts.asStateFlow()
@@ -130,6 +136,90 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun setImageAllowed(sender: String, allowed: Boolean) {
         viewModelScope.launch { settings.setImageAllowed(sender, allowed) }
+    }
+
+    /**
+     * The reader's custom tags: what they are called, and what colour they are drawn in.
+     *
+     * 🔴 Device-local by design, and the tag manager says so. What travels to the server is the
+     * keyword alone — JMAP keywords (RFC 8621) and IMAP custom flags are both a bare set of strings
+     * with nowhere to put a colour or a display name. So the colour lives here and in the settings
+     * backup, and a message tagged on this phone shows up tagged in any other client, just without
+     * the paint.
+     */
+    val mailTags = settings.mailTags.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = emptyList(),
+    )
+
+    fun createMailTag(label: String, color: TagColor) {
+        viewModelScope.launch { settings.createMailTag(label, color) }
+    }
+
+    fun updateMailTag(keyword: String, label: String, color: TagColor) {
+        viewModelScope.launch { settings.updateMailTag(keyword, label, color) }
+    }
+
+    /**
+     * ⚠️ Forgets the definition; it does NOT take the tag off the mail carrying it.
+     *
+     * Un-tagging would mean a write per message across a mailbox this device has only a window of,
+     * and the messages it could not see would keep the keyword anyway — so the "clean" version of
+     * this is one that quietly half-works. The tag simply stops being defined: mail that has it
+     * still shows it, under its wire name in a derived colour, and the screen says so before the
+     * delete goes through.
+     */
+    fun deleteMailTag(keyword: String) {
+        viewModelScope.launch { settings.deleteMailTag(keyword) }
+    }
+
+    /**
+     * Keywords sitting on cached mail that no definition on this device explains.
+     *
+     * Where they come from: another client on the same mailbox, or this device itself before a
+     * settings restore, or a tag whose definition was deleted while tagged mail stayed tagged. All
+     * three leave the reader looking at a grey chip under a wire name with no way to claim it, so
+     * the manager lists them and offers [adoptMailTag].
+     *
+     * ⚠️ Only what is CACHED, and only for the current account. The window this device syncs is not
+     * the mailbox, so a keyword that exists only on old mail will not appear here — which is why
+     * this is an offer at the bottom of the screen and not a promise of completeness.
+     *
+     * Loaded once, on demand, rather than as a flow: it is a Room scan over the message table with
+     * a LIKE on packed keywords, and nothing on this screen changes it.
+     */
+    private val _undefinedTags = MutableStateFlow<List<String>>(emptyList())
+    val undefinedTags = _undefinedTags.asStateFlow()
+
+    fun refreshUndefinedTags() {
+        viewModelScope.launch {
+            val accountId = store.currentId() ?: return@launch
+            val defined = settings.mailTags.first().map { it.keyword }.toSet()
+            _undefinedTags.value = runCatching { mail.tagsInUse(accountId) }
+                .getOrDefault(emptyList())
+                .filterNot { it in defined }
+                .sorted()
+        }
+    }
+
+    /**
+     * Give an existing keyword a name and a colour, without touching the mail that carries it.
+     *
+     * The keyword is kept exactly as found — [SettingsRepository.createMailTag] would derive a new
+     * one from the label, and a derived keyword that differed by one character would define a tag
+     * that no message on the server has. So this appends the definition directly.
+     */
+    fun adoptMailTag(keyword: String, label: String, color: TagColor) {
+        viewModelScope.launch {
+            val existing = settings.mailTags.first()
+            if (existing.none { it.keyword == keyword }) {
+                settings.setMailTags(
+                    existing + MailTag(keyword = keyword, label = label.trim(), color = color.name),
+                )
+            }
+            refreshUndefinedTags()
+        }
     }
 
     /** New-mail delivery: Instant / Battery saver (issue #17, the ONE outcome setting). */

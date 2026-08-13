@@ -807,4 +807,22 @@
     <string name="settings_thread_action_star">Markieren</string>
     <string name="settings_thread_action_print">Drucken</string>
     <string name="settings_thread_action_junk">Spam</string>
+    <string name="settings_tags_title">Tags</string>
+    <string name="settings_tags_summary">Farbige Markierungen für Ihre E-Mails</string>
+    <string name="settings_tags_section">Ihre Tags</string>
+    <string name="settings_tags_empty">Noch keine Tags. Legen Sie einen an, um E-Mails zu markieren.</string>
+    <string name="settings_tags_add">Neuer Tag</string>
+    <string name="settings_tags_new">Neuer Tag</string>
+    <string name="settings_tags_edit">Tag bearbeiten</string>
+    <string name="settings_tags_name_hint">Tag-Name</string>
+    <string name="settings_tags_colour">Farbe</string>
+    <string name="settings_tags_delete">Tag löschen</string>
+    <string name="settings_tags_delete_title">„%1$s“ löschen?</string>
+    <string name="settings_tags_delete_body">E-Mails mit diesem Tag behalten ihn. Er wird hier nur nicht mehr benannt und eingefärbt.</string>
+    <string name="settings_tags_delete_confirm">Löschen</string>
+    <string name="settings_tags_keyword">Wird als %1$s an den Server gesendet</string>
+    <string name="settings_tags_note">Tag-Namen werden mit Ihren E-Mails synchronisiert, andere Apps sehen sie also ebenfalls. Farben bleiben auf diesem Gerät und in Ihrer Einstellungssicherung.</string>
+    <string name="settings_tags_unknown_section">In Ihren E-Mails gefunden</string>
+    <string name="settings_tags_unknown_note">Tags auf E-Mails, für die dieses Gerät keinen Namen und keine Farbe hat. Übernehmen Sie einen, um beides zu vergeben.</string>
+    <string name="settings_tags_adopt">Übernehmen</string>
 </resources>

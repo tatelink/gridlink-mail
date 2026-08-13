@@ -811,4 +811,22 @@
     <string name="settings_thread_action_star">Suivi</string>
     <string name="settings_thread_action_print">Imprimer</string>
     <string name="settings_thread_action_junk">Indésirable</string>
+    <string name="settings_tags_title">Étiquettes</string>
+    <string name="settings_tags_summary">Repères colorés pour vos messages</string>
+    <string name="settings_tags_section">Vos étiquettes</string>
+    <string name="settings_tags_empty">Aucune étiquette. Créez-en une pour commencer à marquer vos messages.</string>
+    <string name="settings_tags_add">Nouvelle étiquette</string>
+    <string name="settings_tags_new">Nouvelle étiquette</string>
+    <string name="settings_tags_edit">Modifier l’étiquette</string>
+    <string name="settings_tags_name_hint">Nom de l’étiquette</string>
+    <string name="settings_tags_colour">Couleur</string>
+    <string name="settings_tags_delete">Supprimer l’étiquette</string>
+    <string name="settings_tags_delete_title">Supprimer « %1$s » ?</string>
+    <string name="settings_tags_delete_body">Les messages qui la portent la gardent. Elle cesse simplement d’être nommée et colorée ici.</string>
+    <string name="settings_tags_delete_confirm">Supprimer</string>
+    <string name="settings_tags_keyword">Envoyée au serveur sous %1$s</string>
+    <string name="settings_tags_note">Les noms d’étiquettes suivent vos messages, les autres applications les voient donc aussi. Les couleurs restent sur cet appareil et dans votre sauvegarde de réglages.</string>
+    <string name="settings_tags_unknown_section">Vues dans vos messages</string>
+    <string name="settings_tags_unknown_note">Étiquettes présentes sur vos messages dont cet appareil ne connaît ni le nom ni la couleur. Adoptez-en une pour lui donner les deux.</string>
+    <string name="settings_tags_adopt">Adopter</string>
 </resources>

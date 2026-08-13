@@ -810,4 +810,22 @@
     <string name="settings_thread_action_star">Ster</string>
     <string name="settings_thread_action_print">Afdrukken</string>
     <string name="settings_thread_action_junk">Spam</string>
+    <string name="settings_tags_title">Labels</string>
+    <string name="settings_tags_summary">Gekleurde markeringen voor uw e-mail</string>
+    <string name="settings_tags_section">Uw labels</string>
+    <string name="settings_tags_empty">Nog geen labels. Maak er een om e-mail te markeren.</string>
+    <string name="settings_tags_add">Nieuw label</string>
+    <string name="settings_tags_new">Nieuw label</string>
+    <string name="settings_tags_edit">Label bewerken</string>
+    <string name="settings_tags_name_hint">Labelnaam</string>
+    <string name="settings_tags_colour">Kleur</string>
+    <string name="settings_tags_delete">Label verwijderen</string>
+    <string name="settings_tags_delete_title">“%1$s” verwijderen?</string>
+    <string name="settings_tags_delete_body">E-mail met dit label houdt het. Het krijgt hier alleen geen naam en kleur meer.</string>
+    <string name="settings_tags_delete_confirm">Verwijderen</string>
+    <string name="settings_tags_keyword">Gaat als %1$s naar de server</string>
+    <string name="settings_tags_note">Labelnamen reizen mee met uw e-mail, dus andere apps zien ze ook. Kleuren blijven op dit apparaat en in uw instellingenback-up.</string>
+    <string name="settings_tags_unknown_section">Gezien in uw e-mail</string>
+    <string name="settings_tags_unknown_note">Labels op e-mail waarvoor dit apparaat geen naam of kleur heeft. Adopteer er een om beide te geven.</string>
+    <string name="settings_tags_adopt">Adopteren</string>
 </resources>

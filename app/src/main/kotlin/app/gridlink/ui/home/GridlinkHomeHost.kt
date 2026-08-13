@@ -89,6 +89,8 @@ fun GridlinkHomeHost(
     accounts: List<StoredAccount>,
     /** Hands off to upstream's settings, which is where identities, PGP and filters still live. */
     onOpenSettings: () -> Unit,
+    /** Settings again, but landing on the tag manager: the tag picker's "Manage tags" row. */
+    onManageTags: () -> Unit = onOpenSettings,
     /** A `mailto:` link or a share, parsed by the activity. Null when nothing is waiting. */
     pendingMailto: MailtoDraft? = null,
     onMailtoConsumed: () -> Unit = {},
@@ -241,6 +243,7 @@ fun GridlinkHomeHost(
     // remembered across recompositions: a directly captured lambda would go stale and the Settings
     // row would keep calling back into a composition that had moved on.
     val openSettings by rememberUpdatedState(onOpenSettings)
+    val manageTags by rememberUpdatedState(onManageTags)
     // 🔴 menuCounts joins the remember keys: the config is rebuilt when a count changes or the
     // drawer keeps saying yesterday's number over today's Drafts.
     val config = remember(address, accounts.size, menuCounts, viewModel, davViewModel) {
@@ -352,6 +355,7 @@ fun GridlinkHomeHost(
             onFilter = viewModel::filter,
             onAllowImages = viewModel::setImagesAllowed,
             onSetTag = viewModel::setTag,
+            onManageTags = manageTags,
             onOpenAttachment = viewModel::openAttachment,
             // 🔴 No picker on anything modern. Android's document picker is another app's UI, in
             // another app's theme, and putting it in front of a one-tap save would be the only

@@ -813,4 +813,22 @@
     <string name="settings_thread_action_star">Marcar com estrela</string>
     <string name="settings_thread_action_print">Imprimir</string>
     <string name="settings_thread_action_junk">Spam</string>
+    <string name="settings_tags_title">Etiquetas</string>
+    <string name="settings_tags_summary">Marcas coloridas para o seu email</string>
+    <string name="settings_tags_section">As suas etiquetas</string>
+    <string name="settings_tags_empty">Ainda sem etiquetas. Crie uma para começar a marcar email.</string>
+    <string name="settings_tags_add">Nova etiqueta</string>
+    <string name="settings_tags_new">Nova etiqueta</string>
+    <string name="settings_tags_edit">Editar etiqueta</string>
+    <string name="settings_tags_name_hint">Nome da etiqueta</string>
+    <string name="settings_tags_colour">Cor</string>
+    <string name="settings_tags_delete">Eliminar etiqueta</string>
+    <string name="settings_tags_delete_title">Eliminar “%1$s”?</string>
+    <string name="settings_tags_delete_body">O email que já a tem mantém-na. Apenas deixa de ter nome e cor aqui.</string>
+    <string name="settings_tags_delete_confirm">Eliminar</string>
+    <string name="settings_tags_keyword">Enviada para o servidor como %1$s</string>
+    <string name="settings_tags_note">Os nomes das etiquetas viajam com o seu email, por isso outras apps também as veem. As cores ficam neste dispositivo e na cópia das definições.</string>
+    <string name="settings_tags_unknown_section">Vistas no seu email</string>
+    <string name="settings_tags_unknown_note">Etiquetas no email para as quais este dispositivo não tem nome nem cor. Adote uma para lhe dar ambos.</string>
+    <string name="settings_tags_adopt">Adotar</string>
 </resources>
