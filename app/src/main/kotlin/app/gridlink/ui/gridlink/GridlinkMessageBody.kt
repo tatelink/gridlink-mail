@@ -13,10 +13,15 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -24,11 +29,18 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.viewinterop.AndroidView
+import app.gridlink.GridlinkApplication
 import app.gridlink.ui.emailhtml.EmailRemoteContent
 import app.gridlink.ui.emailhtml.EmailTheme
+import app.gridlink.ui.emailhtml.TrackingParams
 import app.gridlink.ui.emailhtml.buildEmailHtmlDocument
 import app.gridlink.ui.rememberLeaveOnce
+import app.gridlink.ui.theme.GridlinkSpacing
+import app.gridlink.ui.theme.GridlinkTheme
+import app.gridlink.ui.theme.GridlinkType
+import kotlinx.coroutines.flow.flowOf
 import java.io.ByteArrayInputStream
 
 /**
@@ -130,10 +142,42 @@ internal fun GridlinkMessageBody(
     val client = remember { GridlinkBodyWebViewClient() }
     client.blockRemote = blockRemote
     client.onContentHeight = { px -> heightPx = px }
+    // The two Privacy & security settings that live on this tap, read straight from the app's
+    // settings store rather than threaded down through the mail state: they belong to the link, not
+    // to the message, and the inbox flow that carries message state is already at combine's ceiling.
+    //
+    // ⚠️ Safe-cast with defaults, so a @Preview or a test host with no [GridlinkApplication] behind
+    // it still renders a body instead of throwing. The defaults are the store's own: strip on,
+    // confirm off.
+    // ⚠️ Named for the store and NOT `settings`: the WebView configuration block below is an
+    // `apply { }` over `WebView.settings`, and a local of that name silently captures every
+    // `javaScriptEnabled = false` line in it.
+    val settingsStore = remember(context) {
+        (context.applicationContext as? GridlinkApplication)?.container?.settingsRepository
+    }
+    val stripTracking by (settingsStore?.stripTrackingParams ?: flowOf(true))
+        .collectAsState(initial = true)
+    val confirmLinks by (settingsStore?.confirmLinks ?: flowOf(false))
+        .collectAsState(initial = false)
+    // The link a confirm dialog is currently asking about; null when nothing is pending.
+    var pendingLink by remember { mutableStateOf<Uri?>(null) }
     // 🔴 Guarded, like every other way out of the app. A link in a message is the easiest one to
     // double-fire: the WebView reports the tap, the browser takes a moment to come up, and a second
     // tap on a body that has not moved yet opens the page twice.
-    client.onOpenUrl = { uri -> leaveOnce { openExternally(context, uri) } }
+    //
+    // 🔴 Both privacy settings are applied HERE, at the one place a message can send the reader
+    // anywhere, and both used to be stored and ignored (audit, 2026-08-12). Stripping happens before
+    // the confirm so the address in the dialog is the address that will be opened: a dialog quoting
+    // a URL the app then edits is a worse lie than not asking at all.
+    //
+    // Only `http(s)` is confirmed. `mailto:`, `tel:` and `geo:` hand off to an app that shows the
+    // user what it got before anything is sent, and a second dialog in front of the composer is
+    // friction with nothing behind it.
+    client.onOpenUrl = { uri ->
+        val target = if (stripTracking) Uri.parse(TrackingParams.strip(uri.toString())) else uri
+        val web = target.scheme?.lowercase() in setOf("http", "https")
+        if (confirmLinks && web) pendingLink = target else leaveOnce { openExternally(context, target) }
+    }
     // Fades in rather than appearing, because the reveal lands one frame after the poll settles and
     // a body that pops is indistinguishable from a body that reloaded.
     val revealed by animateFloatAsState(
@@ -204,6 +248,36 @@ internal fun GridlinkMessageBody(
                 }
             },
         )
+    }
+    // The "Confirm before opening links" dialog. It names the HOST first and in the app's own voice,
+    // because that is the single fact that decides whether a link is what it claimed to be, and it
+    // is the one a display text of "yourbank.com" cannot fake. The full address is under it, wrapped
+    // rather than ellipsised at the front, so a look-alike domain buried in a long path is readable
+    // instead of hidden behind a "…".
+    pendingLink?.let { link ->
+        GridlinkDialog(
+            title = "Open this link?",
+            confirmLabel = "Open",
+            onConfirm = {
+                pendingLink = null
+                leaveOnce { openExternally(context, link) }
+            },
+            onDismiss = { pendingLink = null },
+        ) {
+            Text(
+                text = link.host.orEmpty().ifBlank { "Unknown site" },
+                style = GridlinkType.senderName,
+                color = GridlinkTheme.colors.textPrimary,
+            )
+            Spacer(Modifier.height(GridlinkSpacing.s8))
+            Text(
+                text = link.toString(),
+                style = GridlinkType.metadata,
+                color = GridlinkTheme.colors.textSecondary,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
