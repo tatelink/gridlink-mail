@@ -24,15 +24,24 @@ data class OAuthProvider(
         /**
          * Outlook / Microsoft (personal + work/school) over IMAP+SMTP with XOAUTH2.
          *
-         * Requires a registered **public** Azure app (Entra ID → App registrations):
-         *   • Authentication → "Allow public client flows" = Yes (device-code grant).
-         *   • Delegated permissions: https://outlook.office.com/IMAP.AccessAsUser.All,
-         *     https://outlook.office.com/SMTP.Send, offline_access.
-         * Drop that registration's (public, non-secret) client id into [clientId].
+         * [clientId] is our own Entra app registration, display name **GridLink Mail**. That name
+         * is not decoration: Microsoft's device-code page prints the display name of whoever owns
+         * the client id, so inheriting upstream's registration meant the sign-in screen said
+         * "Sterna". It is a public identifier, not a secret, and it is safe in the repo.
+         *
+         * The registration is a **public** client (Authentication → "Allow public client flows"
+         * = Yes), which is what makes the device-code grant legal for an app that holds no secret.
+         * Its Exchange delegated permissions are deliberately NOT pre-registered: personal
+         * Microsoft accounts consent dynamically on the v2.0 endpoint, so [scope] is what actually
+         * gets approved. A work/school account, whose admin must consent in advance, would need
+         * IMAP.AccessAsUser.All + SMTP.Send + offline_access added to the registration first.
+         *
+         * 🔴 Changing this id invalidates every stored Outlook refresh token: they are issued to a
+         * client id, so existing accounts must sign in again.
          */
         val MICROSOFT = OAuthProvider(
             id = "microsoft",
-            clientId = "46f1f544-a6df-45d0-9d26-3e4dad7a6c12",
+            clientId = "3cf80644-1d5a-4dcf-ae39-0ff330ae5b00",
             scope = "https://outlook.office.com/IMAP.AccessAsUser.All " +
                 "https://outlook.office.com/SMTP.Send offline_access openid email",
             metadata = OAuthMetadata(
