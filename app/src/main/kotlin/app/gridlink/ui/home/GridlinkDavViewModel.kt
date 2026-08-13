@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.gridlink.container
 import app.gridlink.core.data.calendar.CalendarOccurrence
+import app.gridlink.core.data.calendar.EventEditScope
 import app.gridlink.core.data.calendar.EventField
 import app.gridlink.core.data.contacts.ContactEdit
 import app.gridlink.core.data.dav.DavSyncOutcome
@@ -17,6 +18,7 @@ import app.gridlink.ui.gridlink.GridlinkContactContent
 import app.gridlink.ui.gridlink.GridlinkContactWriter
 import app.gridlink.ui.gridlink.GridlinkDavMapping
 import app.gridlink.ui.gridlink.GridlinkEvent
+import app.gridlink.ui.gridlink.GridlinkEventEditScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -201,12 +203,16 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
             return outcome.error
         }
 
-        // The handle is [GridlinkDavMapping.event]'s answer to "can this one be rewritten in
-        // place": empty for a repeating event's day, a detached override, or a row whose raw no
-        // longer reads, and those are exactly the events that must not show Edit.
+        // The handle is [GridlinkDavMapping.event]'s answer to "can this one be found again":
+        // empty only for a row whose stored text no longer reads, and that is the one event that
+        // must not show Edit. Repeating events are editable; the form asks which occurrences.
         override fun canUpdate(event: GridlinkEvent): Boolean = event.handle.isNotEmpty()
 
-        override suspend fun update(before: GridlinkEvent, edited: GridlinkEvent): String? {
+        override suspend fun update(
+            before: GridlinkEvent,
+            edited: GridlinkEvent,
+            scope: GridlinkEventEditScope,
+        ): String? {
             val id = accountId.value ?: return "No account is signed in."
             // 🔴 Diffed against [before] — the event that SEEDED the form — never against server
             // truth. A multi-day all-day event's occurrence carries the day being looked at, not
@@ -232,11 +238,12 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
                     add(EventField.REMINDERS)
                 }
             }
+            // The href the file lives at, and which day of a series was on screen. The ticket is
+            // taken apart by the same object that assembled it; nothing here parses it by hand.
+            val (href, recurrenceDay) = GridlinkDavMapping.eventEdit(edited.handle)
             val outcome = repo.updateEvent(
                 accountId = id,
-                // The handle wears [GridlinkDavMapping.PREFIX] over the DAV href, exactly as
-                // contact ids do; the repository stores rows under the bare href.
-                href = edited.handle.removePrefix(GridlinkDavMapping.PREFIX),
+                href = href,
                 touched = touched,
                 title = edited.title,
                 date = edited.date,
@@ -246,6 +253,11 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
                 description = edited.notes,
                 category = edited.category,
                 reminders = edited.reminders,
+                recurrenceDay = recurrenceDay,
+                scope = when (scope) {
+                    GridlinkEventEditScope.THIS_EVENT -> EventEditScope.THIS_EVENT
+                    GridlinkEventEditScope.ALL_EVENTS -> EventEditScope.WHOLE_SERIES
+                },
             )
             if (outcome.succeeded) {
                 Log.i(TAG, "updated event ${outcome.href}")

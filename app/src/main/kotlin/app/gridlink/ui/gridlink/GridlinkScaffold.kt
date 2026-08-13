@@ -1200,18 +1200,27 @@ fun GridlinkRoot(
     var editingEvent by remember { mutableStateOf<GridlinkEvent?>(null) }
 
     /**
+     * An edit to a repeating event that is waiting on "this event, or all of them?".
+     *
+     * The EDITED copy, parked between Save and the write. Held here rather than answered inside
+     * [GridlinkEventFormScreen] because the form's job ends when it has produced an event; which
+     * occurrences that event replaces is the writer's question, and the form has no writer.
+     */
+    var eventScopeAsk by remember { mutableStateOf<GridlinkEvent?>(null) }
+
+    /**
      * Save changes to an event: [updateContact]'s exact contract through
      * [GridlinkCalendarWriter.update]. The edited copy keeps the original's id (the form seeds it
      * from [GridlinkEventFormScreen]'s `initial`), so the shadow map lands on the right event.
      */
-    fun updateEvent(edited: GridlinkEvent) {
+    fun applyEventUpdate(edited: GridlinkEvent, editScope: GridlinkEventEditScope) {
         // The event that seeded the form, captured before anything can close it: the writer diffs
         // the two to decide which fields the edit actually touched.
         val before = editingEvent ?: return
         savingEvent = true
         saveError = null
         scope.launch {
-            val failure = runCatching { calendarWriter.update(before, edited) }
+            val failure = runCatching { calendarWriter.update(before, edited, editScope) }
                 .getOrElse { t ->
                     if (t is CancellationException) throw t
                     t.message ?: "Couldn't save that event."
@@ -1226,6 +1235,24 @@ fun GridlinkRoot(
             }
             editingEvent = null
         }
+    }
+
+    /**
+     * Save, with the scope question put first when there is one to put.
+     *
+     * 🔴 A repeating event does NOT write on the Save tap. Both answers are reasonable and the
+     * wrong one is invisible: "moved Thursday's stand-up" and "moved all fifty-two" look the same
+     * on the day. So Save raises [eventScopeAsk] and the write happens on the answer. Everything
+     * else, which is every event with one occurrence, goes straight through.
+     */
+    fun updateEvent(edited: GridlinkEvent) {
+        val before = editingEvent ?: return
+        if (before.repeating) {
+            saveError = null
+            eventScopeAsk = edited
+            return
+        }
+        applyEventUpdate(edited, GridlinkEventEditScope.ALL_EVENTS)
     }
 
     /** The card being edited, or null. The object, not an id: it seeds the form, and the form must
@@ -2493,6 +2520,23 @@ fun GridlinkRoot(
                         scheduled = scheduled,
                         onCancel = onCancelScheduled,
                         onClose = { scheduledOpen = false },
+                    )
+                }
+
+                // "This event or all of them", over whichever layout is showing the edit form. It
+                // is composed out here, beside the pickers, rather than inside either pane: the
+                // form it covers lives in two different places depending on width, and a sheet
+                // that moved with it would be two sheets to keep in step.
+                eventScopeAsk?.let { pending ->
+                    GridlinkEventScopeSheet(
+                        event = pending,
+                        onPick = { picked ->
+                            eventScopeAsk = null
+                            applyEventUpdate(pending, picked)
+                        },
+                        // Dismiss is the third answer, "neither": the form stays open, unsaved,
+                        // exactly as it was. Nothing to undo because nothing was written.
+                        onDismiss = { eventScopeAsk = null },
                     )
                 }
 

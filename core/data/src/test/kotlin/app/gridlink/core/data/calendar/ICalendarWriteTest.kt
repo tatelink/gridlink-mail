@@ -176,6 +176,8 @@ class ICalendarWriteTest {
         description: String? = null,
         category: String? = null,
         reminders: List<Int> = emptyList(),
+        recurrenceId: LocalDate? = null,
+        keepTimeSpelling: Boolean = false,
     ): String? = ICalendar.patchEvent(
         raw = raw,
         uid = uid,
@@ -189,7 +191,144 @@ class ICalendarWriteTest {
         description = description,
         category = category,
         reminders = reminders,
+        recurrenceId = recurrenceId,
+        keepTimeSpelling = keepTimeSpelling,
     )
+
+    private fun detach(
+        raw: String,
+        instanceDay: LocalDate,
+        touched: Set<EventField>,
+        uid: String = "target",
+        summary: String = "New title",
+        instanceTime: LocalTime = LocalTime.of(9, 0),
+        date: LocalDate = instanceDay,
+        start: LocalTime? = LocalTime.of(9, 0),
+        end: LocalTime? = LocalTime.of(10, 0),
+        location: String? = null,
+        description: String? = null,
+        category: String? = null,
+        reminders: List<Int> = emptyList(),
+    ): String? = ICalendar.detachOccurrence(
+        raw = raw,
+        uid = uid,
+        instanceStart = LocalDateTime.of(instanceDay, instanceTime),
+        touched = touched,
+        summary = summary,
+        start = LocalDateTime.of(date, start ?: LocalTime.MIDNIGHT),
+        end = end?.let { LocalDateTime.of(date, it) },
+        allDay = start == null,
+        zone = eastern,
+        location = location,
+        description = description,
+        category = category,
+        reminders = reminders,
+    )
+
+    /** A weekly series spelled the way a real server spells one: zoned, not an instant. */
+    private fun weekly(vararg extra: String): String = stored(
+        "SUMMARY:Stand-up",
+        "DTSTART;TZID=America/New_York:20260803T090000",
+        "DTEND;TZID=America/New_York:20260803T093000",
+        "RRULE:FREQ=WEEKLY;BYDAY=MO",
+        "ORGANIZER;CN=Boss:mailto:boss@example.com",
+        "ATTENDEE:mailto:someone@example.com",
+        *extra,
+    )
+
+    /**
+     * 🔴 The series keeps its ZONED spelling through an edit.
+     *
+     * A `TZID=` series means "9 AM wherever that zone is", and rewriting it as a UTC instant is not
+     * the same event: every occurrence after the next daylight-saving change lands an hour out. The
+     * bug is invisible in August and appears in November.
+     */
+    @Test fun editingTheWholeSeriesKeepsItsZone() {
+        val out = patch(
+            weekly(),
+            setOf(EventField.TIME),
+            date = LocalDate.of(2026, 8, 10),
+            start = LocalTime.of(10, 0),
+            end = LocalTime.of(10, 30),
+            keepTimeSpelling = true,
+        )!!
+
+        assertTrue(out, "DTSTART;TZID=America/New_York:20260810T100000" in out)
+        assertTrue(out, "DTEND;TZID=America/New_York:20260810T103000" in out)
+        assertFalse(out, "DTSTART:20260810T140000Z" in out)
+        // The rule survives: this edit moved the series, it did not end it.
+        assertTrue(out, "RRULE:FREQ=WEEKLY;BYDAY=MO" in out)
+    }
+
+    /**
+     * "This event" on a day nobody has touched before: the file grows a second VEVENT and the
+     * master is left exactly as it was.
+     */
+    @Test fun detachingOneDayLeavesTheMasterAlone() {
+        val out = detach(
+            weekly(),
+            instanceDay = LocalDate.of(2026, 8, 17),
+            touched = setOf(EventField.TITLE),
+            summary = "Stand-up (moved room)",
+        )!!
+
+        // The master, untouched: same start, same rule, no new SEQUENCE.
+        assertTrue(out, "DTSTART;TZID=America/New_York:20260803T090000" in out)
+        assertTrue(out, "RRULE:FREQ=WEEKLY;BYDAY=MO" in out)
+        // The override, spelled in the SERIES' zone so the server can match it to a real occurrence.
+        assertTrue(out, "RECURRENCE-ID;TZID=America/New_York:20260817T090000" in out)
+        assertTrue(out, "SUMMARY:Stand-up (moved room)" in out)
+        // It inherits what the master carried and this app does not model.
+        assertTrue(out, "ORGANIZER;CN=Boss:mailto:boss@example.com" in out)
+        assertTrue(out, "ATTENDEE:mailto:someone@example.com" in out)
+
+        val events = ICalendarStream.parse(out, eastern)
+        // Master, override, and the unrelated neighbour the fixture always carries.
+        assertEquals(3, events.size)
+        val override = events.single { it.uid == "target" && it.recurrenceId != null }
+        assertEquals(LocalDate.of(2026, 8, 17), override.recurrenceId)
+        assertEquals("Stand-up (moved room)", override.summary)
+        assertEquals(LocalDate.of(2026, 8, 3), events.single { it.rrule != null }.start.toLocalDate())
+    }
+
+    /** 🔴 An override must not carry the rule, or the series would fork into two of itself. */
+    @Test fun aDetachedDayDoesNotInheritTheRule() {
+        val out = detach(
+            weekly(),
+            instanceDay = LocalDate.of(2026, 8, 17),
+            touched = setOf(EventField.TIME),
+            start = LocalTime.of(11, 0),
+            end = LocalTime.of(11, 30),
+        )!!
+
+        assertEquals(1, out.split("RRULE").size - 1)
+        val override = ICalendarStream.parse(out, eastern).single { it.recurrenceId != null }
+        assertNull(override.rrule)
+        assertEquals(LocalDateTime.of(2026, 8, 17, 11, 0), override.start)
+    }
+
+    /** A second edit to the same day patches the override that already exists, not the master. */
+    @Test fun aDayAlreadyDetachedIsPatchedInPlace() {
+        val raw = detach(
+            weekly(),
+            instanceDay = LocalDate.of(2026, 8, 17),
+            touched = setOf(EventField.TITLE),
+            summary = "First edit",
+        )!!
+        val out = patch(
+            raw,
+            setOf(EventField.TITLE),
+            summary = "Second edit",
+            recurrenceId = LocalDate.of(2026, 8, 17),
+            keepTimeSpelling = true,
+        )!!
+
+        assertTrue(out, "SUMMARY:Second edit" in out)
+        assertFalse(out, "First edit" in out)
+        // The master's own title is not what was being edited.
+        assertTrue(out, "SUMMARY:Stand-up" in out)
+        assertEquals(3, ICalendarStream.parse(out, eastern).size)
+    }
 
     /** The whole promise: a touched field changes, and every other byte rides through. */
     @Test fun titleOnlyPatchLeavesEverythingElseAlone() {

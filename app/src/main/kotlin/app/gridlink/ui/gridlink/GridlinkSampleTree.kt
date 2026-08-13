@@ -475,12 +475,23 @@ data class GridlinkEvent(
      * The writer's opaque edit ticket, or empty when this event cannot be edited in place.
      *
      * [GridlinkAttachment.id]'s idea: the mapping layer that made the event knows what its writer
-     * needs to find it again (for CalDAV, the server file's href), the screens just carry it. The
-     * form copies it through an edit verbatim, and [GridlinkCalendarWriter.canUpdate] reads
-     * whether it is empty — which is how a repeating event's occurrence, whose master must not be
-     * rewritten to one day of the rule, ends up with no Edit button.
+     * needs to find it again (for CalDAV, the server file's href plus which occurrence of it this
+     * is), the screens just carry it. The form copies it through an edit verbatim, and
+     * [GridlinkCalendarWriter.canUpdate] reads whether it is empty, which is how a row whose stored
+     * text no longer reads ends up with no Edit button.
+     *
+     * 🔴 Opaque means opaque. Nothing under `ui.gridlink` may take it apart; the writer that issued
+     * it is the only thing that knows what is inside.
      */
     val handle: String = "",
+    /**
+     * Whether this event is one occurrence of something that repeats.
+     *
+     * Not a detail for the card: it is what makes Save ASK "this event, or all of them?" before it
+     * writes. An edit applied to the wrong scope is silent and wide (moving a weekly stand-up moves
+     * fifty-two of them), so the question has to be put before the write, not undone after it.
+     */
+    val repeating: Boolean = false,
 ) {
     val allDay: Boolean get() = start == null
 }

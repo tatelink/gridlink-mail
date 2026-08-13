@@ -361,7 +361,7 @@ class ICalendarStreamTest {
     }
 
     @Test
-    fun `a repeating event's day hands out no edit href`() {
+    fun `a repeating event's day carries the file AND the day it stands for`() {
         val events = ICalendarStream.parse(
             wrap(
                 """
@@ -388,9 +388,18 @@ class ICalendarStreamTest {
             eastern,
         )
         assertTrue(occurrences.isNotEmpty())
-        // Even with the href known: a rule's day must not rewrite the master (that moves the whole
-        // series), and an override's file also holds the master. No href, no Edit button.
-        assertTrue(occurrences.all { it.editHref == null })
+        // 🔴 The file, on every one of them. One file holds the rule and every day it generates, so
+        // the href alone cannot say which day an edit meant: the day travels beside it, and the
+        // scope question ("this event or all of them") is what decides which one gets rewritten.
+        assertTrue(occurrences.all { it.editHref == "/cal/weekly.ics" })
+        assertTrue(occurrences.all { it.repeating })
+        // A day the rule generated stands for itself.
+        assertTrue(occurrences.filter { it.summary == "Standup" }.all { it.recurrenceDay == it.date })
+        // The detached day is keyed by the day the RULE would have produced, which is the 8th, not
+        // the 9th it was moved to. That is the value the server matches a RECURRENCE-ID against.
+        val moved = occurrences.single { it.summary == "Standup (moved)" }
+        assertEquals(LocalDate.parse("2026-06-09"), moved.date)
+        assertEquals(LocalDate.parse("2026-06-08"), moved.recurrenceDay)
     }
 
     @Test
