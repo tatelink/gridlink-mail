@@ -439,6 +439,10 @@ fun GridlinkMessageListScreen(
         }
     }.collectAsState(initial = GridlinkSwipeConfig.Default)
 
+    // The reader's tag definitions, read once for the whole list for the swipe config's reason and
+    // handed to each row. Empty in the gallery, where an undefined tag still draws a dot.
+    val tagDefinitions = rememberMailTagDefinitions()
+
     val selecting = selectedIds.isNotEmpty()
 
     // 🔴 The message lists are STATE, not constants read out of the sample object.
@@ -999,6 +1003,7 @@ fun GridlinkMessageListScreen(
                 top = GridlinkSpacing.s12,
                 bottom = GridlinkSpacing.s12,
             ),
+            tagDefinitions = tagDefinitions,
         )
         // The list's own top edge, so the chips read as chrome belonging to the panel rather than
         // as a row of the list. Full width, unlike the row dividers, because nothing is indented
@@ -1102,7 +1107,13 @@ fun GridlinkMessageListScreen(
             // empty mailbox and must not offer a sync as the fix. See [GridlinkEmptyFiltered].
             if (!hasMail && filter.isActive) {
                 GridlinkEmptyFiltered(
-                    summary = gridlinkFilterSummary(filter),
+                    summary = gridlinkFilterSummary(
+                        filter = filter,
+                        tagLabel = tagDefinitions
+                            .firstOrNull { it.keyword == filter.tag }
+                            ?.label
+                            ?.ifBlank { null },
+                    ),
                     onClearFilters = {
                         filter = MailFilter.none
                         onFilter(MailFilter.none)
@@ -1263,6 +1274,7 @@ fun GridlinkMessageListScreen(
                                                     onLongClick = {
                                                         onSelectedIdsChange(selectedIds + child.id)
                                                     },
+                                                    tagDefinitions = tagDefinitions,
                                                 )
                                             }
                                         }
@@ -1341,6 +1353,7 @@ fun GridlinkMessageListScreen(
                                         onToggleThread = threadKey
                                             ?.takeIf { mail != null }
                                             ?.let { key -> { onToggleThread(key) } },
+                                        tagDefinitions = tagDefinitions,
                                     )
                                 }
                                 // The other messages in this conversation, drawn in place under the
@@ -1399,6 +1412,7 @@ fun GridlinkMessageListScreen(
                                                                 selectedIds + child.id,
                                                             )
                                                         },
+                                                        tagDefinitions = tagDefinitions,
                                                     )
                                                 }
                                             }
@@ -1578,6 +1592,11 @@ private fun GridlinkSearchResults(
     // dot back on a message the user had opened, every time one of those arrived.
     var readIds by remember(query) { mutableStateOf(emptySet<String>()) }
 
+    // Read once for the whole result list, same rule as the inbox's. A hit still shows its tags:
+    // a search that returned a message stripped of the marks it carries in the list would look like
+    // a different message.
+    val tagDefinitions = rememberMailTagDefinitions()
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -1617,6 +1636,7 @@ private fun GridlinkSearchResults(
                         // body, so a row can come back on a word that appears nowhere in its sender
                         // or its subject, and without the line that row looks like a wrong answer.
                         highlight = query,
+                        tagDefinitions = tagDefinitions,
                     )
                     GridlinkRowDivider(startInset = GridlinkSpacing.rowHorizontal + gutter)
                 }

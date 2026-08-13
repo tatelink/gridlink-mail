@@ -1,6 +1,7 @@
 package app.gridlink.ui.gridlink
 
 import app.gridlink.appLocale
+import app.gridlink.core.data.db.EmailKeywords
 import app.gridlink.core.jmap.model.Email
 import app.gridlink.util.MailDates
 import java.time.LocalDate
@@ -227,6 +228,10 @@ object GridlinkMailMapping {
             preview = email.preview.orEmpty(),
             addressOverride = address.takeIf { it.isNotBlank() },
             sentTo = if (showRecipient) recipient(email) else null,
+            // The keyword map minus $seen/$flagged/$draft, which are the read state, the star and
+            // the draft badge and each already have their own field above. EmailKeywords is the
+            // single place that decides what counts as a system keyword, for both protocols.
+            tags = EmailKeywords.custom(email.keywords.filterValues { it }.keys),
         )
     }
 

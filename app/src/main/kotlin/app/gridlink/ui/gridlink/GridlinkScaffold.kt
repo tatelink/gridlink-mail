@@ -728,6 +728,16 @@ fun GridlinkRoot(
      */
     onSaveAttachment: ((GridlinkAttachment) -> Unit)? = null,
     /**
+     * Put a tag on a message, or take it off, or null when nobody behind this screen can.
+     *
+     * Nullable for [onOpenAttachment]'s reason and with the same effect: over the sample there is no
+     * mailbox to write a keyword to, so the thread does not offer Tags at all rather than offering a
+     * picker whose ticks are forgotten as soon as the sheet closes.
+     */
+    onSetTag: ((emailId: String, keyword: String, applied: Boolean) -> Unit)? = null,
+    /** Open Settings at the tag manager, or null when there is no Settings to open. */
+    onManageTags: (() -> Unit)? = null,
+    /**
      * The account's mailboxes, or null to draw [GridlinkSampleTree]'s. See [GridlinkFolderContent].
      */
     folders: GridlinkFolderContent? = null,
@@ -1885,6 +1895,12 @@ fun GridlinkRoot(
                             ?.attachmentStatus,
                         embedded = embedded,
                         toolbarActions = toolbarActions,
+                        // Bound to the message the picker is actually over, so the screen below
+                        // never has to be told which mail a keyword belongs to.
+                        onSetTag = onSetTag?.let { set ->
+                            { keyword, applied -> set(current.message.id, keyword, applied) }
+                        },
+                        onManageTags = onManageTags,
                     )
 
                     is GridlinkDetail.Contact -> GridlinkContactScreen(
