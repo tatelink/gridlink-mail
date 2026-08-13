@@ -66,6 +66,7 @@
     <string name="inbox_folder_options">Параметры папки</string>
     <string name="inbox_folder_watch">Уведомлять о новых письмах</string>
     <string name="settings_delivery_section">Доставка новых писем</string>
+    <string name="settings_delivery_mode_title">Как приходит почта</string>
     <string name="settings_delivery_instant">Мгновенно</string>
     <string name="settings_delivery_instant_desc">Письма приходят сразу по получении. Может держать фоновое подключение.</string>
     <string name="settings_delivery_saver">Экономия батареи</string>
@@ -274,6 +275,7 @@
     <string name="settings_notifications_screen_title">Уведомления</string>
     <string name="settings_new_mail_section">Новые письма</string>
     <string name="settings_notif_content_section">Содержимое уведомлений</string>
+    <string name="settings_notif_content_title">Что показывают уведомления</string>
     <string name="settings_notif_content_full">Отправитель и тема</string>
     <string name="settings_notif_content_full_desc">Показывает отправителя и тему.</string>
     <string name="settings_notif_content_sender">Только отправитель</string>

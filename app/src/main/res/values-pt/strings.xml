@@ -66,6 +66,7 @@
     <string name="inbox_folder_options">Opções da pasta</string>
     <string name="inbox_folder_watch">Notificar novas mensagens</string>
     <string name="settings_delivery_section">Entrega de novas mensagens</string>
+    <string name="settings_delivery_mode_title">Como o correio chega</string>
     <string name="settings_delivery_instant">Instantânea</string>
     <string name="settings_delivery_instant_desc">O correio chega assim que é recebido. Pode manter uma ligação em segundo plano.</string>
     <string name="settings_delivery_saver">Poupança de bateria</string>
@@ -274,6 +275,7 @@
     <string name="settings_notifications_screen_title">Notificações</string>
     <string name="settings_new_mail_section">Novos e-mails</string>
     <string name="settings_notif_content_section">Conteúdo das notificações</string>
+    <string name="settings_notif_content_title">O que as notificações mostram</string>
     <string name="settings_notif_content_full">Remetente e assunto</string>
     <string name="settings_notif_content_full_desc">Mostra o remetente e o assunto.</string>
     <string name="settings_notif_content_sender">Apenas o remetente</string>

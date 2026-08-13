@@ -196,6 +196,16 @@ fun SettingSwitch(
 /**
  * Single-choice row: shows the current value as a summary and opens a
  * [SettingChoiceDialog] of options when tapped.
+ *
+ * ⚠️ This is THE shape for a pick-one setting. Before the settings audit (2026-08-12) some
+ * pick-one settings were this row and others were an always-open stack of radio buttons, so two
+ * settings that do the same kind of thing looked like different kinds of control. Anything that
+ * picks one of a fixed set belongs here now. The one deliberate exception is the default-identity
+ * radio, where the options are the account's own identity cards rather than a fixed list.
+ *
+ * @param optionSubtitle the line under an option in the dialog, for choices whose consequence
+ *   isn't obvious from the label (battery cost, what a notification reveals). Null means no line,
+ *   which is the common case.
  */
 @Composable
 fun <T> SettingChoiceRow(
@@ -204,6 +214,7 @@ fun <T> SettingChoiceRow(
     selected: T,
     optionLabel: (T) -> String,
     onSelect: (T) -> Unit,
+    optionSubtitle: ((T) -> String?)? = null,
 ) {
     var showDialog by remember { mutableStateOf(false) }
     Row(
@@ -231,6 +242,7 @@ fun <T> SettingChoiceRow(
             options = options,
             selected = selected,
             optionLabel = optionLabel,
+            optionSubtitle = optionSubtitle,
             onSelect = {
                 onSelect(it)
                 showDialog = false
@@ -431,6 +443,7 @@ fun <T> SettingChoiceDialog(
     optionLabel: (T) -> String,
     onSelect: (T) -> Unit,
     onDismiss: () -> Unit,
+    optionSubtitle: ((T) -> String?)? = null,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -452,7 +465,16 @@ fun <T> SettingChoiceDialog(
                     ) {
                         RadioButton(selected = option == selected, onClick = null)
                         Spacer(Modifier.width(16.dp))
-                        Text(optionLabel(option), style = MaterialTheme.typography.bodyLarge)
+                        Column {
+                            Text(optionLabel(option), style = MaterialTheme.typography.bodyLarge)
+                            optionSubtitle?.invoke(option)?.takeIf { it.isNotBlank() }?.let {
+                                Text(
+                                    it,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                     }
                 }
             }

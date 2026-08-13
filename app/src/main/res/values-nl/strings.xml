@@ -66,6 +66,7 @@
     <string name="inbox_folder_options">Mapopties</string>
     <string name="inbox_folder_watch">Melden bij nieuwe e-mail</string>
     <string name="settings_delivery_section">Bezorging van nieuwe e-mail</string>
+    <string name="settings_delivery_mode_title">Hoe e-mail binnenkomt</string>
     <string name="settings_delivery_instant">Direct</string>
     <string name="settings_delivery_instant_desc">E-mail komt binnen zodra die arriveert. Kan een achtergrondverbinding openhouden.</string>
     <string name="settings_delivery_saver">Batterijbesparing</string>
@@ -274,6 +275,7 @@
     <string name="settings_notifications_screen_title">Meldingen</string>
     <string name="settings_new_mail_section">Nieuwe e-mail</string>
     <string name="settings_notif_content_section">Notificatie-inhoud</string>
+    <string name="settings_notif_content_title">Wat notificaties tonen</string>
     <string name="settings_notif_content_full">Afzender en onderwerp</string>
     <string name="settings_notif_content_full_desc">Toont de afzender en het onderwerp.</string>
     <string name="settings_notif_content_sender">Alleen afzender</string>
