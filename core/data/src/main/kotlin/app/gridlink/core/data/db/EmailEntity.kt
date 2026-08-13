@@ -46,4 +46,17 @@ data class EmailEntity(
      * backfill — the addresses aren't held locally, so old rows gain them at their next sync.
      */
     val recipientsJson: String? = null,
+    /**
+     * The message's CUSTOM keywords (tags), packed by [EmailKeywords] (added in schema v24).
+     *
+     * Not JSON despite the name it inherited from its neighbour — see [EmailKeywords] for why the
+     * packing is space-wrapped instead: this column is queried, not just read back, because the
+     * tag filter chip has to narrow in SQL before the window's `LIMIT`.
+     *
+     * 🔴 System keywords are not in here. `$seen`/`$flagged` are [seen] and [flagged]; this is
+     * only the names the user (or another client on the same mailbox) invented. Null on rows
+     * cached before v24 and on the great majority of mail, which carries no tags at all; both
+     * decode to an empty list, so an un-migrated row simply shows no chips until its next sync.
+     */
+    val keywordsJson: String? = null,
 )

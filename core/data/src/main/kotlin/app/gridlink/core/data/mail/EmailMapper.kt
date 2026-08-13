@@ -3,6 +3,7 @@ package app.gridlink.core.data.mail
 import app.gridlink.core.data.db.ConversationRow
 import app.gridlink.core.data.db.EmailEntity
 import app.gridlink.core.data.db.EmailFtsEntity
+import app.gridlink.core.data.db.EmailKeywords
 import app.gridlink.core.data.db.EmailRecipients
 import app.gridlink.core.data.db.FtsHit
 import app.gridlink.core.jmap.model.Email
@@ -72,6 +73,10 @@ internal fun Email.toEntity(accountId: String, mailboxId: String): EmailEntity {
         // what lands here is the message's real recipient set — empty included (a draft with no
         // addressee yet), which is exactly what the row should then show.
         recipientsJson = EmailRecipients.encode(to),
+        // Persisted since v24. The server already sends the whole keyword map (every Email/get
+        // property list here asks for `keywords`); until now everything but $seen/$flagged was
+        // dropped on the floor. EmailKeywords.custom keeps only the names the user invented.
+        keywordsJson = EmailKeywords.encode(keywords.filterValues { it }.keys),
     )
 }
 
@@ -94,6 +99,9 @@ internal fun EmailEntity.toEmail(): Email = Email(
         if (seen) put("\$seen", true)
         if (flagged) put("\$flagged", true)
         if (draftKey(accountId, id) in recentDrafts) put("\$draft", true)
+        // The custom ones round-trip through their own column, so unlike $draft they survive
+        // process death and a tag chip is on the row from the first frame, offline included.
+        EmailKeywords.decode(keywordsJson).forEach { put(it, true) }
     },
 )
 

@@ -22,15 +22,28 @@ data class MailFilter(
     val unread: Boolean = false,
     val starred: Boolean = false,
     val hasAttachment: Boolean = false,
+    /**
+     * One custom keyword (tag) to narrow to, or null for "any tag / no tag filter".
+     *
+     * ⚠️ One and not a set, unlike its three neighbours, and that asymmetry is deliberate. The
+     * other three are fixed properties that read naturally conjoined ("starred AND has an
+     * attachment"); tags are user-invented and AND-ing two of them answers "messages carrying
+     * BOTH", which is almost never what tapping a second tag means and leaves an empty list with
+     * no explanation. Picking a tag replaces the previous pick, the way switching folders does.
+     *
+     * Always the wire keyword ([app.gridlink.core.data.db.EmailKeywords.toKeyword]'s output),
+     * never the display label: the label carries capitals and spaces that no server would store.
+     */
+    val tag: String? = null,
 ) {
     /** True when nothing is being filtered — the query degenerates to the plain window. */
-    val isEmpty: Boolean get() = !unread && !starred && !hasAttachment
+    val isEmpty: Boolean get() = !unread && !starred && !hasAttachment && tag == null
 
     /** True when at least one filter is on, i.e. the list on screen is a subset. */
     val isActive: Boolean get() = !isEmpty
 
     /** How many filters are on. Drives "3 filters" style summaries; never used as a boolean. */
-    val count: Int get() = listOf(unread, starred, hasAttachment).count { it }
+    val count: Int get() = listOf(unread, starred, hasAttachment, tag != null).count { it }
 
     companion object {
         val none = MailFilter()
