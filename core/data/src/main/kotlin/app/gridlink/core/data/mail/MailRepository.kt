@@ -2926,6 +2926,58 @@ class MailRepository(
         advanceEmailState(newState, credentials.id, mb)
     }
 
+    /**
+     * Put a custom keyword (tag) on one message, or take it off — on the server AND in the cache.
+     *
+     * ## Why this is not just [setFlagged] with a different string
+     * A star is one bit with a column of its own, so the cache write is `SET flagged = ?`. A tag is
+     * one member of a SET the server owns, and the server is entitled to have members this device
+     * has never heard of — another client's tags, on the same mailbox, right now. So the cache
+     * write is read-modify-write of the whole packed set, and the read comes from the cached row
+     * rather than from an in-memory copy: two taps in quick succession both start from what is
+     * actually stored.
+     *
+     * ## The two protocols disagree about failure, and neither is silent here
+     * JMAP: `keywords/<kw>` patched to true or removed, exactly as `$flagged` is; a message the
+     * server has destroyed answers notFound and is pruned as a zombie, same as everywhere else.
+     *
+     * IMAP: `UID STORE +FLAGS (<kw>)`. 🔴 A server that does not accept custom keywords in this
+     * folder (no `\*` in its PERMANENTFLAGS) either refuses the STORE — which throws, and the
+     * caller shows it — or accepts it and drops the keyword, in which case the cache is corrected
+     * by the folder's next sync rather than by a guess made here. What must NOT happen, and does
+     * not, is the local cache keeping a tag the server threw away: `keywordsJson` is rewritten by
+     * every ingest, so the next refresh is the arbiter.
+     *
+     * @param keyword the wire name, always [EmailKeywords.toKeyword]'s output. Never a display
+     *   label: a label carries capitals and spaces no server would store.
+     */
+    suspend fun setTag(credentials: AccountCredentials, emailId: String, keyword: String, applied: Boolean) {
+        val wire = EmailKeywords.toKeyword(keyword) ?: return
+        markRecentlyMutated(credentials.id, emailId)
+        val current = EmailKeywords.decode(emailDao.keywordsOf(credentials.id, emailId))
+        val updated = if (applied) current + wire else current - wire
+        if (credentials.protocol == MailProtocol.IMAP) {
+            imapTarget(emailId)?.let { (mb, uid) -> imap.setFlag(credentials, mb, uid, wire, applied) }
+            emailDao.setKeywords(credentials.id, emailId, EmailKeywords.encode(updated))
+            return
+        }
+        val ctx = connect(credentials)
+        val mb = emailDao.mailboxOf(credentials.id, emailId)
+        val newState = try {
+            client.setKeyword(ctx.session, ctx.accountId, emailId, wire, applied, ctx.auth)
+        } catch (e: JmapException) {
+            // notFound = destroyed server-side; prune the zombie (see setRead).
+            if (e.errorType != SET_ERROR_NOT_FOUND) throw e
+            pruneServerGone(credentials.id, listOf(emailId))
+            return
+        }
+        emailDao.setKeywords(credentials.id, emailId, EmailKeywords.encode(updated))
+        advanceEmailState(newState, credentials.id, mb)
+    }
+
+    /** Every tag present on [accountId]'s cached mail, most-used first — see [EmailDao.tagsInUse]. */
+    suspend fun tagsInUse(accountId: String): List<String> = emailDao.tagsInUse(accountId)
+
     /** Source (mailbox path, UID) for an IMAP message id, or null if not parseable. */
     private fun imapTarget(emailId: String): Pair<String, Long>? {
         val mb = ImapMailService.mailboxOf(emailId) ?: return null

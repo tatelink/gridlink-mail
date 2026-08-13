@@ -61,6 +61,15 @@ data class SettingsBackup(
     val deliveryMode: String? = null,
     val notificationContent: String? = null,
     /**
+     * The colour-coded tag definitions: keyword, label, colour.
+     *
+     * 🔴 The only place a tag's colour and display label are ever portable. The keyword itself
+     * lives on the messages, on the server, so a restore onto a fresh install re-attaches the
+     * colours to mail that already carries the tags. Without this the tags survive but arrive
+     * unnamed and grey — see [MailTag].
+     */
+    val mailTags: List<MailTag>? = null,
+    /**
      * Account configuration WITHOUT any secret: server, username, protocol, IMAP/SMTP
      * endpoints, identities, signature, colour, sync window, notification opt-out. The
      * password/refresh-token slot is never exported; [StoredAccount.oauthAccessToken] and
