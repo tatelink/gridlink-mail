@@ -32,6 +32,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.viewinterop.AndroidView
 import app.gridlink.GridlinkApplication
+import app.gridlink.core.data.settings.MessageTextSize
 import app.gridlink.ui.emailhtml.EmailRemoteContent
 import app.gridlink.ui.emailhtml.EmailTheme
 import app.gridlink.ui.emailhtml.TrackingParams
@@ -159,6 +160,17 @@ internal fun GridlinkMessageBody(
         .collectAsState(initial = true)
     val confirmLinks by (settingsStore?.confirmLinks ?: flowOf(false))
         .collectAsState(initial = false)
+    // 🔴 "Message text size" was stored and ignored until the settings audit (2026-08-12): the
+    // setting wrote SMALL/NORMAL/LARGE/HUGE into the store, backup carried it, and no message ever
+    // rendered a pixel differently. It lands here because the reader IS this WebView.
+    //
+    // [MessageTextSize.zoom] is already a percentage and `WebSettings.textZoom` already takes one,
+    // so this is a straight hand-off with no scale of the app's own invented in between. It scales
+    // TEXT only: images, table columns and a newsletter's fixed layout stay where the sender put
+    // them, which is what makes it a readability control rather than a zoom that reflows somebody's
+    // design into a column of rubble. The pinch zoom above is untouched and still does the other job.
+    val textZoom by (settingsStore?.messageTextSize ?: flowOf(MessageTextSize.NORMAL))
+        .collectAsState(initial = MessageTextSize.NORMAL)
     // The link a confirm dialog is currently asking about; null when nothing is pending.
     var pendingLink by remember { mutableStateOf<Uri?>(null) }
     // 🔴 Guarded, like every other way out of the app. A link in a message is the easiest one to
@@ -237,10 +249,17 @@ internal fun GridlinkMessageBody(
                 webView.onSized = {
                     if (heightPx <= 0) heightPx = webView.contentRangePx().coerceAtLeast(webView.height)
                 }
+                webView.settings.textZoom = textZoom.zoom
                 // update() runs on every recomposition. 🔴 blockRemote is part of the key: an
                 // already-intercepted image request is never re-issued, so "show images" has to
                 // reload the document or the pictures stay broken.
-                val loadKey = Pair(blockRemote, document)
+                //
+                // 🔴 The zoom is in the key for a different reason: it is applied to a document that
+                // is already laid out, and the height poll that REVEALS the body only runs after a
+                // page load. Bigger text on a settled document means a body clipped to the height it
+                // had at the old size, with no second poll coming to correct it. Reloading buys a
+                // fresh poll. Nobody changes text size mid-read, so the reload costs nothing.
+                val loadKey = Triple(blockRemote, textZoom, document)
                 if (webView.tag != loadKey) {
                     webView.tag = loadKey
                     heightPx = 0
