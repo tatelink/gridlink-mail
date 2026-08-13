@@ -1356,6 +1356,18 @@ private fun GridlinkEventBlock(
 }
 
 /**
+ * The air between one day and the next on the agenda: under the day that ended, over the rule, and
+ * again over the heading that follows it.
+ *
+ * 🔴 28dp and not the s16 the day headings used to carry. Brandon, 2026-08-12: "agenda is too
+ * cramped and busy… i think its just too tight." A day on this list is a block, not a row, and a
+ * block needs a gap wider than the leading inside it or the eye cannot tell where one stops. Two of
+ * these plus the hairline is roughly one blank line of separation, which is the smallest gap that
+ * still reads as a break rather than as tight spacing.
+ */
+private val AGENDA_DAY_GAP = GridlinkSpacing.s28
+
+/**
  * The agenda: a fixed four-week window as one continuous list, every day present.
  *
  * Brandon: "agenda needs to be a continuous list including the last week, plus up to 3 weeks in
@@ -1421,7 +1433,10 @@ private fun GridlinkAgendaView(
             // today, so today's header sits at the very top edge, and a top fade would render the
             // one header the view exists to show permanently half transparent.
             .gridlinkEdgeFade(fadeTop = false),
-        contentPadding = PaddingValues(bottom = GridlinkDimens.listFade),
+        // The last day gets the same gap under it as every other day gets over its rule, on top of
+        // the fade. Without it the final line ends flush against the panel's bottom edge while
+        // every day above it is breathing.
+        contentPadding = PaddingValues(bottom = GridlinkDimens.listFade + AGENDA_DAY_GAP),
     ) {
         byDay.forEachIndexed { dayIndex, (date, dayEvents) ->
             // 🔴 A rule between days, full width. Brandon, 2026-08-12: "draw a horizontal line
@@ -1438,7 +1453,19 @@ private fun GridlinkAgendaView(
                     // No start inset, unlike the message list's. There the inset lines the rule up
                     // under the text so rows read as one stack; here the rule is separating whole
                     // days, and a day is the full width of the panel.
-                    GridlinkRowDivider(startInset = 0.dp)
+                    //
+                    // 🔴 The air around the rule is the point, not the rule. Brandon, 2026-08-12:
+                    // "agenda is too cramped and busy… i think its just too tight." With the day
+                    // packed to 4dp above and below, the hairline landed inside the text rather
+                    // than between two blocks, and a week of free days came out as a stack of
+                    // stripes. AGENDA_DAY_GAP under the day that just ended plus the heading's own
+                    // top inset over the one starting means every rule sits in its own band of
+                    // empty space, which is what makes the boundary legible without the line
+                    // having to be darker.
+                    GridlinkRowDivider(
+                        startInset = 0.dp,
+                        modifier = Modifier.padding(top = AGENDA_DAY_GAP),
+                    )
                 }
             }
             item(key = "day-$date") {
@@ -1448,8 +1475,12 @@ private fun GridlinkAgendaView(
                         .padding(
                             start = GridlinkSpacing.rowHorizontal,
                             end = GridlinkSpacing.rowHorizontal,
-                            top = GridlinkSpacing.s16,
-                            bottom = GridlinkSpacing.s4,
+                            // Deliberately unequal: more over the heading than under it, so the
+                            // date binds to the day it heads instead of floating midway between
+                            // two of them. The gap above is doing the separating; the 12 below is
+                            // just enough to keep the first line off the words.
+                            top = AGENDA_DAY_GAP,
+                            bottom = GridlinkSpacing.s12,
                         ),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -1468,6 +1499,11 @@ private fun GridlinkAgendaView(
                 // The same words the month day list uses for the same fact, in metadata style so
                 // a run of free days reads as texture rather than as a column of claims. One line,
                 // not a full row height: an empty day should be visible and cheap to scroll past.
+                //
+                // ⚠️ Its own padding is gone, not reduced. The line is the day's only content, so
+                // the space it needs is the day's trailing gap, which now lives on the rule below
+                // it — padding here as well was double-counting that gap and pushing a run of free
+                // days back to the packed rhythm this change exists to open up.
                 item(key = "empty-$date") {
                     Text(
                         text = "Nothing scheduled",
@@ -1475,7 +1511,6 @@ private fun GridlinkAgendaView(
                         color = colors.textSecondary,
                         modifier = Modifier.padding(
                             horizontal = GridlinkSpacing.rowHorizontal,
-                            vertical = GridlinkSpacing.s4,
                         ),
                     )
                 }
