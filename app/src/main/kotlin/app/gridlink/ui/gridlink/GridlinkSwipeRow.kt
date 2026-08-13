@@ -21,8 +21,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Circle
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Archive
+import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -64,14 +67,22 @@ import kotlin.math.abs
 /**
  * §6a: three actions across two directions, no menus.
  *
- * | Gesture              | Action      | Track   | Icon       |
+ * | Gesture              | Default     | Track   | Icon       |
  * |----------------------|-------------|---------|------------|
  * | right past 25%       | Archive     | green   | archive box|
  * | left, 25% to 60%     | Mark unread | amber   | filled dot |
  * | left past 60%        | Delete      | red     | trash      |
  *
+ * ⚠️ Those are the DEFAULTS, not the wiring. Since the settings audit (2026-08-12) each of the three
+ * slots is configurable and any of them can be switched off; see [GridlinkSwipeConfig]. What is fixed
+ * is the shape: two directions, one escalation on the left, nothing revealed and parked.
+ *
  * 🔴 §9 bans swipe-to-reveal menus: the action completes on the swipe itself. Nothing here parks a
  * row open next to a row of buttons.
+ *
+ * The read and star entries come in both polarities because the settings rows they answer to are
+ * called "Mark read/unread" and "Star/unstar". A swipe that always marks unread cannot honestly
+ * carry either label, and the icon has to show the outcome for the row under the finger.
  */
 enum class GridlinkSwipeAction(val label: String, val icon: ImageVector) {
     ARCHIVE("Archive", Icons.Outlined.Archive),
@@ -83,19 +94,51 @@ enum class GridlinkSwipeAction(val label: String, val icon: ImageVector) {
      * gesture names its own result: the thing this swipe puts back is that dot.
      */
     MARK_UNREAD("Mark unread", Icons.Filled.Circle),
+
+    /** The same dot hollowed out, since what this swipe does is take that marker away. */
+    MARK_READ("Mark read", Icons.Outlined.Circle),
+    STAR("Star", Icons.Filled.Star),
+    UNSTAR("Unstar", Icons.Outlined.StarBorder),
     DELETE("Delete", Icons.Outlined.Delete),
+    ;
+
+    /**
+     * True when completing this action means the row leaves the list.
+     *
+     * 🔴 Drives both the fly-off and the collapse. Get it wrong in either direction and the gesture
+     * lies: a starred row thrown off screen looks deleted, and an archived row springing back looks
+     * like the swipe was refused.
+     */
+    val removesRow: Boolean get() = this == ARCHIVE || this == DELETE
 }
 
-/** §1's semantic grammar, resolved against the live palette. Green archives, amber flags, red kills. */
+/**
+ * §1's semantic grammar, resolved against the live palette. Green archives, amber flags, red kills.
+ *
+ * ⚠️ The star pair take [GridlinkTheme.colors.accent] rather than caution's amber, even though a gold
+ * star is the obvious guess. Accent is already what a starred row's own star is tinted with in
+ * [GridlinkMessageRow], so the track matches the mark it is about to leave on the row. Caution means
+ * "keep going and this gets worse", which a star emphatically is not, and reusing it would make the
+ * escalation to red read as a continuation of the same thought.
+ */
 @Composable
 private fun GridlinkSwipeAction.trackColor(): Color = when (this) {
     GridlinkSwipeAction.ARCHIVE -> GridlinkTheme.colors.positive
-    GridlinkSwipeAction.MARK_UNREAD -> GridlinkTheme.colors.caution
+    GridlinkSwipeAction.MARK_UNREAD, GridlinkSwipeAction.MARK_READ -> GridlinkTheme.colors.caution
+    GridlinkSwipeAction.STAR, GridlinkSwipeAction.UNSTAR -> GridlinkTheme.colors.accent
     GridlinkSwipeAction.DELETE -> GridlinkTheme.colors.destructive
 }
 
 /** Icon slot size. Large enough to carry the trash glyph, small enough that the dot is not a puddle. */
 private val SWIPE_ICON = 22.dp
+
+/**
+ * Optical sizing, not geometric: the solid dot reads heavier than the outlined glyphs at the same box
+ * size, so it gets a smaller one. Its hollow twin does not, because an outline of the same diameter
+ * carries far less ink.
+ */
+private fun iconSizeFor(action: GridlinkSwipeAction) =
+    if (action == GridlinkSwipeAction.MARK_UNREAD) SWIPE_ICON - 4.dp else SWIPE_ICON
 
 /**
  * How far the row must travel before its icon is fully faded in. Short: the icon should be present
@@ -150,6 +193,9 @@ private const val FLY_OFF_HANDOVER = 0.94f
  *   why the ordering is the way round it is.
  * @param initialFraction screen-capture hook. §6a's deliverable is the mid-gesture frames, and
  *   `adb input swipe` cannot hold a drag still at 40% of an unknown row width.
+ * @param actions what each of the three slots does on THIS row, already resolved against its unread
+ *   and starred state. Defaults to the shipped gesture so previews and the gallery, which have no
+ *   settings store behind them, still swipe.
  */
 @Composable
 fun GridlinkSwipeRow(
@@ -157,6 +203,7 @@ fun GridlinkSwipeRow(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     initialFraction: Float = 0f,
+    actions: GridlinkSwipeActions = GridlinkSwipeActions.Default,
     content: @Composable () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -221,28 +268,44 @@ fun GridlinkSwipeRow(
     // 🔴 derivedStateOf, not a plain expression. These read the offset, which changes every frame;
     // as plain reads they would recompose the row 120 times a second. As derived state they
     // recompose only when the boolean itself flips, which is the moment that actually matters.
+    // 🔴 Each of these is gated on its slot being configured at all. Without the gate a row whose
+    // deep-left slot is set to Nothing would still turn red and tick at 60%, promising a deletion
+    // that `settle` would then correctly refuse to perform.
+    val currentActions by rememberUpdatedState(actions)
     val armedRight by remember {
-        derivedStateOf { widthPx > 0 && offset / widthPx >= GridlinkSwipe.archiveThreshold }
+        derivedStateOf {
+            currentActions.right != null && widthPx > 0 &&
+                offset / widthPx >= GridlinkSwipe.archiveThreshold
+        }
     }
     val armedLeft by remember {
-        derivedStateOf { widthPx > 0 && offset / widthPx <= -GridlinkSwipe.markUnreadThreshold }
+        derivedStateOf {
+            currentActions.leftShort != null && widthPx > 0 &&
+                offset / widthPx <= -GridlinkSwipe.markUnreadThreshold
+        }
     }
     val escalated by remember {
-        derivedStateOf { widthPx > 0 && offset / widthPx <= -GridlinkSwipe.deleteThreshold }
+        derivedStateOf {
+            currentActions.leftLong != null && widthPx > 0 &&
+                offset / widthPx <= -GridlinkSwipe.deleteThreshold
+        }
     }
 
     // "Crossing 60% swaps the icon and track colour from amber to red in a single spring, paired
     // with a haptic tick, so the escalation is felt as well as seen."
+    //
+    // ⚠️ Both ends come out of the config now, so "amber to red" is only the default pairing. The
+    // fallback when a slot is empty is the OTHER slot's colour rather than a neutral: the track is
+    // only ever drawn when the row has actually moved that way, and a row that cannot move that way
+    // never uncovers it.
+    val leftShortColor = (actions.leftShort ?: actions.leftLong)?.trackColor() ?: Color.Transparent
+    val leftLongColor = (actions.leftLong ?: actions.leftShort)?.trackColor() ?: Color.Transparent
     val leftTrack by animateColorAsState(
-        targetValue = if (escalated) {
-            GridlinkSwipeAction.DELETE.trackColor()
-        } else {
-            GridlinkSwipeAction.MARK_UNREAD.trackColor()
-        },
+        targetValue = if (escalated) leftLongColor else leftShortColor,
         animationSpec = GridlinkMotion.swipeRelease(),
         label = "swipeTrackEscalation",
     )
-    val archiveTrack = GridlinkSwipeAction.ARCHIVE.trackColor()
+    val archiveTrack = actions.right?.trackColor() ?: Color.Transparent
 
     // A tick, not a thud. LongPress is the weight Android uses to announce that a gesture COMPLETED;
     // this one is a warning that the meaning of your thumb has changed while it is still down, and
@@ -287,8 +350,9 @@ fun GridlinkSwipeRow(
      * the same conclusion in `commitSwipe`, and its comment for it ("the removal lands as the bird
      * clears the screen") says it better.
      *
-     * Mark-unread is the exception and fires immediately: that row is not going anywhere, so there
-     * is nothing to wait for and the dot should appear as the row springs back under the finger.
+     * Anything that leaves the row where it is (mark read/unread, star/unstar) is the exception and
+     * fires immediately: that row is not going anywhere, so there is nothing to wait for and the
+     * marker should change as the row springs back under the finger.
      *
      * ⚠️ The action is still committed at release in the sense that matters: the decision is taken
      * here and nothing downstream can veto it. An action that fails server-side has to be undone
@@ -302,34 +366,43 @@ fun GridlinkSwipeRow(
         val fraction = offset / width
         val flicked = abs(velocity) >= flingVelocityPx
 
+        val slots = currentActions
         val action = when {
             // Distance, or a genuine flick that got clear of a twitch. Either commits.
-            fraction >= GridlinkSwipe.archiveThreshold ||
-                (flicked && velocity > 0f && fraction >= GridlinkSwipe.flingMinFraction) ->
-                GridlinkSwipeAction.ARCHIVE
+            slots.right != null && (
+                fraction >= GridlinkSwipe.archiveThreshold ||
+                    (flicked && velocity > 0f && fraction >= GridlinkSwipe.flingMinFraction)
+                ) -> slots.right
 
-            // 🔴 Distance only, deliberately. Speed must never be able to promote a gesture into a
-            // deletion; see [GridlinkSwipe.flingVelocityDp].
-            fraction <= -GridlinkSwipe.deleteThreshold -> GridlinkSwipeAction.DELETE
+            // 🔴 Distance only, deliberately. Speed must never be able to promote a gesture into the
+            // deep stage; see [GridlinkSwipe.flingVelocityDp]. That rule is written for delete and
+            // stays in force whatever the slot is set to, because the deep stage is by construction
+            // the heavier of the two and a flick is not a decision.
+            slots.leftLong != null && fraction <= -GridlinkSwipe.deleteThreshold -> slots.leftLong
 
-            fraction <= -GridlinkSwipe.markUnreadThreshold ||
-                (flicked && velocity < 0f && fraction <= -GridlinkSwipe.flingMinFraction) ->
-                GridlinkSwipeAction.MARK_UNREAD
+            slots.leftShort != null && (
+                fraction <= -GridlinkSwipe.markUnreadThreshold ||
+                    (flicked && velocity < 0f && fraction <= -GridlinkSwipe.flingMinFraction)
+                ) -> slots.leftShort
 
             else -> null
         }
 
-        val target = when (action) {
-            GridlinkSwipeAction.ARCHIVE -> width
-            GridlinkSwipeAction.DELETE -> -width
-            // 🔴 Mark-unread springs back rather than flying off. The row is not going anywhere;
-            // only its unread flag changed, and throwing it off-screen would say otherwise. Same
-            // for an unmet threshold.
-            GridlinkSwipeAction.MARK_UNREAD, null -> 0f
+        // 🔴 Which way the row leaves follows the SIDE the gesture came from, not the action. Both
+        // sides can be set to Archive, and a right-hand archive that flew off to the left would look
+        // like the row had been thrown at the delete track.
+        val leaving = action?.removesRow == true
+        val target = when {
+            // 🔴 Anything that leaves the row in place springs back rather than flying off. The row
+            // is not going anywhere; only a flag changed, and throwing it off-screen would say
+            // otherwise. Same for an unmet threshold.
+            !leaving -> 0f
+            fraction > 0f -> width
+            else -> -width
         }
         val dismissing = target != 0f
         if (dismissing) committing = true
-        if (action == GridlinkSwipeAction.MARK_UNREAD) currentOnAction(action)
+        if (action != null && !leaving) currentOnAction(action)
 
         releaseJob = scope.launch {
             if (dismissing && action != null) {
@@ -447,8 +520,18 @@ fun GridlinkSwipeRow(
                                 //
                                 // 🔴 Synchronous. See [offset] for why launching a coroutine to
                                 // apply the delta was losing deltas.
+                                //
+                                // 🔴 The clamp is asymmetric now: a direction with nothing
+                                // configured is pinned at zero, so the row will not budge that way.
+                                // Letting it slide open onto a blank track and then spring back
+                                // would be a worse answer than not offering the option, since the
+                                // user has explicitly turned that gesture off.
                                 val width = widthPx.toFloat()
-                                offset = (offset + change.positionChange().x).coerceIn(-width, width)
+                                val slots = currentActions
+                                offset = (offset + change.positionChange().x).coerceIn(
+                                    if (slots.leftInert) 0f else -width,
+                                    if (slots.right == null) 0f else width,
+                                )
                                 change.consume()
                             }
                         }
@@ -469,55 +552,63 @@ fun GridlinkSwipeRow(
     ) {
         val fadeInPx = with(LocalDensity.current) { ICON_FADE_IN.toPx() }
 
-        // Archive, at the leading edge, because that is the edge a rightward swipe uncovers.
-        Icon(
-            imageVector = GridlinkSwipeAction.ARCHIVE.icon,
-            contentDescription = GridlinkSwipeAction.ARCHIVE.label,
-            tint = gridlinkOnAccent(archiveTrack),
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .padding(start = GridlinkSpacing.rowHorizontal)
-                .size(SWIPE_ICON)
-                .graphicsLayer {
-                    alpha = (offset / fadeInPx).coerceIn(0f, 1f)
-                    scaleX = rightScale
-                    scaleY = rightScale
-                },
-        )
+        // The right-hand action, at the leading edge, because that is the edge a rightward swipe
+        // uncovers. Omitted outright when that direction is switched off: there is no track to sit
+        // on, and an icon fading in at alpha 0 forever is a thing to reason about for nothing.
+        actions.right?.let { right ->
+            Icon(
+                imageVector = right.icon,
+                contentDescription = right.label,
+                tint = gridlinkOnAccent(archiveTrack),
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = GridlinkSpacing.rowHorizontal)
+                    .size(iconSizeFor(right))
+                    .graphicsLayer {
+                        alpha = (offset / fadeInPx).coerceIn(0f, 1f)
+                        scaleX = rightScale
+                        scaleY = rightScale
+                    },
+            )
+        }
 
         // The left pair share one slot: they are the same gesture at two depths, so they cross-fade
         // in place instead of one sliding in beside the other.
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = GridlinkSpacing.rowHorizontal)
-                .graphicsLayer {
-                    alpha = (-offset / fadeInPx).coerceIn(0f, 1f)
-                    scaleX = leftScale
-                    scaleY = leftScale
-                },
-        ) {
-            AnimatedContent(
-                targetState = escalated,
-                transitionSpec = {
-                    fadeIn(GridlinkMotion.swipeRelease()) togetherWith
-                        fadeOut(GridlinkMotion.swipeRelease())
-                },
-                label = "swipeLeftIcon",
-            ) { isDelete ->
-                val action = if (isDelete) {
-                    GridlinkSwipeAction.DELETE
-                } else {
-                    GridlinkSwipeAction.MARK_UNREAD
+        if (!actions.leftInert) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = GridlinkSpacing.rowHorizontal)
+                    .graphicsLayer {
+                        alpha = (-offset / fadeInPx).coerceIn(0f, 1f)
+                        scaleX = leftScale
+                        scaleY = leftScale
+                    },
+            ) {
+                AnimatedContent(
+                    targetState = escalated,
+                    transitionSpec = {
+                        fadeIn(GridlinkMotion.swipeRelease()) togetherWith
+                            fadeOut(GridlinkMotion.swipeRelease())
+                    },
+                    label = "swipeLeftIcon",
+                ) { deep ->
+                    // Falls back to the other stage for the same reason the colours do: with one
+                    // stage configured there is only ever one icon, and it is that one.
+                    val action = if (deep) {
+                        actions.leftLong ?: actions.leftShort
+                    } else {
+                        actions.leftShort ?: actions.leftLong
+                    }
+                    if (action != null) {
+                        Icon(
+                            imageVector = action.icon,
+                            contentDescription = action.label,
+                            tint = gridlinkOnAccent(leftTrack),
+                            modifier = Modifier.size(iconSizeFor(action)),
+                        )
+                    }
                 }
-                Icon(
-                    imageVector = action.icon,
-                    contentDescription = action.label,
-                    tint = gridlinkOnAccent(leftTrack),
-                    // The dot reads heavier than the trash at the same box size, so it is given a
-                    // smaller one. Optical, not geometric.
-                    modifier = Modifier.size(if (isDelete) SWIPE_ICON else SWIPE_ICON - 4.dp),
-                )
             }
         }
 
@@ -545,6 +636,7 @@ fun ColumnScope.GridlinkSwipeableRow(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     initialFraction: Float = 0f,
+    actions: GridlinkSwipeActions = GridlinkSwipeActions.Default,
     divider: @Composable () -> Unit = {},
     content: @Composable () -> Unit,
 ) {
@@ -559,6 +651,7 @@ fun ColumnScope.GridlinkSwipeableRow(
                 onAction = onAction,
                 enabled = enabled,
                 initialFraction = initialFraction,
+                actions = actions,
                 content = content,
             )
             divider()

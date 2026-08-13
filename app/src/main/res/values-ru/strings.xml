@@ -263,7 +263,9 @@
     <string name="settings_signature_delimiter_title">Строка-разделитель перед подписью</string>
     <string name="settings_signature_delimiter_subtitle">Другие почтовые программы узнают вашу подпись по этой строке «-- » и могут скрывать её при цитировании письма; без неё они этого больше не смогут, а поле подписи будет содержать ровно то, что уходит в письме.</string>
     <string name="settings_swipe_right_title">Смахивание вправо</string>
-    <string name="settings_swipe_left_title">Смахивание влево</string>
+    <string name="settings_swipe_left_title">Смахивание влево, наполовину</string>
+    <string name="settings_swipe_left_far_title">Смахивание влево, полностью</string>
+    <string name="settings_swipe_caption">Смахивание влево нарастает: на полпути оно становится янтарным, а после 60% ширины строки — красным, с короткой вибрацией в этот момент.</string>
     <string name="settings_swipe_nothing">Ничего</string>
     <string name="settings_swipe_toggle_read">Отметить прочитанным/непрочитанным</string>
     <string name="settings_swipe_delete">Удалить</string>

@@ -263,7 +263,9 @@
     <string name="settings_signature_delimiter_title">Trennzeile vor der Signatur</string>
     <string name="settings_signature_delimiter_subtitle">Andere E-Mail-Programme erkennen Ihre Signatur an dieser Zeile „-- “ und können sie beim Zitieren Ihrer Nachricht ausblenden; ohne sie geht das nicht mehr, und das Signaturfeld enthält dann genau das, was gesendet wird.</string>
     <string name="settings_swipe_right_title">Nach rechts wischen</string>
-    <string name="settings_swipe_left_title">Nach links wischen</string>
+    <string name="settings_swipe_left_title">Nach links wischen, ein Stück</string>
+    <string name="settings_swipe_left_far_title">Nach links wischen, ganz</string>
+    <string name="settings_swipe_caption">Ein Wisch nach links eskaliert: Er wird auf halbem Weg bernsteinfarben und dann rot, sobald er 60 % der Zeile überschreitet, mit einer kurzen Vibration am Übergang.</string>
     <string name="settings_swipe_nothing">Keine</string>
     <string name="settings_swipe_toggle_read">Gelesen/ungelesen markieren</string>
     <string name="settings_swipe_delete">Löschen</string>

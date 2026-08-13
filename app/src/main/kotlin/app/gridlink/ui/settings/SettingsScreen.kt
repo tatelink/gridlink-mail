@@ -561,6 +561,7 @@ private fun previewLabel(context: Context, preview: PreviewLines): String = when
 private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val swipeRight by viewModel.swipeRight.collectAsStateWithLifecycle()
     val swipeLeft by viewModel.swipeLeft.collectAsStateWithLifecycle()
+    val swipeLeftFar by viewModel.swipeLeftFar.collectAsStateWithLifecycle()
     val conversationView by viewModel.conversationView.collectAsStateWithLifecycle()
     val messageTextSize by viewModel.messageTextSize.collectAsStateWithLifecycle()
     val markReadOnDelete by viewModel.markReadOnDelete.collectAsStateWithLifecycle()
@@ -628,6 +629,11 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     },
                 )
             }
+            // 🔴 THREE rows, not two, because the gesture has three outcomes. The left swipe
+            // escalates partway across: amber to begin with, red past 60%, with a haptic tick at the
+            // crossing. Two rows cannot describe that, and the pair that used to sit here described
+            // a gesture the app has never had — they were also read by nothing at all until
+            // 2026-08-12. See [GridlinkSwipeConfig] for the mapping and for why the defaults moved.
             SettingsSection(stringResource(R.string.settings_swipe_actions_section)) {
                 SettingChoiceRow(
                     title = stringResource(R.string.settings_swipe_right_title),
@@ -642,6 +648,21 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     selected = swipeLeft,
                     optionLabel = { swipeLabel(context, it) },
                     onSelect = viewModel::setSwipeLeft,
+                )
+                SettingChoiceRow(
+                    title = stringResource(R.string.settings_swipe_left_far_title),
+                    options = options,
+                    selected = swipeLeftFar,
+                    optionLabel = { swipeLabel(context, it) },
+                    onSelect = viewModel::setSwipeLeftFar,
+                )
+                // Load-bearing. Without it the two left rows read as a contradiction rather than as
+                // two depths of one gesture, and nothing on screen explains why there are two.
+                Text(
+                    text = stringResource(R.string.settings_swipe_caption),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }
             // 🔴 Brandon, 2026-08-10: "the dynamic control bar at the bottom in unfolded mode should

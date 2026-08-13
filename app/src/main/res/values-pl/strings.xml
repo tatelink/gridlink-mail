@@ -263,7 +263,9 @@
     <string name="settings_signature_delimiter_title">Wiersz oddzielający przed podpisem</string>
     <string name="settings_signature_delimiter_subtitle">Inne programy pocztowe rozpoznają Twój podpis po tym wierszu „-- ” i potrafią go ukryć przy cytowaniu wiadomości; bez niego już nie potrafią, a pole podpisu zawiera wtedy dokładnie to, co zostanie wysłane.</string>
     <string name="settings_swipe_right_title">Przesunięcie w prawo</string>
-    <string name="settings_swipe_left_title">Przesunięcie w lewo</string>
+    <string name="settings_swipe_left_title">Przesunięcie w lewo, częściowe</string>
+    <string name="settings_swipe_left_far_title">Przesunięcie w lewo, pełne</string>
+    <string name="settings_swipe_caption">Przesunięcie w lewo eskaluje: w połowie drogi robi się bursztynowe, a po przekroczeniu 60% wiersza czerwone, z krótką wibracją w tym momencie.</string>
     <string name="settings_swipe_nothing">Brak</string>
     <string name="settings_swipe_toggle_read">Oznacz jako przeczytane/nieprzeczytane</string>
     <string name="settings_swipe_delete">Usuń</string>

@@ -263,7 +263,9 @@
     <string name="settings_signature_delimiter_title">Scheidingsregel boven de ondertekening</string>
     <string name="settings_signature_delimiter_subtitle">Andere e-mailapps herkennen je ondertekening aan deze regel “-- ” en kunnen die verbergen bij het citeren van je bericht; zonder die regel kan dat niet meer, en het ondertekeningsveld bevat dan precies wat er wordt verzonden.</string>
     <string name="settings_swipe_right_title">Naar rechts vegen</string>
-    <string name="settings_swipe_left_title">Naar links vegen</string>
+    <string name="settings_swipe_left_title">Naar links vegen, gedeeltelijk</string>
+    <string name="settings_swipe_left_far_title">Naar links vegen, helemaal</string>
+    <string name="settings_swipe_caption">Een veeg naar links escaleert: halverwege wordt hij amberkleurig en daarna rood zodra hij 60% van de rij passeert, met een korte trilling bij de overgang.</string>
     <string name="settings_swipe_nothing">Niets</string>
     <string name="settings_swipe_toggle_read">Gelezen/ongelezen markeren</string>
     <string name="settings_swipe_delete">Verwijderen</string>

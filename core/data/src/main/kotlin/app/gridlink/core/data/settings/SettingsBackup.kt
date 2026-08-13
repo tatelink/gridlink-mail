@@ -25,6 +25,7 @@ data class SettingsBackup(
     val previewLines: String? = null,
     val swipeRight: String? = null,
     val swipeLeft: String? = null,
+    val swipeLeftFar: String? = null,
     val sortOrder: String? = null,
     val contactSuggestions: Boolean? = null,
     val stripTracking: Boolean? = null,
@@ -74,7 +75,7 @@ data class SettingsBackup(
      */
     fun isPlausible(): Boolean =
         themeMode != null || dynamicColor != null || listDensity != null || previewLines != null ||
-            swipeRight != null || swipeLeft != null || sortOrder != null || contactSuggestions != null ||
+            swipeRight != null || swipeLeft != null || swipeLeftFar != null || sortOrder != null || contactSuggestions != null ||
             stripTracking != null || confirmLinks != null || imageAllowlist != null ||
             quietHoursEnabled != null || quietHoursStart != null || quietHoursEnd != null ||
             pushAllAccounts != null || language != null || conversationView != null ||

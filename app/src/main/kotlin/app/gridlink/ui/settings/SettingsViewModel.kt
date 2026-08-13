@@ -67,13 +67,22 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         initialValue = PreviewLines.ONE,
     )
 
+    // ⚠️ The initial values must match the repository's own defaults, or the rows show one answer
+    // for a frame and then swap to another. They also changed on 2026-08-12 when these settings were
+    // finally wired to the gesture; see [SettingsRepository.swipeRightAction].
     val swipeRight = settings.swipeRightAction.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = SwipeAction.ARCHIVE,
+    )
+
+    val swipeLeft = settings.swipeLeftAction.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = SwipeAction.TOGGLE_READ,
     )
 
-    val swipeLeft = settings.swipeLeftAction.stateIn(
+    val swipeLeftFar = settings.swipeLeftFarAction.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = SwipeAction.DELETE,
@@ -307,6 +316,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun setSwipeLeft(action: SwipeAction) {
         viewModelScope.launch { settings.setSwipeLeftAction(action) }
+    }
+
+    fun setSwipeLeftFar(action: SwipeAction) {
+        viewModelScope.launch { settings.setSwipeLeftFarAction(action) }
     }
 
     val conversationView = settings.conversationView.stateIn(
