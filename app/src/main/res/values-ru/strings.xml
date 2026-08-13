@@ -814,4 +814,22 @@
     <string name="settings_thread_action_star">В избранное</string>
     <string name="settings_thread_action_print">Печать</string>
     <string name="settings_thread_action_junk">Спам</string>
+    <string name="settings_tags_title">Теги</string>
+    <string name="settings_tags_summary">Цветные метки для почты</string>
+    <string name="settings_tags_section">Ваши теги</string>
+    <string name="settings_tags_empty">Тегов пока нет. Создайте первый, чтобы отмечать письма.</string>
+    <string name="settings_tags_add">Новый тег</string>
+    <string name="settings_tags_new">Новый тег</string>
+    <string name="settings_tags_edit">Изменить тег</string>
+    <string name="settings_tags_name_hint">Название тега</string>
+    <string name="settings_tags_colour">Цвет</string>
+    <string name="settings_tags_delete">Удалить тег</string>
+    <string name="settings_tags_delete_title">Удалить «%1$s»?</string>
+    <string name="settings_tags_delete_body">Письма с этим тегом сохранят его. Он просто перестанет быть именованным и цветным здесь.</string>
+    <string name="settings_tags_delete_confirm">Удалить</string>
+    <string name="settings_tags_keyword">На сервер отправляется как %1$s</string>
+    <string name="settings_tags_note">Названия тегов хранятся вместе с письмами, поэтому их видят и другие приложения. Цвета остаются на этом устройстве и в резервной копии настроек.</string>
+    <string name="settings_tags_unknown_section">Встречаются в почте</string>
+    <string name="settings_tags_unknown_note">Теги на письмах, для которых у этого устройства нет ни имени, ни цвета. Примите тег, чтобы задать и то, и другое.</string>
+    <string name="settings_tags_adopt">Принять</string>
 </resources>

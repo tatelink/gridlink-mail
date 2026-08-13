@@ -229,6 +229,11 @@ fun AppNavHost(
                 // nav route because it is the only place the Gridlink UI hands off, and it is
                 // saveable so the hand-off survives an unfold.
                 var settingsOpen by rememberSaveable { mutableStateOf(false) }
+                // Which settings screen to land on. Null is the hub; "tags" is the tag picker's
+                // "Manage tags" row, which would otherwise dump the reader at the top of settings
+                // to hunt for a screen they had just asked for by name. Saveable alongside the flag
+                // so an unfold does not bounce them back to the hub.
+                var settingsStart by rememberSaveable { mutableStateOf<String?>(null) }
                 // System Back closes settings instead of leaving the app, which is what the
                 // NavHost's back stack used to do for this screen.
                 BackHandler(enabled = settingsOpen) { settingsOpen = false }
@@ -244,6 +249,7 @@ fun AppNavHost(
                         onBack = { settingsOpen = false },
                         onAccountsChanged = viewModel::refresh,
                         initialAccountId = null,
+                        initialRoute = settingsStart,
                     )
                 } else {
                     // A notification names the account its message belongs to, and the app may be
@@ -270,7 +276,8 @@ fun AppNavHost(
                     GridlinkHomeHost(
                         accountId = s.accountId,
                         accounts = accounts,
-                        onOpenSettings = { settingsOpen = true },
+                        onOpenSettings = { settingsStart = null; settingsOpen = true },
+                        onManageTags = { settingsStart = "tags"; settingsOpen = true },
                         pendingMailto = pendingMailto,
                         onMailtoConsumed = onMailtoConsumed,
                         pendingEmailOpen = pendingEmailOpen.takeIf { switchTo == null },

@@ -809,4 +809,22 @@
     <string name="settings_thread_action_star">Destacar</string>
     <string name="settings_thread_action_print">Imprimir</string>
     <string name="settings_thread_action_junk">Spam</string>
+    <string name="settings_tags_title">Etiquetas</string>
+    <string name="settings_tags_summary">Marcas de color para tu correo</string>
+    <string name="settings_tags_section">Tus etiquetas</string>
+    <string name="settings_tags_empty">Aún no hay etiquetas. Crea una para empezar a marcar correo.</string>
+    <string name="settings_tags_add">Nueva etiqueta</string>
+    <string name="settings_tags_new">Nueva etiqueta</string>
+    <string name="settings_tags_edit">Editar etiqueta</string>
+    <string name="settings_tags_name_hint">Nombre de la etiqueta</string>
+    <string name="settings_tags_colour">Color</string>
+    <string name="settings_tags_delete">Eliminar etiqueta</string>
+    <string name="settings_tags_delete_title">¿Eliminar “%1$s”?</string>
+    <string name="settings_tags_delete_body">El correo que ya la lleva la conserva. Solo deja de tener nombre y color aquí.</string>
+    <string name="settings_tags_delete_confirm">Eliminar</string>
+    <string name="settings_tags_keyword">Se envía al servidor como %1$s</string>
+    <string name="settings_tags_note">Los nombres de las etiquetas viajan con tu correo, así que otras apps también las ven. Los colores se guardan en este dispositivo y en tu copia de ajustes.</string>
+    <string name="settings_tags_unknown_section">Vistas en tu correo</string>
+    <string name="settings_tags_unknown_note">Etiquetas en el correo para las que este dispositivo no tiene nombre ni color. Adopta una para darle ambos.</string>
+    <string name="settings_tags_adopt">Adoptar</string>
 </resources>

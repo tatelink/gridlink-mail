@@ -63,6 +63,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -175,6 +176,13 @@ fun SettingsScreen(
     onAccountsChanged: () -> Unit = {},
     /** When set, deep-link straight to this account's detail screen (drawer → tap account). */
     initialAccountId: String? = null,
+    /**
+     * When set, open ON this inner route instead of the hub — the same deep-link trick as
+     * [initialAccountId], for a screen the mail UI sends the reader to directly (the tag picker's
+     * "Manage tags"). Back then falls through to [onBack] rather than dead-ending, because there is
+     * no hub underneath it to pop to.
+     */
+    initialRoute: String? = null,
     viewModel: SettingsViewModel = viewModel(),
     accountsViewModel: AccountsViewModel = viewModel(),
 ) {
@@ -210,7 +218,11 @@ fun SettingsScreen(
     // here must be wired the same way.
     NavHost(
         navController = nav,
-        startDestination = if (initialAccountId != null) "account/$initialAccountId" else "hub",
+        startDestination = when {
+            initialAccountId != null -> "account/$initialAccountId"
+            initialRoute != null -> initialRoute
+            else -> "hub"
+        },
         enterTransition = {
             if (!motionEnabled) EnterTransition.None else slideInHorizontally(tween(SCREEN_SLIDE_MS)) { it }
         },
@@ -241,6 +253,7 @@ fun SettingsScreen(
                 onOpenNotifications = { entry.navigateOnce { nav.navigate("notifications") } },
                 onOpenVacation = { entry.navigateOnce { nav.navigate("vacation") } },
                 onOpenFilters = { entry.navigateOnce { nav.navigate("filters") } },
+                onOpenTags = { entry.navigateOnce { nav.navigate("tags") } },
                 onOpenPrivacy = { entry.navigateOnce { nav.navigate("privacy") } },
                 onOpenStorage = { entry.navigateOnce { nav.navigate("storage") } },
                 onOpenBackup = { entry.navigateOnce { nav.navigate("backup") } },
@@ -309,6 +322,16 @@ fun SettingsScreen(
         composable("filters") { entry ->
             FiltersScreen(onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
+        composable("tags") { entry ->
+            // Same fall-through as the account detail: when this IS the start destination (opened
+            // from the tag picker) there is nothing to pop, and without the fallback Back would do
+            // nothing at all. The fall-through sits INSIDE the guard so a swallowed re-entrant tap
+            // is never mistaken for an empty back stack.
+            TagsScreen(
+                viewModel = viewModel,
+                onBack = { entry.navigateOnce { if (!nav.popBackStack()) onBack() } },
+            )
+        }
         composable("privacy") { entry ->
             PrivacySecurityScreen(viewModel = viewModel, onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
@@ -335,6 +358,7 @@ private fun SettingsHub(
     onOpenNotifications: () -> Unit,
     onOpenVacation: () -> Unit,
     onOpenFilters: () -> Unit,
+    onOpenTags: () -> Unit,
     onOpenPrivacy: () -> Unit,
     onOpenStorage: () -> Unit,
     onOpenBackup: () -> Unit,
@@ -356,6 +380,10 @@ private fun SettingsHub(
             SettingsSection(stringResource(R.string.settings_group_app)) {
                 SettingsCategoryRow(Icons.Filled.Palette, stringResource(R.string.settings_appearance_title), stringResource(R.string.settings_appearance_summary), onOpenAppearance)
                 SettingsCategoryRow(Icons.AutoMirrored.Filled.List, stringResource(R.string.settings_reading_title), stringResource(R.string.settings_reading_summary), onOpenReading)
+                // Tags sit next to Reading rather than under the account group: the definitions are
+                // this DEVICE's (see MailTag), so a row under "Current account" would promise a
+                // per-account tag set that does not exist.
+                SettingsCategoryRow(Icons.Filled.Sell, stringResource(R.string.settings_tags_title), stringResource(R.string.settings_tags_summary), onOpenTags)
                 SettingsCategoryRow(Icons.Filled.Notifications, stringResource(R.string.settings_notifications_title), stringResource(R.string.settings_notifications_summary), onOpenNotifications)
                 SettingsCategoryRow(Icons.Filled.Lock, stringResource(R.string.settings_privacy_title), stringResource(R.string.settings_privacy_summary), onOpenPrivacy)
                 SettingsCategoryRow(Icons.Filled.Storage, stringResource(R.string.settings_storage_title), stringResource(R.string.settings_storage_summary), onOpenStorage)

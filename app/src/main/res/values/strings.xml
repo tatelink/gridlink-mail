@@ -839,4 +839,22 @@
     <string name="widget_empty_not_synced">Open GridLink once to fill this in.</string>
     <string name="widget_empty_inbox">Nothing waiting.</string>
     <string name="widget_time_now">now</string>
+    <string name="settings_tags_title">Tags</string>
+    <string name="settings_tags_summary">Colour-coded labels for your mail</string>
+    <string name="settings_tags_section">Your tags</string>
+    <string name="settings_tags_empty">No tags yet. Create one to start marking mail.</string>
+    <string name="settings_tags_add">New tag</string>
+    <string name="settings_tags_new">New tag</string>
+    <string name="settings_tags_edit">Edit tag</string>
+    <string name="settings_tags_name_hint">Tag name</string>
+    <string name="settings_tags_colour">Colour</string>
+    <string name="settings_tags_delete">Delete tag</string>
+    <string name="settings_tags_delete_title">Delete “%1$s”?</string>
+    <string name="settings_tags_delete_body">Mail that already carries this tag keeps it. It just stops being named and coloured here.</string>
+    <string name="settings_tags_delete_confirm">Delete</string>
+    <string name="settings_tags_keyword">Sent to the server as %1$s</string>
+    <string name="settings_tags_note">Tag names travel with your mail, so other apps see them too. Colours are kept on this device and in your settings backup.</string>
+    <string name="settings_tags_unknown_section">Seen on your mail</string>
+    <string name="settings_tags_unknown_note">Tags on mail here that this device has no name or colour for. Adopt one to give it both.</string>
+    <string name="settings_tags_adopt">Adopt</string>
 </resources>

@@ -809,4 +809,22 @@
     <string name="settings_thread_action_star">Aggiungi a speciali</string>
     <string name="settings_thread_action_print">Stampa</string>
     <string name="settings_thread_action_junk">Spam</string>
+    <string name="settings_tags_title">Etichette</string>
+    <string name="settings_tags_summary">Contrassegni colorati per la posta</string>
+    <string name="settings_tags_section">Le tue etichette</string>
+    <string name="settings_tags_empty">Nessuna etichetta. Creane una per iniziare a contrassegnare la posta.</string>
+    <string name="settings_tags_add">Nuova etichetta</string>
+    <string name="settings_tags_new">Nuova etichetta</string>
+    <string name="settings_tags_edit">Modifica etichetta</string>
+    <string name="settings_tags_name_hint">Nome etichetta</string>
+    <string name="settings_tags_colour">Colore</string>
+    <string name="settings_tags_delete">Elimina etichetta</string>
+    <string name="settings_tags_delete_title">Eliminare “%1$s”?</string>
+    <string name="settings_tags_delete_body">I messaggi che la portano la mantengono. Smette soltanto di avere nome e colore qui.</string>
+    <string name="settings_tags_delete_confirm">Elimina</string>
+    <string name="settings_tags_keyword">Inviata al server come %1$s</string>
+    <string name="settings_tags_note">I nomi delle etichette viaggiano con la posta, quindi anche le altre app li vedono. I colori restano su questo dispositivo e nel backup delle impostazioni.</string>
+    <string name="settings_tags_unknown_section">Viste nella tua posta</string>
+    <string name="settings_tags_unknown_note">Etichette presenti sulla posta di cui questo dispositivo non ha né nome né colore. Adottane una per darle entrambi.</string>
+    <string name="settings_tags_adopt">Adotta</string>
 </resources>
