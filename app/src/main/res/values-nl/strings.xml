@@ -260,8 +260,6 @@
     <string name="settings_signature_section">Ondertekening</string>
     <string name="settings_signature_on_replies_title">Ondertekening in antwoorden</string>
     <string name="settings_signature_on_replies_subtitle">Ook toevoegen bij beantwoorden of doorsturen</string>
-    <string name="settings_signature_below_quote_title">Ondertekening onder de geciteerde tekst</string>
-    <string name="settings_signature_below_quote_subtitle">Zet die in een antwoord onder het geciteerde bericht in plaats van erboven</string>
     <string name="settings_signature_delimiter_title">Scheidingsregel boven de ondertekening</string>
     <string name="settings_signature_delimiter_subtitle">Andere e-mailapps herkennen je ondertekening aan deze regel “-- ” en kunnen die verbergen bij het citeren van je bericht; zonder die regel kan dat niet meer, en het ondertekeningsveld bevat dan precies wat er wordt verzonden.</string>
     <string name="settings_swipe_right_title">Naar rechts vegen</string>

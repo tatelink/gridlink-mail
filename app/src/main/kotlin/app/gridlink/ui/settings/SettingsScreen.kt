@@ -568,7 +568,6 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val markReadOnMove by viewModel.markReadOnMove.collectAsStateWithLifecycle()
     val unarchiveOnReply by viewModel.unarchiveOnReply.collectAsStateWithLifecycle()
     val signatureOnReplies by viewModel.signatureOnReplies.collectAsStateWithLifecycle()
-    val signatureBelowQuote by viewModel.signatureBelowQuote.collectAsStateWithLifecycle()
     val signatureDelimiter by viewModel.signatureDelimiter.collectAsStateWithLifecycle()
     val threadToolbarActions by viewModel.threadToolbarActions.collectAsStateWithLifecycle()
     val options = listOf(
@@ -681,12 +680,19 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     checked = signatureOnReplies,
                     onCheckedChange = viewModel::setSignatureOnReplies,
                 )
-                SettingSwitch(
-                    title = stringResource(R.string.settings_signature_below_quote_title),
-                    subtitle = stringResource(R.string.settings_signature_below_quote_subtitle),
-                    checked = signatureBelowQuote,
-                    onCheckedChange = viewModel::setSignatureBelowQuote,
-                )
+                // ⛔ There is no "Signature below quoted text" switch here, and it is not an
+                // oversight. A Gridlink reply carries no quoted text: the composer shows the
+                // original as a collapsible label and sends In-Reply-To and References headers,
+                // and the body it opens with is empty. A setting that places a block relative to
+                // a quote that is not in the message has nothing to decide.
+                //
+                // 2026-08-12, the same settings-audit pass that wired the other two: they now
+                // insert a real signature ([app.gridlink.ui.gridlink.composeBodyWithSignature]),
+                // and this one could not be wired without first building reply quoting, which is
+                // its own feature and not a settings fix. The store, the setter and the flow all
+                // stay, so backup/restore still carries the value and the switch comes back the
+                // day the quote does.
+                //
                 // On by default, and the subtitle says what turning it off costs: the "-- " line is
                 // what other mail apps recognise a signature by. Off, the signature field holds
                 // exactly what is sent, so any separator (or none) can be typed there (#90).

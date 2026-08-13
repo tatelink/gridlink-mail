@@ -8,11 +8,17 @@ package app.gridlink.ui.settings
  * out a second time (#90) — a preview that agrees with the writer by construction instead of by
  * agreement.
  *
- * ⚠️ Nothing WRITES a signature into a message today. Upstream's composer did; Gridlink's does not
- * yet, so the signature settings are configurable and currently inert. That is a gap in the
- * Gridlink composer, recorded in the build plan, not a reason to keep 800 lines of retired
- * composer around: this is the part the settings screen actually needs, and it is the part that
- * a Gridlink implementation should call.
+ * ⚠️ Between the upstream composer's retirement and 2026-08-12 nothing WROTE a signature into a
+ * message: the settings were configurable and inert, and the Identities editor previewed a block no
+ * message ever carried. Gridlink's composer now calls [signatureBlock] through
+ * `GridlinkSignature.composeBodyWithSignature`, which is the "Gridlink implementation" this file
+ * was kept for. One builder, so the preview agrees with what is sent by construction.
+ *
+ * ⛔ [bodyWithSignature] is the QUOTE-AWARE form and has no production caller: a Gridlink reply
+ * carries no quoted text in the body (a collapsible label plus In-Reply-To/References headers), so
+ * there is no quote for a signature to sit above or below. It stays, tested, as the shape to reach
+ * for the day the composer does quote — which is also the day the "Signature below the quoted text"
+ * setting means something again. Its store, setter and flow were kept for the same reason.
  */
 
 /** The standard signature delimiter line (RFC 3676 §4.3): two hyphens and a space. */

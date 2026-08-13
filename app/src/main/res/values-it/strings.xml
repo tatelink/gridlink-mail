@@ -260,8 +260,6 @@
     <string name="settings_signature_section">Firma</string>
     <string name="settings_signature_on_replies_title">Firma nelle risposte</string>
     <string name="settings_signature_on_replies_subtitle">Aggiungerla anche quando rispondi o inoltri un messaggio</string>
-    <string name="settings_signature_below_quote_title">Firma sotto il testo citato</string>
-    <string name="settings_signature_below_quote_subtitle">In una risposta, metterla sotto il messaggio citato anziché sopra</string>
     <string name="settings_signature_delimiter_title">Riga separatrice prima della firma</string>
     <string name="settings_signature_delimiter_subtitle">Le altre app di posta riconoscono la tua firma da questa riga «-- » e possono nasconderla quando citano il tuo messaggio; senza di essa non possono più, e il campo firma contiene allora esattamente ciò che viene inviato.</string>
     <string name="settings_swipe_right_title">Scorri a destra</string>
