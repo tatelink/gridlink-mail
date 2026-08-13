@@ -178,11 +178,17 @@ fun GridlinkContactsScreen(
 
     // Tate: the pill "seems out of place… since the list it actually sorts is on the left". It
     // used to ride the chrome row's trailing seat, which spans BOTH panes, so in two panes it sat
-    // over the reading pane while sorting the list on the far side of the window. It now lives on
-    // [belowHeader] at every width: that line belongs to the list column alone (the calendar's
-    // view switcher is the precedent, and the slot's stated purpose), so the pill sits directly
-    // above the list it sorts in one pane and two. This also retires the measured 600dp rule that
-    // used to move it — folding no longer teleports the pill between two homes.
+    // over the reading pane while sorting the list on the far side of the window. It then moved to
+    // [belowHeader], which fixed the pane it belonged to but left it floating on a bare line above
+    // the panel.
+    //
+    // 🔴 It is now INSIDE the glass, on the list's own top edge, and left-aligned. Tate,
+    // 2026-08-12: "contacts window, extend upward to encompass 'last, first', but move last, first
+    // to the left side of the window." Same trade the inbox filter chips made: an empty
+    // [belowHeader] zeroes the reading pane's top offset too, so BOTH panels start one row higher
+    // and the pill still sits directly above the list it sorts. Start-aligned rather than End
+    // because a control reading "Last, First" over a column of names should begin where the names
+    // begin, not hang off the far edge under the alphabet rail.
     GridlinkScaffold(
         destination = destination,
         onSelectDestination = onSelectDestination,
@@ -201,22 +207,36 @@ fun GridlinkContactsScreen(
                 subline = if (book.contactsLoading) "Loading" else "${book.contacts.size} people and teams",
             )
         },
-        belowHeader = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                // At the end, the corner the pill has always occupied, so the move down is the
-                // only thing that changes.
-                horizontalArrangement = Arrangement.End,
-            ) {
-                sortPill()
-            }
-        },
     ) {
+      Column(modifier = Modifier.fillMaxSize()) {
+        // ⚠️ Pinned above the list, not scrolled with it. The pill is the one control that explains
+        // why the book is ordered the way it is, and scrolling it away hides that answer exactly
+        // when you are deep enough in the list to be asking the question.
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(
+                // Matches the inbox chip row rather than the message rows: chrome inset in the
+                // glass sits tighter to the panel edge than the content does.
+                start = GridlinkSpacing.s8,
+                end = GridlinkSpacing.s8,
+                top = GridlinkSpacing.s12,
+                bottom = GridlinkSpacing.s12,
+            ),
+            horizontalArrangement = Arrangement.Start,
+        ) {
+            sortPill()
+        }
+        // The list's own top edge, so the pill reads as chrome belonging to the panel rather than
+        // as a row of the book. Full width, unlike the row dividers, because nothing is indented
+        // past it.
+        GridlinkRowDivider(startInset = 0.dp)
         LazyColumn(
             state = listState,
             flingBehavior = rememberGridlinkFlingBehavior(),
             modifier = Modifier
-                .fillMaxSize()
+                // weight, not fillMaxSize: this is a Column child now, and a child asking for the
+                // whole height beside the pill row above it would draw a list taller than the panel.
+                .weight(1f)
+                .fillMaxWidth()
                 .gridlinkEdgeFade(),
             contentPadding = PaddingValues(
                 top = GridlinkDimens.listFade,
@@ -256,7 +276,10 @@ fun GridlinkContactsScreen(
                 }
             }
         }
+      }
 
+        // Outside the Column and still on the scaffold's Box, so the rail spans the whole panel
+        // height and centres against it rather than against the list under the pill row.
         GridlinkAlphabetRail(
             populated = populated,
             onScrubTo = ::jumpTo,

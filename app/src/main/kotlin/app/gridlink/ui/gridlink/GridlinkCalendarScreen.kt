@@ -1395,13 +1395,20 @@ private fun GridlinkAgendaView(
     // empty day spending one row on its "Nothing scheduled" line. Only the INITIAL position —
     // the items are keyed, so once the list is up, later data arriving re-anchors on the same
     // day header instead of yanking the scroll.
+    //
+    // 🔴 The separator counts as an item, and every day but the first draws one. Miss that and the
+    // list opens one row further up per day behind today, which after a week is the view landing on
+    // last Wednesday and looking like the scroll restore is broken.
     val todayIndex = remember(byDay, today) {
         var index = 0
-        for ((date, dayEvents) in byDay) {
+        for ((dayIndex, day) in byDay.withIndex()) {
+            val (date, dayEvents) = day
             if (date >= today) break
-            index += 1 + maxOf(dayEvents.size, 1)
+            index += (if (dayIndex > 0) 1 else 0) + 1 + maxOf(dayEvents.size, 1)
         }
-        index
+        // The rule ABOVE today's heading, so today's own separator is scrolled past rather than
+        // left as the first thing on screen with the heading tucked under it.
+        if (byDay.firstOrNull()?.first != today && byDay.any { it.first == today }) index + 1 else index
     }
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = todayIndex)
 
@@ -1416,7 +1423,24 @@ private fun GridlinkAgendaView(
             .gridlinkEdgeFade(fadeTop = false),
         contentPadding = PaddingValues(bottom = GridlinkDimens.listFade),
     ) {
-        byDay.forEach { (date, dayEvents) ->
+        byDay.forEachIndexed { dayIndex, (date, dayEvents) ->
+            // 🔴 A rule between days, full width. Tate, 2026-08-12: "draw a horizontal line
+            // separator between days on agenda/schedule view". The day headings alone were carrying
+            // the whole structure of the list, and on a run of empty days the page is nothing but
+            // headings and one grey line each, which reads as one long column rather than as a
+            // week: the eye has no boundary to count. The line is what turns it back into days.
+            //
+            // ⚠️ Not before the first one. A hairline against the top edge of the panel reads as a
+            // seam in the glass rather than as a divider between two things, and above the first day
+            // there is nothing to divide it FROM.
+            if (dayIndex > 0) {
+                item(key = "rule-$date") {
+                    // No start inset, unlike the message list's. There the inset lines the rule up
+                    // under the text so rows read as one stack; here the rule is separating whole
+                    // days, and a day is the full width of the panel.
+                    GridlinkRowDivider(startInset = 0.dp)
+                }
+            }
             item(key = "day-$date") {
                 Row(
                     modifier = Modifier
