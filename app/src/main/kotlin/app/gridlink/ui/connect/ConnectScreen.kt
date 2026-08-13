@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.relocation.BringIntoViewRequester
@@ -365,56 +364,21 @@ fun ConnectScreen(
                         Text(stringResource(R.string.import_pending_title))
                     }
                 }
-                // Import entry points, shown whenever adding an account (not just first run): migrating
-                // from K-9 / Thunderbird or a Gridlink backup belongs here, where people add accounts, not
-                // buried in Settings → Backup.
-                Spacer(Modifier.height(4.dp))
-                Text(stringResource(R.string.connect_import_header), style = MaterialTheme.typography.labelLarge)
-                OutlinedButton(
-                    onClick = {
-                        importK9Launcher.launch(
-                            arrayOf("application/octet-stream", "text/xml", "application/xml", "*/*"),
-                        )
+                // How to connect, asked once. The protocol and the provider used to be separate
+                // questions, and the second was invisible until the first was answered "IMAP" —
+                // so the shortcut for the commonest case sat behind a decision about protocols.
+                Text(stringResource(R.string.connect_provider_preset), style = MaterialTheme.typography.labelLarge)
+                SetupChoiceGrid(
+                    selected = selectedChoice(preset, protocol),
+                    onChoose = { choice ->
+                        protocol = protocolFor(choice)
+                        preset = choiceTapped(preset, choice)
+                        // Belt to the grid's braces: an OAuth preset can never survive into a JMAP
+                        // form, where it would hide the token field and send Connect to the
+                        // Microsoft browser flow while the screen said JMAP (#105).
+                        preset = presetForProtocol(preset, protocol)
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Filled.SettingsBackupRestore, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.connect_import_k9))
-                }
-                OutlinedButton(
-                    onClick = {
-                        importSettingsLauncher.launch(
-                            arrayOf("application/json", "application/octet-stream", "text/plain"),
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Filled.SettingsBackupRestore, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.connect_import_settings))
-                }
-                Text(stringResource(R.string.connect_protocol), style = MaterialTheme.typography.labelLarge)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = protocol == MailProtocol.JMAP,
-                        onClick = {
-                            protocol = MailProtocol.JMAP
-                            // Leaving IMAP disarms an OAuth preset, so Connect can't still be
-                            // pointing at the Microsoft flow while the screen says JMAP (#105).
-                            preset = presetForProtocol(preset, MailProtocol.JMAP)
-                        },
-                        label = { Text(stringResource(R.string.connect_jmap)) },
-                    )
-                    FilterChip(
-                        selected = protocol == MailProtocol.IMAP,
-                        onClick = {
-                            protocol = MailProtocol.IMAP
-                            preset = presetForProtocol(preset, MailProtocol.IMAP)
-                        },
-                        label = { Text(stringResource(R.string.connect_imap_smtp)) },
-                    )
-                }
+                )
 
                 if (protocol == MailProtocol.JMAP) {
                     Text(stringResource(R.string.connect_auth_method), style = MaterialTheme.typography.labelLarge)
@@ -473,23 +437,6 @@ fun ConnectScreen(
                         )
                     }
                 } else {
-                    Text(stringResource(R.string.connect_provider_preset), style = MaterialTheme.typography.labelLarge)
-                    Row(
-                        Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        MAIL_PROVIDERS.forEach { provider ->
-                            // FilterChip, not AssistChip: the selected provider is visible, and
-                            // tapping it again lets go of it. Outlook used to be a one-way door —
-                            // it hid the server fields with nothing on screen to bring them back
-                            // (#105).
-                            FilterChip(
-                                selected = preset.selected == provider.name,
-                                onClick = { preset = presetChipTapped(preset, provider) },
-                                label = { Text(provider.name) },
-                            )
-                        }
-                    }
                     // Outlook signs in by OAuth, so the app-password note and the manual
                     // server/port fields don't apply — hide them while it's selected.
                     if (preset.serverFieldsVisible) {
@@ -653,6 +600,38 @@ fun ConnectScreen(
                         ) { Text(stringResource(R.string.connect_oauth_button)) }
                     }
                     // Outlook has no separate button — its provider chip launches the OAuth flow.
+                }
+
+                // Import entry points, shown whenever adding an account (not just first run):
+                // migrating from K-9 / Thunderbird or a Gridlink backup belongs here, where people
+                // add accounts, not buried in Settings → Backup. Below the form rather than above
+                // it: the setup grid is now the first thing on the screen, and two file-picker
+                // buttons wedged between that grid and the fields it fills read as part of it.
+                Spacer(Modifier.height(4.dp))
+                Text(stringResource(R.string.connect_import_header), style = MaterialTheme.typography.labelLarge)
+                OutlinedButton(
+                    onClick = {
+                        importK9Launcher.launch(
+                            arrayOf("application/octet-stream", "text/xml", "application/xml", "*/*"),
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Filled.SettingsBackupRestore, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.connect_import_k9))
+                }
+                OutlinedButton(
+                    onClick = {
+                        importSettingsLauncher.launch(
+                            arrayOf("application/json", "application/octet-stream", "text/plain"),
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Filled.SettingsBackupRestore, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.connect_import_settings))
                 }
 
                 Spacer(Modifier.height(4.dp))

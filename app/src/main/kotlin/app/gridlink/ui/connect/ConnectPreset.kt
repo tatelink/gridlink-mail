@@ -15,7 +15,7 @@ import app.gridlink.core.data.net.ImapEndpoints
  * that form to the Microsoft sign-in.
  */
 
-/** A known mail provider's IMAP/SMTP settings, applied by the quick-setup chips. */
+/** A known mail provider's IMAP/SMTP settings, applied by the quick-setup tiles. */
 internal data class MailProvider(
     val name: String,
     val imapHost: String,
@@ -24,10 +24,20 @@ internal data class MailProvider(
     val smtpHost: String,
     val smtpPort: String,
     val smtpSecurity: ConnectionSecurity,
-    /** When true the chip starts the OAuth sign-in flow instead of filling host/port. */
+    /** When true the tile starts the OAuth sign-in flow instead of filling host/port. */
     val oauth: Boolean = false,
     /** Page where the user creates an app-specific password (their normal one is refused). */
     val appPasswordUrl: String? = null,
+    /**
+     * The provider's logo, drawn on its setup tile. `null` falls back to a lettermark, which is
+     * what every provider does today: these are other companies' trademarks and none are bundled.
+     *
+     * To add one, drop a vector drawable named `ic_provider_<lowercase name, no dots or spaces>`
+     * into `res/drawable` (`ic_provider_gmail`, `ic_provider_mailru`, `ic_provider_protonbridge`)
+     * and point this field at it. Nothing else needs to change — the tile already sizes, tints and
+     * centres whatever it is handed.
+     */
+    val logoRes: Int? = null,
 )
 
 internal val MAIL_PROVIDERS = listOf(
@@ -98,14 +108,6 @@ private fun MailProvider.asForm(): PresetForm = if (oauth) {
 }
 
 /**
- * What a tap on a quick-setup chip yields. Tapping the chip that is already selected clears the
- * selection, which is the whole fix for #105: the chips carry a visible selected state and the
- * OAuth one is no longer a one-way door.
- */
-internal fun presetChipTapped(current: PresetForm, tapped: MailProvider): PresetForm =
-    if (current.selected == tapped.name) PresetForm.NONE else tapped.asForm()
-
-/**
  * Choosing a protocol disarms an OAuth preset. The Microsoft device flow is an IMAP-side path, so a
  * preset left armed while JMAP is selected describes nothing the JMAP form can do (#105: it hid the
  * API-token field and sent Connect to the browser while the screen said JMAP).
@@ -152,6 +154,64 @@ internal fun presetWithDiscovered(current: PresetForm, discovered: ImapEndpoints
         )
     }
     return form
+}
+
+/**
+ * One tile in the setup grid. The grid replaced a protocol chip row plus a separate, IMAP-only
+ * provider chip row: two questions, the second of which was invisible until the first was answered
+ * a particular way. A tile is the whole answer.
+ *
+ * [Jmap] and [Imap] are the manual routes and lead the grid, because they are what this app is for;
+ * the branded tiles are shortcuts that fill an IMAP form the user could have typed themselves.
+ */
+internal sealed interface SetupChoice {
+    /** JMAP, configured by hand (autodiscovered from the address, or a server typed under Advanced). */
+    data object Jmap : SetupChoice
+
+    /** IMAP + SMTP with no provider chosen: the four server fields, empty and the user's problem. */
+    data object Imap : SetupChoice
+
+    /** A known provider, which fills those fields (or, for Outlook, hides them and runs OAuth). */
+    data class Known(val provider: MailProvider) : SetupChoice
+}
+
+/** The grid's contents, in tile order: the two manual routes, then every known provider. */
+internal val SETUP_CHOICES: List<SetupChoice> =
+    listOf(SetupChoice.Jmap, SetupChoice.Imap) + MAIL_PROVIDERS.map { SetupChoice.Known(it) }
+
+/**
+ * Which tile reads as chosen, derived from the form rather than stored beside it. A second copy of
+ * "what is selected" is exactly the disagreement #105 was about, so there isn't one: [protocol] and
+ * [preset] remain the only state, and the grid is a view of them.
+ */
+internal fun selectedChoice(preset: PresetForm, protocol: MailProtocol): SetupChoice = when {
+    protocol == MailProtocol.JMAP -> SetupChoice.Jmap
+    preset.selected == null -> SetupChoice.Imap
+    else -> MAIL_PROVIDERS.firstOrNull { it.name == preset.selected }
+        ?.let { SetupChoice.Known(it) }
+        // A saved selection naming a provider this build no longer ships: the form still holds that
+        // provider's hosts, so plain IMAP is the honest tile rather than nothing being selected.
+        ?: SetupChoice.Imap
+}
+
+/**
+ * The protocol a tile implies. Every branded provider here is IMAP, including Outlook, whose OAuth
+ * is XOAUTH2 over IMAP and SMTP rather than a protocol of its own.
+ */
+internal fun protocolFor(choice: SetupChoice): MailProtocol =
+    if (choice == SetupChoice.Jmap) MailProtocol.JMAP else MailProtocol.IMAP
+
+/**
+ * The form after a tile is tapped. Unlike the chips it replaced, tapping the selected tile does
+ * nothing: a tile is a choice among choices, so there is no "off" to toggle back to, and the escape
+ * that [presetChipTapped] existed to provide is now just the IMAP tile sitting in plain sight.
+ */
+internal fun choiceTapped(current: PresetForm, choice: SetupChoice): PresetForm = when (choice) {
+    // Both manual routes clear the form: an armed provider's hosts have no business surviving into
+    // a form the user just said they wanted to fill in themselves.
+    SetupChoice.Jmap, SetupChoice.Imap -> PresetForm.NONE
+    is SetupChoice.Known ->
+        if (current.selected == choice.provider.name) current else choice.provider.asForm()
 }
 
 /** Where the Connect button sends the form. */

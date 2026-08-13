@@ -14,41 +14,101 @@ import org.junit.Test
  * Quick setup used to be four pieces of screen state that could disagree: the Outlook chip armed a
  * flag with no way to disarm it, so the server fields vanished for good, and the flag survived a
  * switch to JMAP and sent that form to the Microsoft sign-in (#105). These cover the decision that
- * replaced them — chip taps, protocol changes, and where Connect ends up.
+ * replaced them — tile taps, protocol changes, and where Connect ends up.
  */
 class ConnectPresetTest {
 
     private fun provider(name: String) = MAIL_PROVIDERS.first { it.name == name }
+
+    /** Tapping a provider's tile in the setup grid. */
+    private fun tap(current: PresetForm, provider: MailProvider) =
+        choiceTapped(current, SetupChoice.Known(provider))
 
     private val outlook = provider("Outlook")
     private val gmail = provider("Gmail")
     private val yandex = provider("Yandex")
     private val mailru = provider("Mail.ru")
 
-    // --- The chip is a door that opens both ways -------------------------------------------------
+    // --- The grid always shows the way back ------------------------------------------------------
 
-    @Test fun tappingTheArmedChipAgainReleasesIt() {
-        val armed = presetChipTapped(PresetForm.NONE, outlook)
+    @Test fun theImapTileIsTheWayOutOfOauth() {
+        val armed = tap(PresetForm.NONE, outlook)
         assertEquals("Outlook", armed.selected)
         assertTrue(armed.oauth)
         assertFalse("the server fields go away under OAuth", armed.serverFieldsVisible)
 
-        val released = presetChipTapped(armed, outlook)
+        // #105 was that nothing on screen could undo this. The escape is no longer a second tap on
+        // the armed tile (a tile is a choice among choices, and has no "off"); it is the IMAP tile,
+        // which is always on screen.
+        val released = choiceTapped(armed, SetupChoice.Imap)
         assertNull(released.selected)
         assertFalse(released.oauth)
-        assertTrue("and the second tap must bring them back", released.serverFieldsVisible)
+        assertTrue("and the IMAP tile must bring them back", released.serverFieldsVisible)
         assertEquals(PresetForm.NONE, released)
     }
 
-    @Test fun aPasswordPresetIsAlsoReleasedByASecondTap() {
-        val armed = presetChipTapped(PresetForm.NONE, gmail)
+    @Test fun tappingTheSelectedTileAgainChangesNothing() {
+        // Unlike the chips this replaced, re-tapping is inert: with JMAP and IMAP present as tiles,
+        // an accidental second tap silently emptying a filled form would be the surprise.
+        val armed = tap(PresetForm.NONE, gmail)
         assertEquals("Gmail", armed.selected)
-        assertEquals(PresetForm.NONE, presetChipTapped(armed, gmail))
+        assertEquals(armed, tap(armed, gmail))
     }
 
-    @Test fun tappingAnotherChipSwitchesRatherThanReleases() {
-        val armed = presetChipTapped(PresetForm.NONE, outlook)
-        val switched = presetChipTapped(armed, yandex)
+    @Test fun bothManualTilesClearAProviderSFields() {
+        // A provider's hosts have no business surviving into a form the user just said they wanted
+        // to fill in themselves — under either protocol.
+        val armed = tap(PresetForm.NONE, yandex)
+        assertEquals(PresetForm.NONE, choiceTapped(armed, SetupChoice.Imap))
+        assertEquals(PresetForm.NONE, choiceTapped(armed, SetupChoice.Jmap))
+    }
+
+    // --- Which tile reads as chosen --------------------------------------------------------------
+
+    @Test fun theSelectedTileIsDerivedFromTheFormNotStoredBesideIt() {
+        assertEquals(SetupChoice.Jmap, selectedChoice(PresetForm.NONE, MailProtocol.JMAP))
+        assertEquals(SetupChoice.Imap, selectedChoice(PresetForm.NONE, MailProtocol.IMAP))
+        assertEquals(
+            SetupChoice.Known(gmail),
+            selectedChoice(tap(PresetForm.NONE, gmail), MailProtocol.IMAP),
+        )
+        // A JMAP form never lights a provider tile, whatever the preset happens to hold.
+        assertEquals(
+            SetupChoice.Jmap,
+            selectedChoice(tap(PresetForm.NONE, gmail), MailProtocol.JMAP),
+        )
+    }
+
+    @Test fun aSelectionNamingAnUnknownProviderFallsBackToImap() {
+        // A saved form from a build that shipped a provider this one does not: the hosts are still
+        // in the form, so plain IMAP is the honest tile rather than nothing being selected.
+        val stale = PresetForm.NONE.copy(selected = "Some Provider", imapHost = "imap.example.org")
+        assertEquals(SetupChoice.Imap, selectedChoice(stale, MailProtocol.IMAP))
+    }
+
+    @Test fun onlyTheJmapTileMeansJmap() {
+        assertEquals(MailProtocol.JMAP, protocolFor(SetupChoice.Jmap))
+        assertEquals(MailProtocol.IMAP, protocolFor(SetupChoice.Imap))
+        // Outlook included: its OAuth is XOAUTH2 over IMAP and SMTP, not a protocol of its own.
+        MAIL_PROVIDERS.forEach {
+            assertEquals(it.name, MailProtocol.IMAP, protocolFor(SetupChoice.Known(it)))
+        }
+    }
+
+    @Test fun theGridLeadsWithTheTwoManualRoutes() {
+        assertEquals(listOf(SetupChoice.Jmap, SetupChoice.Imap), SETUP_CHOICES.take(2))
+        assertEquals(MAIL_PROVIDERS.map { SetupChoice.Known(it) }, SETUP_CHOICES.drop(2))
+        // Every tile is reachable and lights up when tapped: a tile whose own tap does not select it
+        // would look broken, and this is the loop the screen actually runs.
+        SETUP_CHOICES.forEach { choice ->
+            val after = choiceTapped(PresetForm.NONE, choice)
+            assertEquals(choice, selectedChoice(after, protocolFor(choice)))
+        }
+    }
+
+    @Test fun tappingAnotherTileSwitchesRatherThanReleases() {
+        val armed = tap(PresetForm.NONE, outlook)
+        val switched = tap(armed, yandex)
         assertEquals("Yandex", switched.selected)
         assertFalse(switched.oauth)
         assertEquals("imap.yandex.com", switched.imapHost)
@@ -59,8 +119,8 @@ class ConnectPresetTest {
     @Test fun eachPresetReplacesEveryFieldOfTheLast() {
         // Proton Bridge is the only entry on non-standard ports and STARTTLS on both sides, so any
         // field left over from it would be visible in the next pick.
-        val bridge = presetChipTapped(PresetForm.NONE, provider("Proton Bridge"))
-        val next = presetChipTapped(bridge, mailru)
+        val bridge = tap(PresetForm.NONE, provider("Proton Bridge"))
+        val next = tap(bridge, mailru)
         assertEquals("imap.mail.ru", next.imapHost)
         assertEquals("993", next.imapPort)
         assertEquals(ConnectionSecurity.TLS, next.imapSecurity)
@@ -72,14 +132,14 @@ class ConnectPresetTest {
     @Test fun theOauthPresetCarriesNoServerValuesAndNoAppPasswordLink() {
         // Selecting Outlook after Gmail must not leave Gmail's hosts hidden behind the OAuth
         // screen, and Microsoft refuses password IMAP, so an app-password link would be a dead end.
-        val armed = presetChipTapped(presetChipTapped(PresetForm.NONE, gmail), outlook)
+        val armed = tap(tap(PresetForm.NONE, gmail), outlook)
         assertEquals("", armed.imapHost)
         assertEquals("", armed.smtpHost)
         assertNull(armed.appPasswordUrl)
     }
 
-    @Test fun releasingAPresetClearsTheFieldsItFilled() {
-        val released = presetChipTapped(presetChipTapped(PresetForm.NONE, yandex), yandex)
+    @Test fun leavingAPresetForManualImapClearsTheFieldsItFilled() {
+        val released = choiceTapped(tap(PresetForm.NONE, yandex), SetupChoice.Imap)
         assertEquals("", released.imapHost)
         assertEquals("", released.smtpHost)
         assertNull(released.appPasswordUrl)
@@ -88,27 +148,27 @@ class ConnectPresetTest {
     // --- Switching protocol cannot leave OAuth armed ---------------------------------------------
 
     @Test fun choosingJmapDisarmsTheOauthPreset() {
-        val armed = presetChipTapped(PresetForm.NONE, outlook)
+        val armed = tap(PresetForm.NONE, outlook)
         val afterJmap = presetForProtocol(armed, MailProtocol.JMAP)
         assertFalse(afterJmap.oauth)
         assertNull(afterJmap.selected)
     }
 
     @Test fun choosingJmapKeepsAPasswordPresetIntact() {
-        val armed = presetChipTapped(PresetForm.NONE, yandex)
+        val armed = tap(PresetForm.NONE, yandex)
         assertEquals(armed, presetForProtocol(armed, MailProtocol.JMAP))
         assertEquals(armed, presetForProtocol(armed, MailProtocol.IMAP))
     }
 
     @Test fun stayingOnImapKeepsTheOauthPreset() {
-        val armed = presetChipTapped(PresetForm.NONE, outlook)
+        val armed = tap(PresetForm.NONE, outlook)
         assertEquals(armed, presetForProtocol(armed, MailProtocol.IMAP))
     }
 
     // --- Where Connect goes ----------------------------------------------------------------------
 
     @Test fun outlookThenJmapDoesNotSignInToMicrosoft() {
-        val armed = presetChipTapped(PresetForm.NONE, outlook)
+        val armed = tap(PresetForm.NONE, outlook)
         // Through the screen's own path: the protocol chip disarms it first.
         val afterJmap = presetForProtocol(armed, MailProtocol.JMAP)
         assertEquals(
@@ -127,15 +187,15 @@ class ConnectPresetTest {
     }
 
     @Test fun theOutlookChipStillReachesTheMicrosoftFlow() {
-        val armed = presetChipTapped(PresetForm.NONE, outlook)
+        val armed = tap(PresetForm.NONE, outlook)
         assertEquals(
             ConnectRoute.OUTLOOK_OAUTH,
             connectRoute(armed, MailProtocol.IMAP, useApiToken = false, server = ""),
         )
     }
 
-    @Test fun aReleasedOutlookChipGoesBackToTheManualImapPath() {
-        val released = presetChipTapped(presetChipTapped(PresetForm.NONE, outlook), outlook)
+    @Test fun leavingOutlookForTheImapTileGoesBackToTheManualPath() {
+        val released = choiceTapped(tap(PresetForm.NONE, outlook), SetupChoice.Imap)
         assertEquals(
             ConnectRoute.IMAP_PASSWORD,
             connectRoute(released, MailProtocol.IMAP, useApiToken = false, server = ""),
@@ -167,7 +227,7 @@ class ConnectPresetTest {
     }
 
     @Test fun theImapPathNeedsTheFourServerValuesItWillDial() {
-        val filled = presetChipTapped(PresetForm.NONE, mailru)
+        val filled = tap(PresetForm.NONE, mailru)
         assertTrue(
             connectReady(
                 ConnectRoute.IMAP_PASSWORD, "alex@mail.ru", "app-password",
@@ -272,7 +332,7 @@ class ConnectPresetTest {
     @Test fun anArmedChipIsNeverOverruledByDns() {
         // 🔴 The chip is an explicit choice about which provider this is. A domain that publishes
         // something else does not get to move the user's account to another server.
-        val armed = presetChipTapped(PresetForm.NONE, gmail)
+        val armed = tap(PresetForm.NONE, gmail)
         assertEquals(armed, presetWithDiscovered(armed, endpoints()))
     }
 
