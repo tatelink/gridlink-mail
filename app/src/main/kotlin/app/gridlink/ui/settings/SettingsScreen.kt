@@ -5,7 +5,6 @@ import app.gridlink.contacts.AndroidContacts
 import android.Manifest
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import app.gridlink.core.data.account.StoredAccount
 import app.gridlink.pgp.rememberPgpInteractionLauncher
 import androidx.compose.foundation.background
@@ -128,7 +127,6 @@ import app.gridlink.core.data.settings.ListDensity
 import app.gridlink.core.data.settings.MessageTextSize
 import app.gridlink.core.data.settings.PreviewLines
 import app.gridlink.core.data.settings.SwipeAction
-import app.gridlink.core.data.settings.ThemeMode
 import app.gridlink.core.data.settings.ThreadToolbarAction
 import app.gridlink.core.data.settings.DeliveryMode
 import app.gridlink.core.data.settings.NotificationContent
@@ -467,8 +465,6 @@ private fun openUrl(context: android.content.Context, url: String): Boolean =
 
 @Composable
 private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
-    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
-    val dynamicColor by viewModel.dynamicColor.collectAsStateWithLifecycle()
     val density by viewModel.listDensity.collectAsStateWithLifecycle()
     val previewLines by viewModel.previewLines.collectAsStateWithLifecycle()
     val bundleAutomated by viewModel.bundleAutomated.collectAsStateWithLifecycle()
@@ -490,31 +486,21 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     },
                 )
             }
-            SettingsSection(stringResource(R.string.settings_theme_section)) {
-                SettingChoiceRow(
-                    title = stringResource(R.string.settings_theme_title),
-                    options = listOf(ThemeMode.SYSTEM, ThemeMode.LIGHT, ThemeMode.DARK),
-                    selected = themeMode,
-                    optionLabel = { themeLabel(context, it) },
-                    onSelect = viewModel::setThemeMode,
-                )
-                // Material You (wallpaper colours) is opt-in; Gridlink's brand palette is
-                // the default. Only meaningful on Android 12+, where dynamic colour exists.
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    SettingSwitch(
-                        title = stringResource(R.string.settings_dynamic_color_title),
-                        subtitle = stringResource(R.string.settings_dynamic_color_subtitle),
-                        checked = dynamicColor,
-                        onCheckedChange = viewModel::setDynamicColor,
-                    )
-                }
-                Text(
-                    text = stringResource(R.string.settings_theme_gridlink_caption),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-            }
+            // ⛔ There is no Theme section here, and there must not be one. It held
+            // Auto/Light/Dark plus a Material You switch, both writing [ThemeMode] and
+            // [dynamicColor] into [AppTheme] — and [AppTheme] dresses nothing you can see, because
+            // every screen in the app (this one included) is re-skinned by [GridlinkMaterialSkin]
+            // from the drawer's own Auto/Day/Night/OLED track. Choosing "Dark" here changed the
+            // stored value and not one pixel.
+            //
+            // Brandon's call, 2026-08-12, after the settings audit found it: remove it rather than
+            // mirror it. Appearance is set in one place, the drawer, where he pinned it a week ago.
+            // Two controls for one palette is how this got here in the first place.
+            //
+            // The store, the setters and [AppTheme] all stay: the theme value still dresses the
+            // handful of surfaces that never go through the skin (dialogs raised by the system,
+            // the first frame before the palette resolves), and backup/restore still carries it.
+            // What is gone is the claim that the user is driving it from this screen.
             SettingsSection(stringResource(R.string.settings_message_list_section)) {
                 SettingChoiceRow(
                     title = stringResource(R.string.settings_density_title),
@@ -556,12 +542,6 @@ private fun languageLabel(context: Context, language: AppLanguage): String = whe
     AppLanguage.DUTCH -> context.getString(R.string.settings_language_dutch)
     AppLanguage.RUSSIAN -> context.getString(R.string.settings_language_russian)
     AppLanguage.POLISH -> context.getString(R.string.settings_language_polish)
-}
-
-private fun themeLabel(context: Context, mode: ThemeMode): String = when (mode) {
-    ThemeMode.SYSTEM -> context.getString(R.string.settings_theme_auto)
-    ThemeMode.LIGHT -> context.getString(R.string.settings_theme_light)
-    ThemeMode.DARK -> context.getString(R.string.settings_theme_dark)
 }
 
 private fun densityLabel(context: Context, density: ListDensity): String = when (density) {

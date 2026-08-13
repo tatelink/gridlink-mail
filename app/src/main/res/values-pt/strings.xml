@@ -245,14 +245,9 @@
     <string name="settings_language_dutch">Nederlands</string>
     <string name="settings_language_russian">Русский</string>
     <string name="settings_language_polish">Polski</string>
-    <string name="settings_theme_section">Tema</string>
-    <string name="settings_theme_title">Tema</string>
     <string name="settings_message_list_section">Lista de mensagens</string>
     <string name="settings_density_title">Densidade</string>
     <string name="settings_preview_title">Prévia</string>
-    <string name="settings_theme_auto">Automático</string>
-    <string name="settings_theme_light">Claro</string>
-    <string name="settings_theme_dark">Escuro</string>
     <string name="settings_density_compact">Compacta</string>
     <string name="settings_density_normal">Normal</string>
     <string name="settings_density_spaced">Espaçada</string>
@@ -743,9 +738,6 @@
     <string name="a11y_conversation_expanded">Expandida</string>
     <string name="a11y_conversation_collapsed">Recolhida</string>
     <string name="a11y_flagged">Com estrela</string>
-    <string name="settings_theme_gridlink_caption">Paleta Gridlink: Arctic (claro) · Pelagic (escuro).</string>
-    <string name="settings_dynamic_color_title">Cores Material You</string>
-    <string name="settings_dynamic_color_subtitle">Usar as cores do seu papel de parede em vez da paleta da Gridlink (Android 12+).</string>
 
     <!-- Empty states -->
     <string name="empty_inbox_title">Tudo em dia</string>
