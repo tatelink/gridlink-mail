@@ -5,6 +5,7 @@ import app.gridlink.core.data.contacts.ContactEdit
 import app.gridlink.core.data.contacts.VCard
 import app.gridlink.core.data.db.AddressBookContactEntity
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
+import java.time.LocalDate
 
 /**
  * Cached CalDAV and CardDAV rows, in the shapes the Gridlink screens already draw.
@@ -49,10 +50,41 @@ object GridlinkDavMapping {
         category = occurrence.category?.takeIf { it.isNotBlank() },
         reminders = occurrence.reminders.distinct().sorted(),
         // The edit ticket, prefixed like every id so nothing downstream can mistake it for a
-        // fixture's. Empty (no Edit button) exactly when the occurrence says editing is unsafe:
-        // a repeating event's day, a detached override, or a row whose raw no longer reads.
-        handle = occurrence.editHref?.let { PREFIX + it }.orEmpty(),
+        // fixture's. Empty (no Edit button) exactly when the occurrence has no file behind it,
+        // which in practice is a row whose raw no longer reads.
+        //
+        // 🔴 The file alone is not enough for a repeating event: one file holds the rule and every
+        // day it generates, so WHICH day was on screen has to travel with it or "this event" has
+        // nothing to land on. It rides in the ticket rather than as a field on [GridlinkEvent]
+        // because it means nothing to the screens; see [GridlinkEvent.handle] and [eventEdit].
+        handle = occurrence.editHref
+            ?.let { PREFIX + it + (occurrence.recurrenceDay?.let { day -> "$DAY_MARK$day" } ?: "") }
+            .orEmpty(),
+        repeating = occurrence.repeating,
     )
+
+    /** Separates the file from the occurrence inside a calendar handle. See [event]. */
+    private const val DAY_MARK = "|@"
+
+    /**
+     * A calendar [GridlinkEvent.handle] taken back apart, for the writer that issued it.
+     *
+     * The pair the repository's update path needs: the DAV href to PUT to, and the day of the
+     * series that was being looked at (null for an event that does not repeat). Lives here beside
+     * [event] on purpose, because a ticket written in one place and parsed in another is a ticket
+     * whose two halves eventually disagree.
+     */
+    fun eventEdit(handle: String): Pair<String, LocalDate?> {
+        val bare = handle.removePrefix(PREFIX)
+        val mark = bare.lastIndexOf(DAY_MARK)
+        if (mark < 0) return bare to null
+        val day = runCatching {
+            LocalDate.parse(bare.substring(mark + DAY_MARK.length))
+        }.getOrNull()
+        // An unparseable tail is treated as part of the href rather than dropped: guessing wrong
+        // about which half a stray "|@" belongs to must not send the PUT to a truncated URL.
+        return if (day == null) bare to null else bare.substring(0, mark) to day
+    }
 
     /**
      * One cached card as an address book entry.

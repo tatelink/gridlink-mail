@@ -3,6 +3,7 @@ package app.gridlink.core.data.dav
 import app.gridlink.core.data.account.AccountStore
 import app.gridlink.core.data.account.AuthType
 import app.gridlink.core.data.calendar.CalendarOccurrence
+import app.gridlink.core.data.calendar.EventEditScope
 import app.gridlink.core.data.calendar.EventField
 import app.gridlink.core.data.calendar.ICalendar
 import app.gridlink.core.data.calendar.ICalendarStream
@@ -85,9 +86,9 @@ data class DavWriteOutcome(
  * item's unedited fields survive either way.
  *
  * ## What this deliberately does NOT do
- * It cannot delete an event or a contact, and [updateEvent] refuses repeating events: editing one
- * needs an answer to "this day or the whole series", the form does not ask that question yet, and
- * guessing is how a calendar loses an appointment quietly.
+ * It cannot delete an event or a contact. Editing a repeating event IS supported, but only because
+ * the form asks "this event or all events" first and passes the answer down as
+ * [EventEditScope]: guessing that question is how a calendar loses an appointment quietly.
  */
 class DavRepository(
     private val client: DavClient,
@@ -259,7 +260,7 @@ class DavRepository(
     }
 
     /**
-     * Change one non-repeating event on the server, then refresh the local copy.
+     * Change one event on the server, then refresh the local copy.
      *
      * [updateContact]'s contract, brought to the calendar: only the fields in [touched] are
      * rewritten ([ICalendar.patchEvent] leaves every other byte of the stored `.ics` alone), the
@@ -267,11 +268,27 @@ class DavRepository(
      * and an untouched form saves as a wire no-op. Like [createEvent], the cached rows are rebuilt
      * from the SAME text that was uploaded, so the local copy is what the next sync would produce.
      *
-     * Repeating events are refused out loud rather than half-handled: editing one instance needs
-     * an answer to "this day or the whole series", and the form does not ask that question yet.
+     * ## Repeating events
+     * [href] is always the FILE, and one file holds the master, its rule, and any days already
+     * detached from it, so which VEVENT gets rewritten is decided here from [scope]:
+     *
+     * - [EventEditScope.THIS_EVENT] patches the override for [recurrenceDay] when the file already
+     *   has one, and otherwise splits a new one out ([ICalendar.detachOccurrence]). The rule is
+     *   untouched either way.
+     * - [EventEditScope.WHOLE_SERIES] rewrites the master. 🔴 A changed date SHIFTS the series by
+     *   the number of days the occurrence moved, rather than dropping DTSTART onto the new day: an
+     *   edit made on the 20th of a monthly series must move every occurrence by the same amount,
+     *   not restart the series in August.
+     *
+     * Both paths write times the way the stored event already spells them (see
+     * [ICalendar.patchEvent]'s `keepTimeSpelling`), so the form's times are converted into the
+     * SERIES' zone first. A series is "9am wherever that zone is", and re-spelling it as an instant
+     * moves every occurrence past the next daylight-saving change.
      *
      * @param touched which field groups the edit actually changed; the caller diffs, this writes.
      * @param start null means the event is all-day, matching [createEvent].
+     * @param recurrenceDay which occurrence was being looked at, in the series' own zone; null for
+     *   an event that does not repeat.
      */
     suspend fun updateEvent(
         accountId: String,
@@ -285,6 +302,8 @@ class DavRepository(
         description: String? = null,
         category: String? = null,
         reminders: List<Int> = emptyList(),
+        recurrenceDay: LocalDate? = null,
+        scope: EventEditScope = EventEditScope.WHOLE_SERIES,
     ): DavWriteOutcome {
         if (accountStore.account(accountId)?.syncSelection?.calendar != true) {
             return DavWriteOutcome(error = "Turn on calendar sync for this account to save events")
@@ -293,51 +312,111 @@ class DavRepository(
             is Access.Refused -> return DavWriteOutcome(error = access.reason)
             is Access.Ready -> access.dav
         }
+        // The file first, then that day's override: a file whose master was never cached here (only
+        // its detached days were) still has to be editable.
         val row = eventDao.byHref(accountId, href)
+            ?: recurrenceDay?.let { eventDao.byHref(accountId, "$href#$it") }
             ?: return DavWriteOutcome(error = "This event isn't synced to this device yet. Sync first.")
-        if (row.rrule != null || row.recurrenceId != null) {
-            return DavWriteOutcome(error = "Repeating events can't be edited on this device yet.")
-        }
         if (touched.isEmpty()) return DavWriteOutcome(href = href)
 
         val displayZone = zone()
+        val stored = ICalendarStream.parse(row.raw, displayZone)
+        val master = stored.firstOrNull { it.uid == row.uid && it.recurrenceId == null }
+        val detached = recurrenceDay?.let { day ->
+            stored.firstOrNull { it.uid == row.uid && it.recurrenceId == day }
+        }
+        val series = master?.takeIf { it.rrule != null }
+        val repeating = series != null || detached != null
+        val thisOne = repeating && scope == EventEditScope.THIS_EVENT
+        // Which VEVENT the edit lands on. "This event" on a day that was never detached lands on
+        // none of them: it writes a new one, below.
+        val target = if (thisOne) detached else master ?: detached
+        // 🔴 A repeating event's wall times are expressed in ITS zone, because that is the clock its
+        // stored DTSTART is spelled against and the one its rule repeats on. A one-off is written
+        // as a UTC instant either way, so its times stay in the viewer's zone and are converted at
+        // the point they are formatted, exactly as before.
+        val eventZone = (target ?: master ?: detached)?.zone ?: displayZone
+        val writeZone = if (repeating) eventZone else displayZone
+        fun inWriteZone(value: LocalDateTime): LocalDateTime =
+            if (writeZone == displayZone) {
+                value
+            } else {
+                value.atZone(displayZone).withZoneSameInstant(writeZone).toLocalDateTime()
+            }
+
         val allDay = start == null
-        val startLdt = LocalDateTime.of(date, start ?: LocalTime.MIDNIGHT)
+        // How far the edit moved the day, which is zero for every edit that left the date alone.
+        val movedBy = recurrenceDay?.let { ChronoUnit.DAYS.between(it, date) } ?: 0L
+        val editedDay = when {
+            scope == EventEditScope.WHOLE_SERIES && series != null ->
+                series.start.toLocalDate().plusDays(movedBy)
+            else -> date
+        }
+        val startLdt = inWriteZone(LocalDateTime.of(editedDay, start ?: LocalTime.MIDNIGHT))
         val endLdt = if (allDay) {
             // An all-day event that stays all-day keeps its stored span. The form edits the day an
             // event starts, never how many days it covers, so a three-day conference moved a week
             // must still be three days long — collapsing it to one because the end never crossed
             // the form would be a silent loss.
-            val spanDays = DavMappers.toParsed(row, displayZone)
+            val spanDays = (target ?: master)
                 ?.takeIf { it.allDay }
                 ?.let { parsed ->
                     parsed.end?.let { ChronoUnit.DAYS.between(parsed.start.toLocalDate(), it.toLocalDate()) }
                 }
                 ?.coerceAtLeast(1L) ?: 1L
-            LocalDateTime.of(date.plusDays(spanDays), LocalTime.MIDNIGHT)
+            LocalDateTime.of(startLdt.toLocalDate().plusDays(spanDays), LocalTime.MIDNIGHT)
         } else {
             // Same roll-forward createEvent does: an end at or before the start is the form's way
             // of spelling "ends tomorrow".
             end?.let {
-                val day = if (it <= start) date.plusDays(1) else date
-                LocalDateTime.of(day, it)
+                val day = if (it <= start) editedDay.plusDays(1) else editedDay
+                inWriteZone(LocalDateTime.of(day, it))
             }
         }
 
-        val patched = ICalendar.patchEvent(
-            raw = row.raw,
-            uid = row.uid,
-            touched = touched,
-            summary = title,
-            start = startLdt,
-            end = endLdt,
-            allDay = allDay,
-            zone = displayZone,
-            location = location,
-            description = description,
-            category = category,
-            reminders = reminders,
-        ) ?: return DavWriteOutcome(error = "This event could not be read for editing. Sync first.")
+        val patched = when {
+            // A day of a series nobody has detached yet: the override is written, not patched.
+            thisOne && detached == null -> {
+                val instanceDay = recurrenceDay ?: return DavWriteOutcome(
+                    error = "This event could not be read for editing. Sync first.",
+                )
+                val instanceTime = when {
+                    series == null || series.allDay -> LocalTime.MIDNIGHT
+                    else -> series.start.toLocalTime()
+                }
+                ICalendar.detachOccurrence(
+                    raw = row.raw,
+                    uid = row.uid,
+                    instanceStart = LocalDateTime.of(instanceDay, instanceTime),
+                    touched = touched,
+                    summary = title,
+                    start = startLdt,
+                    end = endLdt,
+                    allDay = allDay,
+                    zone = writeZone,
+                    location = location,
+                    description = description,
+                    category = category,
+                    reminders = reminders,
+                )
+            }
+            else -> ICalendar.patchEvent(
+                raw = row.raw,
+                uid = row.uid,
+                touched = touched,
+                summary = title,
+                start = startLdt,
+                end = endLdt,
+                allDay = allDay,
+                zone = writeZone,
+                location = location,
+                description = description,
+                category = category,
+                reminders = reminders,
+                recurrenceId = if (thisOne) recurrenceDay else null,
+                keepTimeSpelling = repeating,
+            )
+        } ?: return DavWriteOutcome(error = "This event could not be read for editing. Sync first.")
 
         val written = try {
             client.update(row.collectionUrl, href, dav, DavKind.CALENDAR, patched, row.etag)

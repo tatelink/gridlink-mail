@@ -145,15 +145,16 @@ internal object DavMappers {
      * only reaches the screen through the re-parse. The column-built event remains the fallback for
      * a raw payload that no longer reads.
      *
-     * The re-parse also carries [ParsedCalendarEvent.href]: the row's own file href for a master
-     * row, which is what downstream edit paths rewrite. An override row's `href#recurrenceId` is a
-     * cache key, not a file, so it is never handed out as one.
+     * The re-parse also carries [ParsedCalendarEvent.href]: the FILE the row came out of, which is
+     * what downstream edit paths rewrite. 🔴 An override row is keyed `href#recurrenceId`, and that
+     * suffix is a cache key rather than a file, so it is cut back off here. Handing out the key
+     * would send an edit to a PUT URL the server has never heard of.
      *
      * Returns null when the row cannot be trusted to place an event, which in practice means a
      * `startLocal` that no longer parses. Dropping one row beats putting an event on the wrong day.
      */
     fun toParsed(row: CalendarEventEntity, fallbackZone: ZoneId): ParsedCalendarEvent? {
-        val fileHref = row.href.takeIf { row.recurrenceId == null }
+        val fileHref = if (row.recurrenceId == null) row.href else row.href.substringBeforeLast('#')
         val reparsed = ICalendarStream.parse(row.raw, fallbackZone)
             // Matched on the same identity the row was keyed by. A blank uid cannot distinguish
             // siblings, so it is only trusted when the file holds a single event.

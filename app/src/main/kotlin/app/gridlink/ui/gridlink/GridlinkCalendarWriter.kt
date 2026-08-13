@@ -44,11 +44,15 @@ interface GridlinkCalendarWriter {
      * 🔴 Whether [update] works for THIS event, which decides whether its card SHOWS an Edit
      * button at all.
      *
-     * Per event, not per writer, because editability is a property of the event: the real CalDAV
-     * writer can rewrite a one-off appointment in place but not an occurrence of a repeating one
-     * (moving the master's DTSTART would move the whole series), and the mapping layer says which
-     * is which through [GridlinkEvent.handle]. An Edit button on an event the engine cannot edit
+     * Per event, not per writer, because editability is a property of the event: the mapping layer
+     * says which events it can find again through [GridlinkEvent.handle], and a row whose stored
+     * text no longer reads is not one of them. An Edit button on an event the engine cannot edit
      * would be a promise it cannot keep, and hiding it is more honest than greying it.
+     *
+     * ⚠️ A repeating event IS editable. It used to be refused here, because rewriting the master
+     * for one day would move the whole series; the answer to that is to ASK which was meant (see
+     * [GridlinkEventEditScope]), not to take editing away from the events that repeat, which on a
+     * real calendar is most of them.
      */
     fun canUpdate(event: GridlinkEvent): Boolean
 
@@ -61,11 +65,37 @@ interface GridlinkCalendarWriter {
      * anything else (the server's copy, a re-mapped occurrence) false-marks fields the form
      * materialized, like the end time it invents for an event that had none.
      *
+     * [scope] is only consulted for a [GridlinkEvent.repeating] event; for anything else there is
+     * one event and both answers mean it.
+     *
      * Unreachable from the UI while [canUpdate] says no, but implemented rather than left to
      * throw: a writer that crashes on a path "that cannot happen" is one refactor away from
      * crashing in production.
      */
-    suspend fun update(before: GridlinkEvent, edited: GridlinkEvent): String?
+    suspend fun update(
+        before: GridlinkEvent,
+        edited: GridlinkEvent,
+        scope: GridlinkEventEditScope = GridlinkEventEditScope.ALL_EVENTS,
+    ): String?
+}
+
+/**
+ * Which occurrences an edit to a repeating event is meant for.
+ *
+ * The question Google Calendar asks and this one now asks too, for the reason it exists at all:
+ * both answers are reasonable, neither is safely guessable, and getting it wrong is invisible.
+ * "Moved Thursday's stand-up" and "moved every stand-up" look identical on the day you did it.
+ *
+ * [ALL_EVENTS] is the default at every call site because it is what a one-off event means (there is
+ * one occurrence and it is all of them), so a caller that has nothing to ask about does not have to
+ * pretend to answer.
+ */
+enum class GridlinkEventEditScope {
+    /** Just the day being looked at. The rest of the series keeps what it had. */
+    THIS_EVENT,
+
+    /** The whole series, including days already past. */
+    ALL_EVENTS,
 }
 
 /**
@@ -89,5 +119,9 @@ object GridlinkMemoryCalendarWriter : GridlinkCalendarWriter {
     // event is editable and there is nothing to diff [before] against.
     override fun canUpdate(event: GridlinkEvent): Boolean = true
 
-    override suspend fun update(before: GridlinkEvent, edited: GridlinkEvent): String? = null
+    override suspend fun update(
+        before: GridlinkEvent,
+        edited: GridlinkEvent,
+        scope: GridlinkEventEditScope,
+    ): String? = null
 }

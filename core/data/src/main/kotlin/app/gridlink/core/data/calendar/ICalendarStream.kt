@@ -70,14 +70,27 @@ data class CalendarOccurrence(
     val category: String? = null,
     val reminders: List<Int> = emptyList(),
     /**
-     * The href an edit of this occurrence may rewrite, or null when editing is not safe.
+     * The `.ics` file an edit of this occurrence rewrites, or null when there is nothing to edit.
      *
-     * 🔴 Set ONLY for a non-recurring master with a known [ParsedCalendarEvent.href]. A recurring
-     * event's occurrence is one day out of a rule, and rewriting the master's DTSTART to that day
-     * would move the whole series; a detached override's file-href points at a file that also holds
-     * the master. Null is how this stays honest: no href, no Edit button, nothing to lose.
+     * The FILE, never the cache key: an occurrence of a repeating event and the override that
+     * replaces one of its days both live in the file the master came out of, and an edit of either
+     * is a rewrite of that one file. Null means the row's payload no longer reads, or the caller
+     * never knew the href, and that is what hides the Edit button.
      */
     val editHref: String? = null,
+    /**
+     * 🔴 The day this instance was GENERATED for, in the series' own zone, or null when the event
+     * does not repeat.
+     *
+     * The occurrence's own [date] cannot stand in for it. It is the day in the VIEWER's zone, which
+     * is a day out for a late-evening event seen from further east, and for a multi-day all-day
+     * event it is the day being looked at rather than the day the span began. RECURRENCE-ID has to
+     * name the instance the rule produced, so this carries that identity out of the expander
+     * instead of making the writer guess it back.
+     */
+    val recurrenceDay: LocalDate? = null,
+    /** Whether this occurrence belongs to a series, so an edit has to ask "this one or all". */
+    val repeating: Boolean = false,
 )
 
 /**
@@ -198,7 +211,9 @@ object ICalendarStream {
                     ?.coerceIn(1L, MAX_SPAN_DAYS) ?: 1L
                 for (offset in 0 until spanDays) {
                     val date = day.plusDays(offset)
-                    if (date in window) out += occurrence(event, date, null, null)
+                    // `day`, not `date`: every day of a span belongs to the instance that started
+                    // on the first of them, and that is the one RECURRENCE-ID names.
+                    if (date in window) out += occurrence(event, date, null, null, day)
                 }
             } else {
                 val zonedStart = LocalDateTime.of(day, event.start.toLocalTime()).atZone(event.zone)
@@ -212,6 +227,7 @@ object ICalendarStream {
                     // An end on a later day would render as an earlier time than the start, which
                     // reads as nonsense, so it is dropped rather than shown wrong.
                     end = localEnd?.takeIf { it.toLocalDate() == local.toLocalDate() }?.toLocalTime(),
+                    generatedFor = day,
                 )
             }
         }
@@ -223,6 +239,8 @@ object ICalendarStream {
         date: LocalDate,
         start: LocalTime?,
         end: LocalTime?,
+        /** The day in the event's OWN zone that produced this instance. See [recurrenceDay]. */
+        generatedFor: LocalDate,
     ) = CalendarOccurrence(
         uid = event.uid,
         date = date,
@@ -234,8 +252,14 @@ object ICalendarStream {
         description = event.description,
         category = event.category,
         reminders = event.reminders,
-        // See [CalendarOccurrence.editHref]: only a one-off master is safe to rewrite in place.
-        editHref = event.href?.takeIf { event.rrule == null && event.recurrenceId == null },
+        editHref = event.href,
+        // An override states which day it replaces; a master's instance is the day the rule made.
+        recurrenceDay = when {
+            event.recurrenceId != null -> event.recurrenceId
+            event.rrule != null -> generatedFor
+            else -> null
+        },
+        repeating = event.rrule != null || event.recurrenceId != null,
     )
 
     // ---- Building one event -------------------------------------------------------------------
