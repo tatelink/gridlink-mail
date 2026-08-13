@@ -554,3 +554,23 @@ val MAILBOX_SYNC_POINT_SQL: List<String> = listOf(
     "ALTER TABLE `mailbox_uidvalidity` ADD COLUMN `uidNext` INTEGER",
     "ALTER TABLE `mailbox_uidvalidity` ADD COLUMN `messageCount` INTEGER",
 )
+
+/**
+ * Additive 23→24: the custom keywords (tags) a message carries, so a colour-coded tag survives
+ * process death and can be filtered on in SQL ([EmailKeywords]).
+ *
+ * One nullable column, no backfill, and none is possible: the keywords aren't held anywhere else
+ * on the device, they come from the server. An upgraded row therefore shows no chips until the
+ * folder's next sync rewrites it, which is the same shape the v17 recipients column took.
+ *
+ * A migration rather than the destructive fallback, like every other one here: the fallback takes
+ * the outbox (unsent mail) with it.
+ */
+val MIGRATION_23_24 = object : Migration(23, 24) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(EMAILS_KEYWORDS_SQL)
+    }
+}
+
+/** The column [MIGRATION_23_24] adds; shared with the JVM test so it replays the real one. */
+const val EMAILS_KEYWORDS_SQL: String = "ALTER TABLE `emails` ADD COLUMN `keywordsJson` TEXT"

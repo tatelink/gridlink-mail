@@ -152,6 +152,45 @@ interface EmailDao {
     suspend fun setFlags(accountId: String, id: String, seen: Boolean, flagged: Boolean)
 
     /**
+     * The custom keywords (tags) of one cached message, as the packed column value.
+     *
+     * ⚠️ The whole set at once, never one tag at a time, because that is the shape both protocols
+     * hand back: a JMAP Email/set patch and an IMAP STORE both answer with the message's resulting
+     * keyword set, and writing that verbatim is what keeps the cache agreeing with the server when
+     * another client added a tag Gridlink has never heard of. Pass [EmailKeywords.encode] of the
+     * new set; null clears every tag.
+     *
+     * An UPDATE, not an upsert, for the same reason as [setFlags]: a keyword set carries no
+     * envelope, so it must not mint a row for a message outside the cached window.
+     */
+    @Query("UPDATE emails SET keywordsJson = :keywordsJson WHERE accountId = :accountId AND id = :id")
+    suspend fun setKeywords(accountId: String, id: String, keywordsJson: String?)
+
+    /** The packed keywords of one cached message, or null when it has none / is not cached. */
+    @Query("SELECT keywordsJson FROM emails WHERE accountId = :accountId AND id = :id LIMIT 1")
+    suspend fun keywordsOf(accountId: String, id: String): String?
+
+    /**
+     * Every distinct tag present in the cache, most-used first — what the tag manager lists as
+     * "already in use" so a tag another client invented is offered rather than re-typed.
+     *
+     * The packed column is split in Kotlin rather than in SQL: SQLite has no split, and the
+     * alternative (a side table of tag→message) would be a second copy of the same truth that
+     * every sync path would have to remember to update.
+     */
+    suspend fun tagsInUse(accountId: String): List<String> =
+        packedKeywords(accountId)
+            .flatMap { EmailKeywords.decode(it) }
+            .groupingBy { it }
+            .eachCount()
+            .entries
+            .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+            .map { it.key }
+
+    @Query("SELECT keywordsJson FROM emails WHERE accountId = :accountId AND keywordsJson IS NOT NULL")
+    suspend fun packedKeywords(accountId: String): List<String>
+
+    /**
      * Take one message OUT OF THIS PLACE: drop its cached row and its search-index row, together in
      * one transaction, with the recovery for a failed index write sitting OUTSIDE that transaction.
      *
@@ -394,7 +433,9 @@ interface EmailDao {
      * [unread], [starred] and [withAttachment] are the list's filter chips
      * ([app.gridlink.core.data.mail.MailFilter]), bound as 0/1 and each one inert when off:
      * `:unread = 0 OR seen = 0` is the whole predicate, so all three off is byte-for-byte the
-     * query this was before they existed.
+     * query this was before they existed. [tagLike] is the fourth, the same idea with null for
+     * "off": pass [app.gridlink.core.data.db.EmailKeywords.likePattern] of the chosen tag, never a
+     * hand-built `%name%`, or the tag "work" also matches a message tagged "homework".
      *
      * 🔴 They filter BEFORE the LIMIT, and that is the entire reason they are in SQL rather than a
      * `.filter {}` on the result. Applied afterwards, "Starred" would search only the newest
@@ -407,6 +448,7 @@ interface EmailDao {
             "AND (:unread = 0 OR seen = 0) " +
             "AND (:starred = 0 OR flagged = 1) " +
             "AND (:withAttachment = 0 OR hasAttachment = 1) " +
+            "AND (:tagLike IS NULL OR keywordsJson LIKE :tagLike) " +
             "AND NOT EXISTS (SELECT 1 FROM snoozed WHERE snoozed.emailId = emails.id " +
             "AND snoozed.accountId = emails.accountId AND snoozed.until > " +
             "(CAST(strftime('%s','now') AS INTEGER) * 1000)) " +
@@ -419,6 +461,7 @@ interface EmailDao {
         unread: Boolean,
         starred: Boolean,
         withAttachment: Boolean,
+        tagLike: String?,
     ): Flow<List<EmailEntity>>
 
     /**
@@ -459,6 +502,7 @@ interface EmailDao {
             "AND (:unread = 0 OR seen = 0) " +
             "AND (:starred = 0 OR flagged = 1) " +
             "AND (:withAttachment = 0 OR hasAttachment = 1) " +
+            "AND (:tagLike IS NULL OR keywordsJson LIKE :tagLike) " +
             "AND NOT EXISTS (SELECT 1 FROM snoozed WHERE snoozed.emailId = emails.id " +
             "AND snoozed.accountId = emails.accountId AND snoozed.until > " +
             "(CAST(strftime('%s','now') AS INTEGER) * 1000)) " +
@@ -475,6 +519,7 @@ interface EmailDao {
             "AND (:unread = 0 OR e.seen = 0) " +
             "AND (:starred = 0 OR e.flagged = 1) " +
             "AND (:withAttachment = 0 OR e.hasAttachment = 1) " +
+            "AND (:tagLike IS NULL OR e.keywordsJson LIKE :tagLike) " +
             "AND NOT EXISTS (SELECT 1 FROM snoozed WHERE snoozed.emailId = e.id " +
             "AND snoozed.accountId = e.accountId AND snoozed.until > " +
             "(CAST(strftime('%s','now') AS INTEGER) * 1000)) " +
@@ -487,6 +532,7 @@ interface EmailDao {
         unread: Boolean,
         starred: Boolean,
         withAttachment: Boolean,
+        tagLike: String?,
     ): Flow<List<ThreadWindowRow>>
 
     /**

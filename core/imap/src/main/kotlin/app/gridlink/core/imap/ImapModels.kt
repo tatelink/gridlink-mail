@@ -78,6 +78,19 @@ data class ImapMessage(
     val hasAttachment: Boolean,
     val messageId: String?,
     val inReplyTo: String?,
+    /**
+     * The message's CUSTOM keywords: every FLAGS entry that is not a system flag, i.e. does not
+     * begin with a backslash (RFC 9051 §2.3.2 calls these "keywords", and a server advertises
+     * `\*` in a folder's PERMANENTFLAGS when it will store new ones).
+     *
+     * ⚠️ Carried raw, exactly as the server spelled them. Case-folding and the drop of JMAP's
+     * `$`-prefixed system names happen one layer up, in `EmailKeywords`, so the JMAP and IMAP
+     * paths canonicalise tags in the same single place rather than each in their own way.
+     *
+     * Empty on the great majority of mail, and empty (not absent) on a server that stores no
+     * keywords, which is the same thing as far as everything downstream is concerned.
+     */
+    val keywords: List<String> = emptyList(),
 )
 
 /** Result of selecting a mailbox. */

@@ -40,6 +40,7 @@ import app.gridlink.core.data.db.ContactRow
 import app.gridlink.core.data.db.RecentContactDao
 import app.gridlink.core.data.db.RecentContactEntity
 import app.gridlink.core.data.db.EmailEntity
+import app.gridlink.core.data.db.EmailKeywords
 import app.gridlink.core.data.db.MailboxDao
 import app.gridlink.core.data.db.MailboxIdRole
 import app.gridlink.core.data.getOrElseUnlessCancelled
@@ -4388,6 +4389,7 @@ class MailRepository(
             unread = filter.unread,
             starred = filter.starred,
             withAttachment = filter.hasAttachment,
+            tagLike = filter.tag?.let(EmailKeywords::likePattern),
         ).map { rows -> rows.map { it.toEmail() } }
 
     /**
@@ -4417,6 +4419,7 @@ class MailRepository(
             unread = filter.unread,
             starred = filter.starred,
             withAttachment = filter.hasAttachment,
+            tagLike = filter.tag?.let(EmailKeywords::likePattern),
         ).map { rows ->
             rows.map { InboxRow(email = it.email.toEmail(), threadCount = it.threadCount, unread = it.threadUnread) }
         }

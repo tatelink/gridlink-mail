@@ -4,6 +4,7 @@ import app.gridlink.core.data.account.AccountCredentials
 import app.gridlink.core.data.account.ConnectionSecurity
 import app.gridlink.core.data.account.MailEndpoint
 import app.gridlink.core.data.db.EmailEntity
+import app.gridlink.core.data.db.EmailKeywords
 import app.gridlink.core.data.db.EmailRecipients
 import app.gridlink.core.data.db.MailboxEntity
 import app.gridlink.core.imap.ImapClient
@@ -731,6 +732,9 @@ class ImapMailService(
             recipientsJson = EmailRecipients.encode(
                 to.map { EmailAddress(name = it.name, email = it.email.orEmpty()) },
             ),
+            // Custom IMAP keywords, persisted since v24 — the same column and the same
+            // canonicalisation the JMAP path uses, so a tag means one thing across both.
+            keywordsJson = EmailKeywords.encode(keywords),
         )
     }
 

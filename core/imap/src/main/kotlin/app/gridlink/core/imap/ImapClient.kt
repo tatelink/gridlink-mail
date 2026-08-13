@@ -821,6 +821,10 @@ class ImapSession(private var socket: Socket) : Closeable {
             hasAttachment = hasAttachment(map["BODYSTRUCTURE"]),
             messageId = messageId,
             inReplyTo = inReplyTo,
+            // Anything not starting with a backslash is a keyword the user (or another client on
+            // this mailbox) put there. `\*` is excluded by the same rule: it is PERMANENTFLAGS'
+            // "you may invent keywords here" marker, not a flag a message carries.
+            keywords = flags.filterNot { it.startsWith("\\") },
         )
     }
 

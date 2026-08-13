@@ -175,6 +175,8 @@ class EmailsMigrationSqlTest {
 
     private fun migrate20to21() = MIGRATION_20_21.migrate(supportDb())
 
+    private fun migrate23to24() = MIGRATION_23_24.migrate(supportDb())
+
     private fun count(sql: String): Int = db.createStatement().use { st ->
         st.executeQuery(sql).use { rs ->
             assertTrue(rs.next())
@@ -564,5 +566,81 @@ class EmailsMigrationSqlTest {
         assertEquals(1, pkPositions("mailboxes")["accountId"])
         assertEquals(2, pkPositions("mailboxes")["id"])
         assertEquals(0, pkPositions("mailboxes")["mayRename"])
+    }
+
+    // --- v23 → v24: the custom keywords (tags) column -------------------------------------------
+    //
+    // Replayed on top of the v16 seed plus MIGRATION_16_17, because those two ALTERs are the whole
+    // of what has happened to `emails` since: 17→23 add tables and columns elsewhere. Starting
+    // from the real v16 schema keeps this honest about the shape the column actually lands on.
+
+    @Test fun v23to24_addsTheKeywordsColumnAndKeepsEveryRow() {
+        seedV16()
+        migrate16to17()
+        migrate23to24()
+
+        assertEquals(
+            setOf(
+                "id", "accountId", "mailboxId", "threadId", "subject", "preview", "receivedAt",
+                "fromName", "fromEmail", "seen", "flagged", "hasAttachment", "sortKey",
+                "recipientsJson", "keywordsJson",
+            ),
+            columnsOf("emails"),
+        )
+
+        // Additive: cached rows and every scrap of user data survive untouched.
+        assertEquals(2, count("SELECT COUNT(*) FROM `emails`"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `emails` WHERE `id` = 'e1' AND `subject` = 'Hello'"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `snoozed` WHERE `emailId` = 'e2' AND `until` = 99999"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `outbox` WHERE `subject` = 'Queued'"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `scheduled_sends` WHERE `subject` = 'Later'"))
+        assertEquals(1, count("SELECT COUNT(*) FROM `email_fts` WHERE `email_fts` MATCH 'Hell*'"))
+    }
+
+    @Test fun v23to24_preExistingRowsReadBackAsNoTags() {
+        seedV16()
+        migrate16to17()
+        migrate23to24()
+
+        // No backfill is possible — the keywords live on the server — so an upgraded row is NULL,
+        // which the codec turns into an empty list: no chips until that folder's next sync.
+        assertEquals(2, count("SELECT COUNT(*) FROM `emails` WHERE `keywordsJson` IS NULL"))
+        assertEquals(
+            emptyList<String>(),
+            EmailKeywords.decode(stringOrNull("SELECT `keywordsJson` FROM `emails` WHERE `id` = 'e1'")),
+        )
+    }
+
+    @Test fun v23to24_theTagFilterMatchesWholeNamesOnly() {
+        seedV16()
+        migrate16to17()
+        migrate23to24()
+
+        db.prepareStatement("UPDATE `emails` SET `keywordsJson` = ? WHERE `id` = 'e1'").use { st ->
+            st.setString(1, EmailKeywords.encode(listOf("work", "urgent")))
+            st.executeUpdate()
+        }
+        db.prepareStatement("UPDATE `emails` SET `keywordsJson` = ? WHERE `id` = 'e2'").use { st ->
+            st.setString(1, EmailKeywords.encode(listOf("homework")))
+            st.executeUpdate()
+        }
+
+        // 🔴 The point of the whole packing: "work" must not drag "homework" in with it. A hand
+        // built '%work%' would return both rows here and the chip would quietly over-report.
+        fun matches(tag: String): Int = db.prepareStatement(
+            "SELECT COUNT(*) FROM `emails` WHERE `keywordsJson` LIKE ?",
+        ).use { st ->
+            st.setString(1, EmailKeywords.likePattern(tag))
+            st.executeQuery().use { rs -> rs.next(); rs.getInt(1) }
+        }
+        assertEquals(1, matches("work"))
+        assertEquals(1, matches("homework"))
+        assertEquals(1, matches("urgent"))
+        assertEquals(0, matches("holiday"))
+
+        assertEquals(
+            listOf("urgent", "work"),
+            EmailKeywords.decode(stringOrNull("SELECT `keywordsJson` FROM `emails` WHERE `id` = 'e1'")),
+        )
     }
 }
