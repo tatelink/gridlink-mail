@@ -156,6 +156,16 @@ class GridlinkOutboxSender(
             // twin of something that is now in Sent.
             draftEmailId = draft.draftEmailId,
         )
+        // 🔴 What makes "people you've recently emailed" true. The store and the query behind it
+        // existed and nothing ever wrote to it, so the recents half of the recipient suggestions was
+        // permanently empty and the Settings switch that promises it ("When off, it still suggests
+        // people you've recently emailed") was promising an empty list.
+        //
+        // ⚠️ Recorded on ENQUEUE rather than after the hold expires. The undo window is about the
+        // message, not about the address: someone recalled and retyped is still someone this user
+        // was writing to, and the alternative is that the address they most recently used is the one
+        // the field is slowest to learn.
+        runCatching { repository.rememberRecipients(draft.recipients.map { it.email }) }
         return {
             // Row first, worker second, matching the order the stock composer uses: the row is the
             // user-visible artifact, and if the cancel turns out to be a no-op a later worker run
