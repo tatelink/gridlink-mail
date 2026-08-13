@@ -260,8 +260,6 @@
     <string name="settings_signature_section">Podpis</string>
     <string name="settings_signature_on_replies_title">Podpis w odpowiedziach</string>
     <string name="settings_signature_on_replies_subtitle">Dodawaj go także przy odpowiadaniu i przekazywaniu</string>
-    <string name="settings_signature_below_quote_title">Podpis pod cytowanym tekstem</string>
-    <string name="settings_signature_below_quote_subtitle">W odpowiedzi umieszczaj go pod cytowaną wiadomością zamiast nad nią</string>
     <string name="settings_signature_delimiter_title">Wiersz oddzielający przed podpisem</string>
     <string name="settings_signature_delimiter_subtitle">Inne programy pocztowe rozpoznają Twój podpis po tym wierszu „-- ” i potrafią go ukryć przy cytowaniu wiadomości; bez niego już nie potrafią, a pole podpisu zawiera wtedy dokładnie to, co zostanie wysłane.</string>
     <string name="settings_swipe_right_title">Przesunięcie w prawo</string>

@@ -66,6 +66,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.SpanStyle
@@ -81,6 +82,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import app.gridlink.GridlinkApplication
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
@@ -91,6 +93,7 @@ import app.gridlink.ui.theme.GridlinkType
 import app.gridlink.ui.theme.gridlinkSenderBarColor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -187,6 +190,16 @@ fun GridlinkComposeScreen(
     attacher: GridlinkAttacher? = null,
 ) {
     val colors = GridlinkTheme.colors
+    // 🔴 Both null in the gallery, and both call sites treat null as "seed nothing". The harness
+    // runs this composable outside [GridlinkApplication], so reaching for the container there is a
+    // crash rather than a missing signature. `applicationContext as? GridlinkApplication` is the
+    // app-wide shape for this: `container` is an extension on Application, not on Context.
+    val context = LocalContext.current
+    val container = remember(context) {
+        (context.applicationContext as? GridlinkApplication)?.container
+    }
+    val signatureStore = container?.accountStore
+    val settingsStore = container?.settingsRepository
     var focused by remember(draft) { mutableStateOf(initialFocus) }
     var recipients by remember(draft) { mutableStateOf(draft.recipients) }
     var attachments by remember(draft) { mutableStateOf(draft.attachments) }
@@ -553,6 +566,45 @@ fun GridlinkComposeScreen(
             keyboardUp -> focusManager.clearFocus()
             else -> onClose(closeRequest())
         }
+    }
+
+    // The signature, seeded once per draft.
+    //
+    // 🔴 In an effect rather than in the `remember` that seeds [body], and that is not a style
+    // choice: both settings and the signature itself come out of DataStore and the account file,
+    // which are read asynchronously. Seeding from a `collectAsState` would take the DEFAULT on the
+    // first composition and correct itself a frame later, which reads as the composer typing into
+    // itself. Suspending for the real values first costs nothing the user can see.
+    //
+    // The guard is `body.text == draft.body`: if the effect loses the race to a fast typist, their
+    // keystroke wins and no signature appears. Losing a signature is a shrug; overwriting the first
+    // word of a message is not.
+    //
+    // ⚠️ A resumed draft (`draftEmailId != null`) is skipped entirely. It already carries whatever
+    // signature it was written with, and appending on every reopen is how a draft ends up signed
+    // four times.
+    LaunchedEffect(draft, signatureStore, settingsStore) {
+        if (draft.draftEmailId != null) return@LaunchedEffect
+        val store = signatureStore ?: return@LaunchedEffect
+        val settings = settingsStore ?: return@LaunchedEffect
+        val signature = store.defaultIdentity(null)?.signature
+            ?.takeIf { it.isNotBlank() }
+            ?: store.signature(null)
+        val seeded = composeBodyWithSignature(
+            body = draft.body,
+            signature = signature,
+            // A forward is a reply for this purpose: both are answers to a message that is already
+            // on screen behind the composer, and "Add signature to replies" is asking about exactly
+            // that. [quoted] is the composer's own marker for "there is an original here".
+            isReply = draft.quoted != null,
+            onReplies = settings.signatureOnReplies.first(),
+            delimiter = settings.signatureDelimiter.first(),
+        ) ?: return@LaunchedEffect
+        if (body.text != draft.body) return@LaunchedEffect
+        // Caret at the START of an empty message, not after the signature: a signature is something
+        // you write above. A draft that already has text (a `mailto:` body, a share) keeps the caret
+        // at the end of that text, which is still above the block just added.
+        body = TextFieldValue(seeded, TextRange(draft.body.length))
     }
 
     // 🔴 Waits a frame before asking. Composing a text field is not attaching it, and
