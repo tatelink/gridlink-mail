@@ -263,7 +263,9 @@
     <string name="settings_signature_delimiter_title">Linha separadora antes da assinatura</string>
     <string name="settings_signature_delimiter_subtitle">Outras aplicações de correio reconhecem a sua assinatura por esta linha «-- » e conseguem ocultá-la ao citar a sua mensagem; sem ela deixam de conseguir, e o campo da assinatura passa a conter exactamente o que é enviado.</string>
     <string name="settings_swipe_right_title">Deslizar para a direita</string>
-    <string name="settings_swipe_left_title">Deslizar para a esquerda</string>
+    <string name="settings_swipe_left_title">Deslizar para a esquerda, parcialmente</string>
+    <string name="settings_swipe_left_far_title">Deslizar para a esquerda, por completo</string>
+    <string name="settings_swipe_caption">Um deslize para a esquerda escala: fica âmbar a meio caminho e depois vermelho ao passar 60% da linha, com uma pequena vibração na transição.</string>
     <string name="settings_swipe_nothing">Nada</string>
     <string name="settings_swipe_toggle_read">Marcar como lida/não lida</string>
     <string name="settings_swipe_delete">Excluir</string>

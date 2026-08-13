@@ -176,8 +176,23 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_PREVIEW_LINES] = value.name }
     }
 
-    val swipeRightAction: Flow<SwipeAction> = swipeFlow(KEY_SWIPE_RIGHT, SwipeAction.TOGGLE_READ)
-    val swipeLeftAction: Flow<SwipeAction> = swipeFlow(KEY_SWIPE_LEFT, SwipeAction.DELETE)
+    /**
+     * The three swipe slots. Right, shallow left, and left past 60%.
+     *
+     * 🔴 Three, not two, and the defaults changed with them (2026-08-12). These keys were written by
+     * Settings and read by nobody: the list hardcoded archive right, mark-unread on the shallow left
+     * and delete past 60%. Wiring them up meant matching the store to the gesture that actually
+     * exists, which has always had a two-stage left swipe, so a third key was added and the defaults
+     * were set to what the app already does. Nothing anyone sees changes on upgrade, because nothing
+     * was reading the old defaults to change away from.
+     *
+     * ⚠️ [KEY_SWIPE_LEFT] keeps its name and now means the SHALLOW left stage, whose old default was
+     * DELETE. Anyone who explicitly picked Delete there gets it at 25% instead of 60%, which is what
+     * they asked for; anyone who never touched it gets the shipped gesture.
+     */
+    val swipeRightAction: Flow<SwipeAction> = swipeFlow(KEY_SWIPE_RIGHT, SwipeAction.ARCHIVE)
+    val swipeLeftAction: Flow<SwipeAction> = swipeFlow(KEY_SWIPE_LEFT, SwipeAction.TOGGLE_READ)
+    val swipeLeftFarAction: Flow<SwipeAction> = swipeFlow(KEY_SWIPE_LEFT_FAR, SwipeAction.DELETE)
 
     suspend fun setSwipeRightAction(action: SwipeAction) {
         dataStore.edit { it[KEY_SWIPE_RIGHT] = action.name }
@@ -185,6 +200,10 @@ class SettingsRepository(context: Context) {
 
     suspend fun setSwipeLeftAction(action: SwipeAction) {
         dataStore.edit { it[KEY_SWIPE_LEFT] = action.name }
+    }
+
+    suspend fun setSwipeLeftFarAction(action: SwipeAction) {
+        dataStore.edit { it[KEY_SWIPE_LEFT_FAR] = action.name }
     }
 
     val sortOrder: Flow<SortOrder> = dataStore.data.map { prefs ->
@@ -430,6 +449,7 @@ class SettingsRepository(context: Context) {
         previewLines = previewLines.first().name,
         swipeRight = swipeRightAction.first().name,
         swipeLeft = swipeLeftAction.first().name,
+        swipeLeftFar = swipeLeftFarAction.first().name,
         sortOrder = sortOrder.first().name,
         contactSuggestions = contactSuggestions.first(),
         stripTracking = stripTrackingParams.first(),
@@ -464,6 +484,7 @@ class SettingsRepository(context: Context) {
         backup.previewLines?.let { v -> runCatching { PreviewLines.valueOf(v) }.getOrNull()?.let { setPreviewLines(it) } }
         backup.swipeRight?.let { v -> runCatching { SwipeAction.valueOf(v) }.getOrNull()?.let { setSwipeRightAction(it) } }
         backup.swipeLeft?.let { v -> runCatching { SwipeAction.valueOf(v) }.getOrNull()?.let { setSwipeLeftAction(it) } }
+        backup.swipeLeftFar?.let { v -> runCatching { SwipeAction.valueOf(v) }.getOrNull()?.let { setSwipeLeftFarAction(it) } }
         backup.sortOrder?.let { v -> runCatching { SortOrder.valueOf(v) }.getOrNull()?.let { setSortOrder(it) } }
         backup.contactSuggestions?.let { setContactSuggestions(it) }
         backup.stripTracking?.let { setStripTrackingParams(it) }
@@ -546,6 +567,7 @@ class SettingsRepository(context: Context) {
         private val KEY_PREVIEW_LINES = stringPreferencesKey("preview_lines")
         private val KEY_SWIPE_RIGHT = stringPreferencesKey("swipe_right")
         private val KEY_SWIPE_LEFT = stringPreferencesKey("swipe_left")
+        private val KEY_SWIPE_LEFT_FAR = stringPreferencesKey("swipe_left_far")
         private val KEY_SORT_ORDER = stringPreferencesKey("sort_order")
         private val KEY_CONVERSATION_VIEW = booleanPreferencesKey("conversation_view")
         private val KEY_THREAD_TOOLBAR = stringSetPreferencesKey("thread_toolbar_actions")

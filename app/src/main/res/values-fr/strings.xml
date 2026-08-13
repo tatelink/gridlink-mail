@@ -263,7 +263,9 @@
     <string name="settings_signature_delimiter_title">Ligne de séparation avant la signature</string>
     <string name="settings_signature_delimiter_subtitle">Les autres logiciels de messagerie reconnaissent votre signature à cette ligne « -- » et peuvent la masquer en citant votre message ; sans elle ils ne le peuvent plus, et le champ signature contient alors exactement ce qui est envoyé.</string>
     <string name="settings_swipe_right_title">Balayer vers la droite</string>
-    <string name="settings_swipe_left_title">Balayer vers la gauche</string>
+    <string name="settings_swipe_left_title">Balayer vers la gauche, partiellement</string>
+    <string name="settings_swipe_left_far_title">Balayer vers la gauche, entièrement</string>
+    <string name="settings_swipe_caption">Un balayage vers la gauche s’intensifie : il devient ambre à mi-chemin, puis rouge au-delà de 60 % de la ligne, avec une petite vibration au passage.</string>
     <string name="settings_swipe_nothing">Aucune</string>
     <string name="settings_swipe_toggle_read">Marquer lu/non lu</string>
     <string name="settings_swipe_delete">Supprimer</string>

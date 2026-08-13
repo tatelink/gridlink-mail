@@ -263,7 +263,9 @@
     <string name="settings_signature_delimiter_title">Riga separatrice prima della firma</string>
     <string name="settings_signature_delimiter_subtitle">Le altre app di posta riconoscono la tua firma da questa riga «-- » e possono nasconderla quando citano il tuo messaggio; senza di essa non possono più, e il campo firma contiene allora esattamente ciò che viene inviato.</string>
     <string name="settings_swipe_right_title">Scorri a destra</string>
-    <string name="settings_swipe_left_title">Scorri a sinistra</string>
+    <string name="settings_swipe_left_title">Scorri a sinistra, parzialmente</string>
+    <string name="settings_swipe_left_far_title">Scorri a sinistra, completamente</string>
+    <string name="settings_swipe_caption">Uno scorrimento a sinistra si intensifica: diventa ambra a metà strada, poi rosso oltre il 60% della riga, con una piccola vibrazione al passaggio.</string>
     <string name="settings_swipe_nothing">Niente</string>
     <string name="settings_swipe_toggle_read">Segna come letto/da leggere</string>
     <string name="settings_swipe_delete">Elimina</string>

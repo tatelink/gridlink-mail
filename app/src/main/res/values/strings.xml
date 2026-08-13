@@ -371,7 +371,9 @@
     <string name="settings_signature_delimiter_title">Separator line above the signature</string>
     <string name="settings_signature_delimiter_subtitle">Other mail apps recognise your signature by this “-- ” line and can hide it when quoting your message; without it they no longer can, and the signature field then holds exactly what is sent.</string>
     <string name="settings_swipe_right_title">Swipe right</string>
-    <string name="settings_swipe_left_title">Swipe left</string>
+    <string name="settings_swipe_left_title">Swipe left, part way</string>
+    <string name="settings_swipe_left_far_title">Swipe left, all the way</string>
+    <string name="settings_swipe_caption">A left swipe escalates: it turns amber part of the way across, then red once it passes 60% of the row, with a small vibration at the crossing.</string>
     <string name="settings_swipe_nothing">Nothing</string>
     <string name="settings_swipe_toggle_read">Mark read/unread</string>
     <string name="settings_swipe_delete">Delete</string>

@@ -32,6 +32,7 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -43,10 +44,12 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import app.gridlink.GridlinkApplication
 import app.gridlink.core.data.mail.MailFilter
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
@@ -55,6 +58,8 @@ import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 
 /**
@@ -413,6 +418,27 @@ fun GridlinkMessageListScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
+    // What the three swipe slots are set to. Read once for the whole list rather than per row: it is
+    // the same three values on every one of them, and a store read inside `items` would be a
+    // subscription per visible row that all deliver the same answer.
+    //
+    // ⚠️ Falls back to the shipped gesture when there is no container, which is the gallery harness
+    // and every preview. See [GridlinkSwipeConfig] for what those defaults are and why they moved.
+    val settingsStore = (LocalContext.current.applicationContext as? GridlinkApplication)
+        ?.container?.settingsRepository
+    val swipeConfig by remember(settingsStore) {
+        if (settingsStore == null) {
+            flowOf(GridlinkSwipeConfig.Default)
+        } else {
+            combine(
+                settingsStore.swipeRightAction,
+                settingsStore.swipeLeftAction,
+                settingsStore.swipeLeftFarAction,
+                ::GridlinkSwipeConfig,
+            )
+        }
+    }.collectAsState(initial = GridlinkSwipeConfig.Default)
+
     val selecting = selectedIds.isNotEmpty()
 
     // 🔴 The message lists are STATE, not constants read out of the sample object.
@@ -620,6 +646,26 @@ fun GridlinkMessageListScreen(
             GridlinkSwipeAction.MARK_UNREAD -> {
                 edit(ids) { it.copy(unread = true) }
                 onAction(ids, GridlinkMailAction.MARK_UNREAD)
+            }
+
+            // 🔴 Also not reported through [onFiled], for the same reason: none of these three take
+            // the row out of the list, so a reading pane showing it is still showing something that
+            // exists. Marking read is the one place that differs from a tap: opening a message marks
+            // it read as a side effect of reading it, whereas this is the user saying so directly,
+            // so it writes immediately rather than through [GRIDLINK_MARK_READ_DELAY_MS].
+            GridlinkSwipeAction.MARK_READ -> {
+                edit(ids) { it.copy(unread = false) }
+                onAction(ids, GridlinkMailAction.MARK_READ)
+            }
+
+            GridlinkSwipeAction.STAR -> {
+                edit(ids) { it.copy(starred = true) }
+                onAction(ids, GridlinkMailAction.STAR)
+            }
+
+            GridlinkSwipeAction.UNSTAR -> {
+                edit(ids) { it.copy(starred = false) }
+                onAction(ids, GridlinkMailAction.UNSTAR)
             }
 
             GridlinkSwipeAction.ARCHIVE, GridlinkSwipeAction.DELETE -> {
@@ -1121,6 +1167,15 @@ fun GridlinkMessageListScreen(
                             GridlinkSwipeableRow(
                                 visible = !bundleGone,
                                 enabled = !selecting,
+                                // ⚠️ The bundle resolves its toggles against the WHOLE group, not
+                                // against any one message in it, because that is what the swipe
+                                // applies to. "Any unread" means the swipe offers to mark the batch
+                                // read, which is the useful direction for a morning's reports; only
+                                // once every one of them is read does it offer to undo that.
+                                actions = swipeConfig.resolve(
+                                    unread = robots.any { it.unread },
+                                    starred = robots.all { it.starred },
+                                ),
                                 initialFraction = if (initialSwipeId == GRIDLINK_BUNDLE_SWIPE_ID) {
                                     initialSwipeFraction
                                 } else {
@@ -1181,6 +1236,10 @@ fun GridlinkMessageListScreen(
                                             GridlinkSwipeableRow(
                                                 visible = isPresent(child),
                                                 enabled = !selecting,
+                                                actions = swipeConfig.resolve(
+                                                    unread = child.unread,
+                                                    starred = child.starred,
+                                                ),
                                                 initialFraction = if (child.id == initialSwipeId) {
                                                     initialSwipeFraction
                                                 } else {
@@ -1240,6 +1299,10 @@ fun GridlinkMessageListScreen(
                                     // missing the list's scroll, not a silent delete of a row they were
                                     // about to act on in bulk.
                                     enabled = !selecting,
+                                    actions = swipeConfig.resolve(
+                                        unread = message.unread,
+                                        starred = message.starred,
+                                    ),
                                     initialFraction = if (message.id == initialSwipeId) {
                                         initialSwipeFraction
                                     } else {
@@ -1310,6 +1373,10 @@ fun GridlinkMessageListScreen(
                                                 GridlinkSwipeableRow(
                                                     visible = isPresent(child),
                                                     enabled = !selecting,
+                                                    actions = swipeConfig.resolve(
+                                                        unread = child.unread,
+                                                        starred = child.starred,
+                                                    ),
                                                     onAction = {
                                                         applySwipe(setOf(child.id), it)
                                                     },
