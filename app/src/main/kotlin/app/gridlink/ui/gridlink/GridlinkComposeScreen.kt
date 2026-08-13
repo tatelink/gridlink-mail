@@ -51,6 +51,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -83,6 +84,9 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.gridlink.GridlinkApplication
+import app.gridlink.contacts.AndroidContacts
+import app.gridlink.contacts.ContactSuggestion
+import app.gridlink.contacts.mergeSuggestions
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
@@ -92,9 +96,12 @@ import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
 import app.gridlink.ui.theme.gridlinkSenderBarColor
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
@@ -200,6 +207,7 @@ fun GridlinkComposeScreen(
     }
     val signatureStore = container?.accountStore
     val settingsStore = container?.settingsRepository
+    val mailRepository = container?.mailRepository
     var focused by remember(draft) { mutableStateOf(initialFocus) }
     var recipients by remember(draft) { mutableStateOf(draft.recipients) }
     var attachments by remember(draft) { mutableStateOf(draft.attachments) }
@@ -607,6 +615,46 @@ fun GridlinkComposeScreen(
         body = TextFieldValue(seeded, TextRange(draft.body.length))
     }
 
+    // Recipient suggestions from outside the address book: people written to before, senders cached
+    // off received mail, and — only behind the Settings switch that names them — the device's own
+    // contacts. See [GridlinkRecipientSources] for why the switch governs only the last of those.
+    var suggested by remember { mutableStateOf(emptyList<ContactSuggestion>()) }
+    val deviceContacts by (settingsStore?.contactSuggestions ?: flowOf(false))
+        .collectAsState(initial = false)
+    // ⚠️ Keyed on the query TEXT, not on the TextFieldValue: moving the caret through an address
+    // already typed would otherwise re-run the whole lookup on every arrow key.
+    LaunchedEffect(query.text, deviceContacts, mailRepository) {
+        val typed = query.text.trim()
+        val repo = mailRepository
+        if (typed.isEmpty() || repo == null) {
+            suggested = emptyList()
+            return@LaunchedEffect
+        }
+        // 🔴 Debounced, and the delay is the whole reason this is an effect rather than a lookup in
+        // composition. Both sources are blocking (a Room query and a content-provider cursor) and a
+        // fast typist would otherwise start one per keystroke, each one racing the last to write the
+        // list. Cancelling the previous effect at the delay means only the pause the user actually
+        // took reaches the database.
+        delay(GRIDLINK_SUGGEST_DEBOUNCE_MS)
+        suggested = withContext(Dispatchers.IO) {
+            // ⚠️ Two calls, one merge, and the merge is the shared helper rather than a concat: it
+            // carries the address book's NAME onto a recent row that has only an address, so the
+            // same person does not appear once as "Priya Anand" and once as a bare address.
+            mergeSuggestions(
+                local = runCatching { repo.suggestContacts(typed, SUGGESTION_LIMIT) }.getOrDefault(emptyList()),
+                // The permission is checked inside `query`, which returns empty without it. The
+                // setting can be on from a session where it was granted and later revoked in system
+                // settings, so the switch alone is not proof.
+                device = if (deviceContacts) {
+                    AndroidContacts.query(context, typed, SUGGESTION_LIMIT)
+                } else {
+                    emptyList()
+                },
+                limit = SUGGESTION_LIMIT,
+            )
+        }
+    }
+
     // 🔴 Waits a frame before asking. Composing a text field is not attaching it, and
     // [FocusRequester.requestFocus] on an unattached node throws `FocusRequester is not
     // initialized` rather than doing nothing. Same lesson as the folder rename dialog.
@@ -768,7 +816,10 @@ fun GridlinkComposeScreen(
                     // than not being able to add one at all.
                     val suggestions = gridlinkRecipientSuggestions(
                         query = query.text,
-                        people = LocalGridlinkBook.current.contacts,
+                        people = gridlinkRecipientCandidates(
+                            book = LocalGridlinkBook.current.contacts,
+                            suggested = suggested,
+                        ),
                         already = recipients,
                     )
                     suggestions.forEach { contact ->
@@ -1190,6 +1241,16 @@ data class GridlinkComposeDraft(
  * the user is already typing.
  */
 private const val SUGGESTION_LIMIT = 3
+
+/**
+ * How long the TO field waits after a keystroke before asking the database and the contacts provider
+ * who the typed prefix could mean.
+ *
+ * Long enough that typing an address straight through issues one lookup rather than one per letter,
+ * short enough that a pause to think does not sit in front of an empty list. The address book half
+ * of the list is not debounced at all: it is already in memory and filters in composition.
+ */
+private const val GRIDLINK_SUGGEST_DEBOUNCE_MS = 180L
 
 /**
  * How long the IME has to stay up before its disappearance counts as the user dismissing it.
