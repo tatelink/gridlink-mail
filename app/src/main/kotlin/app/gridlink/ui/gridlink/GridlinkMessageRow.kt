@@ -44,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import app.gridlink.core.data.settings.MailTag
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
 import app.gridlink.ui.theme.GridlinkSpacing
@@ -142,9 +143,22 @@ fun GridlinkMessageRow(
      * "3" with nothing behind the tap would be worse than no chip.
      */
     onToggleThread: (() -> Unit)? = null,
+    /**
+     * This device's tag definitions, for colouring the row's tag dots.
+     *
+     * 🔴 Passed in rather than observed here, and that is the only reason it is a parameter at all:
+     * the list is identical for every row, so a store subscription inside the row would be one
+     * subscription per visible row all delivering the same answer. The screen reads it once (see
+     * `rememberMailTagDefinitions`) and hands it down, same as the swipe configuration.
+     *
+     * Empty is a working default, not a broken one: an undefined tag still draws, in a colour
+     * derived from its own name.
+     */
+    tagDefinitions: List<MailTag> = emptyList(),
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
+    val tags = remember(message.tags, tagDefinitions) { resolveTags(message.tags, tagDefinitions) }
     val snippet = highlight?.takeIf { it.isNotBlank() && message.preview.isNotBlank() }
     // Keyed on everything it reads, so scrolling a long result list does not re-run the fold and
     // the scan on every row on every frame.
@@ -363,6 +377,15 @@ fun GridlinkMessageRow(
                                 .size(14.dp),
                         )
                     }
+                    // Last in the cluster, after the star and the paperclip, and read-only for the
+                    // star's reason: at 64dp there is no width for a control here. Dots rather than
+                    // labelled chips because a chip would cost line 2 the width the subject already
+                    // does not have — the full argument is on [GridlinkTagDots], and it is the one
+                    // real compromise in the feature. The names are one tap away, on the message.
+                    GridlinkTagDots(
+                        tags = tags,
+                        modifier = Modifier.padding(start = GridlinkSpacing.s8),
+                    )
                 }
                 if (snippetText != null) {
                     // Line 3, search only. Secondary colour at 13sp so it sits UNDER the subject in
@@ -678,6 +701,8 @@ fun GridlinkBundledChildRow(
     current: Boolean = false,
     gutter: Dp = 0.dp,
     onLongClick: (() -> Unit)? = null,
+    /** Forwarded to the child row. See [GridlinkMessageRow]'s parameter of the same name. */
+    tagDefinitions: List<MailTag> = emptyList(),
 ) {
     val colors = GridlinkTheme.colors
     Row(modifier = modifier.fillMaxWidth()) {
@@ -710,6 +735,7 @@ fun GridlinkBundledChildRow(
             current = current,
             gutter = gutter,
             onLongClick = onLongClick,
+            tagDefinitions = tagDefinitions,
         )
     }
 }

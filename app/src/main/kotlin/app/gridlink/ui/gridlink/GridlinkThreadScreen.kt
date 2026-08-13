@@ -36,6 +36,7 @@ import androidx.compose.material.icons.outlined.MarkEmailUnread
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Print
 import androidx.compose.material.icons.outlined.Report
+import androidx.compose.material.icons.outlined.Sell
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.Unsubscribe
 import androidx.compose.material3.Icon
@@ -139,6 +140,17 @@ fun GridlinkThreadScreen(
      * the debug gallery and every preview should draw.
      */
     toolbarActions: Set<ThreadToolbarAction> = ThreadToolbarAction.DEFAULTS,
+    /**
+     * Put a tag on this message, or take it off.
+     *
+     * 🔴 Nullable, and null hides the Tags row in the More sheet entirely — [onOpenAttachment]'s
+     * rule. The debug gallery has no account and no repository, so a picker there could tick a box
+     * and change nothing; an action that cannot act should not be offered. Reading the tags is
+     * always on, because that half needs nothing but the message.
+     */
+    onSetTag: ((keyword: String, applied: Boolean) -> Unit)? = null,
+    /** Open the tag manager in Settings. Null in the gallery, where Settings is not reachable. */
+    onManageTags: (() -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
@@ -153,6 +165,11 @@ fun GridlinkThreadScreen(
     // Keyed on the message id like everything else here: a More sheet left open in the reading pane
     // must not survive into a different message's actions.
     var showingMore by remember(message.id) { mutableStateOf(false) }
+    // Same key, same reason: a picker left open must not follow the reading pane onto another
+    // message and put the next reader's taps on the wrong mail.
+    var showingTags by remember(message.id) { mutableStateOf(false) }
+    val tagDefinitions = rememberMailTagDefinitions()
+    val tags = remember(message.tags, tagDefinitions) { resolveTags(message.tags, tagDefinitions) }
     val hasRemoteContent = remember(message.body) { EmailRemoteContent.referencedBy(message.body) }
     val showRemote = showOnce || imagesAlwaysAllowed
     // 🔴 Unsubscribe is the one action here that talks to someone else. Every other button
@@ -244,6 +261,25 @@ fun GridlinkThreadScreen(
         // height, which defeats that and puts two scroll containers on one drag. So everything else
         // is pinned and the body takes the space that is left.
         Column(modifier = Modifier.fillMaxSize()) {
+            // 🔴 Above the sender block, which is what "under the subject" means here: the subject
+            // is the frame's title, so this is the first thing inside the panel and the tags read as
+            // belonging to the subject rather than to the person who sent it. Put below the sender
+            // they would read as facts about the sender, which is exactly what they are not.
+            //
+            // It draws nothing at all when there are no tags — no reserved row, no empty box. Most
+            // mail carries none, and a permanent gap under every subject would cost the reading room
+            // the body wants for the sake of a feature that is off on that message.
+            if (tags.isNotEmpty()) {
+                GridlinkTagChipRow(
+                    tags = tags,
+                    modifier = Modifier.padding(
+                        start = GridlinkSpacing.rowHorizontal,
+                        end = GridlinkSpacing.rowHorizontal,
+                        top = GridlinkSpacing.s12,
+                    ),
+                )
+            }
+
             GridlinkThreadSender(message)
 
             Box(
@@ -338,7 +374,28 @@ fun GridlinkThreadScreen(
                 showingMore = false
                 dispatch(action)
             },
+            onTags = onSetTag?.let {
+                {
+                    showingMore = false
+                    showingTags = true
+                }
+            },
             onDismiss = { showingMore = false },
+        )
+    }
+
+    if (showingTags && onSetTag != null) {
+        GridlinkTagPickerSheet(
+            definitions = tagDefinitions,
+            applied = message.tags,
+            onSetTag = onSetTag,
+            onManageTags = onManageTags?.let {
+                {
+                    showingTags = false
+                    it()
+                }
+            },
+            onDismiss = { showingTags = false },
         )
     }
 
@@ -873,6 +930,7 @@ private fun GridlinkThreadMoreSheet(
     layout: GridlinkToolbarLayout,
     starred: Boolean,
     onAction: (GridlinkThreadAction) -> Unit,
+    onTags: (() -> Unit)?,
     onDismiss: () -> Unit,
 ) {
     GridlinkCenterSheet(onDismiss = onDismiss) {
@@ -893,6 +951,18 @@ private fun GridlinkThreadMoreSheet(
                 label = "Unsubscribe",
                 icon = Icons.Outlined.Unsubscribe,
                 onClick = { onAction(GridlinkThreadAction.UNSUBSCRIBE) },
+            )
+        }
+        // 🔴 Tags live here and not on the bar, deliberately. The bar is the reader's own set of
+        // one-tap verbs and every entry in it is a switch in Settings; tagging is not a verb but a
+        // second sheet, so a slot for it would be a button that opens another button. It sits above
+        // the overflow with Unsubscribe for the same reason that one does: both are about THIS
+        // message rather than about the reader's chosen layout.
+        if (onTags != null) {
+            GridlinkSheetAction(
+                label = "Tags",
+                icon = Icons.Outlined.Sell,
+                onClick = onTags,
             )
         }
         // Everything the bar could not fit, in the same order it would have shown them. The sheet is

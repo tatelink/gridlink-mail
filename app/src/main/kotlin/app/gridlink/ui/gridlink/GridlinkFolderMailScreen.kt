@@ -152,6 +152,10 @@ fun GridlinkFolderMailScreen(
     var actionOn by remember(folder.id) { mutableStateOf<GridlinkMessage?>(null) }
     var acted by remember(folder.id) { mutableStateOf(emptySet<String>()) }
 
+    // Read once for the panel and handed to each row, the inbox's rule. A message in a folder wears
+    // the same marks it wears in the inbox: a tag is a fact about the mail, not about the list.
+    val tagDefinitions = rememberMailTagDefinitions()
+
     // 🔴 The role, not the name. "Deleted Items" is what Outlook calls it, "Trash" is what JMAP
     // calls it, "Papierkorb" is what a German server calls it, and matching on any of those would
     // put the button on a user folder somebody happened to name Trash while missing the real one.
@@ -255,6 +259,7 @@ fun GridlinkFolderMailScreen(
                                     } else {
                                         null
                                     },
+                                    tagDefinitions = tagDefinitions,
                                 )
                                 GridlinkRowDivider(startInset = GridlinkSpacing.rowHorizontal)
                             }

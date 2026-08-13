@@ -737,6 +737,24 @@ data class GridlinkMessage(
      * Null only for sample data, which has no server threads and never collapses.
      */
     val threadKey: String? = null,
+    /**
+     * The custom keywords on this message: the WIRE names, lowercase, never display labels.
+     *
+     * ## Why the names and not the resolved tags
+     * A [app.gridlink.core.data.settings.MailTag] is a keyword plus a label plus a colour, and the
+     * last two live in settings, not on the message. Resolving here would freeze a tag's colour
+     * into every row at mapping time, so recolouring a tag would leave the list showing the old
+     * colour until the next fetch. The row holds the fact ("this message is tagged `work`") and
+     * the chip resolves it against the live definitions as it draws.
+     *
+     * ⚠️ A name with no definition on this device is normal, not an error: another client on the
+     * same mailbox can invent a tag, and a fresh install has the tags but not their colours (only
+     * the keyword syncs). Those draw under their wire name in an auto-assigned colour.
+     *
+     * Empty for the great majority of mail and for all sample data but the two rows that show the
+     * feature off.
+     */
+    val tags: List<String> = emptyList(),
 ) {
     val hasAttachment: Boolean get() = attachments.isNotEmpty() || attachmentPending
 

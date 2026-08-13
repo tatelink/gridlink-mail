@@ -351,6 +351,7 @@ fun GridlinkHomeHost(
             onToggleThread = viewModel::toggleThread,
             onFilter = viewModel::filter,
             onAllowImages = viewModel::setImagesAllowed,
+            onSetTag = viewModel::setTag,
             onOpenAttachment = viewModel::openAttachment,
             // 🔴 No picker on anything modern. Android's document picker is another app's UI, in
             // another app's theme, and putting it in front of a one-tap save would be the only

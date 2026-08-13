@@ -1702,6 +1702,31 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
+    /**
+     * Put a tag on a message, or take it off, on the server as well as here.
+     *
+     * Separate from [act] for [move]'s reason: the enum has no room for a keyword. Fire and forget on
+     * the view model's scope like every other write here, so a picker dismissed the instant it was
+     * tapped does not cancel the request it just made.
+     *
+     * 🔴 The keyword, not the label. What travels to the server is the slug minted when the tag was
+     * created ([app.gridlink.core.data.settings.MailTag.keyword]); the label is this device's word for
+     * it and renaming a tag deliberately does not rewrite what is already on the mail.
+     */
+    fun setTag(emailId: String, keyword: String, applied: Boolean) {
+        val id = accountId.value ?: return
+        val credentials = store.credentials(id) ?: return
+        viewModelScope.launch {
+            try {
+                repo.setTag(credentials, emailId, keyword, applied)
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                Log.w(TAG, "tag write failed", t)
+            }
+        }
+    }
+
     private companion object {
         const val TAG = "GridlinkMail"
 
