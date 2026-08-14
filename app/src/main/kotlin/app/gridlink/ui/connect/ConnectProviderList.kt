@@ -65,7 +65,6 @@ private val PROVIDER_BRAND_COLORS: Map<String, Color> = mapOf(
     "iCloud" to Color(0xFF3693F3),
     "Fastmail" to Color(0xFF0067B9),
     "Yandex" to Color(0xFFFC3F1D),
-    "Mail.ru" to Color(0xFF005FF9),
     "Proton Bridge" to Color(0xFF6D4AFF),
 )
 
@@ -312,8 +311,8 @@ private fun Lettermark(name: String, fallback: Color) {
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            // "iCloud" and "Mail.ru" both start with the character people read as the brand, so the
-            // first character is taken as written rather than upper-cased.
+            // "iCloud" starts with the character people read as the brand, so the first character
+            // is taken as written rather than upper-cased.
             name.take(1),
             style = MaterialTheme.typography.titleMedium,
             color = if (PROVIDER_BRAND_COLORS.containsKey(name)) {

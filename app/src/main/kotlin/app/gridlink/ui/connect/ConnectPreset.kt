@@ -49,12 +49,10 @@ internal val MAIL_PROVIDERS = listOf(
     MailProvider("Yahoo", "imap.mail.yahoo.com", "993", ConnectionSecurity.TLS, "smtp.mail.yahoo.com", "465", ConnectionSecurity.TLS, logoRes = R.drawable.ic_provider_yahoo),
     MailProvider("iCloud", "imap.mail.me.com", "993", ConnectionSecurity.TLS, "smtp.mail.me.com", "587", ConnectionSecurity.STARTTLS, logoRes = R.drawable.ic_provider_icloud),
     MailProvider("Fastmail", "imap.fastmail.com", "993", ConnectionSecurity.TLS, "smtp.fastmail.com", "465", ConnectionSecurity.TLS, logoRes = R.drawable.ic_provider_fastmail),
-    // Yandex and Mail.ru are plain IMAP behind an app-specific password (#105). Values taken from
-    // the providers' own documentation, not by analogy with each other:
-    //   yandex.com/support/mail/mail-clients/others.html  → imap/smtp.yandex.com, 993/465, SSL
-    //   help.mail.ru/mail/login/mailer/ (§ "Указать данные серверов") → imap/smtp.mail.ru, 993/465, SSL/TLS
+    // Yandex is plain IMAP behind an app-specific password (#105). Values from the provider's own
+    // documentation: yandex.com/support/mail/mail-clients/others.html → imap/smtp.yandex.com,
+    // 993/465, SSL.
     MailProvider("Yandex", "imap.yandex.com", "993", ConnectionSecurity.TLS, "smtp.yandex.com", "465", ConnectionSecurity.TLS, appPasswordUrl = "https://id.yandex.com/security/app-passwords", logoRes = R.drawable.ic_provider_yandex),
-    MailProvider("Mail.ru", "imap.mail.ru", "993", ConnectionSecurity.TLS, "smtp.mail.ru", "465", ConnectionSecurity.TLS, appPasswordUrl = "https://account.mail.ru/user/2-step-auth/passwords/", logoRes = R.drawable.ic_provider_mailru),
     MailProvider("Proton Bridge", "127.0.0.1", "1143", ConnectionSecurity.STARTTLS, "127.0.0.1", "1025", ConnectionSecurity.STARTTLS, logoRes = R.drawable.ic_provider_protonbridge),
 )
 

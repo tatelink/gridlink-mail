@@ -27,7 +27,7 @@ class ConnectPresetTest {
     private val outlook = provider("Outlook")
     private val gmail = provider("Gmail")
     private val yandex = provider("Yandex")
-    private val mailru = provider("Mail.ru")
+    private val icloud = provider("iCloud")
 
     // --- The list always shows the way back ------------------------------------------------------
 
@@ -120,13 +120,13 @@ class ConnectPresetTest {
         // Proton Bridge is the only entry on non-standard ports and STARTTLS on both sides, so any
         // field left over from it would be visible in the next pick.
         val bridge = tap(PresetForm.NONE, provider("Proton Bridge"))
-        val next = tap(bridge, mailru)
-        assertEquals("imap.mail.ru", next.imapHost)
+        val next = tap(bridge, icloud)
+        assertEquals("imap.mail.me.com", next.imapHost)
         assertEquals("993", next.imapPort)
         assertEquals(ConnectionSecurity.TLS, next.imapSecurity)
-        assertEquals("smtp.mail.ru", next.smtpHost)
-        assertEquals("465", next.smtpPort)
-        assertEquals(ConnectionSecurity.TLS, next.smtpSecurity)
+        assertEquals("smtp.mail.me.com", next.smtpHost)
+        assertEquals("587", next.smtpPort)
+        assertEquals(ConnectionSecurity.STARTTLS, next.smtpSecurity)
     }
 
     @Test fun theOauthPresetCarriesNoServerValuesAndNoAppPasswordLink() {
@@ -227,17 +227,17 @@ class ConnectPresetTest {
     }
 
     @Test fun theImapPathNeedsTheFourServerValuesItWillDial() {
-        val filled = tap(PresetForm.NONE, mailru)
+        val filled = tap(PresetForm.NONE, yandex)
         assertTrue(
             connectReady(
-                ConnectRoute.IMAP_PASSWORD, "alex@mail.ru", "app-password",
+                ConnectRoute.IMAP_PASSWORD, "alex@yandex.com", "app-password",
                 filled.imapHost, filled.imapPort, filled.smtpHost, filled.smtpPort,
             ),
         )
         // A port the user cleared or mistyped counts as missing, not as a crash at connect time.
         assertFalse(
             connectReady(
-                ConnectRoute.IMAP_PASSWORD, "alex@mail.ru", "app-password",
+                ConnectRoute.IMAP_PASSWORD, "alex@yandex.com", "app-password",
                 filled.imapHost, "", filled.smtpHost, filled.smtpPort,
             ),
         )
@@ -260,10 +260,10 @@ class ConnectPresetTest {
 
     // --- The table itself ------------------------------------------------------------------------
 
-    @Test fun yandexAndMailRuAreAppPasswordImapPresets() {
-        // Both are plain IMAP with an app-specific password: the chip must fill the servers AND
-        // offer the page where that password is created, or the user hits a login failure they
-        // cannot diagnose. Values are the providers' own documented ones.
+    @Test fun yandexIsAnAppPasswordImapPreset() {
+        // Plain IMAP with an app-specific password: the row must fill the servers AND offer the
+        // page where that password is created, or the user hits a login failure they cannot
+        // diagnose. Values are the provider's own documented ones.
         assertEquals("imap.yandex.com", yandex.imapHost)
         assertEquals("993", yandex.imapPort)
         assertEquals(ConnectionSecurity.TLS, yandex.imapSecurity)
@@ -271,17 +271,8 @@ class ConnectPresetTest {
         assertEquals("465", yandex.smtpPort)
         assertEquals(ConnectionSecurity.TLS, yandex.smtpSecurity)
 
-        assertEquals("imap.mail.ru", mailru.imapHost)
-        assertEquals("993", mailru.imapPort)
-        assertEquals(ConnectionSecurity.TLS, mailru.imapSecurity)
-        assertEquals("smtp.mail.ru", mailru.smtpHost)
-        assertEquals("465", mailru.smtpPort)
-        assertEquals(ConnectionSecurity.TLS, mailru.smtpSecurity)
-
-        listOf(yandex, mailru).forEach {
-            assertFalse("${it.name} is password IMAP, not OAuth", it.oauth)
-            assertNotNull("${it.name} needs its app-password page", it.appPasswordUrl)
-        }
+        assertFalse("Yandex is password IMAP, not OAuth", yandex.oauth)
+        assertNotNull("Yandex needs its app-password page", yandex.appPasswordUrl)
     }
 
     @Test fun everyEntryIsUsableAndOnlyOneSignsInByOauth() {
