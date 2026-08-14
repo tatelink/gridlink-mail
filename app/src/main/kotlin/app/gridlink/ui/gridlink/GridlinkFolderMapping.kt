@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import app.gridlink.core.data.mail.archiveFolderIdByName
 import app.gridlink.core.jmap.model.Mailbox
 
 /**
@@ -20,7 +21,8 @@ import app.gridlink.core.jmap.model.Mailbox
  *     when `myRights` says it could. The six standard mailboxes are load-bearing: the app files mail
  *     into them by role, and a renamed Trash is a Trash the app can no longer find. See [roleOf] for
  *     why that covers `all` / `flagged` / `important` too, which are drawn as ordinary folders and
- *     are just as much the server's.
+ *     are just as much the server's. It also covers a **roleless folder the app archives into by
+ *     name**, where the name is the whole link, for the same reason.
  *
  * ⚠️ So a `myRights` that GRANTS a right adds nothing: it can only ever take one away. That is the
  * intended asymmetry — the server is authoritative about what it will refuse, and this app is
@@ -36,6 +38,14 @@ object GridlinkFolderMapping {
     fun tree(mailboxes: List<Mailbox>): List<GridlinkFolder> {
         if (mailboxes.isEmpty()) return emptyList()
         val byId = mailboxes.associateBy { it.id }
+        // 🔴 Only consulted when NO mailbox carries the `archive` role, because that is the only
+        // case where the app falls back to matching on the name and the name therefore becomes
+        // load-bearing. See [rightAllows].
+        val archiveByName = if (mailboxes.any { it.role?.lowercase() == "archive" }) {
+            null
+        } else {
+            archiveFolderIdByName(mailboxes, { it.name }, { it.parentId }, { it.id })
+        }
         // 🔴 A parent id that names a mailbox we do not have is treated as no parent at all. It
         // happens for real: a folder the account can see inside one it cannot, or a cache caught
         // mid-replace. The alternative is a subtree that exists in the data and is drawn nowhere,
@@ -67,8 +77,8 @@ object GridlinkFolderMapping {
                         // 🔴 Passed explicitly, never left to [GridlinkFolder]'s defaults. Those
                         // read `role == USER`, and the unmapped server roles below ARE USER here —
                         // the default would offer a rename on the server's own "All Mail".
-                        mayRename = rightAllows(mailbox, mailbox.myRights?.mayRename),
-                        mayDelete = rightAllows(mailbox, mailbox.myRights?.mayDelete),
+                        mayRename = rightAllows(mailbox, archiveByName, mailbox.myRights?.mayRename),
+                        mayDelete = rightAllows(mailbox, archiveByName, mailbox.myRights?.mayDelete),
                     )
                 }
         }
@@ -86,9 +96,17 @@ object GridlinkFolderMapping {
      * the second half of this: `all`, `flagged`, `important` and `subscribed` map to
      * [GridlinkFolderRole.USER] because there is no glyph for them, and asking the mapped role would
      * hand them the rename that mapping was never meant to imply.
+     *
+     * 🔴 [archiveByName] closes the one hole a role check cannot see. Found on Brandon's own account:
+     * Stalwart gives his "Archive" NO role and grants both rights, so by the two rules above it was
+     * an ordinary user folder, freely renameable, holding 231 messages. But the repository resolves
+     * the archive destination by NAME when no role exists, so renaming it would silently point every
+     * future Archive swipe at nothing (and the next one would create a second "Archive" beside the
+     * first). The name is the only thing holding that link, which makes it exactly as load-bearing
+     * as a role, and it is refused on the same grounds.
      */
-    private fun rightAllows(mailbox: Mailbox, right: Boolean?): Boolean =
-        mailbox.role.isNullOrBlank() && right != false
+    private fun rightAllows(mailbox: Mailbox, archiveByName: String?, right: Boolean?): Boolean =
+        mailbox.role.isNullOrBlank() && mailbox.id != archiveByName && right != false
 
     /** JMAP's role strings (RFC 8621 §2), lowercased by the server, to the six the tree draws. */
     fun roleOf(role: String?): GridlinkFolderRole = when (role?.lowercase()) {
