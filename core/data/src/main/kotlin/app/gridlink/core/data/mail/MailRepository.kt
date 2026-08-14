@@ -3813,23 +3813,15 @@ class MailRepository(
      * cached into the context's role map so a bulk archive resolves it once instead of
      * making every message try (and fail) to create a duplicate archive folder.
      */
-    /** Lowercased folder names that clearly denote an archive, across Gridlink's locales. */
-    private val ARCHIVE_FOLDER_NAMES = listOf(
-        "archive", "archives", "archived",
-        "archivé", "archivés", "archiv", "archivio",
-        "arquivo", "arquivos", "archief", "archiwum", "архив",
-    )
-
     private suspend fun archiveMailboxId(ctx: Context): String? {
         ctx.rolesToMailboxId["archive"]?.let { return it }
         // Match THIS account's own folders by name (top-level preferred), not the global
         // mailbox cache — otherwise archiving a non-current account from the unified inbox
         // would target the current account's Archive id (which doesn't exist server-side for
         // the message's account), and the move would silently no-op.
-        val byName = ctx.mailboxes
-            .filter { it.name.lowercase() in ARCHIVE_FOLDER_NAMES }
-            .minByOrNull { if (it.parentId == null) 0 else 1 }
-            ?.id
+        // ⚠️ [archiveFolderIdByName], not a local copy of the rule: the folder tree asks the same
+        // question to decide whether this folder may be renamed, and the two must not drift.
+        val byName = archiveFolderIdByName(ctx.mailboxes, { it.name }, { it.parentId }, { it.id })
             ?: return null
         context = Context(ctx.credentials, ctx.session, ctx.accountId, ctx.auth, ctx.rolesToMailboxId + ("archive" to byName), ctx.mailboxes)
         return byName
@@ -3847,8 +3839,7 @@ class MailRepository(
         }.getOrElse { err ->
             val mbs = runCatching { client.getMailboxes(ctx.session, ctx.accountId, ctx.auth) }.getOrDefault(emptyList())
             mbs.firstOrNull { it.role == "archive" }?.id
-                ?: mbs.filter { it.name.lowercase() in ARCHIVE_FOLDER_NAMES }
-                    .minByOrNull { if (it.parentId == null) 0 else 1 }?.id
+                ?: archiveFolderIdByName(mbs, { it.name }, { it.parentId }, { it.id })
                 ?: throw err
         }
         context = Context(ctx.credentials, ctx.session, ctx.accountId, ctx.auth, ctx.rolesToMailboxId + ("archive" to id), ctx.mailboxes)

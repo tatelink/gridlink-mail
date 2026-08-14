@@ -94,4 +94,52 @@ class GridlinkFolderRightsTest {
         assertTrue(work.mayRename)
         assertFalse(work.children.single().hasActions)
     }
+
+    // ---- the roleless folder the app archives into ----------------------------------------------
+
+    @Test fun `a roleless Archive the app files into may not be renamed or deleted`() {
+        // 🔴 Tate's own account, read off the device: Stalwart gives "Archive" no role at all and
+        // grants both rights, so all three rules above said "ordinary user folder" about the folder
+        // holding 231 archived messages. The repository resolves the archive destination by NAME
+        // when no role exists, so the name is the whole link and renaming it breaks archiving
+        // silently.
+        val f = folder(Mailbox(id = "h", name = "Archive", role = null))
+        assertFalse(f.mayRename)
+        assertFalse(f.mayDelete)
+    }
+
+    @Test fun `the name match is case and locale insensitive`() {
+        for (name in listOf("archive", "ARCHIVES", "Archivio", "Архив")) {
+            val f = folder(Mailbox(id = "h", name = name, role = null))
+            assertFalse(name, f.hasActions)
+        }
+    }
+
+    @Test fun `a folder merely named Archive is fair game once a real archive role exists`() {
+        // With a role-bearing archive present, nothing resolves by name, so a user's own folder that
+        // happens to be called "Archive" is just a folder. Protecting it would take a rename away
+        // for no reason at all.
+        val tree = GridlinkFolderMapping.tree(
+            listOf(
+                Mailbox(id = "real", name = "Archive", role = "archive"),
+                Mailbox(id = "mine", name = "Archives", role = null),
+            ),
+        )
+        assertFalse(tree.first { it.id == "real" }.hasActions)
+        assertTrue(tree.first { it.id == "mine" }.hasActions)
+    }
+
+    @Test fun `the top-level Archive is the protected one, not a nested namesake`() {
+        // Same pick the repository makes. Protecting the nested one would leave the folder actually
+        // being archived into renameable, which is the whole bug.
+        val tree = GridlinkFolderMapping.tree(
+            listOf(
+                Mailbox(id = "top", name = "Archive", role = null),
+                Mailbox(id = "work", name = "work", role = null),
+                Mailbox(id = "nested", name = "Archive", parentId = "work", role = null),
+            ),
+        )
+        assertFalse(tree.first { it.id == "top" }.hasActions)
+        assertTrue(tree.first { it.id == "work" }.children.single().hasActions)
+    }
 }
