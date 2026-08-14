@@ -665,6 +665,28 @@ data class InboxRow(
 )
 
 /**
+ * One account's inbox as the unified window reads it: which account, which of its mailboxes, and
+ * how deep that account chose to cache.
+ *
+ * 🔴 [limit] is per account and not a shared number, which is the whole reason this is a type rather
+ * than the `(accountId, mailboxId)` pair the paged list scopes with. Sync depth is an account
+ * setting; a merged list that imposed one account's depth on another would silently shorten the
+ * mailbox of whoever configured the deeper window. See [MailRepository.observeUnifiedWindow].
+ */
+data class InboxScope(val accountId: String, val mailboxId: String, val limit: Int)
+
+/**
+ * An [InboxRow] with the account it came out of still attached.
+ *
+ * 🔴 The account is NOT recoverable from the row once the merge has happened, and that is the whole
+ * reason this type exists. [InboxRow.email] is a mapped [Email], whose `id` is unique only within
+ * its own account (RFC 8620 §1.6.2) — which is exactly why [EmailEntity] is keyed by the PAIR
+ * `(accountId, id)`. Drop the account here and the caller is holding a list of rows it can draw and
+ * cannot act on, because "archive this id" would mean a different message in each account.
+ */
+data class ScopedInboxRow(val accountId: String, val row: InboxRow)
+
+/**
  * An account-qualified message key. Same-server accounts can cache COLLIDING email ids (servers
  * like Stalwart number objects per account), and the unified inbox shows both rows side by side —
  * so anything that identifies a message across accounts (list keys, the multi-select set, bulk-
@@ -4475,6 +4497,100 @@ class MailRepository(
         ).map { rows ->
             rows.map { InboxRow(email = it.email.toEmail(), threadCount = it.threadCount, unread = it.threadUnread) }
         }
+
+    /**
+     * [observeMailboxWindow] over every account at once: the unified inbox's flat rows.
+     *
+     * ## 🔴 Merged in Kotlin, and why that is not the shortcut it looks like
+     * The paged list ([pagedMailbox]) spans accounts inside ONE statement, because a page is a
+     * slice of a single ordering and cannot be assembled from N orderings without reading all of
+     * them. A window is the opposite shape: it is "the newest L of this mailbox", complete, with no
+     * page after it. The union of N complete windows, re-sorted, IS the merged window — there is no
+     * row a single wider statement would have found that this misses above the shallowest account's
+     * horizon, and below it this keeps the deeper account's rows that a shared LIMIT would drop.
+     *
+     * So the merge is exact, and it buys the one thing that matters: both window queries stay the
+     * account-pinned Room `@Query` they are, rather than becoming raw SQL that has to re-derive the
+     * conversation grouping — the query whose own doc warns that grouping by thread key alone breaks
+     * the moment more than one account is in scope.
+     *
+     * ## Ordered on [EmailEntity.sortKey], before the mapping
+     * The same column the SQL orders by, so a merged list and a single-account one sort identically.
+     * Re-sorting mapped [Email]s would mean re-parsing `receivedAt` strings and disagreeing with SQL
+     * about every message whose date header is missing or unparseable.
+     *
+     * NOT truncated to a shared limit, deliberately. Each account's window is that account's own
+     * `SyncWindow.limit`, and cutting the union back to one of them would hide mail the app has
+     * already fetched and still holds, on a list with no second page to find it in.
+     */
+    fun observeUnifiedWindow(scopes: List<InboxScope>, filter: MailFilter): Flow<List<ScopedInboxRow>> {
+        if (scopes.isEmpty()) return flowOf(emptyList())
+        val perAccount = scopes.map { scope ->
+            emailDao.observeMailboxWindow(
+                accountId = scope.accountId,
+                mailboxId = scope.mailboxId,
+                limit = scope.limit,
+                unread = filter.unread,
+                starred = filter.starred,
+                withAttachment = filter.hasAttachment,
+                tagLike = filter.tag?.let(EmailKeywords::likePattern),
+            )
+        }
+        return combine(perAccount) { windows ->
+            // Tagged from the SCOPE the flow was built from, not from a column on the row. The two
+            // agree today, and taking it from the scope means they cannot start disagreeing.
+            scopes.indices
+                .flatMap { i -> windows[i].map { scopes[i].accountId to it } }
+                .sortedByDescending { it.second.sortKey }
+                .map { (account, entity) ->
+                    ScopedInboxRow(
+                        accountId = account,
+                        row = InboxRow(entity.toEmail(), threadCount = 1, unread = !entity.seen),
+                    )
+                }
+        }
+    }
+
+    /**
+     * [observeUnifiedWindow] with conversation view on: the same merge over the thread windows.
+     *
+     * 🔴 Merging rather than widening is what keeps the thread grouping correct here. Each window
+     * groups by thread key WITHIN one account, which is the pairing
+     * [app.gridlink.core.data.mail.conversationSql] had to be taught the hard way: servers number
+     * threads per account, so two accounts of one server share thread ids, and a single query that
+     * grouped across both would collapse two people's conversations into one row and keep only the
+     * newer — messages gone from the list, not merely miscounted. N per-account groupings cannot
+     * express that bug.
+     */
+    fun observeUnifiedThreadWindow(scopes: List<InboxScope>, filter: MailFilter): Flow<List<ScopedInboxRow>> {
+        if (scopes.isEmpty()) return flowOf(emptyList())
+        val perAccount = scopes.map { scope ->
+            emailDao.observeMailboxThreadWindow(
+                accountId = scope.accountId,
+                mailboxId = scope.mailboxId,
+                limit = scope.limit,
+                unread = filter.unread,
+                starred = filter.starred,
+                withAttachment = filter.hasAttachment,
+                tagLike = filter.tag?.let(EmailKeywords::likePattern),
+            )
+        }
+        return combine(perAccount) { windows ->
+            scopes.indices
+                .flatMap { i -> windows[i].map { scopes[i].accountId to it } }
+                .sortedByDescending { it.second.email.sortKey }
+                .map { (account, row) ->
+                    ScopedInboxRow(
+                        accountId = account,
+                        row = InboxRow(
+                            email = row.email.toEmail(),
+                            threadCount = row.threadCount,
+                            unread = row.threadUnread,
+                        ),
+                    )
+                }
+        }
+    }
 
     /**
      * One reading of [observeThreadEmails], for callers that act on a thread once (a whole-thread

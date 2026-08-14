@@ -163,6 +163,30 @@ class GridlinkChromeState(
         folderRoute = null
     }
 
+    /**
+     * A request to go to the mail LIST, posted by the drawer's merged-inbox pair.
+     *
+     * 🔴 Not [folderRoute] with the inbox id. That channel lands on the folder screen, which is a
+     * different surface from the list the pair is switching: tapping "All inboxes" and arriving on
+     * the folder screen showing one mailbox would be the opposite of merging. Same event-not-fact
+     * rules and the same nonce as the two channels above.
+     */
+    var inboxRoute by mutableStateOf<Int?>(null)
+        private set
+
+    private var inboxRouteNonce = 0
+
+    /** Ask the scaffold for the mail list. Called by the drawer, on the main thread. */
+    fun routeInbox() {
+        inboxRouteNonce += 1
+        inboxRoute = inboxRouteNonce
+    }
+
+    /** Mark the pending list wish handled. Idempotent. */
+    fun consumeInboxRoute() {
+        inboxRoute = null
+    }
+
     /** What the chrome row's chip says, and the dot beside the address in the menu sheet. */
     var sync by mutableStateOf(initialSync)
         private set
@@ -391,6 +415,22 @@ class GridlinkChromeConfig(
      * whole job is to sit in one named palette for one screenshot and forget it afterwards.
      */
     val onSelectMode: (GridlinkMode?) -> Unit = {},
+    /**
+     * The merged-inbox pair for the drawer, or null to draw neither row.
+     *
+     * 🔴 Null is the correct default under this class's own rule: a drawer row claiming "All
+     * inboxes · 12 unread" in a build that has not counted anything is a fact about mail that may
+     * not exist. One account is also null, which is the placement Tate settled on ("appearing
+     * only with more than one account"). See [GridlinkUnifiedInbox].
+     */
+    val unifiedInbox: GridlinkUnifiedInbox? = null,
+    /**
+     * True merges every account's inbox, false returns to the bound account's.
+     *
+     * ⚠️ Called on the main thread from a tap. The host writes the preference and lets the list
+     * re-subscribe; nothing here waits for the disk.
+     */
+    val onSelectUnified: (Boolean) -> Unit = {},
 )
 
 /**

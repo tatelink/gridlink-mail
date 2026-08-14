@@ -246,6 +246,26 @@ class SettingsRepository(context: Context) {
     }
 
     /**
+     * Show every account's inbox merged into one list ("All inboxes" in the drawer). Off by default.
+     *
+     * ## Why this is remembered and the open FOLDER is not
+     * Both are reached the same way, by a tap in the drawer, and it would be reasonable to call this
+     * navigation and let it reset. It does not, because it is not "where am I" but "how do I read my
+     * mail": somebody with three accounts who wants them merged wants them merged tomorrow too, and
+     * a mode that quietly reverts on every cold start is a mode nobody trusts enough to use.
+     *
+     * 🔴 Deliberately NOT in the settings backup, unlike [conversationView] next door. This one is
+     * only meaningful with more than one account, and a backup carries settings, not accounts — so
+     * restoring it onto a fresh single-account install would arm a mode with nothing to merge. The
+     * drawer row that sets it is hidden there for the same reason, and the two must not disagree.
+     */
+    val unifiedInbox: Flow<Boolean> = dataStore.data.map { it[KEY_UNIFIED_INBOX] ?: false }
+
+    suspend fun setUnifiedInbox(enabled: Boolean) {
+        dataStore.edit { it[KEY_UNIFIED_INBOX] = enabled }
+    }
+
+    /**
      * Gather automated senders (no-reply@, notifications@, and the rest of the list in
      * `GridlinkMailMapping`) into one collapsed row above the timeline.
      *
@@ -649,6 +669,7 @@ class SettingsRepository(context: Context) {
         private val KEY_SWIPE_LEFT_FAR = stringPreferencesKey("swipe_left_far")
         private val KEY_SORT_ORDER = stringPreferencesKey("sort_order")
         private val KEY_CONVERSATION_VIEW = booleanPreferencesKey("conversation_view")
+        private val KEY_UNIFIED_INBOX = booleanPreferencesKey("unified_inbox")
         private val KEY_THREAD_TOOLBAR = stringSetPreferencesKey("thread_toolbar_actions")
         private val KEY_BUNDLE_AUTOMATED = booleanPreferencesKey("bundle_automated")
         private val KEY_MARK_READ_ON_DELETE = booleanPreferencesKey("mark_read_on_delete")

@@ -260,9 +260,18 @@ fun AppNavHost(
                             notificationAccountId = it.accountId,
                             currentAccountId = s.accountId,
                             knownAccountIds = accounts.map { account -> account.id },
-                            // The Gridlink screens have no unified inbox: every list is one
-                            // account's, so there is never a view a switch would be rude to.
-                            unifiedView = false,
+                            // 🔴 They DO have one now (the drawer's "All inboxes"), so this can no
+                            // longer be a literal false. Merged, the notification's message is
+                            // already in the list on screen, and switching account under the user
+                            // to show them something they can already see would throw away the
+                            // merged view to arrive at a narrower one.
+                            //
+                            // Read off the push mirror rather than plumbed down from the mail view
+                            // model: that model lives BELOW this call (it is created by
+                            // GridlinkHomeHost) and this decision is made before the host composes.
+                            // The mirror is written by the host as the list changes. See
+                            // [PushController.unifiedInboxVisible].
+                            unifiedView = PushController.unifiedInboxVisible,
                         )
                     }
                     // 🔴 The switch happens BEFORE the payload is handed down, never in the same

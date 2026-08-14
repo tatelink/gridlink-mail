@@ -17,11 +17,14 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.gridlink.container
 import app.gridlink.core.data.account.AccountCredentials
+import app.gridlink.core.data.mail.InboxScope
 import app.gridlink.core.data.mail.MailFilter
+import app.gridlink.core.data.mail.ScopedInboxRow
 import app.gridlink.core.data.mail.MailSearchResult
 import app.gridlink.core.jmap.ContentTooLargeException
 import app.gridlink.core.jmap.DownloadLimits
 import app.gridlink.core.jmap.model.Email
+import app.gridlink.core.jmap.model.Mailbox
 import app.gridlink.core.jmap.model.EmailBodyPart
 import app.gridlink.core.jmap.model.SearchQuery
 import app.gridlink.mail.MessageDestroyWorker
@@ -40,6 +43,7 @@ import app.gridlink.ui.gridlink.GridlinkMailContent
 import app.gridlink.ui.gridlink.GridlinkMailMapping
 import app.gridlink.ui.gridlink.GridlinkMenuItem
 import app.gridlink.ui.gridlink.GridlinkMessage
+import app.gridlink.ui.gridlink.GridlinkRowKey
 import app.gridlink.ui.gridlink.GridlinkOpenFolder
 import app.gridlink.ui.gridlink.GridlinkOpenMessage
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
@@ -62,6 +66,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -249,6 +254,44 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     }
 
     /**
+     * Whether the list is showing every account's inbox at once, as the drawer's pair reports it.
+     *
+     * 🔴 The preference ANDed with "there is more than one answerable account", not the preference
+     * alone. Those two disagree in a real case: turn the merge on with two accounts, remove one, and
+     * the stored preference is still true while the list has collapsed back to a single account. The
+     * drawer must say what the list is doing, so it reads the same rule [inboxWindow] applies.
+     */
+    val unified: StateFlow<Boolean> =
+        combine(settings.unifiedInbox, store.accountsFlow) { merged, accounts ->
+            merged && accounts.count { it.inboxId != null } > 1
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /**
+     * Merge every account's inbox into the list, or go back to the bound account's.
+     *
+     * 🔴 Clears the reader and the expanded threads, and that is not tidiness. Row keys change
+     * SHAPE across this call: merged rows are account-qualified and single-account rows are bare
+     * ids (see [GridlinkRowKey]). A key kept across the switch would either be a qualified key the
+     * single-account list will never draw, or a bare id that the merged list resolves against
+     * whichever account happens to be bound — which, with two accounts on one server sharing ids,
+     * is a real message and the wrong one.
+     *
+     * [primed] is deliberately NOT reset. The cache has answered for these accounts already, and
+     * blanking to a skeleton for the duration of a re-subscription would make a toggle look like a
+     * reload.
+     */
+    fun setUnified(merged: Boolean) {
+        openJob?.cancel()
+        opened.value = null
+        openedParts = emptyList()
+        expandedThreads.value = emptySet()
+        // On [viewModelScope] rather than the app scope: the drawer closes on the same tap but this
+        // view model outlives it, and the list cannot re-subscribe against a preference that was
+        // never written anyway. DataStore serialises its own writes, so a burst of taps is safe.
+        viewModelScope.launch { settings.setUnifiedInbox(merged) }
+    }
+
+    /**
      * Account id + inbox + how much of it to hold + how it is narrowed, as the cache query needs
      * them.
      *
@@ -262,6 +305,36 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         val limit: Int,
         val filter: MailFilter = MailFilter.none,
     )
+
+    /**
+     * The same thing for the INBOX list, which can now be showing several accounts at once.
+     *
+     * ## Why this is a second type and not a widened [Window]
+     * [Window] keys the Folders tab's query, and that tab is single-account by design: a folder tree
+     * belongs to one server, and there is no such thing as "everyone's Archive". Widening the shared
+     * type would have put a list of scopes in front of a query that can only ever use one of them,
+     * and every read site would have had to say which. Two types, each honest about what it can hold.
+     *
+     * [accounts] is empty in the ordinary single-account case, and that emptiness is the switch:
+     * it is what decides whether row keys get qualified ([GridlinkRowKey]) and whether rows draw an
+     * account marker. Non-empty, it is `id → label` for every account in [scopes].
+     */
+    private data class InboxWindow(
+        val scopes: List<InboxScope>,
+        val accounts: Map<String, String> = emptyMap(),
+        val filter: MailFilter = MailFilter.none,
+    ) {
+        /** The list is merging more than one account, so identity has to carry the account. */
+        val unified: Boolean get() = accounts.isNotEmpty()
+
+        /** [accountId]'s inbox in this window, or null when it has none in it. */
+        fun mailboxOf(accountId: String): String? =
+            scopes.firstOrNull { it.accountId == accountId }?.mailboxId
+
+        /** The marker a row from [accountId] draws, or null when there is nothing to disambiguate. */
+        fun rowAccount(accountId: String): GridlinkMailMapping.Row.Account? =
+            accounts[accountId]?.let { GridlinkMailMapping.Row.Account(accountId, it) }
+    }
 
     /**
      * The list's quick filters, as the chips above the list report them.
@@ -281,11 +354,30 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
      * known until a refresh has reported it: a freshly created account has `inboxId == null`, and
      * this is what re-points the list at the mailbox the moment the first sync names it.
      */
-    private val window: Flow<Window?> = combine(accountId, store.accountsFlow, filter) { id, accounts, chips ->
-        val account = accounts.firstOrNull { it.id == id } ?: return@combine null
-        val inbox = account.inboxId ?: return@combine null
-        Window(account.id, inbox, account.syncWindow.limit, chips)
-    }.distinctUntilChanged()
+    private val inboxWindow: Flow<InboxWindow?> =
+        combine(accountId, store.accountsFlow, filter, settings.unifiedInbox) { id, accounts, chips, merged ->
+            // Accounts with no inbox id are not "excluded", they are not answerable yet: the id
+            // arrives with the first sync. Left in, they would contribute an empty scope and the
+            // merged list would look like that account had no mail rather than no answer.
+            val usable = accounts.filter { it.inboxId != null }
+            // 🔴 One usable account collapses to the ordinary single-account window even with the
+            // preference on, and that is the same rule the drawer row is hidden by. A merged list
+            // over one account is the same list with an account marker repeated down every row,
+            // and its keys would be qualified for no reason.
+            if (merged && usable.size > 1) {
+                InboxWindow(
+                    scopes = usable.map { InboxScope(it.id, it.inboxId.orEmpty(), it.syncWindow.limit) },
+                    accounts = usable.associate { it.id to it.label() },
+                    filter = chips,
+                )
+            } else {
+                val account = usable.firstOrNull { it.id == id } ?: return@combine null
+                InboxWindow(
+                    scopes = listOf(InboxScope(account.id, account.inboxId.orEmpty(), account.syncWindow.limit)),
+                    filter = chips,
+                )
+            }
+        }.distinctUntilChanged()
 
     /**
      * The list's rows, flat or collapsed by conversation.
@@ -301,21 +393,32 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val rows: Flow<List<GridlinkMailMapping.Row>> =
-        combine(window, settings.conversationView) { w, conversations -> w to conversations }
+        combine(inboxWindow, settings.conversationView) { w, conversations -> w to conversations }
             .distinctUntilChanged()
             .flatMapLatest { (w, conversations) ->
                 when {
                     w == null -> flowOf(emptyList())
-                    conversations -> repo.observeMailboxThreadWindow(w.accountId, w.mailboxId, w.limit, w.filter)
-                        .map { rows ->
-                            rows.map { GridlinkMailMapping.Row(it.email, it.threadCount, it.unread) }
-                        }
+                    // 🔴 Both branches go through the UNIFIED reads even with one account in the
+                    // window, where they are the single-account queries plus a wrapper. One code
+                    // path, so the ordinary inbox is the case that gets exercised every launch
+                    // rather than a second implementation that only runs when two accounts are
+                    // merged and is therefore the one nobody notices breaking.
+                    conversations -> repo.observeUnifiedThreadWindow(w.scopes, w.filter)
+                        .map { rows -> rows.map { it.asRow(w) } }
                         .onEach { primed.value = true }
-                    else -> repo.observeMailboxWindow(w.accountId, w.mailboxId, w.limit, w.filter)
-                        .map { emails -> emails.map { GridlinkMailMapping.Row(it) } }
+                    else -> repo.observeUnifiedWindow(w.scopes, w.filter)
+                        .map { rows -> rows.map { it.asRow(w) } }
                         .onEach { primed.value = true }
                 }
             }
+
+    /** A merged cache row as the mapper wants it, carrying its account only when the list merges. */
+    private fun ScopedInboxRow.asRow(w: InboxWindow) = GridlinkMailMapping.Row(
+        email = row.email,
+        threadCount = row.threadCount,
+        threadUnread = row.unread,
+        account = w.rowAccount(accountId),
+    )
 
     /**
      * Narrow the inbox to unread / starred / has-attachment, or widen it again.
@@ -585,28 +688,50 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val threads: Flow<Map<String, List<GridlinkMessage>>> =
-        combine(window, expandedThreads, settings.conversationView) { w, keys, conversations ->
+        combine(inboxWindow, expandedThreads, settings.conversationView) { w, keys, conversations ->
             (if (conversations) w else null) to keys
         }
             .flatMapLatest { (w, keys) ->
-                if (w == null || keys.isEmpty()) {
+                // 🔴 An unfolded key is a ROW key, so in the unified inbox it names the account as
+                // well as the thread. Read as a bare thread id it would be handed to whichever
+                // account happens to be bound, and on one server two accounts genuinely share thread
+                // ids: the row would unfold the OTHER account's conversation under it.
+                val resolved = if (w == null) emptyList() else keys.mapNotNull { key ->
+                    val (keyAccount, threadKey) = GridlinkRowKey.decode(key)
+                    // An unqualified key was written by a single-account list, and the account it
+                    // meant is the one still bound. See [GridlinkRowKey.decode].
+                    val account = keyAccount ?: w.scopes.firstOrNull()?.accountId
+                    val mailbox = account?.let(w::mailboxOf)
+                    if (account == null || mailbox == null) null else {
+                        Triple(key, account, threadKey to mailbox)
+                    }
+                }
+                if (w == null || resolved.isEmpty()) {
                     flowOf(emptyMap())
                 } else {
                     combine(
-                        keys.map { key ->
-                            repo.observeThreadEmails(w.accountId, listOf(w.mailboxId), key)
-                                .map { emails -> key to emails }
+                        resolved.map { (key, account, thread) ->
+                            val (threadKey, mailbox) = thread
+                            repo.observeThreadEmails(account, listOf(mailbox), threadKey)
+                                .map { emails -> Triple(key, account, emails) }
                         },
-                    ) { pairs ->
+                    ) { triples ->
                         val zone = ZoneId.systemDefault()
                         val today = LocalDate.now(zone)
-                        pairs.associate { (key, emails) ->
+                        triples.associate { (key, account, emails) ->
                             // The section is re-stated for [folderMail]'s reason: an unfolded child
                             // is drawn under its parent row and never under a day heading, so the
                             // AUTOMATED marking the bundle needs must not follow it there.
                             key to emails.map { email ->
-                                GridlinkMailMapping.message(email, LABELS, zone, today)
-                                    .copy(section = GridlinkMailMapping.section(email, zone, today))
+                                GridlinkMailMapping.message(
+                                    email = email,
+                                    labels = LABELS,
+                                    zone = zone,
+                                    today = today,
+                                    // The children are rows too: they are selectable and swipeable,
+                                    // so their keys have to be qualified exactly as their parent's is.
+                                    account = w.rowAccount(account),
+                                ).copy(section = GridlinkMailMapping.section(email, zone, today))
                             }
                         }
                     }
@@ -1091,9 +1216,12 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
      * tap as [GridlinkMailAction.MARK_READ]: two writes for one gesture would race, and the loser
      * would be an unread flag flickering back on.
      */
-    fun open(emailId: String) {
-        val id = accountId.value ?: return
-        val credentials = store.credentials(id) ?: return
+    fun open(rowKey: String) {
+        // 🔴 A ROW key, not a message id: in the unified inbox it names the account too, and the
+        // account it names is the one to fetch from. Everything below keeps using the row key as the
+        // open message's identity ([GridlinkOpenMessage.id]) because that is what the list compares
+        // against to highlight the open row; only the calls that reach the server take [emailId].
+        val (credentials, emailId) = resolve(rowKey) ?: return
         openJob?.cancel()
         // Cleared first so the previous message's body cannot paint under the new one's header for
         // the frames before this one lands. [GridlinkOpenMessage.id] is the belt to this braces.
@@ -1108,7 +1236,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             } catch (t: Throwable) {
                 Log.w(TAG, "open failed", t)
                 opened.value = GridlinkOpenMessage(
-                    id = emailId,
+                    id = rowKey,
                     html = "",
                     error = t.message ?: t.javaClass.simpleName,
                 )
@@ -1119,7 +1247,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             val parts = attachmentPartsOf(body.email)
             openedParts = parts
             opened.value = GridlinkOpenMessage(
-                id = emailId,
+                id = rowKey,
                 html = readable.content,
                 attachments = attachmentsOf(parts),
                 plainText = readable.plainText,
@@ -1181,13 +1309,15 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
      * there is no error surface on the folder list to say "couldn't load that draft", and inventing
      * one here would be a second sync chip.
      */
-    fun editDraft(emailId: String?) {
-        if (emailId == null) {
+    fun editDraft(rowKey: String?) {
+        if (rowKey == null) {
             draftEdit.value = null
             return
         }
-        val id = accountId.value ?: return
-        val credentials = store.credentials(id) ?: return
+        // Drafts are reached through the folder list, which is single-account and hands over bare
+        // ids, so this decodes to itself there. It goes through [resolve] anyway rather than
+        // assuming that stays true: an unqualified key IS a bare id, so the two cost the same.
+        val (credentials, emailId) = resolve(rowKey) ?: return
         draftJob?.cancel()
         draftJob = viewModelScope.launch {
             val body = try {
@@ -1477,6 +1607,52 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     }
 
     /**
+     * Row keys sorted back into the accounts that own them, each with the credentials to act with.
+     *
+     * ## 🔴 The one thing the unified inbox cannot get wrong
+     * A selection made in a merged list can hold mail from several accounts, and a message id is
+     * unique only within its own account (RFC 8620 §1.6.2). Sending the whole selection to one
+     * account's credentials would not fail loudly, which is the danger: the ids of the OTHER
+     * account's messages are perfectly valid ids in this one, so the server would archive somebody
+     * else's mail and report success. This is the single function that stands between the merged
+     * list and that outcome, which is why every action goes through it rather than reading
+     * [accountId] directly.
+     *
+     * Unqualified keys resolve to the bound account, which is what they mean (see
+     * [GridlinkRowKey.decode]) and what makes the ordinary single-account path byte-identical to
+     * what it was: one group, one credential, the same call.
+     *
+     * An account with no usable credential is DROPPED with a log rather than folded into another
+     * group. There is no honest fallback: the alternative is acting on the wrong mailbox.
+     */
+    /**
+     * [routed] for a single row key: the credentials to act with and the id the server knows.
+     *
+     * Null when the account behind the key has no usable credential, which stops the caller rather
+     * than letting it fall back to whatever account happens to be bound.
+     */
+    private fun resolve(rowKey: String): Pair<AccountCredentials, String>? {
+        val (keyAccount, emailId) = GridlinkRowKey.decode(rowKey)
+        val credentials = (keyAccount ?: accountId.value)?.let(store::credentials) ?: return null
+        return credentials to emailId
+    }
+
+    private fun routed(keys: Collection<String>): List<Pair<AccountCredentials, List<String>>> {
+        val bound = accountId.value
+        return keys.map(GridlinkRowKey::decode)
+            .groupBy({ it.first ?: bound }, { it.second })
+            .mapNotNull { (account, ids) ->
+                val credentials = account?.let(store::credentials)
+                if (credentials == null) {
+                    Log.w(TAG, "no credentials for account $account: ${ids.size} message(s) left untouched")
+                    null
+                } else {
+                    credentials to ids
+                }
+            }
+    }
+
+    /**
      * Do what the list just said the user asked for.
      *
      * Fire and forget, on the view model's scope rather than the caller's: the list has already
@@ -1497,12 +1673,17 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
      * from an enum. Both are dispatched by the same tap, and the split is deliberate: the request
      * goes to a stranger and the filing does not, so they fail separately and a sender who ignores
      * the request still does not get their mail back into the inbox.
+     *
+     * 🔴 Split in two for the unified inbox: a selection can now span accounts, so this fans out
+     * over [routed] and the body below runs once per account with that account's own credentials.
      */
     fun act(ids: Set<String>, action: GridlinkMailAction) {
         if (ids.isEmpty()) return
-        val id = accountId.value ?: return
-        val credentials = store.credentials(id) ?: return
-        val targets = ids.toList()
+        routed(ids).forEach { (credentials, targets) -> act(credentials, targets, action) }
+    }
+
+    /** [act] for one account's share of a selection. See [routed]. */
+    private fun act(credentials: AccountCredentials, targets: List<String>, action: GridlinkMailAction) {
         viewModelScope.launch {
             try {
                 when (action) {
@@ -1568,21 +1749,74 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
      */
     fun move(ids: Set<String>, mailboxId: String) {
         if (ids.isEmpty() || mailboxId.isEmpty()) return
-        val id = accountId.value ?: return
-        val credentials = store.credentials(id) ?: return
-        val targets = ids.toList()
+        val groups = routed(ids)
+        if (groups.isEmpty()) return
+        val home = accountId.value
         viewModelScope.launch {
-            try {
-                repo.moveAllToMailbox(credentials, targets, mailboxId)
-                // The mail is no longer where its notification says it is, and the tap intent
-                // carries the OLD mailbox id. See [dismissNotifications].
-                dismissNotifications(credentials, targets)
-            } catch (c: CancellationException) {
-                throw c
-            } catch (t: Throwable) {
-                Log.w(TAG, "move failed", t)
+            // The folder the user tapped, read once, so the other accounts have something to match
+            // against. Null when the tree has not answered, which skips the cross-account leg
+            // entirely rather than guessing.
+            val template = home
+                ?.let { runCatching { repo.observeMailboxes(it).first() }.getOrNull() }
+                ?.firstOrNull { it.id == mailboxId }
+            var skipped = 0
+            groups.forEach { (credentials, targets) ->
+                try {
+                    val destination = if (credentials.id == home) {
+                        mailboxId
+                    } else {
+                        counterpartMailbox(credentials.id, template)
+                    }
+                    if (destination == null) {
+                        // 🔴 Skipped and COUNTED, never approximated. The alternative is filing
+                        // somebody's mail into whichever folder looked closest, which is the one
+                        // outcome a move must not have.
+                        skipped += targets.size
+                        Log.w(TAG, "no counterpart for ${template?.name} in ${credentials.id}")
+                        return@forEach
+                    }
+                    repo.moveAllToMailbox(credentials, targets, destination)
+                    // The mail is no longer where its notification says it is, and the tap intent
+                    // carries the OLD mailbox id. See [dismissNotifications].
+                    dismissNotifications(credentials, targets)
+                } catch (c: CancellationException) {
+                    throw c
+                } catch (t: Throwable) {
+                    Log.w(TAG, "move failed", t)
+                }
+            }
+            if (skipped > 0) {
+                // Said out loud, because the rows have already animated out of the list and their
+                // coming back at the next sync would otherwise be the only sign anything went wrong.
+                Toast.makeText(
+                    getApplication(),
+                    "$skipped message(s) stayed put: no matching folder in their account.",
+                    Toast.LENGTH_LONG,
+                ).show()
             }
         }
+    }
+
+    /**
+     * The folder in [accountId] that means what [template] means in the account it came from.
+     *
+     * ## 🔴 Why a mailbox id cannot simply be reused
+     * A mailbox id is scoped to its account exactly as a message id is, so the id the picker handed
+     * back is meaningless in anybody else's mailbox — and worse than meaningless on one server,
+     * where the same id exists in both accounts and names an unrelated folder. So the destination is
+     * re-resolved per account, by what the folder IS rather than by what it is called on the wire.
+     *
+     * Role first, because a role is the server's own statement that this is the Archive; name second,
+     * for the user's own folders, which have no role and are matched case-insensitively because that
+     * is how a person means "the same folder". No third guess: a folder that matches on neither is
+     * not the same folder, and the caller reports it instead of picking something.
+     */
+    private suspend fun counterpartMailbox(accountId: String, template: Mailbox?): String? {
+        if (template == null) return null
+        val boxes = runCatching { repo.observeMailboxes(accountId).first() }.getOrNull() ?: return null
+        val role = template.role?.takeIf { it.isNotBlank() }?.lowercase()
+        return boxes.firstOrNull { role != null && it.role?.lowercase() == role }?.id
+            ?: boxes.firstOrNull { it.name.equals(template.name, ignoreCase = true) }?.id
     }
 
     /**
@@ -1713,9 +1947,10 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
      * created ([app.gridlink.core.data.settings.MailTag.keyword]); the label is this device's word for
      * it and renaming a tag deliberately does not rewrite what is already on the mail.
      */
-    fun setTag(emailId: String, keyword: String, applied: Boolean) {
-        val id = accountId.value ?: return
-        val credentials = store.credentials(id) ?: return
+    fun setTag(rowKey: String, keyword: String, applied: Boolean) {
+        // A row key, for [open]'s reason: this is called with the OPEN message's identity, and in
+        // the unified inbox that identity carries the account the message came from.
+        val (credentials, emailId) = resolve(rowKey) ?: return
         viewModelScope.launch {
             try {
                 repo.setTag(credentials, emailId, keyword, applied)

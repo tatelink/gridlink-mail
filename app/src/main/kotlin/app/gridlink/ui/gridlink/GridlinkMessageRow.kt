@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -289,6 +290,28 @@ fun GridlinkMessageRow(
                         // Takes all the slack, which pins the timestamp to the trailing edge.
                         modifier = Modifier.weight(1f),
                     )
+                    // 🔴 Only in the merged inbox, and null everywhere else. In a single-account
+                    // list every row would carry the same word, which is a column of noise that
+                    // costs the sender its width and says nothing; merged, it is the one thing the
+                    // row cannot otherwise tell you, because two accounts on one server routinely
+                    // hold the same message ids and the same senders write to both.
+                    //
+                    // Metadata weight beside the sender's, and capped, so it reads as the row's
+                    // provenance rather than as part of the name. The sender takes the slack
+                    // (`weight(1f)` above), so a long account label shortens the NAME rather than
+                    // pushing the timestamp off the edge; this cap is what stops it going far.
+                    if (message.accountLabel != null) {
+                        Text(
+                            text = message.accountLabel,
+                            style = GridlinkType.metadata,
+                            color = colors.textSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .padding(start = GridlinkSpacing.s8)
+                                .widthIn(max = ACCOUNT_LABEL_MAX),
+                        )
+                    }
                     Text(
                         text = message.timestamp,
                         style = GridlinkType.timestamp,
@@ -408,6 +431,15 @@ fun GridlinkMessageRow(
         }
     }
 }
+
+/**
+ * How wide the merged inbox's account marker may get before it ellipsises.
+ *
+ * Sized to hold a short account name or the local part of an address, which is what distinguishes
+ * two accounts in practice. Wider would start competing with the sender for line 1; narrower would
+ * cut every label to two characters and answer nothing.
+ */
+private val ACCOUNT_LABEL_MAX = 96.dp
 
 /**
  * The count pill on a conversation row: how many messages are behind it, and the tap that unfolds
