@@ -171,12 +171,12 @@ fun GridlinkScaffold(
     val chrome = LocalGridlinkChrome.current
     val sync = chrome.sync
     var menuOpen by rememberSaveable(chrome.menuOpenAtStart) { mutableStateOf(chrome.menuOpenAtStart) }
-    // The height of whatever chrome the list column still stacks above its panel, so §7's reading
-    // pane can start its glass on the same line. Now that the title lives on the chrome row, this
-    // is only [belowHeader] (the calendar's view switcher): on every other screen nothing is
-    // measured, the local stays 0, and the panels align at the top for free.
+    // The height of whatever chrome the list column stacks above its panel, so §7's reading pane can
+    // start its glass on the same line. In two panes that is the chrome row itself plus
+    // [belowHeader] (the calendar's view switcher); in one pane nothing reads it at all.
     val density = LocalDensity.current
     var headerHeight by remember { mutableStateOf(0.dp) }
+    var chromeHeight by remember { mutableStateOf(0.dp) }
     // What the drawer looks through. Null on API 30 and below, where the frost is composed instead.
     val backdrop = rememberGridlinkBackdrop()
     Box(modifier = modifier.fillMaxSize()) {
@@ -192,12 +192,11 @@ fun GridlinkScaffold(
             // this body for the wide case is how a header ends up padded differently on a Fold than
             // on the same app's cover display.
             //
-            // 🔴 [GridlinkChromeRow] is deliberately NOT in here. It is app chrome (the hamburger,
-            // the title, the sync chip, the search pill), so in two panes it spans both, above the
-            // split. Left inside the column it would sit over the list only, which is wrong twice:
-            // the sync state would read as a property of the inbox rather than of the account, and
-            // the reading pane would start one chrome row higher than the list beside it, so the
-            // two glass panels would never line up.
+            // 🔴 [GridlinkChromeRow] is not in here either, but it is now a SIBLING directly above
+            // this column rather than a band across the window (see the two-pane branch below). It
+            // stays out of this slot for the same reason it always did: this lambda is called at two
+            // widths, and the row has to be measured exactly once, where the reading pane can read
+            // its height.
             //
             // ⚠️ There is no `header()` in here any more. The title used to be the column's first
             // child; it now rides the chrome row (see [GridlinkChromeRow]'s header seat), so the
@@ -297,7 +296,20 @@ fun GridlinkScaffold(
                     .fillMaxSize()
                     .windowInsetsPadding(WindowInsets.systemBars),
             ) {
-                Column(modifier = Modifier.fillMaxSize()) {
+                // The app chrome: hamburger, title, sync chip, and the screen's trailing control.
+                //
+                // 🔴 In two panes this is composed INSIDE the list column, not across both. It used
+                // to span the window, on the argument that sync state belongs to the account rather
+                // than to the inbox. Brandon overruled it on the shape of the thing: *"move search
+                // hourglass to right top of the left-side pane"*. The hourglass searches the LIST,
+                // and parked at the window's far right it was a control sitting over the message you
+                // are reading, three hundred and eighty dp from the thing it acts on.
+                //
+                // What that buys is the whole point of the change: the band across the top of the
+                // reading pane is now free, and [GridlinkDetailFrame] spends it on the subject and
+                // the sender. The two glass panels still start on the same line, because the pane
+                // reads this row's measured height through [LocalGridlinkPaneHeaderHeight].
+                val chromeRow: @Composable () -> Unit = {
                     GridlinkChromeRow(
                         onOpenMenu = { menuOpen = true },
                         sync = sync,
@@ -307,15 +319,30 @@ fun GridlinkScaffold(
                         // hamburger would be a close button on an inbox with nothing ticked.
                         onCloseSelection = onClearSelection.takeIf { selecting },
                     )
+                }
+                Column(modifier = Modifier.fillMaxSize()) {
                     if (sidePane == null) {
+                        chromeRow()
                         mailColumn(Modifier.weight(1f).fillMaxWidth())
                     } else {
                         Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                            mailColumn(
-                                Modifier
+                            Column(
+                                modifier = Modifier
                                     .width(GridlinkDimens.listPaneWidth)
                                     .fillMaxHeight(),
-                            )
+                            ) {
+                                Box(
+                                    // Measured, not assumed: the row's height moves with the font
+                                    // scale and with whether the sync chip is showing, and the pane
+                                    // beside it has to clear exactly as much as it actually took.
+                                    modifier = Modifier.onSizeChanged { size ->
+                                        chromeHeight = with(density) { size.height.toDp() }
+                                    },
+                                ) {
+                                    chromeRow()
+                                }
+                                mailColumn(Modifier.weight(1f).fillMaxWidth())
+                            }
                             // No divider down the seam. Both panes inset their glass by the same
                             // [GridlinkSpacing.chrome], so the gap between the two panels is already
                             // twice that with the aurora showing through it. The backdrop IS the
@@ -328,13 +355,14 @@ fun GridlinkScaffold(
                                     .fillMaxHeight(),
                             ) {
                                 CompositionLocalProvider(
-                                    // Zeroed while there is no belowHeader rather than trusting
-                                    // the measurement: onSizeChanged only fires while the box is
-                                    // composed, so a switcher that left would strand its last
-                                    // height in [headerHeight] and push the pane down a phantom
-                                    // row.
+                                    // The chrome row plus whatever else the column stacks above its
+                                    // glass. Zeroed on the belowHeader half while there is none
+                                    // rather than trusting the measurement: onSizeChanged only
+                                    // fires while the box is composed, so a switcher that left
+                                    // would strand its last height in [headerHeight] and push the
+                                    // pane down a phantom row.
                                     LocalGridlinkPaneHeaderHeight provides
-                                        if (belowHeader == null) 0.dp else headerHeight,
+                                        chromeHeight + if (belowHeader == null) 0.dp else headerHeight,
                                 ) {
                                     sidePane()
                                 }

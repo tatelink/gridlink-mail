@@ -228,6 +228,15 @@ fun GridlinkThreadScreen(
                 },
             )
         },
+        // 🔴 Embedded only, and it is the same block either way — not a second copy of the sender
+        // written for the pane. In two panes the frame draws it above the glass with the subject
+        // (see [GridlinkDetailFrame]); folded, there is no band to put it in, so it stays the first
+        // thing inside the panel exactly as before.
+        header = if (embedded) {
+            { GridlinkThreadSender(message, banded = true) }
+        } else {
+            null
+        },
         bottom = {
             // ⚠️ Recomputed per message, not remembered against the setting alone: `hasUnsubscribe`
             // is a property of the message and it arrives LATE, with the body fetch. The bar
@@ -280,14 +289,16 @@ fun GridlinkThreadScreen(
                 )
             }
 
-            GridlinkThreadSender(message)
+            if (!embedded) {
+                GridlinkThreadSender(message)
 
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(GridlinkDimens.hairline)
-                    .background(colors.divider),
-            )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(GridlinkDimens.hairline)
+                        .background(colors.divider),
+                )
+            }
 
             // Only when blocking would actually change what is on screen. A banner over a message
             // that never asked for anything is noise, and noise is how a privacy control stops
@@ -453,10 +464,20 @@ fun GridlinkThreadScreen(
  * ⚠️ Collapsed state is per-composition and deliberately not remembered across messages. Expanding
  * one sender is a question about that sender, not a preference.
  */
+/*
+ * [banded] draws the same block above the reading pane's glass instead of inside it, which is where
+ * it lives in two panes now that the subject moved up there ("take the subject and the header out of
+ * the window and display above in the newly created space"). Two things change and nothing else:
+ * the sender-domain colour bar goes, because it is an edge marker for a row inside a panel and in
+ * the band it would sit outside the pane's left margin, and the horizontal padding goes with it so
+ * the sender name starts on the same pixel column as the subject directly above it. The vertical
+ * padding tightens because the band already pads itself; the point of the move was reading room.
+ */
 @Composable
 private fun GridlinkThreadSender(
     message: GridlinkMessage,
     modifier: Modifier = Modifier,
+    banded: Boolean = false,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
@@ -471,12 +492,14 @@ private fun GridlinkThreadSender(
             .fillMaxWidth()
             .height(IntrinsicSize.Min),
     ) {
-        Box(
-            modifier = Modifier
-                .width(GridlinkDimens.senderBarWidth)
-                .fillMaxHeight()
-                .background(gridlinkSenderBarColor(mode, message.domain)),
-        )
+        if (!banded) {
+            Box(
+                modifier = Modifier
+                    .width(GridlinkDimens.senderBarWidth)
+                    .fillMaxHeight()
+                    .background(gridlinkSenderBarColor(mode, message.domain)),
+            )
+        }
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -484,8 +507,8 @@ private fun GridlinkThreadSender(
                 // to hit on a phone, and there is nothing else in this header to tap.
                 .clickable { expanded = !expanded }
                 .padding(
-                    horizontal = GridlinkSpacing.rowHorizontal,
-                    vertical = GridlinkSpacing.s16,
+                    horizontal = if (banded) 0.dp else GridlinkSpacing.rowHorizontal,
+                    vertical = if (banded) GridlinkSpacing.s4 else GridlinkSpacing.s16,
                 ),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {

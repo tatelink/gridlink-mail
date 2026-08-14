@@ -1,21 +1,21 @@
 package app.gridlink.ui.gridlink
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.AttachFile
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.FilterList
+import androidx.compose.material.icons.outlined.FilterListOff
 import androidx.compose.material.icons.outlined.MarkEmailUnread
-import androidx.compose.material.icons.outlined.Sell
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -44,152 +44,104 @@ import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
 
 /**
- * The inbox's quick filters: unread, starred, has an attachment.
+ * The inbox's quick filters: unread, starred, has an attachment, one tag. All behind one button.
  *
- * Brandon asked for exactly this, in the same breath as turning down LLM categorization of mail:
- * "Not needed at my mail volume. A smart search or filter built into the app would be plenty I
- * think." So it is three switches over facts the cache already stores, and not a classifier.
+ * Brandon asked for the filters themselves in the same breath as turning down LLM categorization of
+ * mail: "Not needed at my mail volume. A smart search or filter built into the app would be plenty I
+ * think." So they are switches over facts the cache already stores, and not a classifier.
  *
  * ## Where the narrowing actually happens, and why it is not here
- * 🔴 This row reports; it does not filter. A real account's chips travel up to `MailFilter` and land
- * in the SQL that reads the mailbox window, **before** the window's `LIMIT`. That distinction is the
- * whole correctness of the feature: filtering the rows this screen already holds would search only
- * the newest N messages and quietly answer a narrower question than the chip asks. "Starred" would
- * mean "starred, among the fifty most recent", which is not what anybody taps it for.
+ * 🔴 This control reports; it does not filter. A real account's switches travel up to `MailFilter`
+ * and land in the SQL that reads the mailbox window, **before** the window's `LIMIT`. That
+ * distinction is the whole correctness of the feature: filtering the rows this screen already holds
+ * would search only the newest N messages and quietly answer a narrower question than the switch
+ * asks. "Starred" would mean "starred, among the fifty most recent", which is not what anybody taps
+ * it for.
  *
  * The sample is the one place a local filter is honest, and for the same reason search is filtered
  * locally there: the fixtures ARE the whole mailbox, so there is no rest of it to miss.
  *
- * ## The on/off vocabulary
- * A lit chip takes the accent gradient and [GridlinkColors.onAccent], exactly as the selected nav
- * destination and the compose button do. 🔴 An unlit one gets the collapsed search pill's glass
- * (14% surface, 35% hairline) at full opacity and is NEVER dimmed with alpha — Brandon reads
- * opacity-dimming as broken rather than as off, and has said so more than once. Off is "not
- * filled", not "faded".
+ * ## 🔴 One button, not four chips
+ * This was a scrolling row of four outlined pills sitting on top of the mail list. Brandon, on the
+ * two-pane inbox: *"unread, starred, attachment, tags - don't outline them. can they all live behind
+ * a button?"* They can, and the row was paying for itself badly: four controls permanently occupying
+ * the top of the list to hold four states that are off almost all of the time, in a 380dp column
+ * they did not fit, so the fourth one was always half out of the glass.
  *
- * ## Why it scrolls sideways
- * Three labelled pills do not fit the 380dp list column of the two-pane layout, and an ellipsised
- * filter label is a filter nobody can identify. Scrolling is the one option that keeps every label
- * whole at every width; the alternative was dropping the labels and shipping three unexplained
- * glyphs.
+ * So it collapses to one control, and the sheet behind it is where the four states live. That costs
+ * a tap to CHANGE a filter and costs nothing to READ one, which is the right way round: the question
+ * "why is my inbox short" gets answered on the button itself, in words.
+ *
+ * ## The on/off vocabulary
+ * Lit takes the accent gradient and [GridlinkColors.onAccent], exactly as the selected nav
+ * destination and the compose button do. 🔴 Unlit is now a bare glyph and label with no fill and no
+ * hairline (the outline Brandon called out), and it is NEVER dimmed with alpha — he reads
+ * opacity-dimming as broken rather than as off, and has said so more than once. Off is "not filled",
+ * not "faded".
+ *
+ * 🔴 The lit label names the filter rather than saying "Filter": "Unread", or the tag's own name,
+ * or "3 filters" once there are more names than fit. A lit control that still said "Filter" would be
+ * the one thing on this screen whose label does not answer "what am I looking at".
  */
 @Composable
-fun GridlinkFilterChips(
+fun GridlinkFilterBar(
     filter: MailFilter,
     onFilter: (MailFilter) -> Unit,
     modifier: Modifier = Modifier,
     /**
-     * The reader's tags, for the fourth chip.
+     * The reader's tags, for the tag section of the sheet.
      *
-     * 🔴 Empty means the chip is not drawn at all. Tags are a feature you opt into by inventing one,
-     * and a filter for a feature nobody here uses is a control that can only ever return nothing.
+     * 🔴 Empty means that section is not drawn at all. Tags are a feature you opt into by inventing
+     * one, and a filter for a feature nobody here uses is a control that can only ever return
+     * nothing.
      */
     tagDefinitions: List<MailTag> = emptyList(),
 ) {
-    val scroll = rememberScrollState()
-    var pickingTag by remember { mutableStateOf(false) }
+    var open by remember { mutableStateOf(false) }
+    val picked = tagDefinitions.firstOrNull { it.keyword == filter.tag }
+    val tagLabel = picked?.let { it.label.ifBlank { it.keyword } }
     Row(
-        modifier = modifier.horizontalScroll(scroll),
-        horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s8),
+        modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        GridlinkFilterChip(
-            label = "Unread",
-            icon = Icons.Outlined.MarkEmailUnread,
-            active = filter.unread,
-            onClick = { onFilter(filter.copy(unread = !filter.unread)) },
+        GridlinkFilterButton(
+            label = gridlinkFilterButtonLabel(filter, tagLabel),
+            active = filter.isActive,
+            // Lit in the TAG's colour when the tag is the only thing narrowing the list, not the
+            // accent. The dots on the rows below are that colour, and lighting the app accent
+            // instead would break the one thread tying the filter to what it filtered to. With a
+            // second condition on, the button is no longer speaking for the tag alone, so it goes
+            // back to the accent.
+            activeFill = picked
+                ?.takeIf { !filter.unread && !filter.starred && !filter.hasAttachment }
+                ?.let { Color(it.tagColor.argb) },
+            onClick = { open = true },
         )
-        GridlinkFilterChip(
-            label = "Starred",
-            icon = Icons.Filled.Star,
-            active = filter.starred,
-            onClick = { onFilter(filter.copy(starred = !filter.starred)) },
-        )
-        GridlinkFilterChip(
-            label = "Attachments",
-            icon = Icons.Outlined.AttachFile,
-            active = filter.hasAttachment,
-            onClick = { onFilter(filter.copy(hasAttachment = !filter.hasAttachment)) },
-        )
-        if (tagDefinitions.isNotEmpty()) {
-            val picked = tagDefinitions.firstOrNull { it.keyword == filter.tag }
-            GridlinkFilterChip(
-                // 🔴 The chip names the tag once one is picked, rather than staying "Tags" with a
-                // dot. The other three chips are their own labels — a lit "Starred" says what the
-                // list is showing — and a lit chip that still said "Tags" would be the one control
-                // in the row whose label did not answer "what am I looking at".
-                label = picked?.label?.ifBlank { picked.keyword } ?: "Tags",
-                icon = Icons.Outlined.Sell,
-                active = picked != null,
-                // Lit in the TAG's colour, not the accent. The dots on the rows below are that
-                // colour, and a chip lit in the app accent would break the one thread tying the
-                // filter to what it filtered to.
-                activeFill = picked?.let { Color(it.tagColor.argb) },
-                onClick = { pickingTag = true },
-            )
-        }
     }
 
-    if (pickingTag) {
-        GridlinkCenterSheet(onDismiss = { pickingTag = false }) {
-            GridlinkSheetHeading(
-                title = "Filter by tag",
-                icon = Icons.Outlined.Sell,
-                subline = "One at a time",
-            )
-            GridlinkSheetDivider()
-            // 🔴 ONE tag, so picking replaces rather than adds, and this row is how you get back
-            // out. AND-ing two reader-invented tags answers "which mail carries BOTH", which is
-            // almost never the question and leaves an empty list with no explanation; the reasoning
-            // is written down on [MailFilter.tag] itself.
-            GridlinkSheetAction(
-                label = "Any tag",
-                icon = Icons.Outlined.Sell,
-                onClick = {
-                    pickingTag = false
-                    onFilter(filter.copy(tag = null))
-                },
-            )
-            tagDefinitions.forEach { tag ->
-                GridlinkTagPickerRow(
-                    label = tag.label.ifBlank { tag.keyword },
-                    color = Color(tag.tagColor.argb),
-                    applied = tag.keyword == filter.tag,
-                    onClick = {
-                        pickingTag = false
-                        // Tapping the tag already filtered on clears it, so the chip is a toggle
-                        // from inside the sheet as well as a picker.
-                        onFilter(
-                            filter.copy(tag = tag.keyword.takeIf { it != filter.tag }),
-                        )
-                    },
-                )
-            }
-            GridlinkSheetFooterSpace()
-        }
+    if (open) {
+        GridlinkFilterSheet(
+            filter = filter,
+            onFilter = onFilter,
+            tagDefinitions = tagDefinitions,
+            onDismiss = { open = false },
+        )
     }
 }
 
 /**
- * One filter chip.
+ * The one control, in the seat the four chips used to share.
  *
- * Sized and dressed as the contacts sort pill and the collapsed search pill, because it is the same
- * kind of thing sitting in the same kind of seat. What it adds is the lit state.
- *
- * ⚠️ [Role.Checkbox] rather than `Button`. A screen reader announcing "Starred, button" leaves out
- * the only fact that matters, which is whether the list is currently narrowed to starred mail.
+ * ⚠️ [Role.Button] and not `Checkbox`. It is not a switch any more: it opens the sheet where the
+ * switches are. What a screen reader needs from it is the state, and the state is in the label,
+ * which is why the label changes rather than a lit fill carrying the whole message.
  */
 @Composable
-private fun GridlinkFilterChip(
+private fun GridlinkFilterButton(
     label: String,
-    icon: ImageVector,
     active: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    /**
-     * Fill for the lit state when it is not the app accent, which is the tag chip and only the tag
-     * chip. Null keeps the accent gradient every other chip in the row uses.
-     */
     activeFill: Color? = null,
 ) {
     val colors = GridlinkTheme.colors
@@ -199,6 +151,9 @@ private fun GridlinkFilterChip(
         modifier = modifier
             .height(GridlinkDimens.headerControl)
             .clip(shape)
+            // 🔴 Nothing at all when it is off: no fill, no border. The glass panel it sits on is
+            // already a surface, and a hairline drawn on top of one is the outline that got this
+            // rewritten. Lit, it is the same accent fill every other selected thing in the app takes.
             .then(
                 if (active) {
                     Modifier.background(
@@ -207,23 +162,17 @@ private fun GridlinkFilterChip(
                     )
                 } else {
                     Modifier
-                        .background(colors.surface.copy(alpha = 0.14f), shape)
-                        .border(
-                            GridlinkDimens.hairline,
-                            colors.surfaceBorder.copy(alpha = 0.35f),
-                            shape,
-                        )
                 },
             )
-            .clickable(role = Role.Checkbox, onClick = onClick)
+            .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = GridlinkSpacing.s12),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s8),
     ) {
         Icon(
-            imageVector = icon,
-            // Null, not the label: the Text below is already the row's accessible name, and a
-            // described icon beside it makes every chip announce itself twice.
+            imageVector = Icons.Outlined.FilterList,
+            // Null, not the label: the Text beside it is already the row's accessible name, and a
+            // described icon next to it makes the control announce itself twice.
             contentDescription = null,
             tint = content,
             modifier = Modifier.size(FILTER_CHIP_ICON),
@@ -234,6 +183,145 @@ private fun GridlinkFilterChip(
             color = content,
             maxLines = 1,
         )
+    }
+}
+
+/**
+ * What the button says, which is the whole readout now that the chips are gone.
+ *
+ * One active condition names itself. Two or more count themselves, because three labels joined by
+ * plus signs is longer than the list column is wide and an ellipsised filter is a filter nobody can
+ * identify. The empty state is the verb, not a noun: "Filter" is what tapping it does.
+ */
+private fun gridlinkFilterButtonLabel(filter: MailFilter, tagLabel: String?): String {
+    if (filter.isEmpty) return "Filter"
+    if (filter.count > 1) return "${filter.count} filters"
+    return when {
+        filter.unread -> "Unread"
+        filter.starred -> "Starred"
+        filter.hasAttachment -> "Attachments"
+        // The label, and the keyword only as a fallback, for [gridlinkFilterSummary]'s reason: the
+        // slug is an implementation detail the reader never typed.
+        else -> tagLabel ?: filter.tag.orEmpty()
+    }
+}
+
+/**
+ * The four filters, as rows.
+ *
+ * 🔴 Toggling does NOT close it. The three booleans AND together (see [matchesFilter]), so turning
+ * two on is one thought and one visit; a sheet that shut on the first tap would make combining them
+ * a game of reopening the same card. The tag rows behave the same way for consistency, even though
+ * only one tag can be on at a time.
+ */
+@Composable
+private fun GridlinkFilterSheet(
+    filter: MailFilter,
+    onFilter: (MailFilter) -> Unit,
+    tagDefinitions: List<MailTag>,
+    onDismiss: () -> Unit,
+) {
+    GridlinkCenterSheet(onDismiss = onDismiss) {
+        GridlinkSheetHeading(
+            title = "Filter mail",
+            icon = Icons.Outlined.FilterList,
+            subline = if (filter.isActive) "Tap a lit row to turn it off" else "Combine as many as you like",
+        )
+        GridlinkSheetDivider()
+        GridlinkFilterSheetRow(
+            label = "Unread",
+            icon = Icons.Outlined.MarkEmailUnread,
+            applied = filter.unread,
+            onClick = { onFilter(filter.copy(unread = !filter.unread)) },
+        )
+        GridlinkFilterSheetRow(
+            label = "Starred",
+            icon = Icons.Filled.Star,
+            applied = filter.starred,
+            onClick = { onFilter(filter.copy(starred = !filter.starred)) },
+        )
+        GridlinkFilterSheetRow(
+            label = "Attachments",
+            icon = Icons.Outlined.AttachFile,
+            applied = filter.hasAttachment,
+            onClick = { onFilter(filter.copy(hasAttachment = !filter.hasAttachment)) },
+        )
+        if (tagDefinitions.isNotEmpty()) {
+            GridlinkSheetDivider()
+            // 🔴 ONE tag, so picking replaces rather than adds. AND-ing two reader-invented tags
+            // answers "which mail carries BOTH", which is almost never the question and leaves an
+            // empty list with no explanation; the reasoning is written down on [MailFilter.tag].
+            tagDefinitions.forEach { tag ->
+                GridlinkTagPickerRow(
+                    label = tag.label.ifBlank { tag.keyword },
+                    color = Color(tag.tagColor.argb),
+                    applied = tag.keyword == filter.tag,
+                    // Tapping the tag already filtered on clears it, so a tag row is a toggle here
+                    // as well as a picker.
+                    onClick = { onFilter(filter.copy(tag = tag.keyword.takeIf { it != filter.tag })) },
+                )
+            }
+        }
+        if (filter.isActive) {
+            GridlinkSheetDivider()
+            // The one row that closes, because it is the only one you can have nothing left to do
+            // after. Everything off IS the answer, so leaving the card open over an unnarrowed list
+            // would be the app waiting for an instruction that has already been given.
+            GridlinkSheetAction(
+                label = "Clear filters",
+                icon = Icons.Outlined.FilterListOff,
+                onClick = {
+                    onDismiss()
+                    onFilter(MailFilter.none)
+                },
+            )
+        }
+        GridlinkSheetFooterSpace()
+    }
+}
+
+/**
+ * One switch in the sheet.
+ *
+ * Dressed as [GridlinkTagPickerRow], which sits directly below it in the same card: same height,
+ * same pad line, same "applied is textPrimary, off is textSecondary" rule. A check mark on the
+ * trailing edge carries the state a second time, in a shape that survives being read out loud.
+ */
+@Composable
+private fun GridlinkFilterSheetRow(
+    label: String,
+    icon: ImageVector,
+    applied: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = GridlinkTheme.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(role = Role.Checkbox, onClick = onClick)
+            .padding(horizontal = GridlinkSpacing.chrome, vertical = GridlinkSpacing.s12),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (applied) colors.accent else colors.textSecondary,
+            modifier = Modifier.size(FILTER_CHIP_ICON),
+        )
+        Text(
+            text = label,
+            style = GridlinkType.senderName,
+            color = if (applied) colors.textPrimary else colors.textSecondary,
+            modifier = Modifier.weight(1f).padding(start = GridlinkSpacing.s16),
+        )
+        if (applied) {
+            Icon(
+                imageVector = Icons.Outlined.Check,
+                contentDescription = null,
+                tint = colors.accent,
+                modifier = Modifier.size(FILTER_CHIP_ICON),
+            )
+        }
     }
 }
 
@@ -289,7 +377,7 @@ fun rememberGridlinkFilter(
  * Does this row survive [filter]?
  *
  * ⚠️ The SAMPLE's filter, and nothing else uses it. A real account is narrowed in SQL before the
- * mailbox window's `LIMIT` (see [GridlinkFilterChips]), and re-testing those rows here would be
+ * mailbox window's `LIMIT` (see [GridlinkFilterBar]), and re-testing those rows here would be
  * either a no-op or a disagreement, neither of which is worth the chance of the second one.
  *
  * AND, not OR: each lit chip is a further condition. "Unread" plus "Attachments" means unread mail
