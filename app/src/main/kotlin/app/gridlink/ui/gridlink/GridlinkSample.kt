@@ -583,7 +583,30 @@ enum class GridlinkSection(val label: String) {
 }
 
 data class GridlinkMessage(
+    /**
+     * The row's identity, opaque to every screen that handles it.
+     *
+     * 🔴 Usually the server's own message id, but in the unified inbox it is that id with the
+     * account prefixed (see `GridlinkRowKey`). It has to be, because **a JMAP email id is unique
+     * only within its account** (RFC 8620 §1.6.2), which is why the cache's own primary key is the
+     * PAIR `(accountId, id)`. Two of Brandon's accounts live on one Stalwart and routinely hold the
+     * same id, so a bare id in a merged list would select two messages with one tap and archive
+     * both.
+     *
+     * Everything downstream (the selection set, `removedIds`, the swipe recycle, the `currentId`
+     * highlight) already treats this as an opaque string and compares it to other row keys, so none
+     * of it had to change: the qualification happens here and is undone in
+     * [app.gridlink.ui.home.GridlinkMailViewModel] at the point an action needs a real account.
+     */
     val id: String,
+    /**
+     * Which account this row came from, spelled the way the row should say it, or null.
+     *
+     * Non-null ONLY in the unified inbox, and that is the point: it is the answer to "whose mail is
+     * this" in the one list where the question can be asked, and drawing it in a single-account
+     * inbox would be a column of the same address repeated down the screen.
+     */
+    val accountLabel: String? = null,
     val sender: String,
     /** Drives the identity bar colour. See `gridlinkSenderBarColor`. */
     val domain: String,

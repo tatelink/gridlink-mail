@@ -418,6 +418,16 @@ fun GridlinkScaffold(
                         menuOpen = false
                         chrome.routeFolder(null)
                     },
+                    unified = chrome.config.unifiedInbox,
+                    // Closes first, like every other row, then does BOTH halves: the preference
+                    // switch and the trip back to the list. The switch alone would leave the user
+                    // on whatever screen the drawer was opened over, watching a list they cannot
+                    // see change behind it.
+                    onSelectUnified = {
+                        menuOpen = false
+                        chrome.config.onSelectUnified(it)
+                        chrome.routeInbox()
+                    },
                     // Closes FIRST, then acts. A row that navigates out from under an open drawer
                     // leaves the drawer up over the thing it just opened; and a row wired to
                     // nothing (which most of them still are) then simply dismisses, which is the
@@ -1605,6 +1615,19 @@ fun GridlinkRoot(
                     progress.snapTo(0f)
                 }
                 chromeState.consumeFolderRoute()
+            }
+
+            // The merged-inbox pair, on the same channel pattern. It lands on the LIST, so it has
+            // to undo everything the two routes above set up: an open mailbox would panel the
+            // folder screen over the list, and an open thread belongs to the account (and possibly
+            // the very row-key shape) the switch just changed.
+            LaunchedEffect(chromeState.inboxRoute) {
+                chromeState.inboxRoute ?: return@LaunchedEffect
+                destination = GridlinkDestination.INBOX
+                openFolderId = null
+                openId = null
+                progress.snapTo(0f)
+                chromeState.consumeInboxRoute()
             }
 
             // The other half of [onEditDraft]'s round trip: the body arrived, open the composer on

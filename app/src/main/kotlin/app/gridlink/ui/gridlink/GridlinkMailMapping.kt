@@ -9,6 +9,59 @@ import java.time.ZoneId
 import java.util.Locale
 
 /**
+ * How a list row's identity is written down when the list can hold more than one account's mail.
+ *
+ * ## 🔴 Why a bare message id is not enough
+ * A JMAP email id is unique only within its account (RFC 8620 §1.6.2), which is why the cache's
+ * `EmailEntity` is keyed by the PAIR `(accountId, id)` rather than by the id. Two of Brandon's
+ * accounts sit on the same Stalwart and hand out the same ids, so in a merged inbox "archive the
+ * selected row" against a bare id would resolve to a message in each account and archive both. That
+ * is not a display bug, it is mail moving in a mailbox nobody touched.
+ *
+ * ## Why an encoded string rather than a pair
+ * The list screen threads identity through as `Set<String>` in a dozen places (the selection set,
+ * the swipe recycle, `removedIds`, the open-message highlight) and compares row keys to row keys
+ * without ever looking inside one. Encoding keeps that entire surface untouched and confines the
+ * question to the two ends: [encode] where a row is built, [decode] where an action needs a real
+ * account to talk to.
+ *
+ * [SEPARATOR] is NUL because it is the one byte that cannot appear in either half. An account id is
+ * generated locally and a message id comes off the wire, and picking a printable delimiter would be
+ * betting that no server ever puts it in an id.
+ */
+object GridlinkRowKey {
+
+    private const val SEPARATOR = '\u0000'
+
+    /**
+     * The row key for [emailId] in [accountId], or the bare id when [accountId] is null.
+     *
+     * 🔴 Null means "the list is showing one account", and it returns the id UNCHANGED on purpose:
+     * the single-account inbox is the overwhelmingly common case, and leaving its keys exactly as
+     * they were means nothing that persists or compares one (a saved selection, a pending recycle)
+     * can be confused by the unified inbox having been open earlier.
+     */
+    fun encode(accountId: String?, emailId: String): String =
+        if (accountId == null) emailId else "$accountId$SEPARATOR$emailId"
+
+    /**
+     * A row key back into the account it belongs to and the message id the server knows.
+     *
+     * An unqualified key yields a null account, which the caller resolves against the account the
+     * list is bound to. That is not a fallback bolted on, it is the exact meaning of an unqualified
+     * key: it was written by a list that was showing one account, and that account is the one still
+     * bound.
+     */
+    fun decode(key: String): Pair<String?, String> {
+        val cut = key.indexOf(SEPARATOR)
+        return if (cut < 0) null to key else key.substring(0, cut) to key.substring(cut + 1)
+    }
+
+    /** The message id inside [key], whichever form it is in. */
+    fun emailId(key: String): String = decode(key).second
+}
+
+/**
  * Real mail, as the Gridlink screens want it.
  *
  * ## Why this is a separate file and not a method on [GridlinkMessage]
@@ -124,7 +177,18 @@ object GridlinkMailMapping {
         val email: Email,
         val threadCount: Int = 1,
         val threadUnread: Boolean = !email.isSeen,
-    )
+        /**
+         * The account this row came out of, or null when the list is showing one account.
+         *
+         * 🔴 Null is not "unknown", it is "the question does not arise". Set only by the unified
+         * inbox, where it both qualifies the row key ([GridlinkRowKey]) and supplies the marker the
+         * row draws. See [account].
+         */
+        val account: Account? = null,
+    ) {
+        /** An account, as a merged row needs it: one id to act on and one string to show. */
+        data class Account(val id: String, val label: String)
+    }
 
     fun map(
         rows: List<Row>,
@@ -144,6 +208,7 @@ object GridlinkMailMapping {
                 bundleAutomated = bundleAutomated,
                 threadCount = it.threadCount,
                 threadUnread = it.threadUnread,
+                account = it.account,
             )
         }
         // 🔴 One list and no bundle when the setting is off, which is the default. See
@@ -187,12 +252,17 @@ object GridlinkMailMapping {
          * message", which is the flat-mode answer and the only right one for a search hit.
          */
         threadUnread: Boolean? = null,
+        /** Set only in the unified inbox. See [Row.account] and [GridlinkRowKey]. */
+        account: Row.Account? = null,
     ): GridlinkMessage {
         val from = email.from.firstOrNull()
         val address = from?.email.orEmpty()
         val automated = isAutomated(address)
         return GridlinkMessage(
-            id = email.id,
+            // 🔴 Account-qualified in the unified inbox and byte-identical to the server id
+            // everywhere else. An id alone does not identify a message across accounts.
+            id = GridlinkRowKey.encode(account?.id, email.id),
+            accountLabel = account?.label,
             // The display name if the sender wrote one, otherwise the address itself. Not the local
             // part prettied up: "accounts.payable" becoming "Accounts Payable" is the app inventing
             // a name for a correspondent, and the address is both shorter and true.
@@ -211,7 +281,12 @@ object GridlinkMailMapping {
             threadCount = threadCount,
             // The key the expansion queries by, and the same expression the collapsed SQL groups on:
             // a message with no server thread is a thread of one, keyed by itself.
-            threadKey = email.threadId ?: email.id,
+            // 🔴 Qualified for the same reason as the id above, and it is not the same fact twice: a
+            // THREAD id is scoped to its account exactly as a message id is, so two accounts on one
+            // server share thread keys too. Unqualified, unfolding one account's conversation would
+            // unfold the other's under it and the expansion query would be handed a key that means
+            // two different threads.
+            threadKey = GridlinkRowKey.encode(account?.id, email.threadId ?: email.id),
             attachmentPending = email.hasAttachment,
             automated = automated,
             section = if (automated && bundleAutomated) {

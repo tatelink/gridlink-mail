@@ -919,7 +919,11 @@ fun GridlinkMessageListScreen(
         header = {
             GridlinkHeader(
                 modifier = Modifier.graphicsLayer { alpha = titleAlpha },
-                title = "Inbox",
+                // 🔴 The header names what the list IS, and merged it is not one inbox. Read off
+                // the chrome config so it cannot disagree with the drawer row that switched it:
+                // the same object supplies both, and the same word appears on the row you tapped
+                // and the title you land on.
+                title = if (chrome.config.unifiedInbox?.active == true) "All inboxes" else "Inbox",
                 // 🔴 Zero while loading, which suppresses the whole metadata line. The count is
                 // computed off lists this screen already holds, so it would happily render "21
                 // unread" over a panel of blank placeholders: a number the app cannot have yet,

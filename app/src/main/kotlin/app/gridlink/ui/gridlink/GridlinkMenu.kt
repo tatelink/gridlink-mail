@@ -22,12 +22,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AllInbox
 import androidx.compose.material.icons.outlined.AlternateEmail
 import androidx.compose.material.icons.outlined.Brightness4
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.DoneAll
 import androidx.compose.material.icons.outlined.Drafts
+import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.icons.outlined.ManageAccounts
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Schedule
@@ -35,6 +37,7 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -478,6 +481,16 @@ fun GridlinkMenuPanel(
     onSelectFolder: (GridlinkFolder) -> Unit = {},
     /** Opens the folder screen, the only place a mailbox is created, renamed or moved. */
     onManageFolders: () -> Unit = {},
+    /**
+     * The merged-inbox pair, or null to draw neither row.
+     *
+     * 🔴 Null is the ONE-account state and not a fallback. "All inboxes" over a single account is
+     * that account's inbox with an account marker repeated down every row, so the row is absent
+     * rather than present-and-pointless. See [GridlinkUnifiedInbox].
+     */
+    unified: GridlinkUnifiedInbox? = null,
+    /** True merges every account's inbox, false returns to the bound account's. */
+    onSelectUnified: (Boolean) -> Unit = {},
 ) {
     val colors = GridlinkTheme.colors
     // Frozen at the moment the sheet opens rather than read on every recomposition. The sheet is a
@@ -549,9 +562,17 @@ fun GridlinkMenuPanel(
         )
         MenuRow(GridlinkMenuItem.SETTINGS, counts, accountCount, onSelect)
 
-        if (folders.isNotEmpty()) {
+        if (unified != null || folders.isNotEmpty()) {
             GridlinkSheetDivider()
-            MenuFolders(folders, onSelectFolder, onManageFolders)
+            if (unified != null) {
+                MenuUnifiedRows(unified, folders, onSelectUnified)
+            }
+            // 🔴 The tree's own Inbox is suppressed while the pair above is drawn, for exactly the
+            // reason Drafts is suppressed inside [MenuFolders]: the pair already offers that
+            // mailbox, with a better subline and, unlike the tree row, landing on the mail list
+            // instead of the folder screen. Two rows for one mailbox, disagreeing about where they
+            // go, is worse than either alone.
+            MenuFolders(folders, hideInbox = unified != null, onSelectFolder, onManageFolders)
         }
 
         GridlinkSheetDivider()
@@ -588,10 +609,16 @@ fun GridlinkMenuPanel(
 @Composable
 private fun MenuFolders(
     folders: List<GridlinkFolder>,
+    hideInbox: Boolean,
     onSelectFolder: (GridlinkFolder) -> Unit,
     onManageFolders: () -> Unit,
 ) {
-    folders.forEach { folder -> MenuFolderRow(folder, depth = 0, onSelectFolder = onSelectFolder) }
+    // Nothing to manage and nothing to list. The group is drawn for the unified pair alone in this
+    // state, and a lone "Manage folders" under it would offer a screen with no mailboxes on it.
+    if (folders.isEmpty()) return
+    folders.forEach { folder ->
+        MenuFolderRow(folder, depth = 0, hideInbox = hideInbox, onSelectFolder = onSelectFolder)
+    }
     GridlinkSheetAction(
         label = "Manage folders",
         icon = Icons.Outlined.CreateNewFolder,
@@ -602,14 +629,80 @@ private fun MenuFolders(
     )
 }
 
+/**
+ * What the drawer needs to draw the merged-inbox pair, and nothing more.
+ *
+ * 🔴 [unread] is a SUM across accounts, not the bound account's number, and that is the whole point
+ * of the row: it is the only place in the app that answers "how much mail is waiting for me"
+ * rather than "for this address". It is passed in rather than derived from `folders`, because the
+ * folder tree the drawer holds belongs to one account and cannot know about the others.
+ *
+ * [accountLabel] is the bound account, shown under the Inbox row so the way back names where it
+ * goes. Blank draws no subline rather than an empty one.
+ */
+@Immutable
+data class GridlinkUnifiedInbox(
+    val active: Boolean,
+    val unread: Int,
+    val accountLabel: String,
+)
+
+/**
+ * "All inboxes" and the way back, as one pair above the folder tree.
+ *
+ * ## Why two rows and not a switch
+ * Brandon settled the placement directly: an All inboxes row at the top of the drawer with the
+ * combined unread on it, tapped to merge, and Inbox tapped to come back. A switch in Settings would
+ * have put the control two screens away from the list it changes, and a mode you can only leave by
+ * going to Settings is a mode you get stuck in.
+ *
+ * ## Why the active row is tinted rather than dimmed or badged
+ * [accent] owns selection everywhere else in the app, and the app's rule is that opacity may never
+ * carry on/off. So the row you are in is drawn in the accent and the other in the ordinary ink; no
+ * new state, no third style, and nothing that reads as disabled.
+ *
+ * ⚠️ Both rows stay tappable in both states. Tapping the row you are already in re-states a fact,
+ * which is harmless, and disabling it would mean the drawer sometimes has a dead row where it
+ * usually has a control.
+ */
+@Composable
+private fun MenuUnifiedRows(
+    unified: GridlinkUnifiedInbox,
+    folders: List<GridlinkFolder>,
+    onSelectUnified: (Boolean) -> Unit,
+) {
+    val colors = GridlinkTheme.colors
+    GridlinkSheetAction(
+        label = "All inboxes",
+        icon = Icons.Outlined.AllInbox,
+        // Counted, absent at zero, exactly as the folder rows do it. See [MenuFolderRow].
+        subline = unified.unread.takeIf { it > 0 }?.let { "$it unread" },
+        onClick = { onSelectUnified(true) },
+        tint = if (unified.active) colors.accent else null,
+    )
+    GridlinkSheetAction(
+        label = "Inbox",
+        icon = Icons.Outlined.Inbox,
+        // The account, not a count. The number belongs to the row above (it is the sum) and the
+        // tree's own Inbox is suppressed while this pair is up, so what this row is missing is not
+        // "how much" but "whose" — which is the only thing that is ambiguous once accounts merge.
+        subline = unified.accountLabel.takeIf { it.isNotBlank() },
+        onClick = { onSelectUnified(false) },
+        tint = if (unified.active) null else colors.accent,
+    )
+}
+
 /** One mailbox and everything under it. Recursive, so the indent is the depth and nothing tracks it. */
 @Composable
 private fun MenuFolderRow(
     folder: GridlinkFolder,
     depth: Int,
+    hideInbox: Boolean,
     onSelectFolder: (GridlinkFolder) -> Unit,
 ) {
-    if (folder.role != GridlinkFolderRole.DRAFTS) {
+    val suppressed = folder.role == GridlinkFolderRole.DRAFTS ||
+        (hideInbox && folder.role == GridlinkFolderRole.INBOX)
+    if (!suppressed) {
         GridlinkSheetAction(
             label = folder.name,
             icon = folder.role.icon(),
@@ -624,7 +717,7 @@ private fun MenuFolderRow(
         // 🔴 The children of a filtered-out Drafts still draw, at the depth Drafts would have given
         // them. A server that nests mailboxes under the drafts role is unusual and not forbidden,
         // and silently dropping a whole branch is not something a drawer may do.
-        MenuFolderRow(child, depth = depth + 1, onSelectFolder = onSelectFolder)
+        MenuFolderRow(child, depth = depth + 1, hideInbox = hideInbox, onSelectFolder = onSelectFolder)
     }
 }
 

@@ -25,6 +25,7 @@ import app.gridlink.MailtoDraft
 import app.gridlink.container
 import app.gridlink.core.data.account.StoredAccount
 import app.gridlink.core.data.settings.ThreadToolbarAction
+import app.gridlink.push.PushController
 import app.gridlink.ui.gridlink.GridlinkApp
 import app.gridlink.ui.gridlink.GridlinkAttachment
 import app.gridlink.ui.gridlink.GridlinkChromeConfig
@@ -35,6 +36,7 @@ import app.gridlink.ui.gridlink.GridlinkOpenRequest
 import app.gridlink.ui.gridlink.GridlinkOutboxSender
 import app.gridlink.ui.gridlink.GridlinkRoot
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
+import app.gridlink.ui.gridlink.GridlinkUnifiedInbox
 import app.gridlink.ui.gridlink.GridlinkSyncAction
 import app.gridlink.ui.gridlink.GridlinkSyncState
 import app.gridlink.ui.gridlink.LocalGridlinkChrome
@@ -118,6 +120,19 @@ fun GridlinkHomeHost(
     val folders by viewModel.folders.collectAsStateWithLifecycle()
     val scheduled by viewModel.scheduled.collectAsStateWithLifecycle()
     val menuCounts by viewModel.menuCounts.collectAsStateWithLifecycle()
+    val unifiedActive by viewModel.unified.collectAsStateWithLifecycle()
+
+    // 🔴 The push machinery's mirror of what the list is showing, and this is the only place that
+    // knows. It decides which accounts a user-initiated arm may reseed silently, so a merged list
+    // that failed to say so would announce mail the user is already looking at.
+    //
+    // Keyed on the account too, not only on the flag: [RootViewModel.switchAccount] deliberately
+    // clears the mirror before it arms, and without the account in the key this effect would not
+    // re-run to put it back, leaving a merged list mirrored as single. False during the arm is the
+    // safe answer that switch wants; false forever afterwards is not.
+    LaunchedEffect(accountId, unifiedActive) {
+        PushController.unifiedInboxVisible = unifiedActive
+    }
     val calendar by davViewModel.calendar.collectAsStateWithLifecycle()
     val contacts by davViewModel.contacts.collectAsStateWithLifecycle()
 
@@ -139,6 +154,24 @@ fun GridlinkHomeHost(
     // create; `accountName` is the human label and is frequently empty, which would leave the one
     // line a user checks when mail stops arriving blank.
     val address = account?.username.orEmpty()
+
+    // 🔴 Null on one account, which is what hides the drawer's pair, and null is also the honest
+    // answer before any account has an inbox id: a merged list over accounts the app cannot query
+    // yet would advertise a combined count it has no way to reach. Same "answerable account" test
+    // [GridlinkMailViewModel.inboxWindow] uses.
+    val unified = remember(accounts, unifiedActive, address) {
+        val usable = accounts.filter { it.inboxId != null }
+        if (usable.size < 2) null else GridlinkUnifiedInbox(
+            active = unifiedActive,
+            // Summed off the accounts themselves, which is where the per-account unread already
+            // lives. The folder tree beside this row belongs to ONE account and cannot answer it.
+            unread = usable.sumOf { it.unread },
+            // The address, matching the account row at the top of the same sheet, not `label()`:
+            // the drawer already states this account by address and the way back must name the
+            // same thing the header does.
+            accountLabel = address,
+        )
+    }
 
     // 🔴 One attacher, and the sender is built AROUND it. It holds the staged file behind every
     // chip the composer is showing, so a second instance would leave the sender unable to find any
@@ -246,7 +279,10 @@ fun GridlinkHomeHost(
     val manageTags by rememberUpdatedState(onManageTags)
     // 🔴 menuCounts joins the remember keys: the config is rebuilt when a count changes or the
     // drawer keeps saying yesterday's number over today's Drafts.
-    val config = remember(address, accounts.size, menuCounts, viewModel, davViewModel) {
+    // 🔴 `unified` joins the remember keys for menuCounts' reason: the pair carries a live unread
+    // sum and a live active flag, and a config held across a change would leave the drawer saying
+    // yesterday's number, or worse, marking the wrong row as the one you are in.
+    val config = remember(address, accounts.size, menuCounts, unified, viewModel, davViewModel) {
         GridlinkChromeConfig(
             account = address,
             accountCount = accounts.size,
@@ -284,6 +320,12 @@ fun GridlinkHomeHost(
                     settings.setGridlinkPalette(mode.toGridlinkPalette())
                 }
             },
+            unifiedInbox = unified,
+            // On the view model, not straight to DataStore like the palette above. The write is the
+            // smaller half of this: the reader and the expanded threads have to be dropped in the
+            // same breath, because the row keys the list hands out change shape across the switch.
+            // See [GridlinkMailViewModel.setUnified].
+            onSelectUnified = viewModel::setUnified,
         )
     }
 
