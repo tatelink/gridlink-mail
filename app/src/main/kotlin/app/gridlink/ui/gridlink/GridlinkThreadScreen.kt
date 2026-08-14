@@ -241,7 +241,11 @@ fun GridlinkThreadScreen(
             // ⚠️ Recomputed per message, not remembered against the setting alone: `hasUnsubscribe`
             // is a property of the message and it arrives LATE, with the body fetch. The bar
             // correctly changes shape when it lands (see [GridlinkThreadMoreSheet]).
-            val layout = gridlinkToolbarLayout(toolbarActions, message.unsubscribe != null)
+            val layout = gridlinkToolbarLayout(
+                enabled = toolbarActions,
+                hasUnsubscribe = message.unsubscribe != null,
+                slots = if (embedded) PANE_SLOTS else SLOTS,
+            )
             if (layout.inBar.isEmpty() && !layout.showMore) {
                 // Every switch off and nothing contextual to offer. An empty pill is a control that
                 // does nothing sitting where controls go, so the row gives its width to nothing and
@@ -377,9 +381,14 @@ fun GridlinkThreadScreen(
     if (showingMore) {
         GridlinkThreadMoreSheet(
             message = message,
-            // The same split the bar made, computed the same way from the same two inputs, so the
-            // sheet can never offer an action that is also sitting on the bar behind it.
-            layout = gridlinkToolbarLayout(toolbarActions, message.unsubscribe != null),
+            // The same split the bar made, computed the same way from the same three inputs, so the
+            // sheet can never offer an action that is also sitting on the bar behind it. 🔴 `slots`
+            // has to match the bar's or the two disagree about what overflowed.
+            layout = gridlinkToolbarLayout(
+                enabled = toolbarActions,
+                hasUnsubscribe = message.unsubscribe != null,
+                slots = if (embedded) PANE_SLOTS else SLOTS,
+            ),
             starred = starred,
             onAction = { action ->
                 showingMore = false
@@ -860,17 +869,44 @@ internal data class GridlinkToolbarLayout(
 internal fun gridlinkToolbarLayout(
     enabled: Set<ThreadToolbarAction>,
     hasUnsubscribe: Boolean,
+    slots: Int = SLOTS,
 ): GridlinkToolbarLayout {
     // The enum's order, never the set's. A Set has no order worth trusting, and the whole
     // fixed-order decision rests on this line.
     val ordered = ThreadToolbarAction.entries.filter { it in enabled }
-    val showMore = ordered.size > SLOTS || hasUnsubscribe
-    val inBar = if (showMore) ordered.take(SLOTS - 1) else ordered
-    return GridlinkToolbarLayout(inBar = inBar, inSheet = ordered.drop(inBar.size), showMore = showMore)
+    val showMore = ordered.size > slots || hasUnsubscribe
+    val room = if (showMore) slots - 1 else slots
+    val inBar = when {
+        ordered.size <= room -> ordered
+        // 🔴 One slot is the one case enum order gets wrong. It would hand the last control to
+        // Forward, and Brandon named the survivor when he cut the pane to two: *"its gonna only be
+        // able to hold one control + more. so do archive and more"*. Forward is a compose action
+        // that opens a whole screen anyway, so a tap through More costs it nothing; Archive is the
+        // one that has to be reachable without opening anything.
+        room == 1 && ThreadToolbarAction.ARCHIVE in ordered -> listOf(ThreadToolbarAction.ARCHIVE)
+        else -> ordered.take(room)
+    }
+    // ⚠️ Filtered, not dropped. `drop(inBar.size)` was right only while the bar was always a
+    // prefix of [ordered], and the one-slot rule above breaks that.
+    return GridlinkToolbarLayout(
+        inBar = inBar,
+        inSheet = ordered.filterNot { it in inBar },
+        showMore = showMore,
+    )
 }
 
 /** Slots on the bar, More included. See [GridlinkThreadActionPill]. */
 private const val SLOTS = 3
+
+/**
+ * The same bar in the two-pane reading pane, which is ~380dp narrower than a folded screen.
+ *
+ * Three labelled controls plus Reply plus the parked "+" fit there arithmetically and still read as
+ * cramped, which is a thing only visible on the real device: *"the bottom menu bar that currently
+ * contains forward, archive, and more - its gonna only be able to hold one control + more. three
+ * causes it to still be cramped."* The folded bar is not crowded and does not change.
+ */
+private const val PANE_SLOTS = 2
 
 /**
  * The secondary actions, in the same shell the nav pill uses on the list.
