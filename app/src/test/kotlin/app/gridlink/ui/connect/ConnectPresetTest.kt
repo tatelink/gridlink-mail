@@ -26,7 +26,6 @@ class ConnectPresetTest {
 
     private val outlook = provider("Outlook")
     private val gmail = provider("Gmail")
-    private val yandex = provider("Yandex")
     private val icloud = provider("iCloud")
 
     // --- The list always shows the way back ------------------------------------------------------
@@ -58,7 +57,7 @@ class ConnectPresetTest {
     @Test fun bothManualRowsClearAProviderSFields() {
         // A provider's hosts have no business surviving into a form the user just said they wanted
         // to fill in themselves — under either protocol.
-        val armed = tap(PresetForm.NONE, yandex)
+        val armed = tap(PresetForm.NONE, gmail)
         assertEquals(PresetForm.NONE, choiceTapped(armed, SetupChoice.Imap))
         assertEquals(PresetForm.NONE, choiceTapped(armed, SetupChoice.Jmap))
     }
@@ -108,10 +107,10 @@ class ConnectPresetTest {
 
     @Test fun tappingAnotherRowSwitchesRatherThanReleases() {
         val armed = tap(PresetForm.NONE, outlook)
-        val switched = tap(armed, yandex)
-        assertEquals("Yandex", switched.selected)
+        val switched = tap(armed, gmail)
+        assertEquals("Gmail", switched.selected)
         assertFalse(switched.oauth)
-        assertEquals("imap.yandex.com", switched.imapHost)
+        assertEquals("imap.gmail.com", switched.imapHost)
     }
 
     // --- No preset inherits from the one before it -----------------------------------------------
@@ -139,7 +138,7 @@ class ConnectPresetTest {
     }
 
     @Test fun leavingAPresetForManualImapClearsTheFieldsItFilled() {
-        val released = choiceTapped(tap(PresetForm.NONE, yandex), SetupChoice.Imap)
+        val released = choiceTapped(tap(PresetForm.NONE, gmail), SetupChoice.Imap)
         assertEquals("", released.imapHost)
         assertEquals("", released.smtpHost)
         assertNull(released.appPasswordUrl)
@@ -155,7 +154,7 @@ class ConnectPresetTest {
     }
 
     @Test fun choosingJmapKeepsAPasswordPresetIntact() {
-        val armed = tap(PresetForm.NONE, yandex)
+        val armed = tap(PresetForm.NONE, gmail)
         assertEquals(armed, presetForProtocol(armed, MailProtocol.JMAP))
         assertEquals(armed, presetForProtocol(armed, MailProtocol.IMAP))
     }
@@ -227,17 +226,17 @@ class ConnectPresetTest {
     }
 
     @Test fun theImapPathNeedsTheFourServerValuesItWillDial() {
-        val filled = tap(PresetForm.NONE, yandex)
+        val filled = tap(PresetForm.NONE, gmail)
         assertTrue(
             connectReady(
-                ConnectRoute.IMAP_PASSWORD, "alex@yandex.com", "app-password",
+                ConnectRoute.IMAP_PASSWORD, "alex@gmail.com", "app-password",
                 filled.imapHost, filled.imapPort, filled.smtpHost, filled.smtpPort,
             ),
         )
         // A port the user cleared or mistyped counts as missing, not as a crash at connect time.
         assertFalse(
             connectReady(
-                ConnectRoute.IMAP_PASSWORD, "alex@yandex.com", "app-password",
+                ConnectRoute.IMAP_PASSWORD, "alex@gmail.com", "app-password",
                 filled.imapHost, "", filled.smtpHost, filled.smtpPort,
             ),
         )
@@ -260,19 +259,19 @@ class ConnectPresetTest {
 
     // --- The table itself ------------------------------------------------------------------------
 
-    @Test fun yandexIsAnAppPasswordImapPreset() {
+    @Test fun gmailIsAnAppPasswordImapPreset() {
         // Plain IMAP with an app-specific password: the row must fill the servers AND offer the
         // page where that password is created, or the user hits a login failure they cannot
         // diagnose. Values are the provider's own documented ones.
-        assertEquals("imap.yandex.com", yandex.imapHost)
-        assertEquals("993", yandex.imapPort)
-        assertEquals(ConnectionSecurity.TLS, yandex.imapSecurity)
-        assertEquals("smtp.yandex.com", yandex.smtpHost)
-        assertEquals("465", yandex.smtpPort)
-        assertEquals(ConnectionSecurity.TLS, yandex.smtpSecurity)
+        assertEquals("imap.gmail.com", gmail.imapHost)
+        assertEquals("993", gmail.imapPort)
+        assertEquals(ConnectionSecurity.TLS, gmail.imapSecurity)
+        assertEquals("smtp.gmail.com", gmail.smtpHost)
+        assertEquals("465", gmail.smtpPort)
+        assertEquals(ConnectionSecurity.TLS, gmail.smtpSecurity)
 
-        assertFalse("Yandex is password IMAP, not OAuth", yandex.oauth)
-        assertNotNull("Yandex needs its app-password page", yandex.appPasswordUrl)
+        assertFalse("Gmail is password IMAP, not OAuth", gmail.oauth)
+        assertNotNull("Gmail needs its app-password page", gmail.appPasswordUrl)
     }
 
     @Test fun everyEntryIsUsableAndOnlyOneSignsInByOauth() {
