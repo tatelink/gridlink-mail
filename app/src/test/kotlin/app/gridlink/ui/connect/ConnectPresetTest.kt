@@ -14,13 +14,13 @@ import org.junit.Test
  * Quick setup used to be four pieces of screen state that could disagree: the Outlook chip armed a
  * flag with no way to disarm it, so the server fields vanished for good, and the flag survived a
  * switch to JMAP and sent that form to the Microsoft sign-in (#105). These cover the decision that
- * replaced them — tile taps, protocol changes, and where Connect ends up.
+ * replaced them — row taps, protocol changes, and where Connect ends up.
  */
 class ConnectPresetTest {
 
     private fun provider(name: String) = MAIL_PROVIDERS.first { it.name == name }
 
-    /** Tapping a provider's tile in the setup grid. */
+    /** Tapping a provider's row in the setup list. */
     private fun tap(current: PresetForm, provider: MailProvider) =
         choiceTapped(current, SetupChoice.Known(provider))
 
@@ -29,33 +29,33 @@ class ConnectPresetTest {
     private val yandex = provider("Yandex")
     private val mailru = provider("Mail.ru")
 
-    // --- The grid always shows the way back ------------------------------------------------------
+    // --- The list always shows the way back ------------------------------------------------------
 
-    @Test fun theImapTileIsTheWayOutOfOauth() {
+    @Test fun theImapRowIsTheWayOutOfOauth() {
         val armed = tap(PresetForm.NONE, outlook)
         assertEquals("Outlook", armed.selected)
         assertTrue(armed.oauth)
         assertFalse("the server fields go away under OAuth", armed.serverFieldsVisible)
 
         // #105 was that nothing on screen could undo this. The escape is no longer a second tap on
-        // the armed tile (a tile is a choice among choices, and has no "off"); it is the IMAP tile,
+        // the armed row (a row is a choice among choices, and has no "off"); it is the IMAP row,
         // which is always on screen.
         val released = choiceTapped(armed, SetupChoice.Imap)
         assertNull(released.selected)
         assertFalse(released.oauth)
-        assertTrue("and the IMAP tile must bring them back", released.serverFieldsVisible)
+        assertTrue("and the IMAP row must bring them back", released.serverFieldsVisible)
         assertEquals(PresetForm.NONE, released)
     }
 
-    @Test fun tappingTheSelectedTileAgainChangesNothing() {
-        // Unlike the chips this replaced, re-tapping is inert: with JMAP and IMAP present as tiles,
+    @Test fun tappingTheSelectedRowAgainChangesNothing() {
+        // Unlike the chips this replaced, re-tapping is inert: with JMAP and IMAP present as rows,
         // an accidental second tap silently emptying a filled form would be the surprise.
         val armed = tap(PresetForm.NONE, gmail)
         assertEquals("Gmail", armed.selected)
         assertEquals(armed, tap(armed, gmail))
     }
 
-    @Test fun bothManualTilesClearAProviderSFields() {
+    @Test fun bothManualRowsClearAProviderSFields() {
         // A provider's hosts have no business surviving into a form the user just said they wanted
         // to fill in themselves — under either protocol.
         val armed = tap(PresetForm.NONE, yandex)
@@ -63,16 +63,16 @@ class ConnectPresetTest {
         assertEquals(PresetForm.NONE, choiceTapped(armed, SetupChoice.Jmap))
     }
 
-    // --- Which tile reads as chosen --------------------------------------------------------------
+    // --- Which row reads as chosen --------------------------------------------------------------
 
-    @Test fun theSelectedTileIsDerivedFromTheFormNotStoredBesideIt() {
+    @Test fun theSelectedRowIsDerivedFromTheFormNotStoredBesideIt() {
         assertEquals(SetupChoice.Jmap, selectedChoice(PresetForm.NONE, MailProtocol.JMAP))
         assertEquals(SetupChoice.Imap, selectedChoice(PresetForm.NONE, MailProtocol.IMAP))
         assertEquals(
             SetupChoice.Known(gmail),
             selectedChoice(tap(PresetForm.NONE, gmail), MailProtocol.IMAP),
         )
-        // A JMAP form never lights a provider tile, whatever the preset happens to hold.
+        // A JMAP form never lights a provider row, whatever the preset happens to hold.
         assertEquals(
             SetupChoice.Jmap,
             selectedChoice(tap(PresetForm.NONE, gmail), MailProtocol.JMAP),
@@ -81,12 +81,12 @@ class ConnectPresetTest {
 
     @Test fun aSelectionNamingAnUnknownProviderFallsBackToImap() {
         // A saved form from a build that shipped a provider this one does not: the hosts are still
-        // in the form, so plain IMAP is the honest tile rather than nothing being selected.
+        // in the form, so plain IMAP is the honest row rather than nothing being selected.
         val stale = PresetForm.NONE.copy(selected = "Some Provider", imapHost = "imap.example.org")
         assertEquals(SetupChoice.Imap, selectedChoice(stale, MailProtocol.IMAP))
     }
 
-    @Test fun onlyTheJmapTileMeansJmap() {
+    @Test fun onlyTheJmapRowMeansJmap() {
         assertEquals(MailProtocol.JMAP, protocolFor(SetupChoice.Jmap))
         assertEquals(MailProtocol.IMAP, protocolFor(SetupChoice.Imap))
         // Outlook included: its OAuth is XOAUTH2 over IMAP and SMTP, not a protocol of its own.
@@ -95,10 +95,10 @@ class ConnectPresetTest {
         }
     }
 
-    @Test fun theGridLeadsWithTheTwoManualRoutes() {
+    @Test fun theListLeadsWithTheTwoManualRoutes() {
         assertEquals(listOf(SetupChoice.Jmap, SetupChoice.Imap), SETUP_CHOICES.take(2))
         assertEquals(MAIL_PROVIDERS.map { SetupChoice.Known(it) }, SETUP_CHOICES.drop(2))
-        // Every tile is reachable and lights up when tapped: a tile whose own tap does not select it
+        // Every row is reachable and lights up when tapped: a row whose own tap does not select it
         // would look broken, and this is the loop the screen actually runs.
         SETUP_CHOICES.forEach { choice ->
             val after = choiceTapped(PresetForm.NONE, choice)
@@ -106,7 +106,7 @@ class ConnectPresetTest {
         }
     }
 
-    @Test fun tappingAnotherTileSwitchesRatherThanReleases() {
+    @Test fun tappingAnotherRowSwitchesRatherThanReleases() {
         val armed = tap(PresetForm.NONE, outlook)
         val switched = tap(armed, yandex)
         assertEquals("Yandex", switched.selected)
@@ -194,7 +194,7 @@ class ConnectPresetTest {
         )
     }
 
-    @Test fun leavingOutlookForTheImapTileGoesBackToTheManualPath() {
+    @Test fun leavingOutlookForTheImapRowGoesBackToTheManualPath() {
         val released = choiceTapped(tap(PresetForm.NONE, outlook), SetupChoice.Imap)
         assertEquals(
             ConnectRoute.IMAP_PASSWORD,
