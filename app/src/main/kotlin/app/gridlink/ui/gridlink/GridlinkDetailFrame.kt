@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
@@ -67,17 +68,27 @@ import app.gridlink.ui.theme.GridlinkType
  * parks there in two panes.
  *
  * ## Where the title goes in the pane
- * Embedded, the title moves INSIDE the glass, as the panel's first line over a hairline, instead of
- * floating above it the way the standing screen's header does. Two reasons. Tate asked for it —
- * "integrate the subject into the header of the message preview window" — and the one-line chrome
- * row made it structural: with the list's big title gone from above its panel, a strip title above
- * THIS panel would be the only text floating on the backdrop, and the two panes' glass would start
- * on different lines. This also quietly fixes the contact, event and folder panes, whose panels
- * never repeated the name of the thing they were showing.
+ * Above the glass, in a band of its own, with [header] under it. That band exists because the
+ * scaffold's chrome row moved into the list column, freeing the top of this side of the window.
+ * Tate: *"on the right pane, take the subject and the header out of the window and display above
+ * in the newly created space. this will allow more message to be displayed."*
  *
- * It is still not a different *layout* inside the panel: every metric is the one the standing
- * screen uses, and the action-row difference is a trailing inset rather than a rearrangement. That
- * is what stops the two halves of the fork's reading experience from drifting.
+ * 🔴 This REVERSES the previous arrangement, and the old reasoning is worth keeping because it was
+ * not wrong when it was written. The title used to sit inside the glass as the panel's first row
+ * over a hairline, on his earlier ask ("integrate the subject into the header of the message preview
+ * window") and on a structural argument: with a chrome row spanning both panes, a title floating
+ * above THIS panel would have been the only text on the backdrop and the two panes' glass would have
+ * started on different lines. Both halves of that stopped being true when the chrome row moved. The
+ * title is no longer alone out there (the list column's chrome row is level with it), and the band
+ * takes the pane's [LocalGridlinkPaneHeaderHeight] as a floor so the panels still align.
+ *
+ * What it buys is the whole point: everything in that band was previously *inside* the glass, so the
+ * message body now starts where the subject used to and gains the subject, the sender and a divider
+ * of reading height on every message.
+ *
+ * The panel itself has one layout again rather than two. Every metric inside it is the one the
+ * standing screen uses, and the action-row difference is a trailing inset rather than a
+ * rearrangement. That is what stops the two halves of the fork's reading experience from drifting.
  */
 @Composable
 fun GridlinkDetailFrame(
@@ -110,6 +121,22 @@ fun GridlinkDetailFrame(
      * frame exists to prevent.
      */
     titleAction: (@Composable () -> Unit)? = null,
+    /**
+     * What belongs with the title rather than with the content: the thread's sender block, and
+     * nothing else so far. Drawn under [title] in the pane's header band.
+     *
+     * ## 🔴 Embedded only, deliberately
+     * The standing screen has no such band. Its header is a back button and a title at the top of a
+     * window it owns completely, and hanging a sender block off it would push the glass down on the
+     * one layout that has no spare height to give. So a caller passes this AND keeps drawing the
+     * same block inside its panel when it is not embedded — see [GridlinkThreadScreen], which picks
+     * one of the two placements off the same flag this frame does.
+     *
+     * ⚠️ It is not a second title. It gets no style, no padding and no divider from the frame: it
+     * arrives already dressed, because what goes in it is a property of the thing on screen and the
+     * frame has no business styling a sender.
+     */
+    header: (@Composable () -> Unit)? = null,
     panel: @Composable BoxScope.() -> Unit,
 ) {
     val colors = GridlinkTheme.colors
@@ -124,16 +151,56 @@ fun GridlinkDetailFrame(
             },
         ) {
             if (embedded) {
-                // No header at all: the pane sits under the scaffold's chrome row, which already
-                // holds the hamburger and the title line, and the pane's own title is inside the
-                // glass below. What remains of the old header is this spacer, matching whatever
-                // chrome the list column still stacks above ITS panel (the calendar's view
-                // switcher) so the two panels start on the same line. Zero on every other screen,
-                // so most of the time it is nothing — which is the whole point of the one-line
-                // restructure: the glass goes UP. See [LocalGridlinkPaneHeaderHeight].
-                val paneFloor = LocalGridlinkPaneHeaderHeight.current
-                if (paneFloor > 0.dp) {
-                    Spacer(Modifier.height(paneFloor))
+                // The pane's own header band, in the space the scaffold's chrome row used to
+                // occupy across the top of BOTH panes. That row now lives inside the list column
+                // (see [GridlinkScaffold]), so this side of the window is free, and this is what
+                // Tate asked be spent on it: *"on the right pane, take the subject and the
+                // header out of the window and display above in the newly created space. this will
+                // allow more message to be displayed."*
+                //
+                // 🔴 `heightIn(min =)`, not `height(=)`. The floor is whatever the list column
+                // stacks above ITS glass, so the two panels start on the same line and the pane's
+                // glass is exactly as tall as the list's. A band that OVERFLOWS that floor is a
+                // regression, not a feature: it pushes only this side's glass down, so the reading
+                // pane ends up shorter than the list next to it, which is the opposite of what the
+                // move was for ("the net result should have been theres 'more' of the reading right
+                // pane visible"). Everything below is shaped to fit inside the floor.
+                //
+                // The title action rides in the SAME row as the text column rather than above it.
+                // A 44dp circle on its own line costs 44dp; beside two text lines it costs nothing,
+                // because the column is already taller than the circle.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = LocalGridlinkPaneHeaderHeight.current)
+                        // Aligned with the glass BELOW it rather than with the chrome row across
+                        // the seam: the subject is this panel's title, and a title floating on the
+                        // backdrop that did not share an edge with its own panel would read as
+                        // belonging to the window.
+                        .padding(
+                            start = GridlinkSpacing.chrome,
+                            end = GridlinkSpacing.chrome,
+                            top = GridlinkSpacing.s8,
+                            bottom = GridlinkSpacing.s4,
+                        ),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = title,
+                            style = GridlinkType.threadTitle,
+                            color = colors.textPrimary,
+                            // Two lines, not three. The third line is bought with body text, and a
+                            // subject long enough to need it is a subject whose tail is marketing.
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        header?.invoke()
+                    }
+                    if (titleAction != null) {
+                        Spacer(Modifier.width(GridlinkSpacing.s12))
+                        titleAction()
+                    }
                 }
             } else {
                 GridlinkDetailHeader(title = title, onBack = onBack, titleAction = titleAction)
@@ -148,56 +215,11 @@ fun GridlinkDetailFrame(
                     .background(colors.listSurface, panelShape)
                     .border(GridlinkDimens.hairline, colors.surfaceBorder, panelShape),
             ) {
-                if (embedded) {
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        // The pane's title, inside the glass: Tate's "integrate the subject
-                        // into the header of the message preview window". Same style the standing
-                        // header uses, so folding the device does not change the subject's size,
-                        // only where it sits.
-                        //
-                        // A Row rather than a bare Text so [titleAction] lands on the same side of
-                        // the same line it lands on in the standing header. It costs nothing when
-                        // there is no action: a Row with one weighted child measures its child
-                        // exactly as the Text measured itself.
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(
-                                start = GridlinkSpacing.rowHorizontal,
-                                end = GridlinkSpacing.rowHorizontal,
-                                top = GridlinkSpacing.s16,
-                                bottom = GridlinkSpacing.s12,
-                            ),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = title,
-                                style = GridlinkType.threadTitle,
-                                color = colors.textPrimary,
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                            if (titleAction != null) {
-                                Spacer(Modifier.width(GridlinkSpacing.s12))
-                                titleAction()
-                            }
-                        }
-                        // A hairline, not a heavier rule: this is the same divider weight the
-                        // panel's own content uses, so the title reads as the panel's first row
-                        // rather than as a second window title bar.
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .height(GridlinkDimens.hairline)
-                                .background(colors.divider),
-                        )
-                        Box(
-                            modifier = Modifier.weight(1f).fillMaxWidth(),
-                            content = panel,
-                        )
-                    }
-                } else {
-                    Box(modifier = Modifier.fillMaxSize(), content = panel)
-                }
+                // 🔴 One layout in both cases now. The pane used to draw its title inside the glass
+                // over a hairline, which meant the panel had two shapes and the reading pane's
+                // content started a title row lower than the standing screen's. With the title
+                // above the glass in both, the panel is just the panel.
+                Box(modifier = Modifier.fillMaxSize(), content = panel)
             }
 
             if (bottom == null) {

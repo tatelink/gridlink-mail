@@ -968,7 +968,7 @@ fun GridlinkMessageListScreen(
         },
     ) {
       Column(modifier = Modifier.fillMaxSize()) {
-        // The filters, inset in the glass instead of floating above it.
+        // The filter button, inset in the glass instead of floating above it.
         //
         // 🔴 Pinned above the list, NOT a first item inside it. Scrolled away, the one control that
         // explains why the inbox is short would be off screen exactly when the list is shortest, and
@@ -978,7 +978,7 @@ fun GridlinkMessageListScreen(
         // outside the Box with all the early returns. A filtered-to-nothing inbox that also hid its
         // filters would be unrecoverable except by guessing, and [GridlinkEmptyFiltered]'s clear
         // button is a second way out, not the only one.
-        GridlinkFilterChips(
+        GridlinkFilterBar(
             filter = filter,
             onFilter = {
                 filter = it
@@ -997,10 +997,10 @@ fun GridlinkMessageListScreen(
                 // does not survive it.
                 onSelectedIdsChange(emptySet())
             },
-            // ⚠️ s8 down the sides, not the rows' s16. The three chips are within a few dp of the
-            // 380dp list pane's inner width, and the row scrolls sideways, so the wider inset spends
-            // the difference on clipping "Attachments" mid-word against the glass edge. Off-screen
-            // at the window edge reads as more to see; cut off inside a panel reads as broken.
+            // ⚠️ s8 down the sides, not the rows' s16, so the button's own s12 of inner padding puts
+            // its label on the same line the rows below start on. It used to be a scrolling row of
+            // four chips that needed every dp of the 380dp list pane; one button does not, and the
+            // inset stayed where it was because what it lines up with did not move.
             modifier = Modifier.padding(
                 start = GridlinkSpacing.s8,
                 end = GridlinkSpacing.s8,
