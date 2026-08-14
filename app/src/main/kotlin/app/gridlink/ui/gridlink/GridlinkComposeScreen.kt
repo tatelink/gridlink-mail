@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -44,7 +45,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -211,7 +211,6 @@ fun GridlinkComposeScreen(
     var focused by remember(draft) { mutableStateOf(initialFocus) }
     var recipients by remember(draft) { mutableStateOf(draft.recipients) }
     var attachments by remember(draft) { mutableStateOf(draft.attachments) }
-    var quotedExpanded by remember(draft) { mutableStateOf(false) }
     var scheduling by remember(draft) { mutableStateOf(initiallyScheduling) }
 
     // The custom half of Send Later: "Pick a time" walks a date sheet and then a time sheet. Two
@@ -899,13 +898,7 @@ fun GridlinkComposeScreen(
                         minHeight = 96.dp,
                     )
 
-                    if (draft.quoted != null) {
-                        GridlinkQuotedChip(
-                            label = draft.quoted,
-                            expanded = quotedExpanded,
-                            onClick = { quotedExpanded = !quotedExpanded },
-                        )
-                    }
+                    draft.quoted?.let { quote -> GridlinkQuotedBlock(quote) }
                     attachments.forEach { attachment ->
                         GridlinkAttachmentRow(
                             attachment = attachment,
@@ -1157,7 +1150,18 @@ data class GridlinkComposeDraft(
     val recipientQuery: String,
     val subject: String,
     val body: String,
-    val quoted: String?,
+    /**
+     * The original this message replies to or forwards, or null for a message that stands alone.
+     *
+     * 🔴 Was a `String?` label ("Quoted — M. Ridley, Yesterday 3:05 PM") and is now the original
+     * itself. The label was all there was: the composer showed it as a chip that expanded to a
+     * hard-coded sentence, and the mail that went out carried no quote at all. See [GridlinkQuote].
+     *
+     * ⚠️ Null on a draft reopened from the server, and correctly. By then the quote is part of
+     * [body] like any other text the user could have typed, which is also what stops a saved and
+     * resent reply from quoting the original twice.
+     */
+    val quoted: GridlinkQuote?,
     val attachments: List<GridlinkAttachment>,
     /**
      * The server id of the draft this composer is editing, or null for a message that has never
@@ -1226,7 +1230,16 @@ data class GridlinkComposeDraft(
             subject = "Re: Callout Saturday AM, need coverage 2071 Kirkwood",
             body = "Approved the OT for Perez. Post the updated schedule tonight and copy " +
                 "Danielle when she is back on.",
-            quoted = "Quoted — M. Ridley, Yesterday 3:05 PM",
+            // The sentence here used to live inside the chip's expanded state, hard-coded, which is
+            // why it reads like sample data: it is. The frame is §1d's, and this is the callout it
+            // replies to.
+            quoted = GridlinkQuote(
+                attribution = "On Yesterday 3:05 PM, M. Ridley <m.ridley@gridlink.me> wrote:",
+                html = "Need coverage Saturday AM at 2071 Kirkwood. Two callouts overnight and " +
+                    "Perez has already picked up one of them.",
+                text = "Need coverage Saturday AM at 2071 Kirkwood. Two callouts overnight and " +
+                    "Perez has already picked up one of them.",
+            ),
             attachments = listOf(GridlinkAttachment("wk32_schedule_1155.pdf", "84 KB")),
         )
     }
@@ -1755,53 +1768,70 @@ private fun gridlinkHighlight(text: String, match: String, accent: Color) = buil
 // ---------------------------------------------------------------------------------------------
 
 /**
- * The message being replied to, folded into one line.
+ * The message being replied to or forwarded, below the cursor, indented, always on screen.
  *
- * The same "···" chip the thread view uses for machine bulk, and for the same reason: quoted text is
- * something you occasionally need to check and never need to read while writing, and left expanded
- * it pushes the thing you ARE writing off the top of the screen.
+ * 🔴 This replaced a "···" chip that folded the original into one line, and the note on that chip
+ * argued the case for folding: quoted text is something you check occasionally and never read while
+ * writing, and expanded it pushes what you ARE writing off the top. That argument was sound and lost
+ * anyway, because the chip was hiding text the message did not actually contain. Tate's call:
+ * *"the original sits below the cursor as an indented block, formatting preserved, always visible"*,
+ * which is what Gmail and Outlook do, and what makes the quote legible as part of the message rather
+ * than as a fact about it.
+ *
+ * The composer scrolls, so the block costs nothing above the fold: it begins where the body ends,
+ * and the body opens focused with the caret at the top of it.
+ *
+ * ⚠️ It renders the original's TEXT, while the message that goes out carries the original's HTML
+ * (see [gridlinkQuotedHtml]). Not an oversight and not a shortcut: [GridlinkMessageBody] is a WebView
+ * that owns its own scroll, precisely because a WebView measured to content height inside a Compose
+ * scroll relays a whole newsletter on every frame. Putting one inside this scrolling column is the
+ * arrangement that file exists to avoid. What is on screen is therefore an accurate preview of the
+ * quote's CONTENT and not of its typography.
+ *
+ * Not editable, and not deletable either. The one thing a reader does to a quote in other clients is
+ * trim it, which needs the quote to be part of the body text; that is the same change as rich-text
+ * compose over the whole body, and this lands first.
  */
 @Composable
-private fun GridlinkQuotedChip(
-    label: String,
-    expanded: Boolean,
-    onClick: () -> Unit,
+private fun GridlinkQuotedBlock(
+    quote: GridlinkQuote,
     modifier: Modifier = Modifier,
 ) {
     val colors = GridlinkTheme.colors
-    val shape = RoundedCornerShape(GridlinkRadii.pill)
-    Column(modifier = modifier.padding(horizontal = GridlinkSpacing.rowHorizontal)) {
+    Column(
+        modifier = modifier.padding(
+            start = GridlinkSpacing.rowHorizontal,
+            end = GridlinkSpacing.rowHorizontal,
+            top = GridlinkSpacing.s12,
+        ),
+    ) {
+        Text(
+            text = quote.attribution,
+            style = GridlinkType.metadata,
+            color = colors.textSecondary,
+        )
+        // 🔴 [IntrinsicSize.Min] on the Row, or the rule beside the text has no height to fill: this
+        // sits in a vertically scrolling column, where the incoming max height is unbounded and a
+        // bare `fillMaxHeight` measures against infinity.
         Row(
             modifier = Modifier
-                .clip(shape)
-                .border(GridlinkDimens.hairline, colors.surfaceBorder, shape)
-                .clickable(onClick = onClick)
-                .padding(horizontal = GridlinkSpacing.s12, vertical = GridlinkSpacing.s8),
-            verticalAlignment = Alignment.CenterVertically,
+                .height(IntrinsicSize.Min)
+                .padding(top = GridlinkSpacing.s8),
         ) {
-            Icon(
-                imageVector = Icons.Outlined.MoreHoriz,
-                contentDescription = null,
-                tint = colors.textSecondary,
-                modifier = Modifier.size(16.dp),
+            // The rule IS the indent, and it is the one piece of the quote's own presentation worth
+            // reproducing: it is what every client draws, and it is what tells the eye where the
+            // reply stops without reading a word.
+            Box(
+                modifier = Modifier
+                    .width(GridlinkDimens.hairline * 2)
+                    .fillMaxHeight()
+                    .background(colors.divider),
             )
             Text(
-                text = label,
-                style = GridlinkType.metadata,
-                color = colors.textSecondary,
-                modifier = Modifier.padding(start = GridlinkSpacing.s8),
-            )
-        }
-        if (expanded) {
-            Text(
-                text = "Need coverage Saturday AM at 2071 Kirkwood. Two callouts overnight and " +
-                    "Perez has already picked up one of them.",
+                text = quote.text,
                 style = GridlinkType.body,
                 color = colors.textSecondary,
-                modifier = Modifier.padding(
-                    top = GridlinkSpacing.s12,
-                    bottom = GridlinkSpacing.s8,
-                ),
+                modifier = Modifier.padding(start = GridlinkSpacing.s12),
             )
         }
     }

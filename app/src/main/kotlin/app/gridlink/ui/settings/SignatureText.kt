@@ -14,11 +14,13 @@ package app.gridlink.ui.settings
  * `GridlinkSignature.composeBodyWithSignature`, which is the "Gridlink implementation" this file
  * was kept for. One builder, so the preview agrees with what is sent by construction.
  *
- * ⛔ [bodyWithSignature] is the QUOTE-AWARE form and has no production caller: a Gridlink reply
- * carries no quoted text in the body (a collapsible label plus In-Reply-To/References headers), so
- * there is no quote for a signature to sit above or below. It stays, tested, as the shape to reach
- * for the day the composer does quote — which is also the day the "Signature below the quoted text"
- * setting means something again. Its store, setter and flow were kept for the same reason.
+ * ⛔ [bodyWithSignature] is the QUOTE-AWARE form and still has no production caller, but the reason
+ * changed on 2026-08-14 and the difference matters. A Gridlink reply now DOES quote (see
+ * [app.gridlink.ui.gridlink.GridlinkQuote]); what it does not do is put the quote in the editable
+ * body. The original is appended at the write, after the body, so a signature written into the body
+ * is above the quote by construction — the default every client ships. This is the shape to reach for
+ * the day "Signature below the quoted text" is offered as a switch, which needs the quote to be part
+ * of the body text. Its store, setter and flow were kept for the same reason.
  */
 
 /** The standard signature delimiter line (RFC 3676 §4.3): two hyphens and a space. */

@@ -26,6 +26,12 @@ fun htmlEscapeMultiline(s: String): String =
  */
 fun htmlToText(html: String): String =
     html
+        // 🔴 Comments FIRST, and with their own rule rather than leaving them to the generic tag
+        // strip below. `<[^>]+>` stops at the first `>`, so `<!--[if mso]>` (Outlook's conditional
+        // comment, in every marketing mail there is) is eaten as if it were a tag and everything
+        // after it — the Outlook-only markup and the trailing `<![endif]-->` — comes out as visible
+        // text. That is exactly what a quoted newsletter looked like: "START --> ... END".
+        .replace(HTML_COMMENT, "")
         .replace(Regex("(?is)<(script|style|head)\\b.*?</\\1>"), "")
         // Source layout between tags is not content: a signature table written one row per line
         // would otherwise flatten with a blank line between every row. Only whitespace that spans
@@ -40,6 +46,13 @@ fun htmlToText(html: String): String =
         .replace(Regex("[ \\t]+\n"), "\n")
         .replace(Regex("\n{3,}"), "\n\n")
         .trim()
+
+/**
+ * A comment, plus the downlevel-revealed conditional's bare `<![if ...]>` / `<![endif]>` markers,
+ * which are not comments and would otherwise print. Non-greedy, so two comments do not swallow the
+ * content between them.
+ */
+val HTML_COMMENT = Regex("(?s)<!--.*?-->|<!\\[[^\\]]*\\]>")
 
 /**
  * Decode HTML character references in [s]: the named ones a mail signature or quoted original

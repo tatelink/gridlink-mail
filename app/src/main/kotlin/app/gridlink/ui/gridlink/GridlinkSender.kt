@@ -140,10 +140,15 @@ class GridlinkOutboxSender(
             credentials = credentials,
             to = draft.recipients.map { it.email },
             subject = draft.subject,
-            body = formattedPlain(formatted),
+            // 🔴 The quote is appended HERE, at the write, and not folded into the body when the
+            // composer opens. The body the user edits stays the words they typed, which is what lets
+            // the block on screen be un-editable furniture, and it is what keeps "did they touch
+            // anything" (see [GridlinkComposeState.closeRequest]) answerable.
+            body = gridlinkQuotedPlain(formattedPlain(formatted), draft.quoted),
             // See [GridlinkComposeDraft.formattedBody]: the HTML goes out on every send, formatted
             // or not, because it is also what protects a plain message from format=flowed reflow.
-            htmlBody = formattedHtml(formatted),
+            // It is also the part that carries the original's own formatting into the quote.
+            htmlBody = gridlinkQuotedHtml(formattedHtml(formatted), draft.quoted),
             // The staged parts, not the chips. [check] has already refused any chip with no file
             // behind it, so this cannot silently shorten the message.
             attachments = attacher?.parts(draft.attachments).orEmpty(),
@@ -193,11 +198,15 @@ class GridlinkOutboxSender(
             credentials = credentials,
             to = draft.recipients.map { it.email },
             subject = draft.subject,
-            body = formattedPlain(formatted),
+            // ⚠️ The quote is written into the SAVED draft too, and it has to be: the stored draft
+            // is the whole message, and a reply saved and reopened tomorrow has no [GridlinkQuote]
+            // any more (see [GridlinkComposeDraft.quoted]). Left out here, closing a reply would
+            // silently drop the original, and the reopened draft would send without it.
+            body = gridlinkQuotedPlain(formattedPlain(formatted), draft.quoted),
             // 🔴 The marks live in this part and nowhere else, and reopening the draft reads them
             // back out of it with [parseFormattedHtml]. Without it a draft closed with a bolded
             // word reopens plain, and the user's next act is to send it.
-            htmlBody = formattedHtml(formatted),
+            htmlBody = gridlinkQuotedHtml(formattedHtml(formatted), draft.quoted),
             // A draft keeps its files, so closing the composer on an attached message and reopening
             // it from Drafts finds the same message. Chips with nothing behind them are dropped
             // rather than refused: [check] does not run on a close, and a draft is allowed to be
@@ -227,8 +236,8 @@ class GridlinkOutboxSender(
                 accountId = credentials.id,
                 recipients = draft.recipients.joinToString(",") { it.email },
                 subject = draft.subject,
-                textBody = formattedPlain(draft.formattedBody()),
-                htmlBody = formattedHtml(draft.formattedBody()),
+                textBody = gridlinkQuotedPlain(formattedPlain(draft.formattedBody()), draft.quoted),
+                htmlBody = gridlinkQuotedHtml(formattedHtml(draft.formattedBody()), draft.quoted),
                 fromName = null,
                 fromEmail = null,
                 inReplyTo = null,

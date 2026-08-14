@@ -17,10 +17,11 @@ import app.gridlink.ui.settings.signatureBlock
  * them where they are. The CARET is what puts the user above the signature, not the text order.
  *
  * ## The one setting this cannot honour
- * "Signature below quoted text" is not decided here, because a Gridlink reply carries no quoted
- * text to be below. The composer shows the original as a collapsible label and sends In-Reply-To
- * and References headers; it does not paste the previous message into the body. Deciding the
- * placement against a quote that is not in the string would be a coin flip dressed as a setting.
+ * "Signature below quoted text" is not decided here. A reply DOES quote now ([GridlinkQuote]), but
+ * the quote is not in this string: it is appended when the message is written, after the body, so
+ * everything this function returns is above it. That is the default placement and the only one this
+ * arrangement can express, which is a fair trade for the constraint above — the alternative puts the
+ * original in the middle of the span-indexed text the user is editing.
  */
 
 /**

@@ -86,6 +86,26 @@ class HtmlTextTest {
         assertEquals("Alex — Acme, café", htmlToText("<p>Alex &mdash; Acme, caf&eacute;</p>"))
     }
 
+    // --- comments --------------------------------------------------------------------------------
+
+    @Test fun commentsAreRemovedWithTheirContents() {
+        assertEquals("Hello", htmlToText("<p><!-- hidden preheader -->Hello</p>"))
+    }
+
+    @Test fun conditionalCommentsDoNotLeakAsText() {
+        // 🔴 The generic tag strip alone gets this WRONG: `<!--[if mso]>` ends at its own first `>`,
+        // so the Outlook-only markup and the closing `<![endif]-->` came out as visible text. Seen
+        // for real in a quoted order confirmation, as "START --> ... END".
+        val html = "<!--[if mso]><table><tr><td>Outlook only<![endif]--><p>Real body</p>"
+        assertEquals("Real body", htmlToText(html))
+    }
+
+    @Test fun downlevelRevealedContentSurvivesItsMarkers() {
+        // The other half of the conditional: markup INSIDE `<![if !mso]>` is for everyone else, so
+        // the markers go and the content stays.
+        assertEquals("Everyone else", htmlToText("<![if !mso]><p>Everyone else</p><![endif]>"))
+    }
+
     // --- misc ------------------------------------------------------------------------------------
 
     @Test fun looksLikeHtmlOnlyOnTags() {
