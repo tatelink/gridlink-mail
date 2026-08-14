@@ -729,18 +729,17 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     checked = signatureOnReplies,
                     onCheckedChange = viewModel::setSignatureOnReplies,
                 )
-                // ⛔ There is no "Signature below quoted text" switch here, and it is not an
-                // oversight. A Gridlink reply carries no quoted text: the composer shows the
-                // original as a collapsible label and sends In-Reply-To and References headers,
-                // and the body it opens with is empty. A setting that places a block relative to
-                // a quote that is not in the message has nothing to decide.
+                // ⛔ There is still no "Signature below quoted text" switch here, and as of
+                // 2026-08-14 the reason is a different one. A reply now carries the original (see
+                // [app.gridlink.ui.gridlink.GridlinkQuote]), but it is appended at the write, after
+                // the body, and the body is where the signature is inserted. So the signature is
+                // above the quote by construction, which is the default every client ships and the
+                // only position this arrangement can express.
                 //
-                // 2026-08-12, the same settings-audit pass that wired the other two: they now
-                // insert a real signature ([app.gridlink.ui.gridlink.composeBodyWithSignature]),
-                // and this one could not be wired without first building reply quoting, which is
-                // its own feature and not a settings fix. The store, the setter and the flow all
-                // stay, so backup/restore still carries the value and the switch comes back the
-                // day the quote does.
+                // Offering the switch means moving the quote into the editable body, which is the
+                // same change as letting the reader trim it. The store, the setter and the flow all
+                // stay, so backup/restore still carries the value and the switch comes back the day
+                // the body does.
                 //
                 // On by default, and the subtitle says what turning it off costs: the "-- " line is
                 // what other mail apps recognise a signature by. Off, the signature field holds
