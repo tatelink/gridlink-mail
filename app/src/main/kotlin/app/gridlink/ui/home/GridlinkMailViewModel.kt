@@ -56,6 +56,9 @@ import app.gridlink.ui.gridlink.parseFormattedHtml
 import app.gridlink.ui.gridlink.gridlinkUnsubscribeOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
@@ -1158,16 +1161,46 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     private var emptyingFolder: Pair<String, String>? = null
 
     /**
-     * Fetch the account's mail, and say whether that worked.
+     * Fetch the mail the list is showing, and say whether that worked.
      *
      * The boolean is the whole contract with the chrome row: true stamps "Synced just now", false
      * turns the chip amber and leaves the previous timestamp alone. Nothing about WHY it failed
      * reaches the UI, which is a real limitation (a wrong password and a flat tyre of a Wi-Fi look
      * identical) and is the next thing to fix in this seam, not something to paper over here with a
      * message no screen currently has a place for.
+     *
+     * ## 🔴 EVERY account in the merged list, not the bound one
+     * This used to sync [accountId] and nothing else, while the caller was named
+     * `syncAllAccounts()` and the pull gesture's own doc promised "every account, not this folder".
+     * With the unified inbox on, that is mail silently missing from a list that claims to be showing
+     * it: the second account's rows are whatever was cached the last time it happened to be the
+     * bound one, so a refresh — the very gesture you make BECAUSE you suspect you are not being told
+     * about something — leaves it exactly as stale as it was, with no indication that half the list
+     * was not asked about. Found while chasing "the inbox shows 2 of 5 messages".
+     *
+     * Accounts are synced CONCURRENTLY: they are separate servers as far as this is concerned, and
+     * a chain would make the gesture as slow as the sum of them. The verdict is the conjunction —
+     * one account that could not be reached is a list that is not fully refreshed, and saying
+     * "Synced just now" over it would be the same lie in a smaller place.
      */
     suspend fun sync(): Boolean {
-        val id = accountId.value
+        // 🔴 Read from the preference and the store, NOT from [unified]: that is a
+        // `WhileSubscribed` StateFlow for the drawer, so its value is only live while something is
+        // collecting it, and a sync started with no subscriber (a widget refresh, a background
+        // fetch) would silently take the single-account branch. Same rule [inboxWindow] applies.
+        val merged = settings.unifiedInbox.first()
+        val ids = store.accounts().filter { it.inboxId != null }.map { it.id }
+        // The single-account list is the bound account and only it: an unbound second account's
+        // failure must not turn the chip amber over a mailbox that is perfectly fine and is the
+        // only one on screen.
+        if (!merged || ids.size < 2) return syncAccount(accountId.value)
+        return coroutineScope {
+            ids.map { id -> async { syncAccount(id) } }.awaitAll().all { it }
+        }
+    }
+
+    /** One account's mail. See [sync], which is what the chrome and the pull gesture call. */
+    private suspend fun syncAccount(id: String?): Boolean {
         val credentials = id?.let { store.credentials(it) }
         if (id == null || credentials == null) {
             // Nothing to sync against. Latch [primed] anyway: there is no query coming, so leaving
