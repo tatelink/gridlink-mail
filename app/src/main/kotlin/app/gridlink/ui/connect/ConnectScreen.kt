@@ -368,12 +368,12 @@ fun ConnectScreen(
                 // questions, and the second was invisible until the first was answered "IMAP" —
                 // so the shortcut for the commonest case sat behind a decision about protocols.
                 Text(stringResource(R.string.connect_provider_preset), style = MaterialTheme.typography.labelLarge)
-                SetupChoiceGrid(
+                SetupChoiceList(
                     selected = selectedChoice(preset, protocol),
                     onChoose = { choice ->
                         protocol = protocolFor(choice)
                         preset = choiceTapped(preset, choice)
-                        // Belt to the grid's braces: an OAuth preset can never survive into a JMAP
+                        // Belt to the list's braces: an OAuth preset can never survive into a JMAP
                         // form, where it would hide the token field and send Connect to the
                         // Microsoft browser flow while the screen said JMAP (#105).
                         preset = presetForProtocol(preset, protocol)

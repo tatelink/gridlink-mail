@@ -1,5 +1,6 @@
 package app.gridlink.ui.connect
 
+import app.gridlink.R
 import app.gridlink.core.data.account.ConnectionSecurity
 import app.gridlink.core.data.account.MailProtocol
 import app.gridlink.core.data.net.ImapEndpoints
@@ -15,7 +16,7 @@ import app.gridlink.core.data.net.ImapEndpoints
  * that form to the Microsoft sign-in.
  */
 
-/** A known mail provider's IMAP/SMTP settings, applied by the quick-setup tiles. */
+/** A known mail provider's IMAP/SMTP settings, applied by the quick-setup rows. */
 internal data class MailProvider(
     val name: String,
     val imapHost: String,
@@ -24,37 +25,37 @@ internal data class MailProvider(
     val smtpHost: String,
     val smtpPort: String,
     val smtpSecurity: ConnectionSecurity,
-    /** When true the tile starts the OAuth sign-in flow instead of filling host/port. */
+    /** When true the row starts the OAuth sign-in flow instead of filling host/port. */
     val oauth: Boolean = false,
     /** Page where the user creates an app-specific password (their normal one is refused). */
     val appPasswordUrl: String? = null,
     /**
-     * The provider's logo, drawn on its setup tile. `null` falls back to a lettermark, which is
-     * what every provider does today: these are other companies' trademarks and none are bundled.
+     * The provider's logo, drawn on its row in the setup list. `null` falls back to a lettermark.
      *
-     * To add one, drop a vector drawable named `ic_provider_<lowercase name, no dots or spaces>`
-     * into `res/drawable` (`ic_provider_gmail`, `ic_provider_mailru`, `ic_provider_protonbridge`)
-     * and point this field at it. Nothing else needs to change — the tile already sizes, tints and
-     * centres whatever it is handed.
+     * The bundled ones are each provider's own mark, in `res/drawable-nodpi` at 256px so a 30dp
+     * chip is sharp on any display. They are other companies' trademarks, used to identify the
+     * service the row sets up and nothing else. To add one, drop in
+     * `ic_provider_<lowercase name, no dots or spaces>` and point this field at it; the row already
+     * sizes and centres whatever it is handed.
      */
     val logoRes: Int? = null,
 )
 
 internal val MAIL_PROVIDERS = listOf(
-    MailProvider("Gmail", "imap.gmail.com", "993", ConnectionSecurity.TLS, "smtp.gmail.com", "465", ConnectionSecurity.TLS, appPasswordUrl = "https://myaccount.google.com/apppasswords"),
+    MailProvider("Gmail", "imap.gmail.com", "993", ConnectionSecurity.TLS, "smtp.gmail.com", "465", ConnectionSecurity.TLS, appPasswordUrl = "https://myaccount.google.com/apppasswords", logoRes = R.drawable.ic_provider_gmail),
     // Outlook authenticates over IMAP/SMTP with OAuth (XOAUTH2) — Microsoft has disabled
-    // password IMAP — so this chip launches the OAuth flow rather than filling host/port.
-    MailProvider("Outlook", "outlook.office365.com", "993", ConnectionSecurity.TLS, "smtp.office365.com", "587", ConnectionSecurity.STARTTLS, oauth = true),
-    MailProvider("Yahoo", "imap.mail.yahoo.com", "993", ConnectionSecurity.TLS, "smtp.mail.yahoo.com", "465", ConnectionSecurity.TLS),
-    MailProvider("iCloud", "imap.mail.me.com", "993", ConnectionSecurity.TLS, "smtp.mail.me.com", "587", ConnectionSecurity.STARTTLS),
-    MailProvider("Fastmail", "imap.fastmail.com", "993", ConnectionSecurity.TLS, "smtp.fastmail.com", "465", ConnectionSecurity.TLS),
+    // password IMAP — so this row launches the OAuth flow rather than filling host/port.
+    MailProvider("Outlook", "outlook.office365.com", "993", ConnectionSecurity.TLS, "smtp.office365.com", "587", ConnectionSecurity.STARTTLS, oauth = true, logoRes = R.drawable.ic_provider_outlook),
+    MailProvider("Yahoo", "imap.mail.yahoo.com", "993", ConnectionSecurity.TLS, "smtp.mail.yahoo.com", "465", ConnectionSecurity.TLS, logoRes = R.drawable.ic_provider_yahoo),
+    MailProvider("iCloud", "imap.mail.me.com", "993", ConnectionSecurity.TLS, "smtp.mail.me.com", "587", ConnectionSecurity.STARTTLS, logoRes = R.drawable.ic_provider_icloud),
+    MailProvider("Fastmail", "imap.fastmail.com", "993", ConnectionSecurity.TLS, "smtp.fastmail.com", "465", ConnectionSecurity.TLS, logoRes = R.drawable.ic_provider_fastmail),
     // Yandex and Mail.ru are plain IMAP behind an app-specific password (#105). Values taken from
     // the providers' own documentation, not by analogy with each other:
     //   yandex.com/support/mail/mail-clients/others.html  → imap/smtp.yandex.com, 993/465, SSL
     //   help.mail.ru/mail/login/mailer/ (§ "Указать данные серверов") → imap/smtp.mail.ru, 993/465, SSL/TLS
-    MailProvider("Yandex", "imap.yandex.com", "993", ConnectionSecurity.TLS, "smtp.yandex.com", "465", ConnectionSecurity.TLS, appPasswordUrl = "https://id.yandex.com/security/app-passwords"),
-    MailProvider("Mail.ru", "imap.mail.ru", "993", ConnectionSecurity.TLS, "smtp.mail.ru", "465", ConnectionSecurity.TLS, appPasswordUrl = "https://account.mail.ru/user/2-step-auth/passwords/"),
-    MailProvider("Proton Bridge", "127.0.0.1", "1143", ConnectionSecurity.STARTTLS, "127.0.0.1", "1025", ConnectionSecurity.STARTTLS),
+    MailProvider("Yandex", "imap.yandex.com", "993", ConnectionSecurity.TLS, "smtp.yandex.com", "465", ConnectionSecurity.TLS, appPasswordUrl = "https://id.yandex.com/security/app-passwords", logoRes = R.drawable.ic_provider_yandex),
+    MailProvider("Mail.ru", "imap.mail.ru", "993", ConnectionSecurity.TLS, "smtp.mail.ru", "465", ConnectionSecurity.TLS, appPasswordUrl = "https://account.mail.ru/user/2-step-auth/passwords/", logoRes = R.drawable.ic_provider_mailru),
+    MailProvider("Proton Bridge", "127.0.0.1", "1143", ConnectionSecurity.STARTTLS, "127.0.0.1", "1025", ConnectionSecurity.STARTTLS, logoRes = R.drawable.ic_provider_protonbridge),
 )
 
 /**
@@ -157,12 +158,12 @@ internal fun presetWithDiscovered(current: PresetForm, discovered: ImapEndpoints
 }
 
 /**
- * One tile in the setup grid. The grid replaced a protocol chip row plus a separate, IMAP-only
+ * One row in the setup list. The list replaced a protocol chip row plus a separate, IMAP-only
  * provider chip row: two questions, the second of which was invisible until the first was answered
- * a particular way. A tile is the whole answer.
+ * a particular way. A row is the whole answer.
  *
- * [Jmap] and [Imap] are the manual routes and lead the grid, because they are what this app is for;
- * the branded tiles are shortcuts that fill an IMAP form the user could have typed themselves.
+ * [Jmap] and [Imap] are the manual routes and lead the list, because they are what this app is for;
+ * the branded rows are shortcuts that fill an IMAP form the user could have typed themselves.
  */
 internal sealed interface SetupChoice {
     /** JMAP, configured by hand (autodiscovered from the address, or a server typed under Advanced). */
@@ -175,14 +176,14 @@ internal sealed interface SetupChoice {
     data class Known(val provider: MailProvider) : SetupChoice
 }
 
-/** The grid's contents, in tile order: the two manual routes, then every known provider. */
+/** The list's contents, in row order: the two manual routes, then every known provider. */
 internal val SETUP_CHOICES: List<SetupChoice> =
     listOf(SetupChoice.Jmap, SetupChoice.Imap) + MAIL_PROVIDERS.map { SetupChoice.Known(it) }
 
 /**
- * Which tile reads as chosen, derived from the form rather than stored beside it. A second copy of
+ * Which row reads as chosen, derived from the form rather than stored beside it. A second copy of
  * "what is selected" is exactly the disagreement #105 was about, so there isn't one: [protocol] and
- * [preset] remain the only state, and the grid is a view of them.
+ * [preset] remain the only state, and the list is a view of them.
  */
 internal fun selectedChoice(preset: PresetForm, protocol: MailProtocol): SetupChoice = when {
     protocol == MailProtocol.JMAP -> SetupChoice.Jmap
@@ -190,21 +191,21 @@ internal fun selectedChoice(preset: PresetForm, protocol: MailProtocol): SetupCh
     else -> MAIL_PROVIDERS.firstOrNull { it.name == preset.selected }
         ?.let { SetupChoice.Known(it) }
         // A saved selection naming a provider this build no longer ships: the form still holds that
-        // provider's hosts, so plain IMAP is the honest tile rather than nothing being selected.
+        // provider's hosts, so plain IMAP is the honest row rather than nothing being selected.
         ?: SetupChoice.Imap
 }
 
 /**
- * The protocol a tile implies. Every branded provider here is IMAP, including Outlook, whose OAuth
+ * The protocol a row implies. Every branded provider here is IMAP, including Outlook, whose OAuth
  * is XOAUTH2 over IMAP and SMTP rather than a protocol of its own.
  */
 internal fun protocolFor(choice: SetupChoice): MailProtocol =
     if (choice == SetupChoice.Jmap) MailProtocol.JMAP else MailProtocol.IMAP
 
 /**
- * The form after a tile is tapped. Unlike the chips it replaced, tapping the selected tile does
- * nothing: a tile is a choice among choices, so there is no "off" to toggle back to, and the escape
- * that [presetChipTapped] existed to provide is now just the IMAP tile sitting in plain sight.
+ * The form after a row is tapped. Unlike the chips it replaced, tapping the selected row does
+ * nothing: a row is a choice among choices, so there is no "off" to toggle back to, and the escape
+ * that [presetChipTapped] existed to provide is now just the IMAP row sitting in plain sight.
  */
 internal fun choiceTapped(current: PresetForm, choice: SetupChoice): PresetForm = when (choice) {
     // Both manual routes clear the form: an armed provider's hosts have no business surviving into
