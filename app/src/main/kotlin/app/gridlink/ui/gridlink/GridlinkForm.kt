@@ -851,25 +851,39 @@ fun GridlinkFormToggleRow(
                 modifier = Modifier.weight(1f),
             )
         }
-        Box(
-            modifier = Modifier
-                .clip(shape)
-                .then(
-                    if (checked) {
-                        Modifier.background(gridlinkAccentFill(colors.accent))
-                    } else {
-                        Modifier
-                            .background(colors.surface, shape)
-                            .border(GridlinkDimens.hairline, colors.surfaceBorder, shape)
-                    },
-                )
-                .padding(horizontal = GridlinkSpacing.s16, vertical = GridlinkSpacing.s8),
-        ) {
-            Text(
-                text = if (checked) "ON" else "OFF",
-                style = GridlinkType.sectionLabel,
-                color = if (checked) colors.onAccent else colors.textSecondary,
+        GridlinkOnOffPill(checked)
+    }
+}
+
+/**
+ * The ON/OFF pill on its own, for rows that are not [GridlinkFormToggleRow].
+ *
+ * Extracted rather than copied because the off state is the fiddly half: a bordered pill in
+ * [GridlinkColors.surface], never a dimmed copy of the on state. Two hand-written versions of that
+ * rule is one version drifting into alpha.
+ */
+@Composable
+fun GridlinkOnOffPill(checked: Boolean, modifier: Modifier = Modifier) {
+    val colors = GridlinkTheme.colors
+    val shape = RoundedCornerShape(GridlinkRadii.pill)
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .then(
+                if (checked) {
+                    Modifier.background(gridlinkAccentFill(colors.accent))
+                } else {
+                    Modifier
+                        .background(colors.surface, shape)
+                        .border(GridlinkDimens.hairline, colors.surfaceBorder, shape)
+                },
             )
-        }
+            .padding(horizontal = GridlinkSpacing.s16, vertical = GridlinkSpacing.s8),
+    ) {
+        Text(
+            text = if (checked) "ON" else "OFF",
+            style = GridlinkType.sectionLabel,
+            color = if (checked) colors.onAccent else colors.textSecondary,
+        )
     }
 }

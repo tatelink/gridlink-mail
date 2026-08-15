@@ -34,8 +34,11 @@ object GridlinkFolderMapping {
      * The account's mailboxes as a tree.
      *
      * @param mailboxes the cached folder rows, in the cache's own (sortOrder, name) order.
+     * @param watched the account's watched folder ids, which the push layer already reads and
+     *   nothing until now could write. Ids, not names: an IMAP rename re-keys the stored set
+     *   (`AccountStore.replaceWatchedFolder`), so a folder keeps its switch across one.
      */
-    fun tree(mailboxes: List<Mailbox>): List<GridlinkFolder> {
+    fun tree(mailboxes: List<Mailbox>, watched: Set<String> = emptySet()): List<GridlinkFolder> {
         if (mailboxes.isEmpty()) return emptyList()
         val byId = mailboxes.associateBy { it.id }
         // 🔴 Only consulted when NO mailbox carries the `archive` role, because that is the only
@@ -79,6 +82,7 @@ object GridlinkFolderMapping {
                         // the default would offer a rename on the server's own "All Mail".
                         mayRename = rightAllows(mailbox, archiveByName, mailbox.myRights?.mayRename),
                         mayDelete = rightAllows(mailbox, archiveByName, mailbox.myRights?.mayDelete),
+                        watched = mailbox.id in watched,
                     )
                 }
         }

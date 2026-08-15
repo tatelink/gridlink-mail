@@ -41,9 +41,9 @@ class GridlinkFolderRightsTest {
         assertTrue(f.mayDelete)
     }
 
-    @Test fun `a right the server withholds on both counts leaves no long-press at all`() {
+    @Test fun `a right the server withholds on both counts leaves nothing to edit`() {
         val f = folder(mailbox("team", rights = MailboxRights(mayRename = false, mayDelete = false)))
-        assertFalse(f.hasActions)
+        assertFalse(f.mayEdit)
     }
 
     @Test fun `a role mailbox is refused even when the server grants the right`() {
@@ -60,7 +60,7 @@ class GridlinkFolderRightsTest {
         // "All Mail", and USER used to mean renameable. The glyph was never the problem.
         val f = folder(mailbox("all", role = "all"))
         assertTrue(f.role == GridlinkFolderRole.USER)
-        assertFalse(f.hasActions)
+        assertFalse(f.mayEdit)
     }
 
     @Test fun `every unmapped server role is refused, not just the one`() {
@@ -75,7 +75,7 @@ class GridlinkFolderRightsTest {
         // Servers do send `""` for "no role". Treating it as a role name would take the actions off
         // every folder the user made.
         val f = folder(mailbox("work", role = ""))
-        assertTrue(f.hasActions)
+        assertTrue(f.mayEdit)
     }
 
     @Test fun `children carry their own rights, not their parent's`() {
@@ -92,7 +92,7 @@ class GridlinkFolderRightsTest {
         )
         val work = tree.single()
         assertTrue(work.mayRename)
-        assertFalse(work.children.single().hasActions)
+        assertFalse(work.children.single().mayEdit)
     }
 
     // ---- the roleless folder the app archives into ----------------------------------------------
@@ -111,7 +111,7 @@ class GridlinkFolderRightsTest {
     @Test fun `the name match is case and locale insensitive`() {
         for (name in listOf("archive", "ARCHIVES", "Archivio", "Архив")) {
             val f = folder(Mailbox(id = "h", name = name, role = null))
-            assertFalse(name, f.hasActions)
+            assertFalse(name, f.mayEdit)
         }
     }
 
@@ -125,8 +125,8 @@ class GridlinkFolderRightsTest {
                 Mailbox(id = "mine", name = "Archives", role = null),
             ),
         )
-        assertFalse(tree.first { it.id == "real" }.hasActions)
-        assertTrue(tree.first { it.id == "mine" }.hasActions)
+        assertFalse(tree.first { it.id == "real" }.mayEdit)
+        assertTrue(tree.first { it.id == "mine" }.mayEdit)
     }
 
     @Test fun `the top-level Archive is the protected one, not a nested namesake`() {
@@ -139,7 +139,38 @@ class GridlinkFolderRightsTest {
                 Mailbox(id = "nested", name = "Archive", parentId = "work", role = null),
             ),
         )
-        assertFalse(tree.first { it.id == "top" }.hasActions)
-        assertTrue(tree.first { it.id == "work" }.children.single().hasActions)
+        assertFalse(tree.first { it.id == "top" }.mayEdit)
+        assertTrue(tree.first { it.id == "work" }.children.single().mayEdit)
+    }
+
+    // ---- watching, which is not a right ---------------------------------------------------------
+
+    @Test fun `a mailbox the server locked down can still be watched`() {
+        // 🔴 The split that [GridlinkFolder.mayEdit] exists for. Watching writes a local preference,
+        // so a shared mailbox nobody may rename is still a mailbox this phone may notify about, and
+        // a shared mailbox is exactly the kind mail lands in unannounced.
+        val f = folder(mailbox("team", rights = MailboxRights(mayRename = false, mayDelete = false)))
+        assertFalse(f.mayEdit)
+        assertTrue(f.mayWatch)
+        assertTrue(f.hasActions)
+    }
+
+    @Test fun `the inbox is the one folder with no switch`() {
+        // It is always watched and is not in the stored set, so a switch there could only draw OFF
+        // about a folder that notifies, or ON about a preference nothing reads.
+        assertFalse(folder(mailbox("i", role = "inbox")).mayWatch)
+    }
+
+    @Test fun `the watched set reaches the tree by id, at any depth`() {
+        val tree = GridlinkFolderMapping.tree(
+            listOf(
+                mailbox("work"),
+                Mailbox(id = "receipts", name = "receipts", parentId = "work"),
+            ),
+            watched = setOf("receipts"),
+        )
+        val work = tree.single()
+        assertFalse(work.watched)
+        assertTrue(work.children.single().watched)
     }
 }

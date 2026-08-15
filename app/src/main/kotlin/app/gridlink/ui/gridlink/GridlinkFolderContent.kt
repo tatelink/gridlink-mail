@@ -36,6 +36,17 @@ data class GridlinkFolderContent(
      * an unbounded cache of every folder the user has ever tapped.
      */
     val open: GridlinkOpenFolder? = null,
+    /**
+     * Does a watched folder notify the moment mail lands, or on the fallback poll?
+     *
+     * JMAP says yes: one `StateChange` covers the whole account, so every watched folder is as live
+     * as the inbox. IMAP says no: IDLE selects one mailbox and this app selects the INBOX, so a
+     * folder Sieve files into is seen by `MailFetchWorker`'s ~30-minute cycle and nothing sooner.
+     *
+     * 🔴 On the content object rather than read where it is needed, because `ui.gridlink` is not
+     * allowed to know what a `MailProtocol` is. This is the answer, not the reason for it.
+     */
+    val watchIsInstant: Boolean = true,
 )
 
 /**
@@ -103,4 +114,15 @@ sealed interface GridlinkFolderEdit {
      * keeps it away from folders with children, which servers refuse anyway.
      */
     data class Delete(val id: String) : GridlinkFolderEdit
+
+    /**
+     * Notify about new mail in this mailbox, or stop.
+     *
+     * 🔴 The odd one out here, and deliberately in the same sealed set: it touches nothing on the
+     * server. Every other edit is a `Mailbox/set` round trip, this one writes a local preference the
+     * push layer reads. It rides along because the long-press sheet is where a user goes to say
+     * something about a folder, and splitting it into a second callback would mean two paths out of
+     * one sheet for no reason the user can see.
+     */
+    data class Watch(val id: String, val watched: Boolean) : GridlinkFolderEdit
 }

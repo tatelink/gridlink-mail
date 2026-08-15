@@ -282,9 +282,34 @@ data class GridlinkFolder(
     val mayRename: Boolean = role == GridlinkFolderRole.USER,
     /** JMAP `myRights.mayDelete`. Same rule, and see [GridlinkFolder.mayBeDeletedNow]. */
     val mayDelete: Boolean = role == GridlinkFolderRole.USER,
+    /**
+     * Does new mail here raise a notification? `AccountStore.watchedFolders`, per account.
+     *
+     * 🔴 The INBOX is not in that set and is always watched anyway, which is why [mayWatch] refuses
+     * to offer the switch there: an OFF pill on the inbox would be a lie, and an ON pill would be a
+     * control that does nothing when tapped.
+     */
+    val watched: Boolean = false,
 ) {
+    /**
+     * May the user turn notifications on for this folder? Everything except the inbox, which is
+     * always watched, INCLUDING the folders this app refuses to rename. Watching is not editing:
+     * Sieve files mail into Junk and into role-less server folders alike, and the whole complaint
+     * this answers is mail that arrives somewhere the phone never mentions.
+     */
+    val mayWatch: Boolean get() = role != GridlinkFolderRole.INBOX
+
+    /**
+     * May the user change the mailbox ITSELF, as opposed to what this phone does about it?
+     *
+     * 🔴 The rights half of [hasActions], split off when watching arrived. The two used to be the
+     * same question and are not: watching writes a local preference and needs no permission from
+     * anybody, so a mailbox the server has locked down still offers it.
+     */
+    val mayEdit: Boolean get() = mayRename || mayDelete
+
     /** True when a long-press has anything at all to offer. Drives whether the gesture responds. */
-    val hasActions: Boolean get() = mayRename || mayDelete
+    val hasActions: Boolean get() = mayEdit || mayWatch
 
     /**
      * 🔴 The right to delete a mailbox is not the same as being able to delete it *now*.
