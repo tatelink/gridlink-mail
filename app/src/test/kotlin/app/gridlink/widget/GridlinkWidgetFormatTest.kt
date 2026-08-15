@@ -1,8 +1,12 @@
 package app.gridlink.widget
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.util.Locale
@@ -138,5 +142,53 @@ class GridlinkWidgetFormatTest {
     fun `the big count caps too`() {
         assertEquals("9999", GridlinkWidgetFormat.unreadCount(9_999))
         assertEquals("9999+", GridlinkWidgetFormat.unreadCount(10_000))
+    }
+
+    // ---- Agenda ------------------------------------------------------------------------------
+
+    private fun instant(hour: Int, minute: Int, day: Int = 12) =
+        ZonedDateTime.of(2026, 3, day, hour, minute, 0, 0, zone).toInstant().toEpochMilli()
+
+    /**
+     * 🔴 An end that is not after the start prints nothing. Zero-length markers are ordinary in
+     * real calendars, and a second line repeating the first reads as a meeting that ends when it
+     * begins rather than as an event with no stated end.
+     */
+    @Test
+    fun `an end at or before the start is dropped`() {
+        assertNull(GridlinkWidgetFormat.agendaEndTime(instant(9, 0), null, zone, locale))
+        assertNull(GridlinkWidgetFormat.agendaEndTime(instant(9, 0), instant(9, 0), zone, locale))
+        assertNull(GridlinkWidgetFormat.agendaEndTime(instant(9, 0), instant(8, 0), zone, locale))
+    }
+
+    /**
+     * The time column's second line is read as "…until", so it may only ever carry a time from the
+     * same day. An overnight event gets a start and nothing under it.
+     */
+    @Test
+    fun `an end on a later day is dropped rather than printed as this morning`() {
+        assertNull(GridlinkWidgetFormat.agendaEndTime(instant(22, 0), instant(1, 0, day = 13), zone, locale))
+        assertNotNull(GridlinkWidgetFormat.agendaEndTime(instant(9, 0), instant(10, 30), zone, locale))
+    }
+
+    /** Only the two nearest days get a word; everything else is dated. */
+    @Test
+    fun `day labels name today and tomorrow and date the rest`() {
+        val today = LocalDate.of(2026, 3, 12).toEpochDay()
+        fun label(day: Long) = GridlinkWidgetFormat.agendaDayLabel(day, today, locale, "Today", "Tomorrow")
+        assertEquals("Today", label(today))
+        assertEquals("Tomorrow", label(today + 1))
+        val later = label(today + 9)
+        assertNotEquals("Today", later)
+        assertNotEquals("Tomorrow", later)
+        // Dated, not just a weekday: a fortnight's window sees each weekday twice.
+        assertTrue(later.contains("21"))
+    }
+
+    @Test
+    fun `an event with no title or location gives the caller null to name`() {
+        assertNull(GridlinkWidgetFormat.eventSummary("   "))
+        assertNull(GridlinkWidgetFormat.eventLocation(""))
+        assertEquals("Standup", GridlinkWidgetFormat.eventSummary("  Standup\n "))
     }
 }

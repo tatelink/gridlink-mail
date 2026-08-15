@@ -796,6 +796,16 @@
     <string name="widget_empty_not_synced">Abre GridLink una vez para llenar esto.</string>
     <string name="widget_empty_inbox">Nada esperando.</string>
     <string name="widget_time_now">ahora</string>
+    <string name="widget_agenda_label">Agenda de Gridlink</string>
+    <string name="widget_agenda_title">Agenda</string>
+    <string name="widget_agenda_description">Lo que viene, directo de tu calendario.</string>
+    <string name="widget_agenda_all_day">Todo el día</string>
+    <string name="widget_agenda_today">Hoy</string>
+    <string name="widget_agenda_tomorrow">Mañana</string>
+    <string name="widget_agenda_no_title">(Sin título)</string>
+    <string name="widget_empty_agenda">Nada previsto.</string>
+    <string name="widget_empty_calendar_off">La sincronización del calendario está desactivada en esta cuenta.</string>
+    <string name="widget_empty_calendar_not_synced">Abre GridLink una vez para sincronizar tu calendario.</string>
     <string name="settings_bundle_automated_title">Agrupar el correo automático</string>
     <string name="settings_bundle_automated_subtitle">Reúne los remitentes de tipo no-reply, notificaciones y alertas en una fila plegada encima de la lista. Desactivado por defecto: la lista muestra todos los mensajes por fecha. En ninguno de los dos casos se oculta nada, y el remitente se deduce de su dirección, así que una persona que escriba desde una dirección notifications@ también se agrupa.</string>
     <string name="settings_thread_actions_section">Acciones del mensaje</string>

@@ -10,6 +10,7 @@ import android.net.Uri
 import app.gridlink.MainActivity
 import app.gridlink.R
 import app.gridlink.container
+import app.gridlink.core.data.calendar.WidgetAgendaReader
 import app.gridlink.core.data.mail.WidgetInboxReader
 
 /**
@@ -50,6 +51,13 @@ object GridlinkWidgets {
         if (countIds.isNotEmpty()) {
             appContext.sendBroadcast(updateIntent(appContext, UnreadWidgetProvider::class.java, countIds))
         }
+        val agendaIds = manager.idsFor(appContext, AgendaWidgetProvider::class.java)
+        if (agendaIds.isNotEmpty()) {
+            // Both halves again, and for the same reason as the mail list above: the collection
+            // and the header are woken by different calls and neither redraws the other.
+            manager.notifyAppWidgetViewDataChanged(agendaIds, R.id.agenda_list)
+            appContext.sendBroadcast(updateIntent(appContext, AgendaWidgetProvider::class.java, agendaIds))
+        }
     }
 
     /**
@@ -70,6 +78,10 @@ object GridlinkWidgets {
     /** The container, reached the same way every other `:app` component reaches it. */
     internal fun readerFor(context: Context): WidgetInboxReader =
         (context.applicationContext as Application).container.widgetInboxReader
+
+    /** The agenda widget's half of the same container. Cache-only, like the inbox reader. */
+    internal fun agendaReaderFor(context: Context): WidgetAgendaReader =
+        (context.applicationContext as Application).container.widgetAgendaReader
 
     /**
      * Open the app at the inbox.
@@ -130,6 +142,35 @@ object GridlinkWidgets {
         )
     }
 
+    /** The agenda widget's refresh button. Explicit component, so it shares [ACTION_REFRESH]. */
+    internal fun agendaRefreshIntent(context: Context, widgetId: Int): PendingIntent {
+        val intent = Intent(context, AgendaWidgetProvider::class.java)
+            .setAction(ACTION_REFRESH)
+            .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+        return PendingIntent.getBroadcast(context, REQUEST_AGENDA_REFRESH + widgetId, intent, IMMUTABLE)
+    }
+
+    /**
+     * The template every agenda row's tap is filled into.
+     *
+     * ⚠️ Unlike [rowTemplateIntent] this one carries the whole destination, because every row goes
+     * to the same place: the app, as it normally opens. The calendar is not addressable from an
+     * Intent yet (the section lives in `GridlinkRoot`'s own state, reached through an
+     * `initialDestination` nobody passes), so a row cannot open its own event without a deep link
+     * that does not exist. It is still MUTABLE and still a template: the rows supply an empty
+     * fill-in, and building it any other way means rewriting this the day that link lands.
+     */
+    internal fun agendaRowTemplateIntent(context: Context, widgetId: Int): PendingIntent {
+        val intent = Intent(context, MainActivity::class.java)
+            .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        return PendingIntent.getActivity(
+            context,
+            REQUEST_AGENDA_ROW + widgetId,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+        )
+    }
+
     private const val IMMUTABLE = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
 
     // Request codes are namespaced by band so a widget id added to one can never collide with
@@ -137,5 +178,7 @@ object GridlinkWidgets {
     private const val REQUEST_OPEN = 9_000
     private const val REQUEST_COMPOSE = 9_001
     private const val REQUEST_REFRESH = 10_000
+    private const val REQUEST_AGENDA_REFRESH = 11_000
     private const val REQUEST_ROW = 20_000
+    private const val REQUEST_AGENDA_ROW = 30_000
 }

@@ -839,6 +839,19 @@
     <string name="widget_empty_not_synced">Open GridLink once to fill this in.</string>
     <string name="widget_empty_inbox">Nothing waiting.</string>
     <string name="widget_time_now">now</string>
+    <!-- The agenda widget. Its empty states are kept apart from the mail ones on purpose: a
+         calendar that is switched off and a calendar with a clear fortnight look identical on
+         screen and need opposite things from the user. -->
+    <string name="widget_agenda_label">Gridlink agenda</string>
+    <string name="widget_agenda_title">Agenda</string>
+    <string name="widget_agenda_description">What is coming up, straight from your calendar.</string>
+    <string name="widget_agenda_all_day">All day</string>
+    <string name="widget_agenda_today">Today</string>
+    <string name="widget_agenda_tomorrow">Tomorrow</string>
+    <string name="widget_agenda_no_title">(No title)</string>
+    <string name="widget_empty_agenda">Nothing scheduled.</string>
+    <string name="widget_empty_calendar_off">Calendar sync is off for this account.</string>
+    <string name="widget_empty_calendar_not_synced">Open GridLink once to sync your calendar.</string>
     <string name="settings_tags_title">Tags</string>
     <string name="settings_tags_summary">Colour-coded labels for your mail</string>
     <string name="settings_tags_section">Your tags</string>

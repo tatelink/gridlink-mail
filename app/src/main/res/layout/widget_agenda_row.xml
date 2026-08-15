@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  One occurrence in the agenda widget.
+
+  🔴 The day heading is part of the ROW, not a row of its own. A RemoteViews collection can carry
+  several view types, but the launcher measures them by type and a heading row would take a full
+  row's height for one word; folding it into the first row of each day costs a hidden TextView on
+  every other row and keeps the list dense. AgendaWidgetFactory decides which rows show it.
+
+  Same tap rule as the mail row: the whole thing is one target, filled by the collection's
+  PendingIntent template, and nothing inside it is separately clickable.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/agenda_root"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <!-- Gone on every row but the first of its day. Sits outside the card so it reads as a
+         heading over the day rather than as a label belonging to one appointment. -->
+    <TextView
+        android:id="@+id/agenda_day"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        android:textColor="@color/widget_on_card_dim"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="@drawable/widget_row"
+        android:padding="10dp"
+        android:layout_marginBottom="6dp"
+        android:baselineAligned="false">
+
+        <!-- Fixed width so the times form a column instead of ragging with each summary. -->
+        <LinearLayout
+            android:layout_width="62dp"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/agenda_start"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@color/widget_row_text"
+                android:textSize="13sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+
+            <!-- Gone when the event has no usable end, rather than drawn blank: an empty second
+                 line under a start time reads as an end that failed to load. -->
+            <TextView
+                android:id="@+id/agenda_end"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@color/widget_row_text_secondary"
+                android:textSize="11sp"
+                android:maxLines="1"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/agenda_summary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@color/widget_row_text"
+                android:textSize="13sp"
+                android:maxLines="2"
+                android:ellipsize="end" />
+
+            <TextView
+                android:id="@+id/agenda_location"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:textColor="@color/widget_row_text_secondary"
+                android:textSize="12sp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:visibility="gone" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

@@ -2,6 +2,7 @@ package app.gridlink.core.data
 
 import android.content.Context
 import app.gridlink.core.data.account.AccountStore
+import app.gridlink.core.data.calendar.WidgetAgendaReader
 import app.gridlink.core.data.dav.DavRepository
 import app.gridlink.core.data.db.GridlinkDatabase
 import app.gridlink.core.data.mail.ImapMailService
@@ -37,6 +38,8 @@ object DataFactory {
          * the widget gets a seat at it.
          */
         val widgetInboxReader: WidgetInboxReader,
+        /** The agenda widget's read-only view of the cached calendar. Same reasoning as above. */
+        val widgetAgendaReader: WidgetAgendaReader,
     )
 
     fun create(
@@ -55,6 +58,21 @@ object DataFactory {
         )
         val imapService = ImapMailService(
             ImapClient(), SmtpClient(), OAuthTokenRefresher(OAuthClient(), accountStore), uidValidity,
+        )
+        // Built ahead of the DataLayer because the agenda widget reads THROUGH it: occurrence
+        // expansion lives in one place, and the widget must not grow a second copy of the
+        // zone-widening rule (see WidgetAgendaReader).
+        val davRepository = DavRepository(
+            // Its own transport: a DAV first sync can be one large slow response, and sharing
+            // the JMAP client's connection pool would let a calendar fetch hold up mail.
+            client = DavClient(),
+            accountStore = accountStore,
+            collectionDao = database.davCollectionDao(),
+            eventDao = database.calendarEventDao(),
+            contactDao = database.addressBookContactDao(),
+            // The shared JMAP client, for contact writes on servers that speak RFC 9610. A
+            // write is one small request, so mail's connection pool is the right one for it.
+            jmap = client,
         )
         return DataLayer(
             mailRepository = MailRepository(
@@ -75,20 +93,12 @@ object DataFactory {
                 database.mailboxDao(), database.snoozedDao(), database.purgeSnapshotDao(),
                 database.mailboxUidValidityDao(),
             ),
-            davRepository = DavRepository(
-                // Its own transport: a DAV first sync can be one large slow response, and sharing
-                // the JMAP client's connection pool would let a calendar fetch hold up mail.
-                client = DavClient(),
-                accountStore = accountStore,
-                collectionDao = database.davCollectionDao(),
-                eventDao = database.calendarEventDao(),
-                contactDao = database.addressBookContactDao(),
-                // The shared JMAP client, for contact writes on servers that speak RFC 9610. A
-                // write is one small request, so mail's connection pool is the right one for it.
-                jmap = client,
-            ),
+            davRepository = davRepository,
             widgetInboxReader = WidgetInboxReader(
                 database.emailDao(), database.mailboxDao(), accountStore,
+            ),
+            widgetAgendaReader = WidgetAgendaReader(
+                davRepository, database.davCollectionDao(), accountStore,
             ),
         )
     }

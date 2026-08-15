@@ -7,6 +7,7 @@ import app.gridlink.core.data.account.AccountStore
 import app.gridlink.core.data.dav.DavRepository
 import app.gridlink.core.data.mail.MailRepository
 import app.gridlink.core.data.mail.OutboxScheduler
+import app.gridlink.core.data.calendar.WidgetAgendaReader
 import app.gridlink.core.data.mail.WidgetInboxReader
 import app.gridlink.core.data.settings.SettingsRepository
 import app.gridlink.core.data.storage.StorageRepository
@@ -46,6 +47,9 @@ class AppContainer(context: Context) {
 
     /** Cache-only inbox read for the home-screen widgets. Never syncs; see [WidgetInboxReader]. */
     val widgetInboxReader: WidgetInboxReader = dataLayer.widgetInboxReader
+
+    /** Cache-only agenda read for the calendar widget. Never syncs; see [WidgetAgendaReader]. */
+    val widgetAgendaReader: WidgetAgendaReader = dataLayer.widgetAgendaReader
     val appLock: AppLock = AppLock(accountStore)
 
     /** UnifiedPush transport state machine (issue #17); inert without a distributor. */

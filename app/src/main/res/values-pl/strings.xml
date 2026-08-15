@@ -798,6 +798,16 @@
     <string name="widget_empty_not_synced">Otwórz raz GridLink, aby to wypełnić.</string>
     <string name="widget_empty_inbox">Nic nie czeka.</string>
     <string name="widget_time_now">teraz</string>
+    <string name="widget_agenda_label">Terminarz Gridlink</string>
+    <string name="widget_agenda_title">Terminarz</string>
+    <string name="widget_agenda_description">Co przed tobą, prosto z twojego kalendarza.</string>
+    <string name="widget_agenda_all_day">Cały dzień</string>
+    <string name="widget_agenda_today">Dziś</string>
+    <string name="widget_agenda_tomorrow">Jutro</string>
+    <string name="widget_agenda_no_title">(Bez tytułu)</string>
+    <string name="widget_empty_agenda">Nic w planach.</string>
+    <string name="widget_empty_calendar_off">Synchronizacja kalendarza jest wyłączona dla tego konta.</string>
+    <string name="widget_empty_calendar_not_synced">Otwórz raz GridLink, aby zsynchronizować kalendarz.</string>
     <string name="settings_bundle_automated_title">Grupuj pocztę automatyczną</string>
     <string name="settings_bundle_automated_subtitle">Zbiera nadawców typu no-reply, powiadomienia i alerty w jednym zwiniętym wierszu nad listą. Domyślnie wyłączone: lista pokazuje każdą wiadomość według daty. W żadnym przypadku nic nie jest ukrywane, a nadawca jest rozpoznawany po adresie, więc osoba pisząca z adresu notifications@ też trafi do grupy.</string>
     <string name="settings_thread_actions_section">Akcje wiadomości</string>
