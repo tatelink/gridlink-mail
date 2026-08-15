@@ -1,3 +1,4 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Properties
 
 plugins {
@@ -146,10 +147,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
         buildConfig = true
@@ -199,4 +196,14 @@ dependencies {
     // Virtual time + a background scope, to drive the unfolded conversations' live member stream
     // (a flow of flows) without sleeping on a real clock.
     testImplementation(libs.kotlinx.coroutines.test)
+}
+
+kotlin {
+    // 🔴 The `compilerOptions` DSL, not `kotlinOptions`. The old block is an ERROR from Kotlin 2.2
+    // on, which is what fails every Dependabot Kotlin bump before it compiles a line of source.
+    // Same value as `compileOptions` above and they have to stay in step: Java and Kotlin bytecode
+    // targets that disagree break at link time, not at build time.
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
+    }
 }
