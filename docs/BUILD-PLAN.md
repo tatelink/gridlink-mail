@@ -38,13 +38,18 @@ before trusting a line, and correct the line rather than working around it.
 
 ## Phase 1 — close Tier 0
 
-One item left, and it is a reproduction rather than a change.
+✅ **Closed 2026-08-15, commit `b86c1af7`.** It did not behave, and the reproduction is what said so.
 
-1. **Cursor stability in a long quoted reply.** Send itself works (`sendWithUndo` → `sender.check`
-   → `enqueueSend`), and attachments now ride along. The unverified half is the review's actual
-   complaint: typing above a long quote and having the caret jump or the view scroll away.
-   Reproduce on a genuinely long thread before deciding whether anything needs changing. If it
-   behaves, Tier 0 closes here with no code written.
+1. ✅ **Cursor stability in a long quoted reply.** Send itself works (`sendWithUndo` → `sender.check`
+   → `enqueueSend`), and attachments ride along. The review's actual complaint reproduced on the
+   first try against the new `--es compose reply-long` fixture: with the caret at the end of a body
+   that already filled the panel, six phrases typed at it went five lines **below the visible edge**
+   and the view never moved. "The view scrolls away" was the same fault seen from the other side —
+   the view refuses to **follow**, and you type blind.
+   `GridlinkFormTextRow` now brings the caret rect into view itself. Every field in this app sits in
+   a `verticalScroll` column, where the incoming max height is infinite, so a `BasicTextField` grows
+   to its content, never scrolls, and has nothing to keep the caret inside; the enclosing scroll was
+   the only thing that could move and nothing told it to.
 
 ## Phase 2 — no foreign screens
 
