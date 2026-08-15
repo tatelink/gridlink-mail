@@ -56,6 +56,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.gridlink.core.data.settings.ThreadToolbarAction
 import app.gridlink.ui.emailhtml.EmailRemoteContent
@@ -355,7 +356,17 @@ fun GridlinkThreadScreen(
             }
 
             if (!embedded) {
-                GridlinkThreadSender(message)
+                // The gap under the floating restore button, and only while it is floating there.
+                // headerControl is the button, s12 is the padding it is placed with, s8 keeps the
+                // chevron off its edge rather than exactly against it.
+                GridlinkThreadSender(
+                    message = message,
+                    trailingGap = if (maximized) {
+                        GridlinkDimens.headerControl + GridlinkSpacing.s12 + GridlinkSpacing.s8
+                    } else {
+                        0.dp
+                    },
+                )
 
                 Box(
                     modifier = Modifier
@@ -594,6 +605,7 @@ private fun GridlinkThreadSender(
     message: GridlinkMessage,
     modifier: Modifier = Modifier,
     banded: Boolean = false,
+    trailingGap: Dp = 0.dp,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
@@ -623,8 +635,15 @@ private fun GridlinkThreadSender(
                 // to hit on a phone, and there is nothing else in this header to tap.
                 .clickable { expanded = !expanded }
                 .padding(
-                    horizontal = if (banded) 0.dp else GridlinkSpacing.rowHorizontal,
-                    vertical = if (banded) GridlinkSpacing.s4 else GridlinkSpacing.s16,
+                    start = if (banded) 0.dp else GridlinkSpacing.rowHorizontal,
+                    // 🔴 [trailingGap] on the END only. Maximized floats the restore button over this
+                    // corner, and the chevron is the last thing in this row: without the gap the
+                    // button lands squarely on it, which hides the one control that says the address
+                    // is being withheld rather than missing. The gap moves the row's own contents in,
+                    // it does not move the block, so the sender name still starts where it did.
+                    end = (if (banded) 0.dp else GridlinkSpacing.rowHorizontal) + trailingGap,
+                    top = if (banded) GridlinkSpacing.s4 else GridlinkSpacing.s16,
+                    bottom = if (banded) GridlinkSpacing.s4 else GridlinkSpacing.s16,
                 ),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
