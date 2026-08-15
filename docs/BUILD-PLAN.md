@@ -12,6 +12,12 @@ dates the whole of Phase 4 shipped, and this document went on listing it as open
 🔴 A status here is a claim about the tree, so it goes stale the moment something lands. Check
 before trusting a line, and correct the line rather than working around it.
 
+**Where this stands, 2026-08-15:** every item in every phase is closed except **#9, the TalkBack
+sweep**, which Brandon paused part-done. What is left is therefore not building but *looking*: a
+run of the things closed in the last few days that have never been seen on a phone — the promises
+screen, the contacts/calendar account, the invitation card and its conflicts, and the S/MIME row,
+which has also never met a real signed message. Each of those is marked ⚠️ at its own item.
+
 ## Closed since the last restatement
 
 | Item | Where it landed |
