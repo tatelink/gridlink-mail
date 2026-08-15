@@ -56,11 +56,16 @@ import app.gridlink.ui.theme.gridlinkSenderBarColor
 /**
  * The dense half of the app: §4 message rows and the §5 automated-sender bundle.
  *
- * 🔴 Everything here is fixed at [GridlinkDimens.messageRowHeight]. The brief's density target is
- * 13 rows on a folded Fold screen, and that number is the reason for every omission below: no
- * avatars, no snippet, no card, no drop shadow, no gap between rows. Rows are separated by a 1px
- * hairline and nothing else. Adding a third line to this row costs roughly a quarter of the visible
- * inbox, so it needs a very good reason.
+ * 🔴 Everything here is fixed at [gridlinkRowHeight]. The brief's density target is 13 rows on a
+ * folded Fold screen, and that number is the reason for every omission below: no avatars, no
+ * snippet, no card, no drop shadow, no gap between rows. Rows are separated by a 1px hairline and
+ * nothing else. Adding a third line to this row costs roughly a quarter of the visible inbox, so it
+ * needs a very good reason.
+ *
+ * 🔴 [gridlinkRowHeight] is the user's list-density setting, and it is padding ONLY: see
+ * [gridlinkRowVertical]. It defaults to [GridlinkDimens.messageRowHeight] exactly, and none of the
+ * omissions above come back at any setting. A row that is allowed to be roomier is not a row that
+ * is allowed to grow content.
  */
 
 /**
@@ -201,11 +206,7 @@ fun GridlinkMessageRow(
         modifier = modifier
             .fillMaxWidth()
             .height(
-                if (snippetText != null) {
-                    GridlinkDimens.searchRowHeight
-                } else {
-                    GridlinkDimens.messageRowHeight
-                },
+                if (snippetText != null) gridlinkSearchRowHeight() else gridlinkRowHeight(),
             )
             .graphicsLayer {
                 scaleX = press
@@ -260,8 +261,8 @@ fun GridlinkMessageRow(
                     .padding(
                         start = GridlinkSpacing.rowHorizontal,
                         end = GridlinkSpacing.rowHorizontal,
-                        top = GridlinkSpacing.rowVertical,
-                        bottom = GridlinkSpacing.rowVertical,
+                        top = gridlinkRowVertical(),
+                        bottom = gridlinkRowVertical(),
                     ),
                 verticalArrangement = Arrangement.Center,
             ) {
@@ -620,7 +621,7 @@ fun GridlinkBundleRow(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(GridlinkDimens.messageRowHeight)
+            .height(gridlinkRowHeight())
             .background(fill)
             .combinedClickable(onClick = onToggle, onLongClick = onLongClick),
     ) {
@@ -654,8 +655,8 @@ fun GridlinkBundleRow(
                     .padding(
                         start = GridlinkSpacing.rowHorizontal,
                         end = GridlinkSpacing.rowHorizontal,
-                        top = GridlinkSpacing.rowVertical,
-                        bottom = GridlinkSpacing.rowVertical,
+                        top = gridlinkRowVertical(),
+                        bottom = gridlinkRowVertical(),
                     ),
                 verticalArrangement = Arrangement.Center,
             ) {
@@ -741,7 +742,7 @@ fun GridlinkBundledChildRow(
         Box(
             modifier = Modifier
                 .width(GridlinkSpacing.bundleIndent)
-                .height(GridlinkDimens.messageRowHeight),
+                .height(gridlinkRowHeight()),
         ) {
             // 🔴 Leading edge, not trailing. At the trailing edge the rule lands flush against the
             // child's own sender bar and disappears into it, which loses the containment §5 asks
