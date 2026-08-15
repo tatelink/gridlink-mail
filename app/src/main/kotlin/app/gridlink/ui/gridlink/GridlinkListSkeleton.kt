@@ -60,6 +60,12 @@ private val LINE_HEIGHT = 18.dp
 private val TIMESTAMP_WIDTH = 38.dp
 
 /**
+ * Line box of one preview line, derived from the same pair of tokens `gridlinkPreviewRowHeight` uses
+ * so the placeholder and the text it stands in for cannot drift apart.
+ */
+private val PREVIEW_LINE_HEIGHT = GridlinkDimens.searchRowHeight - GridlinkDimens.messageRowHeight
+
+/**
  * Widths of the sender placeholder, as fractions of the row.
  *
  * A fixed cycle rather than a random draw. Random would need a seed to survive recomposition, and
@@ -160,7 +166,7 @@ fun GridlinkListSkeleton(modifier: Modifier = Modifier) {
         // One more than fits, so the panel is never seen to end. A skeleton with a last row has
         // told you how much mail there is, which is the one fact it cannot possibly know.
         val rows = ceil(
-            (maxHeight - GridlinkDimens.listFade) / gridlinkRowHeight(),
+            (maxHeight - GridlinkDimens.listFade) / gridlinkSkeletonRowHeight(),
         ).toInt().coerceAtLeast(1) + 1
 
         Column(
@@ -225,13 +231,19 @@ fun GridlinkListSkeleton(modifier: Modifier = Modifier) {
  * ⚠️ The two files have to be changed together. Every measurement here is a copy of one over there,
  * and the whole point of the component is that the swap from placeholder to text moves nothing, so
  * a row that grows by 4dp in one file and not the other reintroduces the jump this prevents.
+ *
+ * ⚠️ The preview line is the one measurement here that is a GUESS. The real row sizes off whether
+ * that message has preview text, which cannot be known before the mail arrives, so this sizes off
+ * the setting instead. Right for JMAP, where a preview comes down with every row; wrong for IMAP,
+ * which stores none, and those rows will step up by a line on arrival. Sizing off the default
+ * instead would move the far commoner case, so this is the guess that is wrong less often.
  */
 @Composable
 private fun GridlinkSkeletonRow(index: Int) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(gridlinkRowHeight()),
+            .height(gridlinkSkeletonRowHeight()),
     ) {
         // The sender bar, uncoloured. Its colour comes from the sending domain, which is not known
         // yet, so it holds the space in the skeleton tint and fills in with the real hue on arrival.
@@ -266,8 +278,38 @@ private fun GridlinkSkeletonRow(index: Int) {
             ) {
                 SkeletonBlock(Modifier.fillMaxWidth(SUBJECT_WIDTHS[index % SUBJECT_WIDTHS.size]))
             }
+            // The preview block, only when the setting asks for one. Full width on every line but
+            // the last, which is short: that is the shape a wrapped paragraph actually makes, and a
+            // stack of identical full-width bars reads as a table rather than as text.
+            repeat(gridlinkPreviewLines()) { line ->
+                Row(
+                    modifier = Modifier.height(PREVIEW_LINE_HEIGHT),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val last = line == gridlinkPreviewLines() - 1
+                    SkeletonBlock(
+                        modifier = if (last) {
+                            Modifier.fillMaxWidth(SUBJECT_WIDTHS[(index + 1) % SUBJECT_WIDTHS.size])
+                        } else {
+                            Modifier.fillMaxWidth()
+                        },
+                    )
+                }
+            }
         }
     }
+}
+
+/**
+ * The placeholder row's height, including the preview lines the setting asks for.
+ *
+ * See the guess warned about on [GridlinkSkeletonRow]: this reads the setting, because the real
+ * row's answer depends on mail that has not arrived.
+ */
+@Composable
+private fun gridlinkSkeletonRowHeight(): Dp {
+    val lines = gridlinkPreviewLines()
+    return if (lines > 0) gridlinkPreviewRowHeight(lines) else gridlinkRowHeight()
 }
 
 /**

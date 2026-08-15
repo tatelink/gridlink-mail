@@ -70,7 +70,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val previewLines = settings.previewLines.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = PreviewLines.ONE,
+        initialValue = PreviewLines.NONE,
     )
 
     // ⚠️ The initial values must match the repository's own defaults, or the rows show one answer
