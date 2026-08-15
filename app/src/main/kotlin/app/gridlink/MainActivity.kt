@@ -27,6 +27,7 @@ import app.gridlink.core.data.settings.ListDensity
 import app.gridlink.core.data.settings.PreviewLines
 import app.gridlink.core.data.settings.ThemeMode
 import app.gridlink.ui.AppNavHost
+import app.gridlink.ui.gridlink.GridlinkDestination
 import app.gridlink.ui.gridlink.GridlinkIntroOverlay
 import app.gridlink.ui.gridlink.LocalGridlinkIntroPlaying
 import app.gridlink.ui.gridlink.rememberGridlinkIntroMode
@@ -44,6 +45,9 @@ class MainActivity : AppCompatActivity() {
     /** A new-mail notification tap waiting to open that message (Codeberg #17 follow-up). Same
      *  singleTask/onNewIntent plumbing as [pendingMailto]. */
     private val pendingEmailOpen = androidx.compose.runtime.mutableStateOf<EmailOpenTarget?>(null)
+
+    /** A tab a widget tap wants to land on (the agenda widget's rows). Same plumbing again. */
+    private val pendingSection = androidx.compose.runtime.mutableStateOf<GridlinkDestination?>(null)
 
     /**
      * Whether this launch gets the animated intro.
@@ -89,6 +93,7 @@ class MainActivity : AppCompatActivity() {
         if (savedInstanceState == null) {
             pendingMailto.value = parseMailto(intent) ?: parseShare(intent)
             pendingEmailOpen.value = parseEmailOpen(intent)
+            pendingSection.value = parseSection(intent)
             // ⚠️ Not on every cold start: only on the ones that are actually somebody opening
             // Gridlink. A tapped new-mail notification and a mailto: link from another app are both
             // requests to be somewhere specific, and a brand animation in front of either is the app
@@ -98,8 +103,11 @@ class MainActivity : AppCompatActivity() {
             // after account added? every app open is too much tho." Due means: never played here
             // before, or the account list has grown since it last played. See
             // [SettingsRepository.introSeenAccountCount] for why it is a count and not a boolean.
+            // 🔴 A widget tap counts too. Somebody who tapped an appointment on their home screen
+            // asked for their calendar, not for a logo animation in front of it.
             playIntro = pendingMailto.value == null &&
                 pendingEmailOpen.value == null &&
+                pendingSection.value == null &&
                 introIsDue()
         }
         if (playIntro && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -156,6 +164,11 @@ class MainActivity : AppCompatActivity() {
                                     pendingEmailOpen.value = null
                                     stripEmailOpenPayload()
                                 },
+                                pendingSection = pendingSection.value,
+                                onSectionConsumed = {
+                                    pendingSection.value = null
+                                    intent?.removeExtra(EXTRA_OPEN_SECTION)
+                                },
                             )
                         }
                         if (introPlaying) {
@@ -207,6 +220,7 @@ class MainActivity : AppCompatActivity() {
         setIntent(intent)
         (parseMailto(intent) ?: parseShare(intent))?.let { pendingMailto.value = it }
         parseEmailOpen(intent)?.let { pendingEmailOpen.value = it }
+        parseSection(intent)?.let { pendingSection.value = it }
     }
 
     /**
@@ -247,6 +261,22 @@ class MainActivity : AppCompatActivity() {
             accountId = intent.getStringExtra(EXTRA_OPEN_ACCOUNT_ID)?.ifBlank { null },
             mailboxId = intent.getStringExtra(EXTRA_OPEN_MAILBOX_ID)?.ifBlank { null },
         )
+    }
+
+    /**
+     * The tab a widget tap wants, or null.
+     *
+     * 🔴 Matched by NAME against the enum rather than by ordinal, and an unrecognised name is null
+     * rather than a fallback tab. A widget's PendingIntent outlives the app it was built by: the
+     * launcher holds it across updates, so this can be handed a section string from a build that
+     * shipped months ago. Landing that on the wrong tab because the enum's order changed in between
+     * is the kind of bug nobody reproduces; landing it on the app's normal opening screen is the
+     * behaviour of the widget that had no deep link at all, which is exactly right for one that no
+     * longer means anything.
+     */
+    private fun parseSection(intent: Intent?): GridlinkDestination? {
+        val name = intent?.getStringExtra(EXTRA_OPEN_SECTION)?.takeIf { it.isNotBlank() } ?: return null
+        return GridlinkDestination.entries.firstOrNull { it.name == name }
     }
 
     /** RFC 6068 mailto: parsing — addresses plus the optional subject/body/cc/bcc fields. */
@@ -327,6 +357,9 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_OPEN_EMAIL_ID = "app.gridlink.OPEN_EMAIL_ID"
         const val EXTRA_OPEN_ACCOUNT_ID = "app.gridlink.OPEN_ACCOUNT_ID"
         const val EXTRA_OPEN_MAILBOX_ID = "app.gridlink.OPEN_MAILBOX_ID"
+
+        /** Carries a [GridlinkDestination] name. See [parseSection] for why it is the name. */
+        const val EXTRA_OPEN_SECTION = "app.gridlink.OPEN_SECTION"
     }
 }
 

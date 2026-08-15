@@ -50,6 +50,7 @@ import app.gridlink.push.PushController
 import app.gridlink.security.LockScreen
 import app.gridlink.ui.connect.ConnectScreen
 import app.gridlink.ui.connect.GridlinkSetupHost
+import app.gridlink.ui.gridlink.GridlinkDestination
 import app.gridlink.ui.home.GridlinkHomeHost
 import app.gridlink.ui.onboarding.WelcomeScreen
 import app.gridlink.ui.settings.SettingsScreen
@@ -153,6 +154,9 @@ fun AppNavHost(
     onMailtoConsumed: () -> Unit = {},
     pendingEmailOpen: EmailOpenTarget? = null,
     onEmailOpenConsumed: () -> Unit = {},
+    /** The tab a widget tap wants, or null. See [GridlinkHomeHost]'s parameter of the same name. */
+    pendingSection: GridlinkDestination? = null,
+    onSectionConsumed: () -> Unit = {},
     viewModel: RootViewModel = viewModel(),
 ) {
     RequestNotificationPermission()
@@ -241,8 +245,10 @@ fun AppNavHost(
                 // specific, and settings is not it. Without this the payload would sit unconsumed
                 // behind the settings screen and fire whenever the user happened to close it,
                 // which is the tap being obeyed at a moment nobody asked for.
-                LaunchedEffect(pendingEmailOpen, pendingMailto) {
-                    if (pendingEmailOpen != null || pendingMailto != null) settingsOpen = false
+                LaunchedEffect(pendingEmailOpen, pendingMailto, pendingSection) {
+                    if (pendingEmailOpen != null || pendingMailto != null || pendingSection != null) {
+                        settingsOpen = false
+                    }
                 }
                 if (settingsOpen) {
                     SettingsScreen(
@@ -291,6 +297,8 @@ fun AppNavHost(
                         onMailtoConsumed = onMailtoConsumed,
                         pendingEmailOpen = pendingEmailOpen.takeIf { switchTo == null },
                         onEmailOpenConsumed = onEmailOpenConsumed,
+                        pendingSection = pendingSection,
+                        onSectionConsumed = onSectionConsumed,
                     )
                 }
             }
