@@ -76,40 +76,7 @@ internal class AgendaWidgetFactory(
         // has re-read a shorter one. A blank row is the documented way to say "ask me again";
         // indexing straight in would crash the host process, not ours.
         val entry = snapshot.entries.getOrNull(position) ?: return blankRow()
-        val views = RemoteViews(context.packageName, R.layout.widget_agenda_row)
-        val zone = ZoneId.systemDefault()
-        val locale = Locale.getDefault()
-
-        val day = dayLabels.getOrNull(position)
-        views.setTextViewText(R.id.agenda_day, day.orEmpty())
-        views.setViewVisibility(R.id.agenda_day, if (day == null) View.GONE else View.VISIBLE)
-
-        if (entry.allDay) {
-            // A word, not 12:00 AM. The reader's midnight is there so the row sorts against timed
-            // events on the same day; printing it would announce a meeting nobody scheduled.
-            views.setTextViewText(R.id.agenda_start, context.getString(R.string.widget_agenda_all_day))
-            views.setViewVisibility(R.id.agenda_end, View.GONE)
-        } else {
-            views.setTextViewText(
-                R.id.agenda_start,
-                GridlinkWidgetFormat.agendaTime(entry.startMillis, zone, locale),
-            )
-            val end = GridlinkWidgetFormat.agendaEndTime(entry.startMillis, entry.endMillis, zone, locale)
-            views.setTextViewText(R.id.agenda_end, end.orEmpty())
-            views.setViewVisibility(R.id.agenda_end, if (end == null) View.GONE else View.VISIBLE)
-        }
-
-        views.setTextViewText(
-            R.id.agenda_summary,
-            GridlinkWidgetFormat.eventSummary(entry.summary)
-                ?: context.getString(R.string.widget_agenda_no_title),
-        )
-        val location = GridlinkWidgetFormat.eventLocation(entry.location)
-        views.setTextViewText(R.id.agenda_location, location.orEmpty())
-        // GONE rather than an empty line, for the same reason the mail row hides a missing
-        // preview: a blank line of the right height reads as text that failed to load.
-        views.setViewVisibility(R.id.agenda_location, if (location == null) View.GONE else View.VISIBLE)
-
+        val views = bindAgendaRow(context, entry, dayLabels.getOrNull(position))
         // The row's half of the tap. The template carries the whole destination here (see
         // GridlinkWidgets.agendaRowTemplateIntent), so this fill-in is deliberately empty: a
         // collection row with no fill-in intent at all is simply not clickable.
@@ -139,36 +106,104 @@ internal class AgendaWidgetFactory(
     private fun WidgetAgendaEntry.stableId(): Long = uid.hashCode().toLong() * 31L + epochDay
 
     /**
-     * Which rows open a new day, resolved once over the whole list.
+     * [agendaDayLabels] against the live clock, locale and strings.
      *
-     * Position 0 always gets one: the first row is the first of its day by definition, and the
+     * Position 0 always gets a heading: the first row is the first of its day by definition, and the
      * heading is what tells the user whether the top of their widget is today or a week on Friday.
      */
-    private fun buildDayLabels(entries: List<WidgetAgendaEntry>): List<String?> {
-        if (entries.isEmpty()) return emptyList()
-        val locale = Locale.getDefault()
-        val today = LocalDate.now(ZoneId.systemDefault()).toEpochDay()
-        val todayLabel = context.getString(R.string.widget_agenda_today)
-        val tomorrowLabel = context.getString(R.string.widget_agenda_tomorrow)
-        var previousDay: Long? = null
-        return entries.map { entry ->
-            val label = if (entry.epochDay == previousDay) {
-                null
-            } else {
-                GridlinkWidgetFormat.agendaDayLabel(
-                    epochDay = entry.epochDay,
-                    todayEpochDay = today,
-                    locale = locale,
-                    todayLabel = todayLabel,
-                    tomorrowLabel = tomorrowLabel,
-                )
-            }
-            previousDay = entry.epochDay
-            label
-        }
-    }
+    private fun buildDayLabels(entries: List<WidgetAgendaEntry>): List<String?> =
+        agendaDayLabels(
+            entries = entries,
+            todayEpochDay = LocalDate.now(ZoneId.systemDefault()).toEpochDay(),
+            locale = Locale.getDefault(),
+            todayLabel = context.getString(R.string.widget_agenda_today),
+            tomorrowLabel = context.getString(R.string.widget_agenda_tomorrow),
+        )
 
     private companion object {
         const val TAG = "GridlinkWidget"
+    }
+}
+
+/**
+ * Draw one agenda row. The only place a `widget_agenda_row` is ever filled in.
+ *
+ * Pulled out of [AgendaWidgetFactory.getViewAt] so the debug gallery can render these rows from
+ * sample events. That is not a convenience: a widget is bound by the launcher, from the cache, in a
+ * process nobody can attach a debugger to, so the only way to LOOK at a row used to be to place the
+ * widget on a home screen and sync a real calendar into it. Now the same function draws both, which
+ * is the point — a gallery frame that reimplemented this would prove that the copy renders.
+ *
+ * @param dayLabel the heading above this row, or null on a row that continues the day above it.
+ */
+internal fun bindAgendaRow(
+    context: Context,
+    entry: WidgetAgendaEntry,
+    dayLabel: String?,
+    zone: ZoneId = ZoneId.systemDefault(),
+    locale: Locale = Locale.getDefault(),
+): RemoteViews {
+    val views = RemoteViews(context.packageName, R.layout.widget_agenda_row)
+
+    views.setTextViewText(R.id.agenda_day, dayLabel.orEmpty())
+    views.setViewVisibility(R.id.agenda_day, if (dayLabel == null) View.GONE else View.VISIBLE)
+
+    if (entry.allDay) {
+        // A word, not 12:00 AM. The reader's midnight is there so the row sorts against timed
+        // events on the same day; printing it would announce a meeting nobody scheduled.
+        views.setTextViewText(R.id.agenda_start, context.getString(R.string.widget_agenda_all_day))
+        views.setViewVisibility(R.id.agenda_end, View.GONE)
+    } else {
+        views.setTextViewText(
+            R.id.agenda_start,
+            GridlinkWidgetFormat.agendaTime(entry.startMillis, zone, locale),
+        )
+        val end = GridlinkWidgetFormat.agendaEndTime(entry.startMillis, entry.endMillis, zone, locale)
+        views.setTextViewText(R.id.agenda_end, end.orEmpty())
+        views.setViewVisibility(R.id.agenda_end, if (end == null) View.GONE else View.VISIBLE)
+    }
+
+    views.setTextViewText(
+        R.id.agenda_summary,
+        GridlinkWidgetFormat.eventSummary(entry.summary)
+            ?: context.getString(R.string.widget_agenda_no_title),
+    )
+    val location = GridlinkWidgetFormat.eventLocation(entry.location)
+    views.setTextViewText(R.id.agenda_location, location.orEmpty())
+    // GONE rather than an empty line, for the same reason the mail row hides a missing preview:
+    // a blank line of the right height reads as text that failed to load.
+    views.setViewVisibility(R.id.agenda_location, if (location == null) View.GONE else View.VISIBLE)
+    return views
+}
+
+/**
+ * Which rows open a new day, resolved once over the whole list.
+ *
+ * Pure, and takes its today and its strings rather than reading a clock or a resource, so the
+ * gallery can draw a fixed sample week without the labels sliding as the machine's date moves.
+ */
+internal fun agendaDayLabels(
+    entries: List<WidgetAgendaEntry>,
+    todayEpochDay: Long,
+    locale: Locale,
+    todayLabel: String,
+    tomorrowLabel: String,
+): List<String?> {
+    if (entries.isEmpty()) return emptyList()
+    var previousDay: Long? = null
+    return entries.map { entry ->
+        val label = if (entry.epochDay == previousDay) {
+            null
+        } else {
+            GridlinkWidgetFormat.agendaDayLabel(
+                epochDay = entry.epochDay,
+                todayEpochDay = todayEpochDay,
+                locale = locale,
+                todayLabel = todayLabel,
+                tomorrowLabel = tomorrowLabel,
+            )
+        }
+        previousDay = entry.epochDay
+        label
     }
 }

@@ -42,5 +42,19 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          The home-screen widgets, drawn from the sample calendar. No launcher entry: this is a
+          harness for one layout, not a second app, and it is reached by name from adb.
+
+          The widget card draws its own background, so it takes the plain app theme rather than
+          Theme.Gridlink's edge-to-edge chrome: a widget is never edge to edge on a home screen,
+          and framing it as though it were is a picture of something the launcher will not show.
+        -->
+        <activity
+            android:name="app.gridlink.gallery.GridlinkWidgetGalleryActivity"
+            android:exported="true"
+            android:label="Gridlink widgets"
+            android:theme="@style/Theme.Gridlink" />
     </application>
 </manifest>

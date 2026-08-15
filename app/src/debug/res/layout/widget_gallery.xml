@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-only frame around a widget, so the harness draws something a launcher could.
+
+  🔴 The size is fixed and the widget is NOT allowed to fill the window. A widget lives in a grid
+  cell, and a fullscreen one is a picture of a layout nobody will ever see: rows that would be cut
+  off are all visible, the header floats a long way from the list, and text that would ellipsize
+  never does. 360x320dp is about a 4x4 cell on a phone, which is the size the manifest's
+  minWidth/minHeight ask for.
+
+  fitsSystemWindows because the frame is a full-screen activity and the widget is not: without it
+  the header slides under the status bar and the capture shows the clock through the title.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_gallery_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fitsSystemWindows="true"
+    android:padding="16dp"
+    android:background="@color/widget_gallery_backdrop">
+
+    <!--
+      A neutral grey stand-in for wallpaper, set on the parent rather than left transparent: the
+      widget card is translucent, so over the app's own gradient it picks up a tint no home screen
+      would give it, and a colour judgement made against that is a judgement about the harness.
+    -->
+    <FrameLayout
+        android:id="@+id/widget_gallery_cell"
+        android:layout_width="360dp"
+        android:layout_height="320dp"
+        android:layout_gravity="center" />
+</FrameLayout>
