@@ -29,6 +29,13 @@ data class OAuthProvider(
          * the client id, so inheriting upstream's registration meant the sign-in screen said
          * "Sterna". It is a public identifier, not a secret, and it is safe in the repo.
          *
+         * ⚠️ The capital L is deliberate here and nowhere else. The app itself standardised on
+         * "Gridlink" (2026-08-14), but this line quotes what is actually typed into the Azure
+         * console today, and the sign-in page reads it from there, not from us. Correcting the
+         * spelling here without renaming the registration would leave a comment that quietly
+         * disagrees with the screen the user is looking at. Rename it in Entra first, then this.
+         * 🔴 Rename the DISPLAY NAME only. Touching [clientId] signs every Outlook account out.
+         *
          * The registration is a **public** client (Authentication → "Allow public client flows"
          * = Yes), which is what makes the device-code grant legal for an app that holds no secret.
          * Its Exchange delegated permissions are deliberately NOT pre-registered: personal
