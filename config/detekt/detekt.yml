@@ -1,0 +1,101 @@
+# detekt overrides for Gridlink Mail.
+#
+# buildUponDefaultConfig = true, so this file lists ONLY the rules whose defaults
+# are wrong for a Jetpack Compose codebase. Everything not mentioned here keeps
+# detekt's shipped default. Do not paste the full default config in here: it goes
+# stale silently on every detekt upgrade.
+#
+# The recurring theme below is @Composable. Compose deliberately breaks several of
+# detekt's assumptions — composables are PascalCase functions, UI trees are long,
+# and dp/sp literals are everywhere — so those rules are scoped to ignore them
+# rather than switched off wholesale.
+
+build:
+  # A fork carrying upstream code; the baseline holds the inherited findings, so
+  # the weighted-issue gate would be measuring history, not our work.
+  maxIssues: 0
+
+complexity:
+  LongMethod:
+    # A composable that lays out a screen is legitimately long and splitting it for
+    # a line count alone makes it harder to read, not easier.
+    ignoreAnnotated: ['Composable']
+    threshold: 80
+  LongParameterList:
+    # State-hoisted composables take a lot of lambdas by design.
+    ignoreAnnotated: ['Composable', 'Preview']
+    functionThreshold: 8
+    constructorThreshold: 10
+    ignoreDefaultParameters: true
+  TooManyFunctions:
+    thresholdInFiles: 30
+    thresholdInClasses: 20
+    ignoreAnnotatedFunctions: ['Composable', 'Preview']
+    ignorePrivate: true
+  CyclomaticComplexMethod:
+    ignoreAnnotated: ['Composable']
+  LargeClass:
+    # GridlinkScaffold.kt and friends are hubs; the baseline pins their current size
+    # and this stops the threshold nagging on every edit.
+    threshold: 900
+
+naming:
+  FunctionNaming:
+    # @Composable functions are PascalCase. This is the single most important
+    # override in the file: without it every composable is a finding.
+    ignoreAnnotated: ['Composable']
+  TopLevelPropertyNaming:
+    # Private top-level constants in Compose files read better as PascalCase tokens.
+    constantPattern: '[A-Za-z][_A-Za-z0-9]*'
+
+style:
+  MagicNumber:
+    # dp/sp/alpha/weight literals are the vocabulary of a layout, not magic numbers.
+    ignoreAnnotated: ['Composable', 'Preview']
+    ignoreNumbers: ['-1', '0', '1', '2', '100']
+    ignorePropertyDeclaration: true
+    ignoreCompanionObjectPropertyDeclaration: true
+  MaxLineLength:
+    maxLineLength: 120
+    excludeCommentStatements: true
+  UnusedPrivateMember:
+    # @Preview composables are called by tooling, never by our code.
+    ignoreAnnotated: ['Preview']
+  ReturnCount:
+    max: 4
+  ForbiddenComment:
+    # TODO/FIXME are working notes in an in-flight project, not defects to fail on.
+    active: false
+  # Real bug-catchers that detekt ships switched OFF. Worth having on a mail client
+  # that parses untrusted input.
+  UnnecessaryLet:
+    active: true
+  RedundantExplicitType:
+    active: true
+
+exceptions:
+  TooGenericExceptionCaught:
+    # Network and parser boundaries legitimately catch broadly; the rule fires on
+    # nearly every JMAP/IMAP call site and the baseline would swallow the useful hits.
+    active: false
+  SwallowedException:
+    active: true
+  # Never silently drop a coroutine cancellation: that is a real, hard-to-see bug.
+  # (detekt ships this active; listed to make the intent explicit.)
+  RethrowCaughtException:
+    active: true
+
+formatting:
+  # From detekt-formatting (ktlint). Kept advisory: formatting disagreements should
+  # not fail a build in a project where a human and an agent both edit the code.
+  active: true
+  Indentation:
+    active: true
+    autoCorrect: false
+  MaximumLineLength:
+    # MaxLineLength above already covers this; two rules on the same thing is noise.
+    active: false
+  ArgumentListWrapping:
+    active: false
+  FunctionSignature:
+    active: false

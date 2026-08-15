@@ -1,0 +1,48 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:JmapClient.kt$JmapClient$!retried &amp;&amp; response.code == 401 &amp;&amp; response.priorResponse != null &amp;&amp; landedAt.toString() != url &amp;&amp; url.startsWith("${landedAt.scheme}://")</ID>
+    <ID>CyclomaticComplexMethod:JmapClient.kt$JmapClient$suspend fun sendEmail( session: JmapSession, accountId: String, auth: JmapAuth, identityId: String, from: EmailAddress, to: List&lt;EmailAddress&gt;, cc: List&lt;EmailAddress&gt; = emptyList(), bcc: List&lt;EmailAddress&gt; = emptyList(), subject: String, textBody: String, htmlBody: String? = null, draftMailboxId: String, sentMailboxId: String, inReplyTo: List&lt;String&gt; = emptyList(), references: List&lt;String&gt; = emptyList(), attachments: List&lt;EmailBodyPart&gt; = emptyList(), ): String?</ID>
+    <ID>CyclomaticComplexMethod:JmapClient.kt$private fun contactCardGroupValue(group: ContactCardGroup, card: ContactCardWrite): JsonElement</ID>
+    <ID>ImportOrdering:JmapClient.kt$import app.gridlink.core.jmap.model.ContactCardGroup import app.gridlink.core.jmap.model.ContactCardWrite import app.gridlink.core.jmap.model.CrawlPage import app.gridlink.core.jmap.model.Email import app.gridlink.core.jmap.model.EmailAddress import app.gridlink.core.jmap.model.EmailBodyPart import app.gridlink.core.jmap.model.EmailChangesResult import app.gridlink.core.jmap.model.EmailIdPage import app.gridlink.core.jmap.model.EmailPage import app.gridlink.core.jmap.model.EmailQueryChangesResult import app.gridlink.core.jmap.model.EmailSetResult import app.gridlink.core.jmap.model.Identity import app.gridlink.core.jmap.model.JmapAddressBook import app.gridlink.core.jmap.model.JmapSession import app.gridlink.core.jmap.model.Mailbox import app.gridlink.core.jmap.model.PushSubscription import app.gridlink.core.jmap.model.StateChange import app.gridlink.core.jmap.model.Quota import app.gridlink.core.jmap.model.SearchPage import app.gridlink.core.jmap.model.SearchQuery import app.gridlink.core.jmap.model.SieveScript import app.gridlink.core.jmap.model.UploadedBlob import app.gridlink.core.jmap.model.VacationResponse import okhttp3.Response import okhttp3.sse.EventSource import okhttp3.sse.EventSourceListener import okhttp3.sse.EventSources import java.io.Closeable import kotlinx.serialization.KSerializer import kotlinx.serialization.json.JsonObject import kotlinx.serialization.json.JsonObjectBuilder import kotlinx.serialization.json.putJsonObject import kotlinx.coroutines.Dispatchers import kotlinx.coroutines.delay import kotlinx.coroutines.withContext import kotlinx.serialization.decodeFromString import kotlinx.serialization.json.Json import kotlinx.serialization.json.JsonArray import kotlinx.serialization.json.JsonElement import kotlinx.serialization.json.JsonNull import kotlinx.serialization.json.add import kotlinx.serialization.json.addJsonArray import kotlinx.serialization.json.booleanOrNull import kotlinx.serialization.json.contentOrNull import kotlinx.serialization.json.intOrNull import kotlinx.serialization.json.addJsonObject import kotlinx.serialization.json.buildJsonArray import kotlinx.serialization.json.buildJsonObject import kotlinx.serialization.json.jsonArray import kotlinx.serialization.json.jsonObject import kotlinx.serialization.json.jsonPrimitive import kotlinx.serialization.json.longOrNull import kotlinx.serialization.json.put import kotlinx.serialization.json.putJsonArray import okhttp3.MediaType.Companion.toMediaType import okhttp3.MediaType.Companion.toMediaTypeOrNull import okhttp3.OkHttpClient import okhttp3.Request import okhttp3.RequestBody.Companion.toRequestBody import java.util.concurrent.TimeUnit</ID>
+    <ID>ImportOrdering:PushSubscriptionTest.kt$import app.gridlink.core.jmap.model.JmapSession import app.gridlink.core.jmap.model.PushKeys import app.gridlink.core.jmap.model.PushSubscription import kotlinx.coroutines.runBlocking import kotlinx.serialization.json.buildJsonObject import kotlinx.serialization.json.jsonArray import kotlinx.serialization.json.jsonObject import kotlinx.serialization.json.jsonPrimitive import kotlinx.serialization.json.put import okhttp3.mockwebserver.MockResponse import okhttp3.mockwebserver.MockWebServer import org.junit.After import org.junit.Assert.assertEquals import org.junit.Assert.assertFalse import org.junit.Assert.assertNull import org.junit.Assert.assertTrue import org.junit.Before import org.junit.Test import kotlinx.serialization.json.Json</ID>
+    <ID>LargeClass:JmapClient.kt$JmapClient</ID>
+    <ID>LongMethod:JmapClient.kt$JmapClient$suspend fun sendEmail( session: JmapSession, accountId: String, auth: JmapAuth, identityId: String, from: EmailAddress, to: List&lt;EmailAddress&gt;, cc: List&lt;EmailAddress&gt; = emptyList(), bcc: List&lt;EmailAddress&gt; = emptyList(), subject: String, textBody: String, htmlBody: String? = null, draftMailboxId: String, sentMailboxId: String, inReplyTo: List&lt;String&gt; = emptyList(), references: List&lt;String&gt; = emptyList(), attachments: List&lt;EmailBodyPart&gt; = emptyList(), ): String?</ID>
+    <ID>LongParameterList:JmapClient.kt$JmapClient$( session: JmapSession, accountId: String, auth: JmapAuth, from: EmailAddress, to: List&lt;EmailAddress&gt;, cc: List&lt;EmailAddress&gt; = emptyList(), bcc: List&lt;EmailAddress&gt; = emptyList(), subject: String, textBody: String, draftMailboxId: String, inReplyTo: List&lt;String&gt; = emptyList(), references: List&lt;String&gt; = emptyList(), attachments: List&lt;EmailBodyPart&gt; = emptyList(), htmlBody: String? = null, )</ID>
+    <ID>LongParameterList:JmapClient.kt$JmapClient$( session: JmapSession, accountId: String, auth: JmapAuth, identityId: String, from: EmailAddress, to: List&lt;EmailAddress&gt;, cc: List&lt;EmailAddress&gt; = emptyList(), bcc: List&lt;EmailAddress&gt; = emptyList(), subject: String, textBody: String, htmlBody: String? = null, draftMailboxId: String, sentMailboxId: String, inReplyTo: List&lt;String&gt; = emptyList(), references: List&lt;String&gt; = emptyList(), attachments: List&lt;EmailBodyPart&gt; = emptyList(), )</ID>
+    <ID>MagicNumber:DownloadLimits.kt$OutgoingLimits$1024</ID>
+    <ID>MagicNumber:DownloadLimits.kt$OutgoingLimits$64</ID>
+    <ID>MagicNumber:Jmap.kt$Jmap$3</ID>
+    <ID>MagicNumber:JmapClient.kt$JmapClient$1024</ID>
+    <ID>MagicNumber:JmapClient.kt$JmapClient$200</ID>
+    <ID>MagicNumber:JmapClient.kt$JmapClient$299</ID>
+    <ID>MagicNumber:JmapClient.kt$JmapClient$30L</ID>
+    <ID>MagicNumber:JmapClient.kt$JmapClient$400</ID>
+    <ID>MagicNumber:JmapClient.kt$JmapClient$401</ID>
+    <ID>MagicNumber:JmapClient.kt$JmapClient$429</ID>
+    <ID>MagicNumber:JmapClient.kt$JmapClient$64</ID>
+    <ID>MagicNumber:JmapClient.kt$JmapClient.Companion$20</ID>
+    <ID>MagicNumber:JmapClient.kt$JmapClient.Companion$30</ID>
+    <ID>MaxLineLength:JmapClient.kt$JmapClient$?:</ID>
+    <ID>MaxLineLength:JmapClient.kt$JmapClient$added = args["added"]?.jsonArray?.mapNotNull { it.jsonObject["id"]?.jsonPrimitive?.contentOrNull } ?: emptyList()</ID>
+    <ID>MaxLineLength:JmapClient.kt$JmapClient$suspend</ID>
+    <ID>MaxLineLength:JmapClientTest.kt$JmapClientTest$"""{"methodResponses":[["error",{"type":"forbidden","description":"You are not an owner of account u"},"s0"]]}"""</ID>
+    <ID>MaxLineLength:OAuthClient.kt$OAuthClient$val request = Request.Builder().url(metadata.tokenEndpoint).post(form).header("Accept", "application/json").build()</ID>
+    <ID>MultiLineIfElse:JmapClient.kt$JmapClient$putJsonObject("filter") { putJsonArray("inMailboxOtherThan") { excludeMailboxIds.forEach { add(it) } } }</ID>
+    <ID>MultiLineIfElse:JmapClient.kt$conditions.add { putJsonArray("inMailboxOtherThan") { excludeMailboxIds.forEach { add(it) } } }</ID>
+    <ID>NoUnusedImports:JmapClientTest.kt$app.gridlink.core.jmap.JmapClientTest.kt</ID>
+    <ID>ParameterListWrapping:JmapClient.kt$JmapClient$(session: JmapSession, accountId: String, emailId: String, seen: Boolean, auth: JmapAuth)</ID>
+    <ID>ParameterListWrapping:JmapClient.kt$JmapClient$(session: JmapSession, accountId: String, emailIds: List&lt;String&gt;, auth: JmapAuth)</ID>
+    <ID>SpacingBetweenDeclarationsWithComments:OAuthClient.kt$DeviceTokenResult.Failed$/** Terminal failure: `expired_token`, `access_denied`, or an HTTP/transport error. * [description] and [aadstsCode] carry the server's `error_description` detail when present. */</ID>
+    <ID>SpacingBetweenDeclarationsWithComments:OAuthClient.kt$DeviceTokenResult.Pending$/** `authorization_pending` — the user hasn't approved yet; keep polling. */</ID>
+    <ID>SpacingBetweenDeclarationsWithComments:OAuthClient.kt$DeviceTokenResult.SlowDown$/** `slow_down` — poll less often (increase the interval by 5s, per RFC). */</ID>
+    <ID>ThrowsCount:JmapClient.kt$JmapClient$private fun methodResponseArgs(body: String, expectedMethod: String): JsonObject</ID>
+    <ID>TooManyFunctions:JmapClient.kt$JmapClient</ID>
+    <ID>UnusedPrivateMember:JmapClient.kt$JmapClient$private fun utcDate(millis: Long): String</ID>
+    <ID>UseCheckOrError:JmapClient.kt$JmapClient$throw IllegalStateException("unreachable")</ID>
+    <ID>Wrapping:JmapClient.kt$JmapClient$;</ID>
+    <ID>Wrapping:OAuthClientTest.kt$OAuthClientTest$"""</ID>
+    <ID>Wrapping:PushMessagePayload.kt$PushMessagePayload.Companion$;</ID>
+  </CurrentIssues>
+</SmellBaseline>

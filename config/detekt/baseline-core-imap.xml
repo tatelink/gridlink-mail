@@ -1,0 +1,107 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:ImapClient.kt$ImapSession$expectedUidValidity != null &amp;&amp; expectedUidValidity &gt; 0L &amp;&amp; uidValidity &gt; 0L &amp;&amp; uidValidity != expectedUidValidity</ID>
+    <ID>CyclomaticComplexMethod:ExpungeTest.kt$ExpungeTest$private fun scriptedServer( uidPlus: Boolean, advertiseAtLogin: Boolean = false, flaggedByOthers: List&lt;Long&gt; = emptyList(), forgetsFlagsFor: Set&lt;Long&gt; = emptySet(), ): FakeImapServer</ID>
+    <ID>CyclomaticComplexMethod:HeaderText.kt$internal fun mimeParamValue(headerValue: String, name: String): String?</ID>
+    <ID>CyclomaticComplexMethod:ImapClient.kt$ImapSession$fun idle(timeoutMs: Int): Boolean</ID>
+    <ID>CyclomaticComplexMethod:ImapClient.kt$ImapSession$fun select( path: String, expectedUidValidity: Long? = null, withModSeq: Boolean = false, ): ImapMailboxStatus</ID>
+    <ID>CyclomaticComplexMethod:ImapClient.kt$internal fun roleOf(name: String, attrs: List&lt;String&gt;): String?</ID>
+    <ID>CyclomaticComplexMethod:ImapParser.kt$ImapParser$private fun readLiteral(): String</ID>
+    <ID>CyclomaticComplexMethod:MimeParser.kt$MimeParser$fun detectCrypto(raw: String): CryptoEnvelope?</ID>
+    <ID>CyclomaticComplexMethod:MimeParser.kt$MimeParser$private fun walk( part: String, prefix: String, attachments: MutableList&lt;MimeAttachment&gt;, depth: Int, ): Pair&lt;String?, String?&gt;</ID>
+    <ID>CyclomaticComplexMethod:SmtpClient.kt$SmtpClient$suspend fun send(config: MailServerConfig, message: OutgoingMessage)</ID>
+    <ID>EmptyElseBlock:ImapParser.kt$ImapParser$if (peek() == '\n'.code) read()</ID>
+    <ID>Filename:ImapIdle.kt$app.gridlink.core.imap.ImapIdle.kt</ID>
+    <ID>FunctionOnlyReturningConstant:SmtpClient.kt$SmtpClient$private fun localHost(): String</ID>
+    <ID>LoopWithTooManyJumpStatements:FakeImapServer.kt$FakeImapServer$while</ID>
+    <ID>LoopWithTooManyJumpStatements:ImapClient.kt$ImapSession$while</ID>
+    <ID>LoopWithTooManyJumpStatements:ImapSearch.kt$for</ID>
+    <ID>LoopWithTooManyJumpStatements:MimeParser.kt$MimeParser$for</ID>
+    <ID>LoopWithTooManyJumpStatements:UidSet.kt$for</ID>
+    <ID>MagicNumber:HeaderText.kt$0x08</ID>
+    <ID>MagicNumber:HeaderText.kt$0x0B</ID>
+    <ID>MagicNumber:HeaderText.kt$0x200E</ID>
+    <ID>MagicNumber:HeaderText.kt$0x200F</ID>
+    <ID>MagicNumber:HeaderText.kt$0x202A</ID>
+    <ID>MagicNumber:HeaderText.kt$0x202E</ID>
+    <ID>MagicNumber:HeaderText.kt$0x2066</ID>
+    <ID>MagicNumber:HeaderText.kt$0x2069</ID>
+    <ID>MagicNumber:HeaderText.kt$0x7F</ID>
+    <ID>MagicNumber:HeaderText.kt$0x80</ID>
+    <ID>MagicNumber:HeaderText.kt$0x9F</ID>
+    <ID>MagicNumber:HeaderText.kt$0xFF</ID>
+    <ID>MagicNumber:HeaderText.kt$16</ID>
+    <ID>MagicNumber:HeaderText.kt$3</ID>
+    <ID>MagicNumber:ImapClient.kt$0x80</ID>
+    <ID>MagicNumber:ImapClient.kt$3</ID>
+    <ID>MagicNumber:ImapClient.kt$4</ID>
+    <ID>MagicNumber:ImapClient.kt$ImapSession$0x20</ID>
+    <ID>MagicNumber:ImapClient.kt$ImapSession$0x7E</ID>
+    <ID>MagicNumber:ImapClient.kt$ImapSession$3</ID>
+    <ID>MagicNumber:ImapClient.kt$ImapSession$5</ID>
+    <ID>MagicNumber:ImapClient.kt$ImapSession$8</ID>
+    <ID>MagicNumber:ImapClient.kt$ImapSession$9</ID>
+    <ID>MagicNumber:ImapParser.kt$ImapParser$8192</ID>
+    <ID>MagicNumber:ImapSearch.kt$127</ID>
+    <ID>MagicNumber:ImapUtf7.kt$0x20</ID>
+    <ID>MagicNumber:ImapUtf7.kt$0x7E</ID>
+    <ID>MagicNumber:ImapUtf7.kt$0xFF</ID>
+    <ID>MagicNumber:ImapUtf7.kt$3</ID>
+    <ID>MagicNumber:ImapUtf7.kt$4</ID>
+    <ID>MagicNumber:ImapUtf7.kt$8</ID>
+    <ID>MagicNumber:MimeParser.kt$MimeParser$0x80</ID>
+    <ID>MagicNumber:MimeParser.kt$MimeParser$16</ID>
+    <ID>MagicNumber:MimeParser.kt$MimeParser$3</ID>
+    <ID>MagicNumber:PgpMime.kt$PgpMime$32</ID>
+    <ID>MagicNumber:SmtpClient.kt$OutgoingMime$126</ID>
+    <ID>MagicNumber:SmtpClient.kt$OutgoingMime$24</ID>
+    <ID>MagicNumber:SmtpClient.kt$OutgoingMime$32</ID>
+    <ID>MagicNumber:SmtpClient.kt$SmtpClient$3</ID>
+    <ID>MagicNumber:SmtpClient.kt$SmtpClient$4</ID>
+    <ID>MatchingDeclarationName:ImapIdle.kt$ImapIdleConnection : Closeable</ID>
+    <ID>MaxLineLength:CondstoreTest.kt$CondstoreTest$assertEquals(ImapFlagChange(uid = 12L, seen = true, flagged = true, answered = false, deleted = false), changes[0])</ID>
+    <ID>MaxLineLength:CondstoreTest.kt$CondstoreTest$assertEquals(ImapFlagChange(uid = 13L, seen = false, flagged = false, answered = false, deleted = false), changes[1])</ID>
+    <ID>MaxLineLength:ImapClient.kt$ImapSession$if (status != "OK") throw ImapException("${redactCommand(line)} failed: ${resp.drop(1).joinToString(" ")}")</ID>
+    <ID>MaxLineLength:ImapClient.kt$ImapSession$output.write("$tag AUTHENTICATE XOAUTH2 ${xoauth2Payload(username, accessToken)}\r\n".toByteArray(Charsets.UTF_8))</ID>
+    <ID>MaxLineLength:ImapClient.kt$ImapSession.Companion$return</ID>
+    <ID>MultiLineIfElse:ImapSearchScanCapTest.kt$ImapSearchScanCapTest$"$tag NO unsupported search key\r\n"</ID>
+    <ID>MultiLineIfElse:ImapSearchScanCapTest.kt$ImapSearchScanCapTest$searchResponse(tag, listOf(4L))</ID>
+    <ID>NestedBlockDepth:ImapClient.kt$ImapSession$fun idle(timeoutMs: Int): Boolean</ID>
+    <ID>NoBlankLineBeforeRbrace:ImapClient.kt$ImapSession.Companion$ </ID>
+    <ID>ReturnCount:MimeParser.kt$MimeParser$fun detectCrypto(raw: String): CryptoEnvelope?</ID>
+    <ID>ReturnCount:MimeParser.kt$MimeParser$fun partAt(raw: String, section: String): Pair&lt;String, String&gt;?</ID>
+    <ID>ReturnCount:MimeParser.kt$MimeParser$private fun rawFirstPart(body: String, boundary: String): String?</ID>
+    <ID>SpacingAroundKeyword:HeaderText.kt$else</ID>
+    <ID>SpacingBetweenDeclarationsWithAnnotations:ImapClient.kt$ImapSession$@Suppress("UNCHECKED_CAST") val envelope = map["ENVELOPE"] as? List&lt;Any?&gt;</ID>
+    <ID>SpacingBetweenDeclarationsWithAnnotations:ImapClient.kt$ImapSession$@Suppress("UNCHECKED_CAST") val flags = (map["FLAGS"] as? List&lt;Any?&gt;)?.mapNotNull { it as? String } ?: emptyList()</ID>
+    <ID>SpacingBetweenDeclarationsWithAnnotations:ImapClient.kt$ImapSession$@Suppress("UNCHECKED_CAST") val fromAddr = (envelope?.getOrNull(2) as? List&lt;Any?&gt;)?.firstOrNull() as? List&lt;Any?&gt;</ID>
+    <ID>SpacingBetweenDeclarationsWithAnnotations:ImapClient.kt$ImapSession$@Suppress("UNCHECKED_CAST") val items = fetch.getOrNull(3) as? List&lt;Any?&gt; ?: return ""</ID>
+    <ID>SpacingBetweenDeclarationsWithAnnotations:ImapClient.kt$ImapSession$@Suppress("UNCHECKED_CAST") val toAddrs = ((envelope?.getOrNull(5) as? List&lt;Any?&gt;).orEmpty()).mapNotNull { entry -&gt; val addr = entry as? List&lt;Any?&gt; ?: return@mapNotNull null val name = decodeWords(addr.getOrNull(0) as? String) // Same treatment as the From address above, and for the same reason. val box = (addr.getOrNull(2) as? String)?.let(::decodeHeaderBytes) val host = (addr.getOrNull(3) as? String)?.let(::decodeHeaderBytes) val email = if (box != null &amp;&amp; host != null) "$box@$host" else null if (email == null &amp;&amp; name == null) null else ImapAddress(name = name, email = email) }</ID>
+    <ID>SpacingBetweenDeclarationsWithAnnotations:ImapParserTest.kt$ImapParserTest$@Suppress("UNCHECKED_CAST") val args = r[3] as List&lt;Any?&gt;</ID>
+    <ID>SpacingBetweenDeclarationsWithAnnotations:ImapParserTest.kt$ImapParserTest$@Suppress("UNCHECKED_CAST") val envelope = args[3] as List&lt;Any?&gt;</ID>
+    <ID>SpacingBetweenDeclarationsWithAnnotations:ImapParserTest.kt$ImapParserTest$@Suppress("UNCHECKED_CAST") val envelope = fetchArgs[1] as List&lt;Any?&gt;</ID>
+    <ID>SpacingBetweenDeclarationsWithAnnotations:ImapParserTest.kt$ImapParserTest$@Suppress("UNCHECKED_CAST") val fetchArgs = r[3] as List&lt;Any?&gt;</ID>
+    <ID>SpacingBetweenDeclarationsWithAnnotations:ImapParserTest.kt$ImapParserTest$@Suppress("UNCHECKED_CAST") val firstFrom = fromList[0] as List&lt;Any?&gt;</ID>
+    <ID>SpacingBetweenDeclarationsWithAnnotations:ImapParserTest.kt$ImapParserTest$@Suppress("UNCHECKED_CAST") val fromList = envelope[2] as List&lt;Any?&gt;</ID>
+    <ID>SpacingBetweenDeclarationsWithComments:MimeParserTest.kt$MimeParserTest$// Fixed-width names so no boundary is a prefix of another ("b1" would match "b199").</ID>
+    <ID>TooManyFunctions:ImapClient.kt$ImapSession : Closeable</ID>
+    <ID>UnusedPrivateMember:ImapClient.kt$ImapSession$private fun parseCopyUid(result: ImapResult): Long?</ID>
+    <ID>UnusedPrivateProperty:ImapIdle.kt$ImapIdleConnection$private val thread = Thread({ run() }, "imap-idle").apply { isDaemon = true; start() }</ID>
+    <ID>Wrapping:AllUidsTest.kt$AllUidsTest$;</ID>
+    <ID>Wrapping:ExpungeTest.kt$ExpungeTest$;</ID>
+    <ID>Wrapping:FakeImapServer.kt$FakeImapServer$;</ID>
+    <ID>Wrapping:HeaderText.kt$;</ID>
+    <ID>Wrapping:ImapClient.kt$ImapSession$(</ID>
+    <ID>Wrapping:ImapIdle.kt$ImapIdleConnection$;</ID>
+    <ID>Wrapping:ImapParser.kt$ImapParser$;</ID>
+    <ID>Wrapping:ImapUtf7.kt$;</ID>
+    <ID>Wrapping:MailboxNameTest.kt$MailboxNameTest$;</ID>
+    <ID>Wrapping:MimeParser.kt$MimeParser$;</ID>
+    <ID>Wrapping:SmtpClient.kt$SmtpClient$;</ID>
+    <ID>Wrapping:UidSet.kt$;</ID>
+    <ID>Wrapping:UidValidityTest.kt$UidValidityTest$(</ID>
+    <ID>Wrapping:UidValidityTest.kt$UidValidityTest$(listOf("1:3"), server.issued().filter { it.startsWith("UID EXPUNGE") } .map { it.removePrefix("UID EXPUNGE ") })</ID>
+  </CurrentIssues>
+</SmellBaseline>
