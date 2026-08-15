@@ -1,0 +1,357 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:ContentLine.kt$ContentLines$started &amp;&amp; end &gt; i &amp;&amp; (raw[i] == ' ' || raw[i] == '\t')</ID>
+    <ID>ComplexCondition:EmailKeywords.kt$EmailKeywords$it in 'a'..'z' || it in '0'..'9' || it == '-' || it == '_'</ID>
+    <ID>CyclomaticComplexMethod:DavRepository.kt$DavRepository$private suspend fun sync(accountId: String, kind: DavKind): DavSyncOutcome</ID>
+    <ID>CyclomaticComplexMethod:DavRepository.kt$DavRepository$suspend fun updateContact(accountId: String, href: String, edit: ContactEdit): DavWriteOutcome</ID>
+    <ID>CyclomaticComplexMethod:DavRepository.kt$DavRepository$suspend fun updateEvent( accountId: String, href: String, touched: Set&lt;EventField&gt;, title: String, date: LocalDate, start: LocalTime?, end: LocalTime?, location: String? = null, description: String? = null, category: String? = null, reminders: List&lt;Int&gt; = emptyList(), recurrenceDay: LocalDate? = null, scope: EventEditScope = EventEditScope.WHOLE_SERIES, ): DavWriteOutcome</ID>
+    <ID>CyclomaticComplexMethod:ICalendar.kt$ICalendar$fun parse(raw: String?): ParsedEvent?</ID>
+    <ID>CyclomaticComplexMethod:ICalendar.kt$ICalendar$private fun locate( logicals: List&lt;List&lt;String&gt;&gt;, uid: String, recurrenceId: LocalDate?, zone: ZoneId, ): Vevent?</ID>
+    <ID>CyclomaticComplexMethod:ICalendarStream.kt$ICalendarStream$fun parse(raw: String?, fallbackZone: ZoneId): List&lt;ParsedCalendarEvent&gt;</ID>
+    <ID>CyclomaticComplexMethod:ICalendarStream.kt$ICalendarStream$private fun embeddedZones(lines: List&lt;ContentLine&gt;): Map&lt;String, ZoneId&gt;</ID>
+    <ID>CyclomaticComplexMethod:K9SettingsImporter.kt$K9SettingsImporter$private fun parseAccount(account: Element): AccountOutcome</ID>
+    <ID>CyclomaticComplexMethod:MailRepository.kt$MailRepository$private suspend fun performDelivery(credentials: AccountCredentials, item: OutboxEntity)</ID>
+    <ID>CyclomaticComplexMethod:MailRepository.kt$MailRepository$private suspend fun syncMailbox( session: JmapSession, accountId: String, auth: JmapAuth, mailboxId: String, limit: Int, // Local StoredAccount id used to tag cached rows (distinct from the JMAP // [accountId] used for API calls), so per-account routing and storage work. localAccountId: String, ): List&lt;String&gt;</ID>
+    <ID>CyclomaticComplexMethod:MailRepository.kt$MailRepository$suspend fun archive(credentials: AccountCredentials, emailId: String): String?</ID>
+    <ID>CyclomaticComplexMethod:MailRepository.kt$MailRepository$suspend fun decryptMessage( credentials: AccountCredentials, emailId: String, interactionResult: android.content.Intent? = null, ): PgpResult&lt;MessageBody&gt;</ID>
+    <ID>CyclomaticComplexMethod:MailRepository.kt$MailRepository$suspend fun discoverJmapServer( email: String, password: String, token: String? = null, /** * The login name, when the server does not accept the address as one. Blank or null means * they are the same thing, which is the common case and the only one JMAP's own discovery * assumes. * * 🔴 The candidate hosts are still derived from [email]'s domain, never from this. Stalwart * routinely issues logins with no domain part at all, and a login is not a place. */ login: String? = null, log: SignInLog = SignInLog(), ): DiscoveryResult</ID>
+    <ID>CyclomaticComplexMethod:MailRepository.kt$MailRepository$suspend fun restoreAll(credentials: AccountCredentials, targets: List&lt;RestoreTarget&gt;): Set&lt;String&gt;</ID>
+    <ID>CyclomaticComplexMethod:MailRepository.kt$MailRepository$suspend fun syncSearchIndex( credentials: AccountCredentials, force: Boolean = false, onPage: (suspend () -&gt; Unit)? = null, )</ID>
+    <ID>CyclomaticComplexMethod:OrphanedAccountSweepSqlTest.kt$OrphanedAccountSweepSqlTest.Companion$fun withoutComments(source: String): String</ID>
+    <ID>CyclomaticComplexMethod:Recurrence.kt$Recurrence$fun expand( rule: RecurrenceRule?, start: LocalDate, window: ClosedRange&lt;LocalDate&gt;, exDates: Set&lt;LocalDate&gt; = emptySet(), ): List&lt;LocalDate&gt;</ID>
+    <ID>CyclomaticComplexMethod:SettingsBackup.kt$SettingsBackup$fun isPlausible(): Boolean</ID>
+    <ID>CyclomaticComplexMethod:SettingsRepository.kt$SettingsRepository$suspend fun restoreBackup(backup: SettingsBackup)</ID>
+    <ID>CyclomaticComplexMethod:VCardWrite.kt$VCardWrite$fun patch(raw: String, edit: ContactEdit, touched: Set&lt;ContactCardGroup&gt;): String</ID>
+    <ID>CyclomaticComplexMethod:VCardWrite.kt$VCardWrite$private fun groupLines(group: ContactCardGroup, edit: ContactEdit, v4: Boolean): List&lt;String&gt;</ID>
+    <ID>DestructuringDeclarationWithTooManyEntries:ICalendar.kt$ICalendar$val (sign, w, d, h, min, s) = m.destructured</ID>
+    <ID>DestructuringDeclarationWithTooManyEntries:ICalendarStream.kt$ICalendarStream$val (sign, w, d, h, min, s) = m.destructured</ID>
+    <ID>EmptyElseBlock:DaoQuerySource.kt$DaoQuerySource$if (depth == 0) return out</ID>
+    <ID>ImportOrdering:DataFactory.kt$import android.content.Context import app.gridlink.core.data.account.AccountStore import app.gridlink.core.data.calendar.WidgetAgendaReader import app.gridlink.core.data.dav.DavRepository import app.gridlink.core.data.db.GridlinkDatabase import app.gridlink.core.data.mail.ImapMailService import app.gridlink.core.data.mail.MailboxUidValidityStore import app.gridlink.core.data.mail.MailRepository import app.gridlink.core.data.mail.OAuthTokenRefresher import app.gridlink.core.data.mail.SyncStateStore import app.gridlink.core.data.mail.WidgetInboxReader import app.gridlink.core.data.net.AndroidSrvResolver import app.gridlink.core.data.pgp.PgpEngine import app.gridlink.core.data.settings.SettingsRepository import app.gridlink.core.data.storage.StorageRepository import app.gridlink.core.dav.DavClient import app.gridlink.core.imap.ImapClient import app.gridlink.core.imap.SmtpClient import app.gridlink.core.jmap.JmapClient import app.gridlink.core.jmap.OAuthClient</ID>
+    <ID>ImportOrdering:MailRepository.kt$import androidx.paging.ExperimentalPagingApi import androidx.paging.LoadType import androidx.paging.Pager import androidx.paging.PagingConfig import androidx.paging.PagingData import androidx.paging.PagingState import androidx.paging.RemoteMediator import androidx.paging.map import androidx.sqlite.db.SimpleSQLiteQuery import app.gridlink.core.data.account.AccountCredentials import app.gridlink.core.data.account.AccountStore import app.gridlink.core.data.account.AuthType import app.gridlink.core.data.account.DiscoveredMailAccount import app.gridlink.core.data.account.MailEndpoint import app.gridlink.core.data.account.MailProtocol import app.gridlink.core.data.account.OAuthCredentials import app.gridlink.core.data.account.StoredIdentity import app.gridlink.core.data.filter.FilterRule import app.gridlink.core.data.filter.SieveCodec import app.gridlink.core.data.db.EmailDao import app.gridlink.core.data.db.EmailFtsDao import app.gridlink.core.data.db.EmailBodyDao import app.gridlink.core.data.db.EmailBodyEntity import app.gridlink.core.data.db.OutboxAttachment import app.gridlink.core.data.db.OutboxAttachments import app.gridlink.core.data.db.OutboxDao import app.gridlink.core.data.db.OutboxEdit import app.gridlink.core.data.db.OutboxEntity import app.gridlink.core.data.db.OutboxLogic import app.gridlink.core.data.db.OutboxState import app.gridlink.core.data.db.PurgeSnapshotDao import app.gridlink.core.data.db.ScheduledSendDao import app.gridlink.core.data.db.ScheduledSendEntity import app.gridlink.core.data.db.SnoozedDao import app.gridlink.core.data.db.SnoozedEntity import app.gridlink.core.data.db.SnoozedListRow import app.gridlink.core.data.db.ContactRow import app.gridlink.core.data.db.RecentContactDao import app.gridlink.core.data.db.RecentContactEntity import app.gridlink.core.data.db.EmailEntity import app.gridlink.core.data.db.EmailKeywords import app.gridlink.core.data.db.MailboxDao import app.gridlink.core.data.db.MailboxIdRole import app.gridlink.core.data.getOrElseUnlessCancelled import app.gridlink.core.data.net.ImapEndpoints import app.gridlink.core.data.net.MailSrv import app.gridlink.core.data.net.SrvResolver import app.gridlink.core.data.pgp.PgpEngine import app.gridlink.core.data.settings.SettingsRepository import app.gridlink.core.data.settings.SortOrder import app.gridlink.core.jmap.BasicAuth import app.gridlink.core.jmap.ContentTooLargeException import app.gridlink.core.jmap.DownloadLimits import app.gridlink.core.jmap.BearerAuth import app.gridlink.core.jmap.DeviceAuthorization import app.gridlink.core.jmap.DeviceTokenResult import app.gridlink.core.jmap.OAuthClient import app.gridlink.core.jmap.OAuthMetadata import app.gridlink.core.jmap.OAuthTokens import app.gridlink.core.jmap.Jmap import app.gridlink.core.jmap.JmapAuth import app.gridlink.core.jmap.JmapClient import app.gridlink.core.jmap.JmapException import app.gridlink.core.imap.CryptoEnvelope import app.gridlink.core.imap.CryptoKind import app.gridlink.core.imap.ImapUidValidityChanged import app.gridlink.core.imap.decodeMailboxPath import app.gridlink.core.imap.MimeBody import app.gridlink.core.imap.MimeParser import app.gridlink.core.imap.OutgoingAttachment import app.gridlink.core.imap.OutgoingMessage import app.gridlink.core.imap.OutgoingMime import app.gridlink.core.data.pgp.PgpDecrypted import app.gridlink.core.data.pgp.PgpMode import app.gridlink.core.data.pgp.PgpResult import app.gridlink.core.data.pgp.PgpSignatureState import app.gridlink.core.jmap.model.Email import app.gridlink.core.jmap.model.EmailAddress import app.gridlink.core.jmap.model.EmailBodyPart import app.gridlink.core.jmap.model.EmailBodyValue import app.gridlink.core.jmap.model.EmailHeader import app.gridlink.core.jmap.model.Mailbox import app.gridlink.core.jmap.model.JmapSession import app.gridlink.core.jmap.model.PushSubscription import app.gridlink.core.jmap.model.Quota import app.gridlink.core.jmap.model.SearchQuery import app.gridlink.core.jmap.model.VacationResponse import kotlinx.coroutines.CancellationException import kotlinx.coroutines.CoroutineScope import kotlinx.coroutines.Dispatchers import kotlinx.coroutines.delay import kotlinx.coroutines.SupervisorJob import kotlinx.coroutines.async import kotlinx.coroutines.awaitAll import kotlinx.coroutines.coroutineScope import kotlinx.coroutines.launch import kotlinx.coroutines.withTimeoutOrNull import kotlinx.coroutines.flow.Flow import kotlinx.coroutines.flow.combine import kotlinx.coroutines.flow.distinctUntilChanged import kotlinx.coroutines.flow.first import kotlinx.coroutines.flow.flowOf import kotlinx.coroutines.flow.map import kotlinx.serialization.builtins.MapSerializer import kotlinx.serialization.builtins.serializer import kotlinx.serialization.json.Json import kotlinx.serialization.json.jsonObject import kotlinx.serialization.json.jsonPrimitive import java.io.Closeable import java.util.UUID</ID>
+    <ID>ImportOrdering:SettingsRepository.kt$import android.content.Context import androidx.datastore.core.DataStore import androidx.datastore.preferences.core.Preferences import androidx.datastore.preferences.core.edit import androidx.datastore.preferences.core.booleanPreferencesKey import androidx.datastore.preferences.core.intPreferencesKey import androidx.datastore.preferences.core.stringSetPreferencesKey import androidx.datastore.preferences.core.stringPreferencesKey import androidx.datastore.preferences.preferencesDataStore import app.gridlink.core.data.db.EmailKeywords import kotlinx.coroutines.flow.Flow import kotlinx.coroutines.flow.first import kotlinx.coroutines.flow.map</ID>
+    <ID>ImportOrdering:WidgetAgendaReader.kt$import app.gridlink.core.data.account.AccountStore import app.gridlink.core.data.dav.DavRepository import app.gridlink.core.data.db.DavCollectionDao import app.gridlink.core.data.db.DavCollectionEntity import java.time.LocalDate import java.time.LocalTime import java.time.ZoneId import kotlinx.coroutines.flow.first</ID>
+    <ID>LargeClass:MailRepository.kt$MailRepository</ID>
+    <ID>LongMethod:DavRepository.kt$DavRepository$private suspend fun sync(accountId: String, kind: DavKind): DavSyncOutcome</ID>
+    <ID>LongMethod:DavRepository.kt$DavRepository$suspend fun updateEvent( accountId: String, href: String, touched: Set&lt;EventField&gt;, title: String, date: LocalDate, start: LocalTime?, end: LocalTime?, location: String? = null, description: String? = null, category: String? = null, reminders: List&lt;Int&gt; = emptyList(), recurrenceDay: LocalDate? = null, scope: EventEditScope = EventEditScope.WHOLE_SERIES, ): DavWriteOutcome</ID>
+    <ID>LongMethod:MailRepository.kt$MailRepository$private suspend fun performDelivery(credentials: AccountCredentials, item: OutboxEntity)</ID>
+    <ID>LongParameterList:AccountStore.kt$AccountStore$( server: String, username: String, accountName: String, accessToken: String, refreshToken: String, accessExpiresAtMillis: Long, tokenEndpoint: String, clientId: String, protocol: MailProtocol = MailProtocol.JMAP, imapHost: String = "", imapPort: Int = 993, imapSecurity: ConnectionSecurity = ConnectionSecurity.TLS, smtpHost: String = "", smtpPort: Int = 587, smtpSecurity: ConnectionSecurity = ConnectionSecurity.STARTTLS, )</ID>
+    <ID>LongParameterList:ICalendar.kt$ICalendar$( raw: String, uid: String, instanceStart: LocalDateTime, touched: Set&lt;EventField&gt;, summary: String, start: LocalDateTime, end: LocalDateTime?, allDay: Boolean, zone: ZoneId, location: String?, description: String?, category: String?, reminders: List&lt;Int&gt;, )</ID>
+    <ID>LongParameterList:ICalendar.kt$ICalendar$( raw: String, uid: String, touched: Set&lt;EventField&gt;, summary: String, start: LocalDateTime, end: LocalDateTime?, allDay: Boolean, zone: ZoneId, location: String?, description: String?, category: String?, reminders: List&lt;Int&gt;, recurrenceId: LocalDate? = null, keepTimeSpelling: Boolean = false, )</ID>
+    <ID>LongParameterList:ICalendar.kt$ICalendar$( uid: String, summary: String, start: LocalDateTime, end: LocalDateTime?, allDay: Boolean, zone: ZoneId, location: String?, description: String?, nowMillis: Long, /** A single CATEGORIES value, or null for none. */ category: String? = null, /** * Reminder offsets in minutes before the start; each becomes a DISPLAY VALARM with a * relative TRIGGER. 0 means "at the time of the event" (`TRIGGER:PT0S`). */ reminders: List&lt;Int&gt; = emptyList(), )</ID>
+    <ID>LongParameterList:MailRepository.kt$MailRepository$( credentials: AccountCredentials, emailId: String, draftMailboxId: String, from: EmailAddress, to: List&lt;EmailAddress&gt;, subject: String, body: String, inReplyTo: List&lt;String&gt;, references: List&lt;String&gt;, hasAttachment: Boolean, )</ID>
+    <ID>LongParameterList:MailRepository.kt$MailRepository$( private val client: JmapClient, private val emailDao: EmailDao, private val emailFtsDao: EmailFtsDao, private val emailBodyDao: EmailBodyDao, private val mailboxDao: MailboxDao, private val imap: ImapMailService, private val scheduledSendDao: ScheduledSendDao, private val snoozedDao: SnoozedDao, private val recentContactDao: RecentContactDao, private val accountStore: AccountStore, private val outboxDao: OutboxDao, /** The frozen destroy list of a confirmed Empty trash (#99). */ private val purgeSnapshotDao: PurgeSnapshotDao, private val outboxFilesDir: java.io.File, private val oauthClient: OAuthClient = OAuthClient(), /** OpenPGP operations (null = no provider wired; all PGP features disabled). */ private val pgpEngine: PgpEngine? = null, /** App settings (null in tests): consulted for behavior toggles like mark-read-on-delete. */ private val settings: SettingsRepository? = null, /** Persisted sync cursors (null in tests): deltas survive process death (issue #17). */ private val syncStateStore: SyncStateStore? = null, /** * DNS SRV lookups for autodiscovery. Defaults to [SrvResolver.None] so a test or a preview * never reaches the network by omission; the app wires the real one in `DataFactory`. */ private val srvResolver: SrvResolver = SrvResolver.None, )</ID>
+    <ID>LoopWithTooManyJumpStatements:ICalendar.kt$ICalendar$for</ID>
+    <ID>LoopWithTooManyJumpStatements:MailRepository.kt$MailRepository$for</ID>
+    <ID>LoopWithTooManyJumpStatements:MailRepository.kt$MailRepository$while</ID>
+    <ID>LoopWithTooManyJumpStatements:MailRepository.kt$MailRepository.&lt;no name provided&gt;$while</ID>
+    <ID>LoopWithTooManyJumpStatements:MailSearchResult.kt$for</ID>
+    <ID>MagicNumber:DavRepository.kt$DavRepository$401</ID>
+    <ID>MagicNumber:DavRepository.kt$DavRepository$403</ID>
+    <ID>MagicNumber:DavRepository.kt$DavRepository$404</ID>
+    <ID>MagicNumber:DavRepository.kt$DavRepository$412</ID>
+    <ID>MagicNumber:DnsSrvParser.kt$DnsSrvParser$0x3F</ID>
+    <ID>MagicNumber:DnsSrvParser.kt$DnsSrvParser$0xC0</ID>
+    <ID>MagicNumber:DnsSrvParser.kt$DnsSrvParser$0xFF</ID>
+    <ID>MagicNumber:DnsSrvParser.kt$DnsSrvParser$3</ID>
+    <ID>MagicNumber:DnsSrvParser.kt$DnsSrvParser$4</ID>
+    <ID>MagicNumber:DnsSrvParser.kt$DnsSrvParser$6</ID>
+    <ID>MagicNumber:DnsSrvParser.kt$DnsSrvParser$8</ID>
+    <ID>MagicNumber:HtmlText.kt$0x10FFFF</ID>
+    <ID>MagicNumber:HtmlText.kt$0xD800</ID>
+    <ID>MagicNumber:HtmlText.kt$0xDFFF</ID>
+    <ID>MagicNumber:HtmlText.kt$16</ID>
+    <ID>MagicNumber:ICalendar.kt$ICalendar$1000</ID>
+    <ID>MagicNumber:ICalendar.kt$ICalendar$24</ID>
+    <ID>MagicNumber:ICalendar.kt$ICalendar$3600</ID>
+    <ID>MagicNumber:ICalendar.kt$ICalendar$60</ID>
+    <ID>MagicNumber:ICalendar.kt$ICalendar$7</ID>
+    <ID>MagicNumber:ICalendar.kt$ICalendar$75</ID>
+    <ID>MagicNumber:ICalendar.kt$ICalendar$8</ID>
+    <ID>MagicNumber:ICalendarStream.kt$ICalendarStream$24</ID>
+    <ID>MagicNumber:ICalendarStream.kt$ICalendarStream$3600</ID>
+    <ID>MagicNumber:ICalendarStream.kt$ICalendarStream$4</ID>
+    <ID>MagicNumber:ICalendarStream.kt$ICalendarStream$5</ID>
+    <ID>MagicNumber:ICalendarStream.kt$ICalendarStream$60</ID>
+    <ID>MagicNumber:ICalendarStream.kt$ICalendarStream$7</ID>
+    <ID>MagicNumber:ICalendarStream.kt$ICalendarStream$8</ID>
+    <ID>MagicNumber:ImapMailService.kt$ImapMailService$3</ID>
+    <ID>MagicNumber:ImapMailService.kt$ImapMailService$4</ID>
+    <ID>MagicNumber:ImapMailService.kt$ImapMailService$5</ID>
+    <ID>MagicNumber:ImapMailService.kt$ImapMailService$6</ID>
+    <ID>MagicNumber:ImapMailService.kt$ImapMailService.Companion$4</ID>
+    <ID>MagicNumber:K9SettingsImporter.kt$K9SettingsImporter$587</ID>
+    <ID>MagicNumber:K9SettingsImporter.kt$K9SettingsImporter$993</ID>
+    <ID>MagicNumber:KeystoreCrypto.kt$KeystoreCrypto$256</ID>
+    <ID>MagicNumber:MailRepository.kt$MailRepository$1000</ID>
+    <ID>MagicNumber:MailRepository.kt$MailRepository$1000L</ID>
+    <ID>MagicNumber:MailRepository.kt$MailRepository$256</ID>
+    <ID>MagicNumber:MailRepository.kt$MailRepository$3</ID>
+    <ID>MagicNumber:MailRepository.kt$MailRepository$4</ID>
+    <ID>MagicNumber:MailRepository.kt$MailRepository$5</ID>
+    <ID>MagicNumber:MailTag.kt$TagColor.AMBER$0xFFFFB224</ID>
+    <ID>MagicNumber:MailTag.kt$TagColor.BLUE$0xFF3E8FF9</ID>
+    <ID>MagicNumber:MailTag.kt$TagColor.CYAN$0xFF00A2C7</ID>
+    <ID>MagicNumber:MailTag.kt$TagColor.GREEN$0xFF30A46C</ID>
+    <ID>MagicNumber:MailTag.kt$TagColor.ORANGE$0xFFF76B15</ID>
+    <ID>MagicNumber:MailTag.kt$TagColor.RED$0xFFE5484D</ID>
+    <ID>MagicNumber:MailTag.kt$TagColor.SLATE$0xFF8B95A5</ID>
+    <ID>MagicNumber:MailTag.kt$TagColor.TEAL$0xFF12A594</ID>
+    <ID>MagicNumber:OAuthTokenRefresher.kt$OAuthTokenRefresher$1000</ID>
+    <ID>MagicNumber:Recurrence.kt$Recurrence$1000</ID>
+    <ID>MagicNumber:Recurrence.kt$Recurrence$12</ID>
+    <ID>MagicNumber:Recurrence.kt$Recurrence$1_000_000L</ID>
+    <ID>MagicNumber:Recurrence.kt$Recurrence$31</ID>
+    <ID>MagicNumber:Recurrence.kt$Recurrence$7</ID>
+    <ID>MagicNumber:Recurrence.kt$Recurrence$8</ID>
+    <ID>MagicNumber:SettingsRepository.kt$MessageTextSize.HUGE$150</ID>
+    <ID>MagicNumber:SettingsRepository.kt$MessageTextSize.LARGE$125</ID>
+    <ID>MagicNumber:SettingsRepository.kt$MessageTextSize.SMALL$85</ID>
+    <ID>MagicNumber:SettingsRepository.kt$PreviewLines.FIVE$5</ID>
+    <ID>MagicNumber:SettingsRepository.kt$PreviewLines.THREE$3</ID>
+    <ID>MagicNumber:SettingsRepository.kt$SettingsRepository$24</ID>
+    <ID>MagicNumber:SettingsRepository.kt$SettingsRepository$60</ID>
+    <ID>MagicNumber:SignInDiagnostics.kt$3</ID>
+    <ID>MagicNumber:SignInDiagnostics.kt$4</ID>
+    <ID>MagicNumber:SignInDiagnostics.kt$401</ID>
+    <ID>MagicNumber:SignInDiagnostics.kt$403</ID>
+    <ID>MagicNumber:SignInDiagnostics.kt$5</ID>
+    <ID>MagicNumber:SignInDiagnostics.kt$6</ID>
+    <ID>MagicNumber:SignInDiagnostics.kt$7</ID>
+    <ID>MagicNumber:SignInDiagnostics.kt$8</ID>
+    <ID>MagicNumber:Srv.kt$SrvSelection$65535</ID>
+    <ID>MagicNumber:VCard.kt$VCard$3</ID>
+    <ID>MagicNumber:VCard.kt$VCard$4</ID>
+    <ID>MagicNumber:VCard.kt$VCard$5</ID>
+    <ID>MagicNumber:VCard.kt$VCard$6</ID>
+    <ID>MatchingDeclarationName:DraftSave.kt$DraftSaveOutcome</ID>
+    <ID>MaxLineLength:AccountStore.kt$AccountStore$fun</ID>
+    <ID>MaxLineLength:AccountStore.kt$AccountStore$if (it.id == loginId) it.copy(oauthAccessToken = accessToken, oauthAccessExpiresAt = accessExpiresAtMillis) else it</ID>
+    <ID>MaxLineLength:ConversationInvariantsSqlTest.kt$ConversationInvariantsSqlTest$st.executeUpdate("CREATE TABLE snoozed(emailId TEXT, accountId TEXT, until INTEGER, PRIMARY KEY(accountId, emailId))")</ID>
+    <ID>MaxLineLength:ConversationQueryTest.kt$ConversationQueryTest$assertEquals(2, rows(listOf("inbox"), sent = listOf("accB" to "sentbox"), accountId = "accB").single().threadCount)</ID>
+    <ID>MaxLineLength:ConversationQueryTest.kt$ConversationQueryTest$assertEquals(4, rows(listOf("inbox"), sent = listOf("accA" to "sentbox"), accountId = "accA").single().threadTotal)</ID>
+    <ID>MaxLineLength:ConversationQueryTest.kt$ConversationQueryTest$private</ID>
+    <ID>MaxLineLength:ConversationQueryTest.kt$ConversationQueryTest$rows(listOf("inbox"), sent = emptyList(), accountId = null, accounts = listOf("accA", "gone")).map { it.id }</ID>
+    <ID>MaxLineLength:ConversationQueryTest.kt$ConversationQueryTest$rows(listOf("inbox"), sent = listOf("accA" to "sentA"), accountId = null, accounts = listOf("accA", "accB")).map { it.threadCount }</ID>
+    <ID>MaxLineLength:ConversationQueryTest.kt$ConversationQueryTest$st.executeUpdate("CREATE TABLE snoozed(emailId TEXT, accountId TEXT, until INTEGER, PRIMARY KEY(accountId, emailId))")</ID>
+    <ID>MaxLineLength:ConversationQueryTest.kt$ConversationQueryTest$val mine = rows(listOf("inbox"), sent = listOf("accA" to "sentbox", "accB" to "sentbox"), accountId = "accA").single()</ID>
+    <ID>MaxLineLength:ConversationQueryTest.kt$ConversationQueryTest$val oldestFirst = rows(listOf("inbox"), sent = listOf("accA" to "sentbox"), accountId = "accA", sort = SortOrder.DATE_ASC)</ID>
+    <ID>MaxLineLength:ConversationQueryTest.kt$ConversationQueryTest$val rows = rows(listOf("inbox"), sent = listOf("accA" to "sentA", "accB" to "sentB"), accountId = null, accounts = listOf("accA", "accB"))</ID>
+    <ID>MaxLineLength:ConversationScopeTest.kt$ConversationScopeTest$private</ID>
+    <ID>MaxLineLength:ConversationScopeTest.kt$ConversationScopeTest$st.executeUpdate("CREATE TABLE snoozed(emailId TEXT, accountId TEXT, until INTEGER, PRIMARY KEY(accountId, emailId))")</ID>
+    <ID>MaxLineLength:ConversationSqlTest.kt$ConversationSqlTest$ps.setString(11, "accA")</ID>
+    <ID>MaxLineLength:ConversationSqlTest.kt$ConversationSqlTest$st.executeUpdate("CREATE TABLE snoozed(emailId TEXT, accountId TEXT, until INTEGER, PRIMARY KEY(accountId, emailId))")</ID>
+    <ID>MaxLineLength:DeletedMailLeavesTheIndexSqlTest.kt$DeletedMailLeavesTheIndexSqlTest$DaoQuerySource.emailDaoStatements(name).any { it.sql.trimStart().startsWith("DELETE", ignoreCase = true) }</ID>
+    <ID>MaxLineLength:DeletedMailLeavesTheIndexSqlTest.kt$DeletedMailLeavesTheIndexSqlTest$assertEquals("an index row was left for a message in a folder search never looks at", listOf("other"), indexed())</ID>
+    <ID>MaxLineLength:EmailsMigrationSqlTest.kt$EmailsMigrationSqlTest$assertEquals(1, count("SELECT COUNT(*) FROM `emails` WHERE `id` = 'e1' AND `subject` = 'Hello' AND `sortKey` = 100"))</ID>
+    <ID>MaxLineLength:EmailsMigrationSqlTest.kt$EmailsMigrationSqlTest$assertEquals(1, count("SELECT COUNT(*) FROM `mailboxes` WHERE `id` = 'mb1' AND `role` = 'inbox' AND `unreadEmails` = 1"))</ID>
+    <ID>MaxLineLength:EmailsMigrationSqlTest.kt$EmailsMigrationSqlTest$assertEquals(1, count("SELECT COUNT(*) FROM `scheduled_sends` WHERE `subject` = 'Later' AND `sendAtMillis` = 500"))</ID>
+    <ID>MaxLineLength:EmailsMigrationSqlTest.kt$EmailsMigrationSqlTest$assertEquals(emptyList&lt;Any&gt;(), EmailRecipients.decode(stringOrNull("SELECT `recipientsJson` FROM `emails` WHERE `id` = 'e1'")))</ID>
+    <ID>MaxLineLength:EmailsMigrationSqlTest.kt$EmailsMigrationSqlTest$assertEquals(recipients, EmailRecipients.decode(stringOrNull("SELECT `recipientsJson` FROM `emails` WHERE `id` = 'e1'")))</ID>
+    <ID>MaxLineLength:EmailsMigrationSqlTest.kt$EmailsMigrationSqlTest$assertTrue("index_emails_mailboxId must exist after the rebuild", "index_emails_mailboxId" in indexesOf("emails"))</ID>
+    <ID>MaxLineLength:FlagDeltaSqlTest.kt$FlagDeltaSqlTest$"INSERT INTO emails VALUES('imap:accA:INBOX:7', 'accB', 'INBOX', 't', 'S', 'p', '', 'A', 'a@b.c', 0, 0, 0, 1)"</ID>
+    <ID>MaxLineLength:ICalendar.kt$ICalendar$description = first("DESCRIPTION")?.let { ContentLines.unescapeText(it.value) }?.takeIf { it.isNotBlank() }</ID>
+    <ID>MaxLineLength:ImapMailService.kt$ImapMailService$MailServerConfig(smtp.host, smtp.port, smtp.security.toMailSecurity(), credentials.loginName, credentials.password, token)</ID>
+    <ID>MaxLineLength:ImapMailService.kt$ImapMailService$suspend</ID>
+    <ID>MaxLineLength:IncrementalSync.kt$ImapSyncDecision$fun</ID>
+    <ID>MaxLineLength:IncrementalSyncSqlTest.kt$IncrementalSyncSqlTest$assertEquals(0, recordSyncPoint("INBOX", uidValidity = 5L, highestModSeq = 900L, uidNext = 41L, messageCount = 40))</ID>
+    <ID>MaxLineLength:IncrementalSyncSqlTest.kt$IncrementalSyncSqlTest$assertEquals(1, recordSyncPoint("INBOX", uidValidity = 5L, highestModSeq = 900L, uidNext = 41L, messageCount = 40))</ID>
+    <ID>MaxLineLength:IncrementalSyncSqlTest.kt$IncrementalSyncSqlTest$db.prepareStatement("INSERT OR REPLACE INTO mailbox_uidvalidity (accountId, mailboxId, uidValidity) VALUES(?, ?, ?)")</ID>
+    <ID>MaxLineLength:IncrementalSyncSqlTest.kt$IncrementalSyncSqlTest$val (sql, order) = DaoQuerySource.bindOrder(DaoQuerySource.daoQuery("MailboxUidValidityEntity", "recordSyncPoint"))</ID>
+    <ID>MaxLineLength:IncrementalSyncSqlTest.kt$IncrementalSyncSqlTest$val (sql, order) = DaoQuerySource.bindOrder(DaoQuerySource.daoQuery("MailboxUidValidityEntity", "rowsForAccount"))</ID>
+    <ID>MaxLineLength:MailRepository.kt$MailRepository$?.</ID>
+    <ID>MaxLineLength:MailRepository.kt$MailRepository$context = Context(ctx.credentials, ctx.session, ctx.accountId, ctx.auth, ctx.rolesToMailboxId + ("archive" to byName), ctx.mailboxes)</ID>
+    <ID>MaxLineLength:MailRepository.kt$MailRepository$context = Context(ctx.credentials, ctx.session, ctx.accountId, ctx.auth, ctx.rolesToMailboxId + ("archive" to id), ctx.mailboxes)</ID>
+    <ID>MaxLineLength:MailRepository.kt$MailRepository$emailDao.replaceMailbox(credentials.id, load.targetMailboxId, window, recentlyMutatedIds(credentials.id))</ID>
+    <ID>MaxLineLength:MailRepository.kt$MailRepository$emailDao.replaceMailbox(localAccountId, mailboxId, page.emails.map { it.toEntity(localAccountId, mailboxId) }, recentlyMutatedIds(localAccountId))</ID>
+    <ID>MaxLineLength:MailRepository.kt$MailRepository$fetched.forEach { markRecentlyMutated(credentials.id, it.id); recentLocalMoves.mark(credentials.id, it.id) }</ID>
+    <ID>MaxLineLength:MailRepository.kt$MailRepository$if (!imap) mailboxDao.adjustCounts(accountId, destMailboxId, totalDelta = incoming.size, unreadDelta = unread)</ID>
+    <ID>MaxLineLength:MailRepository.kt$MailRepository$if (!isImapAccount(accountId)) mailboxDao.adjustCounts(accountId, mailboxId, totalDelta = 0, unreadDelta = delta)</ID>
+    <ID>MaxLineLength:MailRepository.kt$MailRepository$if (credentials.protocol == MailProtocol.IMAP) return refreshImap(credentials, mailboxId, limit, pruneBeforeMillis)</ID>
+    <ID>MaxLineLength:MailRepository.kt$MailRepository$log.add("Looking up servers for this address", if (hosts.isEmpty()) "no candidates" else hosts.joinToString(", "))</ID>
+    <ID>MaxLineLength:MailRepository.kt$MailRepository$mailboxDao.replaceAll(credentials.id, client.getMailboxes(ctx.session, ctx.accountId, ctx.auth).map { it.toEntity(credentials.id) })</ID>
+    <ID>MaxLineLength:MailRepository.kt$MailRepository$outboxDao.byId(id)?.let { outboxDao.update(it.copy(attachmentsJson = OutboxAttachments.encode(durable))) }</ID>
+    <ID>MaxLineLength:MailRepository.kt$MailRepository$outboxDao.update(item.copy(state = OutboxState.QUEUED, attemptCount = 0, lastError = null, notBeforeMillis = now))</ID>
+    <ID>MaxLineLength:MailRepository.kt$MailRepository$pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(scopes, sort, unreadOnly, accountId = null, sentMailboxes = sentMailboxes)) }</ID>
+    <ID>MaxLineLength:MailRepository.kt$MailRepository$pagingSourceFactory = { emailDao.conversationPagingSource(conversationQuery(scopes, sort, unreadOnly, credentials.id, sentMailboxes)) }</ID>
+    <ID>MaxLineLength:MailRepository.kt$MailRepository$private suspend</ID>
+    <ID>MaxLineLength:MailRepository.kt$MailRepository$suspend</ID>
+    <ID>MaxLineLength:MailRepository.kt$MailRepository$val cachedMailbox = emailDao.emailsByIds(credentials.id, emails.map { it.id }).associate { it.id to it.mailboxId }</ID>
+    <ID>MaxLineLength:MailRepository.kt$MailRepository$val fetched = runCatching { client.getEmailsByIds(ctx.session, ctx.accountId, ids, ctx.auth) }.getOrDefault(emptyList())</ID>
+    <ID>MaxLineLength:MailRepository.kt$MailRepository$val mbs = runCatching { client.getMailboxes(ctx.session, ctx.accountId, ctx.auth) }.getOrDefault(emptyList())</ID>
+    <ID>MaxLineLength:MailRepository.kt$MailRepository$val queryChanges = client.emailQueryChanges(session, accountId, mailboxId, stored.queryState, MAX_CHANGES, auth)</ID>
+    <ID>MaxLineLength:MailRepository.kt$if (scopeCount == 0) "0" else List(scopeCount) { "($table.accountId = ? AND $table.mailboxId = ?)" }.joinToString(" OR ")</ID>
+    <ID>MaxLineLength:MailboxDao.kt$MailboxDao$@Query("SELECT accountId, id FROM mailboxes WHERE accountId IN (:accountIds) AND role = 'sent' ORDER BY accountId, id")</ID>
+    <ID>MaxLineLength:OrphanedAccountSweepSqlTest.kt$OrphanedAccountSweepSqlTest$st.executeUpdate("CREATE TABLE email_bodies(id TEXT, accountId TEXT, html TEXT, PRIMARY KEY(accountId, id))")</ID>
+    <ID>MaxLineLength:OutboxDao.kt$OutboxDao$@Query("UPDATE outbox SET state = :state, attemptCount = :attemptCount, lastError = :lastError, lastAttemptMillis = :lastAttemptMillis WHERE id = :id")</ID>
+    <ID>MaxLineLength:OutboxLogicTest.kt$OutboxLogicTest$assertEquals("a hiccup healing inside the grace stays silent", 0, OutboxLogic.activeCount(listOf(requeued), 5_100))</ID>
+    <ID>MaxLineLength:PageReconcileTest.kt$PageReconcileTest$reconcileEvictions(cached, setOf("a"), pageCoversWholeMailbox = false, oldestInPage = 0, spareIds = emptySet())</ID>
+    <ID>MaxLineLength:PageReconcileTest.kt$PageReconcileTest$reconcileEvictions(cached, setOf("a"), pageCoversWholeMailbox = true, oldestInPage = 300, spareIds = emptySet())</ID>
+    <ID>MaxLineLength:PageReconcileTest.kt$PageReconcileTest$reconcileEvictions(cached, setOf("a"), pageCoversWholeMailbox = true, oldestInPage = 300, spareIds = setOf("restored"))</ID>
+    <ID>MaxLineLength:PageReconcileTest.kt$PageReconcileTest$reconcileEvictions(cached, setOf("a", "b"), pageCoversWholeMailbox = false, oldestInPage = 200, spareIds = emptySet())</ID>
+    <ID>MaxLineLength:SearchableFoldersTest.kt$SearchableFoldersTest$assertEquals(listOf("s", "t"), excludedSearchFolderIds(folders("i" to "inbox", "s" to "SPAM", "t" to " Trash ")))</ID>
+    <ID>MaxLineLength:SettingsBackup.kt$SettingsBackup$swipeRight != null</ID>
+    <ID>MaxLineLength:SettingsRepository.kt$SettingsRepository$backup.deliveryMode?.let { v -&gt; runCatching { DeliveryMode.valueOf(v) }.getOrNull()?.let { setDeliveryMode(it) } }</ID>
+    <ID>MaxLineLength:SettingsRepository.kt$SettingsRepository$backup.messageTextSize?.let { v -&gt; runCatching { MessageTextSize.valueOf(v) }.getOrNull()?.let { setMessageTextSize(it) } }</ID>
+    <ID>MaxLineLength:SettingsRepository.kt$SettingsRepository$backup.notificationContent?.let { v -&gt; runCatching { NotificationContent.valueOf(v) }.getOrNull()?.let { setNotificationContent(it) } }</ID>
+    <ID>MaxLineLength:SettingsRepository.kt$SettingsRepository$backup.previewLines?.let { v -&gt; runCatching { PreviewLines.valueOf(v) }.getOrNull()?.let { setPreviewLines(it) } }</ID>
+    <ID>MaxLineLength:SettingsRepository.kt$SettingsRepository$backup.swipeLeft?.let { v -&gt; runCatching { SwipeAction.valueOf(v) }.getOrNull()?.let { setSwipeLeftAction(it) } }</ID>
+    <ID>MaxLineLength:SettingsRepository.kt$SettingsRepository$backup.swipeLeftFar?.let { v -&gt; runCatching { SwipeAction.valueOf(v) }.getOrNull()?.let { setSwipeLeftFarAction(it) } }</ID>
+    <ID>MaxLineLength:SettingsRepository.kt$SettingsRepository$backup.swipeRight?.let { v -&gt; runCatching { SwipeAction.valueOf(v) }.getOrNull()?.let { setSwipeRightAction(it) } }</ID>
+    <ID>MaxLineLength:SnoozeFilterSqlTest.kt$SnoozeFilterSqlTest$db.createStatement().use { it.executeUpdate("UPDATE snoozed SET until = ${now + 86_400_000} WHERE emailId = 'b'") }</ID>
+    <ID>MaxLineLength:SnoozeFilterSqlTest.kt$SnoozeFilterSqlTest$st.executeUpdate("CREATE TABLE snoozed(emailId TEXT, accountId TEXT, until INTEGER, PRIMARY KEY(accountId, emailId))")</ID>
+    <ID>MaxLineLength:SnoozeFilterSqlTest.kt$SnoozeFilterSqlTest$st.executeUpdate("INSERT INTO emails VALUES('a', 'acc', 'inbox'), ('b', 'acc', 'inbox'), ('c', 'acc', 'inbox')")</ID>
+    <ID>MaxLineLength:UidValiditySqlTest.kt$UidValiditySqlTest$insertRows(TrashPurge.snapshotRows("p2", "accA", "Trash", listOf("imap:accA:Trash:7"), 1_000L, uidValidity = 42L))</ID>
+    <ID>MaxLineLength:UnreadBadgeSqlTest.kt$UnreadBadgeSqlTest$st.executeUpdate("CREATE TABLE snoozed(emailId TEXT, accountId TEXT, until INTEGER, PRIMARY KEY(accountId, emailId))")</ID>
+    <ID>MaxLineLength:VCardTest.kt$VCardTest$"BEGIN:VCARD\nVERSION:4.0\nFN:Kenna Chadwick\nN:Chadwick;Kenna;;;\nPHOTO:data:image/jpeg;base64,@@not-base64@@\nEND:VCARD"</ID>
+    <ID>MultiLineIfElse:AccountStore.kt$AccountStore$it</ID>
+    <ID>MultiLineIfElse:AccountStore.kt$AccountStore$it.copy( authType = AuthType.BASIC, oauthAccessToken = "", oauthAccessExpiresAt = 0, oauthTokenEndpoint = "", oauthClientId = "", )</ID>
+    <ID>MultiLineIfElse:AccountStore.kt$AccountStore$it.copy( authType = AuthType.OAUTH, username = username?.trim().takeUnless { u -&gt; u.isNullOrBlank() } ?: it.username, oauthAccessToken = accessToken, oauthAccessExpiresAt = accessExpiresAtMillis, oauthTokenEndpoint = tokenEndpoint, oauthClientId = clientId, importPending = false, )</ID>
+    <ID>MultiLineIfElse:ContentLine.kt$ContentLines$inQuote = !inQuote</ID>
+    <ID>MultiLineIfElse:ImapMailService.kt$ImapMailService$emptyList()</ID>
+    <ID>MultiLineIfElse:ImapMailService.kt$ImapMailService$onMailbox(credentials, mailboxId) { session, _ -&gt; session.fetchUids(uids).map { it.toEntity(credentials.id, mailboxId) } }</ID>
+    <ID>MultiLineIfElse:MailRepository.kt$MailRepository$DiscoveryResult.BadCredentials(log.steps())</ID>
+    <ID>MultiLineIfElse:MailRepository.kt$MailRepository$DiscoveryResult.NotFound(failure, log.steps())</ID>
+    <ID>MultiLineIfElse:MailRepository.kt$MailRepository$EmailAddress(name = fromName, email = fromEmail)</ID>
+    <ID>MultiLineIfElse:MailRepository.kt$MailRepository$EmailAddress(name = identity.name, email = identity.email)</ID>
+    <ID>MultiLineIfElse:MailRepository.kt$MailRepository$connect(credentials).rolesToMailboxId[role]</ID>
+    <ID>MultiLineIfElse:MailRepository.kt$MailRepository$emailDao.cachedThreadEmails(accountId, mailboxIds, threadKey).map { rows -&gt; rows.map { it.toEmail() } }</ID>
+    <ID>MultiLineIfElse:MailRepository.kt$MailRepository$flowOf(emptyList())</ID>
+    <ID>MultiLineIfElse:MailRepository.kt$MailRepository$imap.recordedUidValidity(credentials.id, trashMailboxId)</ID>
+    <ID>MultiLineIfElse:MailRepository.kt$MailRepository$imapRoleFolder(credentials, role)</ID>
+    <ID>MultiLineIfElse:MailRepository.kt$MailRepository$m.groupValues[1].trim().ifBlank { null } to m.groupValues[2].trim()</ID>
+    <ID>MultiLineIfElse:MailRepository.kt$MailRepository$null</ID>
+    <ID>MultiLineIfElse:MailRepository.kt$MailRepository$null to s.trim()</ID>
+    <ID>MultiLineIfElse:MailRepository.kt$MailRepository$runCatching { emailDao.upsertAll(entities) // Guard the fresh rows through the reconcile window: the very next full re-query // (e.g. opening the folder a just-deleted conversation moved to) would otherwise // prune every non-representative member straight back out, leaving the thread's // chip at 1 with its members unreachable. A later out-of-window re-query can still // prune them — that decay is accepted; expanding re-fetches. entities.forEach { markRecentlyMutated(credentials.id, it.id) } }</ID>
+    <ID>MultiLineIfElse:OrphanedAccountSweepSqlTest.kt$OrphanedAccountSweepSqlTest.SweepShape.Call$DaoQuerySource.daoQuery(dao, function)</ID>
+    <ID>MultiLineIfElse:OrphanedAccountSweepSqlTest.kt$OrphanedAccountSweepSqlTest.SweepShape.Call$DaoQuerySource.emailDaoQuery(function)</ID>
+    <ID>MultiLineIfElse:Recurrence.kt$Recurrence$days</ID>
+    <ID>MultiLineIfElse:Recurrence.kt$Recurrence$days.filter { it.monthValue in rule.byMonth }</ID>
+    <ID>MultiLineIfElse:SignInDiagnostics.kt$return SignInFailure.NOT_A_SERVER</ID>
+    <ID>MultiLineIfElse:SignInDiagnostics.kt$return SignInFailure.REJECTED</ID>
+    <ID>MultiLineIfElse:UidValiditySqlTest.kt$UidValiditySqlTest$null</ID>
+    <ID>NestedBlockDepth:DaoQuerySource.kt$DaoQuerySource$private fun stringLiterals(text: String): List&lt;String&gt;</ID>
+    <ID>NestedBlockDepth:DavRepository.kt$DavRepository$suspend fun updateContact(accountId: String, href: String, edit: ContactEdit): DavWriteOutcome</ID>
+    <ID>NestedBlockDepth:ICalendar.kt$ICalendar$fun parse(raw: String?): ParsedEvent?</ID>
+    <ID>NestedBlockDepth:ICalendarStream.kt$ICalendarStream$fun parse(raw: String?, fallbackZone: ZoneId): List&lt;ParsedCalendarEvent&gt;</ID>
+    <ID>NestedBlockDepth:ICalendarStream.kt$ICalendarStream$private fun expand( event: ParsedCalendarEvent, window: ClosedRange&lt;LocalDate&gt;, displayZone: ZoneId, excluded: Set&lt;LocalDate&gt;, ): List&lt;CalendarOccurrence&gt;</ID>
+    <ID>NestedBlockDepth:MailRepository.kt$MailRepository$@OptIn(ExperimentalPagingApi::class) private fun &lt;V : Any&gt; folderMediator( credentials: AccountCredentials, mailboxId: String, conversationView: Boolean, ): RemoteMediator&lt;Int, V&gt;</ID>
+    <ID>NestedBlockDepth:MailRepository.kt$MailRepository$private suspend fun syncMailbox( session: JmapSession, accountId: String, auth: JmapAuth, mailboxId: String, limit: Int, // Local StoredAccount id used to tag cached rows (distinct from the JMAP // [accountId] used for API calls), so per-account routing and storage work. localAccountId: String, ): List&lt;String&gt;</ID>
+    <ID>NestedBlockDepth:MailRepository.kt$MailRepository$suspend fun refreshAllInboxes(accounts: List&lt;AccountCredentials&gt;, limit: Int = 50): UnifiedRefreshResult</ID>
+    <ID>NestedBlockDepth:MailRepository.kt$MailRepository$suspend fun restoreAll(credentials: AccountCredentials, targets: List&lt;RestoreTarget&gt;): Set&lt;String&gt;</ID>
+    <ID>NestedBlockDepth:OrphanedAccountSweepSqlTest.kt$OrphanedAccountSweepSqlTest.Companion$fun withoutComments(source: String): String</ID>
+    <ID>NestedBlockDepth:OrphanedAccountSweepSqlTest.kt$OrphanedAccountSweepSqlTest.SweepShape$private fun argumentsAt(text: String, open: Int): List&lt;String&gt;</ID>
+    <ID>NestedBlockDepth:Recurrence.kt$Recurrence$fun expand( rule: RecurrenceRule?, start: LocalDate, window: ClosedRange&lt;LocalDate&gt;, exDates: Set&lt;LocalDate&gt; = emptySet(), ): List&lt;LocalDate&gt;</ID>
+    <ID>NestedBlockDepth:SyncEvictionsTest.kt$SyncEvictionsTest$@Test fun theLoggedReasonAgreesWithTheGateOverTheWholeInputGrid()</ID>
+    <ID>NestedBlockDepth:UidValiditySqlTest.kt$UidValiditySqlTest$private fun head(purgeId: String): Pair&lt;String, Long?&gt;?</ID>
+    <ID>NestedBlockDepth:VCard.kt$VCard$fun parseAll(raw: String?): List&lt;ParsedContact&gt;</ID>
+    <ID>NoMultipleSpaces:ConversationSqlTest.kt$ConversationSqlTest$ </ID>
+    <ID>ParameterListWrapping:AccountStore.kt$AccountStore$(accountId: String, mailboxId: String, mailboxName: String, @Suppress("UNUSED_PARAMETER") accountName: String, unread: Int)</ID>
+    <ID>ParameterListWrapping:AccountStore.kt$AccountStore$(mailboxId: String, mailboxName: String, @Suppress("UNUSED_PARAMETER") accountName: String, unread: Int)</ID>
+    <ID>ParameterListWrapping:ConversationInvariantsSqlTest.kt$ConversationInvariantsSqlTest$( id: String, threadId: String?, sortKey: Long, seen: Int = 1, mailbox: String = "inbox", accountId: String = "acc", subject: String = "subj", )</ID>
+    <ID>ParameterListWrapping:ConversationScopeTest.kt$ConversationScopeTest$(viewed: List&lt;String&gt;, resolution: List&lt;Pair&lt;String, String&gt;&gt;, accountId: String, threadKey: String = "T1")</ID>
+    <ID>ParameterListWrapping:ConversationScopeTest.kt$ConversationScopeTest$(viewed: List&lt;String&gt;, resolution: List&lt;Pair&lt;String, String&gt;&gt;, accountId: String?)</ID>
+    <ID>ParameterListWrapping:ConversationSqlTest.kt$ConversationSqlTest$( id: String, threadId: String?, seen: Int, flagged: Int, sortKey: Long, mailbox: String = "inbox", accountId: String = "acc", // Only the sort-order cases care about these; every other case leaves them equal so // the subject/sender orders tie and the discriminating column is the one under test. subject: String = "subj", fromName: String = "N", )</ID>
+    <ID>ParameterListWrapping:ImapMailService.kt$ImapMailService$(credentials: AccountCredentials, onChanged: () -&gt; Unit, onClosed: () -&gt; Unit)</ID>
+    <ID>ParameterListWrapping:ImapMailService.kt$ImapMailService$(credentials: AccountCredentials, sourceMailbox: String, uids: List&lt;Long&gt;, destMailbox: String)</ID>
+    <ID>ParameterListWrapping:LocalSearchFolderFilterSqlTest.kt$LocalSearchFolderFilterSqlTest$( emailId: String, mailboxId: String, subject: String = "quarterly token report", accountId: String = "acc", sortKey: Long = 100, )</ID>
+    <ID>ParameterListWrapping:MailRepository.kt$MailRepository$( credentials: AccountCredentials, source: String, ids: List&lt;String&gt;, dest: String, succeeded: MutableSet&lt;String&gt;, failed: MutableSet&lt;String&gt;, )</ID>
+    <ID>ParameterListWrapping:MailRepository.kt$MailRepository$( credentials: AccountCredentials, source: String, ids: List&lt;String&gt;, succeeded: MutableSet&lt;String&gt;, failed: MutableSet&lt;String&gt;, expectedUidValidity: Long? = null, )</ID>
+    <ID>ParameterListWrapping:MailRepository.kt$MailRepository$(accountId: String, mailboxId: String?, wasSeen: Boolean?, seen: Boolean)</ID>
+    <ID>ParameterListWrapping:MailRepository.kt$MailRepository$(credentials: AccountCredentials, emailId: String, markRead: Boolean = true)</ID>
+    <ID>ParameterListWrapping:MailRepository.kt$MailRepository$(credentials: AccountCredentials, emailIds: List&lt;String&gt;, targetMailboxId: String)</ID>
+    <ID>ParameterListWrapping:MailRepository.kt$MailRepository$(credentials: AccountCredentials, subscription: PushSubscription)</ID>
+    <ID>ParameterListWrapping:MailRepository.kt$MailRepository$(credentials: AccountCredentials, subscriptionId: String, expires: String)</ID>
+    <ID>ParameterListWrapping:MailRepository.kt$MailRepository$(credentials: AccountCredentials, subscriptionId: String, verificationCode: String)</ID>
+    <ID>ParameterListWrapping:RepresentativeAnchorSqlTest.kt$RepresentativeAnchorSqlTest$( id: String, threadId: String?, sortKey: Long, mailbox: String = "inbox", accountId: String = "acc", )</ID>
+    <ID>ParameterListWrapping:ThreadMembersSqlTest.kt$ThreadMembersSqlTest$( id: String, threadId: String?, sortKey: Long, mailbox: String = "inbox", accountId: String = "acc", )</ID>
+    <ID>ParameterListWrapping:UnarchiveMembersSqlTest.kt$UnarchiveMembersSqlTest$( id: String, threadId: String?, mailbox: String, accountId: String = "acc", sortKey: Long = 0, )</ID>
+    <ID>ParameterListWrapping:UnreadBadgeSqlTest.kt$UnreadBadgeSqlTest$( id: String, threadId: String?, seen: Int, sortKey: Long, mailbox: String = "inbox", accountId: String = "acc", )</ID>
+    <ID>PropertyWrapping:ConversationQueryTest.kt$ConversationQueryTest$val oldestFirst = rows(listOf("inbox"), sent = listOf("accA" to "sentbox"), accountId = "accA", sort = SortOrder.DATE_ASC)</ID>
+    <ID>PropertyWrapping:ConversationQueryTest.kt$ConversationQueryTest$val rows = rows(listOf("inbox"), sent = listOf("accA" to "sentA", "accB" to "sentB"), accountId = null, accounts = listOf("accA", "accB"))</ID>
+    <ID>ReturnCount:ContentLine.kt$ContentLines$fun parse(line: String): ContentLine?</ID>
+    <ID>ReturnCount:DavRepository.kt$DavRepository$private suspend fun jmapContacts(server: String, dav: DavCredentials): Pair&lt;JmapSession, String&gt;?</ID>
+    <ID>ReturnCount:DavRepository.kt$DavRepository$suspend fun createContact(accountId: String, edit: ContactEdit): DavWriteOutcome</ID>
+    <ID>ReturnCount:DavRepository.kt$DavRepository$suspend fun createEvent( accountId: String, title: String, date: LocalDate, start: LocalTime?, end: LocalTime?, location: String? = null, description: String? = null, category: String? = null, /** Reminder offsets in minutes before the start; see [ICalendar.buildEvent]. */ reminders: List&lt;Int&gt; = emptyList(), collectionUrl: String? = null, nowMillis: Long = System.currentTimeMillis(), ): DavWriteOutcome</ID>
+    <ID>ReturnCount:DavRepository.kt$DavRepository$suspend fun updateContact(accountId: String, href: String, edit: ContactEdit): DavWriteOutcome</ID>
+    <ID>ReturnCount:DavRepository.kt$DavRepository$suspend fun updateEvent( accountId: String, href: String, touched: Set&lt;EventField&gt;, title: String, date: LocalDate, start: LocalTime?, end: LocalTime?, location: String? = null, description: String? = null, category: String? = null, reminders: List&lt;Int&gt; = emptyList(), recurrenceDay: LocalDate? = null, scope: EventEditScope = EventEditScope.WHOLE_SERIES, ): DavWriteOutcome</ID>
+    <ID>ReturnCount:DnsSrvParser.kt$DnsSrvParser$private fun read(response: ByteArray): List&lt;SrvRecord&gt;</ID>
+    <ID>ReturnCount:ICalendar.kt$ICalendar$fun parse(raw: String?): ParsedEvent?</ID>
+    <ID>ReturnCount:ICalendarStream.kt$ICalendarStream$private fun parseOffset(raw: String): ZoneId?</ID>
+    <ID>ReturnCount:ICalendarStream.kt$ICalendarStream$private fun resolveZone(tzid: String?, zones: Map&lt;String, ZoneId&gt;, fallback: ZoneId): ZoneId</ID>
+    <ID>ReturnCount:ICalendarStream.kt$ICalendarStream$private fun triggerMinutes(line: ContentLine): Int?</ID>
+    <ID>ReturnCount:IncrementalSync.kt$ImapSyncDecision$fun plan(recorded: ImapSyncPoint?, observedUidValidity: Long, observedModSeq: Long, observedUidNext: Long, observedExists: Int): ImapSyncPlan</ID>
+    <ID>ReturnCount:K9SettingsImporter.kt$K9SettingsImporter$private fun parseAccount(account: Element): AccountOutcome</ID>
+    <ID>ReturnCount:MailRepository.kt$MailRepository$suspend fun archive(credentials: AccountCredentials, emailId: String): String?</ID>
+    <ID>ReturnCount:MailRepository.kt$MailRepository$suspend fun decryptMessage( credentials: AccountCredentials, emailId: String, interactionResult: android.content.Intent? = null, ): PgpResult&lt;MessageBody&gt;</ID>
+    <ID>ReturnCount:MailRepository.kt$MailRepository$suspend fun moveToMailbox(credentials: AccountCredentials, emailId: String, targetMailboxId: String): String?</ID>
+    <ID>ReturnCount:MailRepository.kt$MailRepository$suspend fun openMessage(credentials: AccountCredentials, emailId: String, markRead: Boolean = true): MessageBody</ID>
+    <ID>ReturnCount:MailRepository.kt$MailRepository$suspend fun unarchiveThreadsOnReply(credentials: AccountCredentials, threadIds: Set&lt;String&gt;): List&lt;Email&gt;</ID>
+    <ID>ReturnCount:Recurrence.kt$Recurrence$fun expand( rule: RecurrenceRule?, start: LocalDate, window: ClosedRange&lt;LocalDate&gt;, exDates: Set&lt;LocalDate&gt; = emptySet(), ): List&lt;LocalDate&gt;</ID>
+    <ID>ReturnCount:SignInDiagnostics.kt$fun classifySignInFailure(t: Throwable): SignInFailure</ID>
+    <ID>ReturnCount:VCard.kt$VCard$private fun photo(lines: List&lt;ContentLine&gt;): ContactCardPhoto?</ID>
+    <ID>SpacingBetweenDeclarationsWithComments:AccountStore.kt$AccountStore$// IMAP accounts carry a blank server (the endpoint is the IMAP host); JMAP keys on server.</ID>
+    <ID>SpacingBetweenDeclarationsWithComments:MailRepository.kt$/** Give up a crawl pass after this many consecutive page failures (vs. skipping isolated bad pages). */</ID>
+    <ID>SpreadOperator:MailRepository.kt$MailRepository$(result.newState, credentials.id, *done.mapNotNull { rows[it]?.mailboxId }.toTypedArray())</ID>
+    <ID>SwallowedException:DavRepository.kt$DavRepository$e: Exception</ID>
+    <ID>SwallowedException:DnsSrvParser.kt$DnsSrvParser$malformed: RuntimeException</ID>
+    <ID>SwallowedException:EmailsMigrationSqlTest.kt$EmailsMigrationSqlTest$e: Exception</ID>
+    <ID>SwallowedException:ICalendar.kt$ICalendar$t: Throwable</ID>
+    <ID>SwallowedException:ICalendarStream.kt$ICalendarStream$t: Throwable</ID>
+    <ID>SwallowedException:MailRepository.kt$MailRepository$e: Exception</ID>
+    <ID>SwallowedException:MailRepository.kt$MailRepository$renumbered: ImapUidValidityChanged</ID>
+    <ID>SwallowedException:TrashPurge.kt$TrashPurge$unreachable: Throwable</ID>
+    <ID>SwallowedException:VCard.kt$VCard$t: Throwable</ID>
+    <ID>ThrowsCount:ImapMailService.kt$ImapMailService$private suspend fun &lt;T&gt; runWithRetry( pooled: Pooled, config: MailServerConfig, budgetMs: Int, block: (ImapSession) -&gt; T, ): T</ID>
+    <ID>TooManyFunctions:AccountStore.kt$AccountStore</ID>
+    <ID>TooManyFunctions:DavDao.kt$AddressBookContactDao</ID>
+    <ID>TooManyFunctions:EmailDao.kt$EmailDao</ID>
+    <ID>TooManyFunctions:ImapMailService.kt$ImapMailService</ID>
+    <ID>TooManyFunctions:MailRepository.kt$MailRepository</ID>
+    <ID>TooManyFunctions:MailboxDao.kt$MailboxDao</ID>
+    <ID>TooManyFunctions:OutboxDao.kt$OutboxDao</ID>
+    <ID>TooManyFunctions:SettingsRepository.kt$SettingsRepository</ID>
+    <ID>VariableNaming:ConversationSqlTest.kt$ConversationSqlTest$/** Two same-server accounts whose inbox carries the same server-assigned id — the unified * list's scope for them: one (account, folder) pair EACH, never the shared id alone. */ private val BOTH_ACCOUNTS = listOf("accA" to "inbox", "accB" to "inbox")</ID>
+    <ID>Wrapping:CancellationTest.kt$CancellationTest$;</ID>
+    <ID>Wrapping:ContentLine.kt$ContentLines$;</ID>
+    <ID>Wrapping:ConversationInvariantsSqlTest.kt$ConversationInvariantsSqlTest$;</ID>
+    <ID>Wrapping:ConversationQueryTest.kt$ConversationQueryTest$;</ID>
+    <ID>Wrapping:ConversationQueryTest.kt$ConversationQueryTest$it.threadCount</ID>
+    <ID>Wrapping:ConversationScopeTest.kt$ConversationScopeTest$;</ID>
+    <ID>Wrapping:ConversationSqlTest.kt$ConversationSqlTest$;</ID>
+    <ID>Wrapping:DaoQuerySource.kt$DaoQuerySource$;</ID>
+    <ID>Wrapping:DeletedMailLeavesTheIndexSqlTest.kt$DeletedMailLeavesTheIndexSqlTest$;</ID>
+    <ID>Wrapping:DnsSrvParserTest.kt$DnsSrvParserTest$;</ID>
+    <ID>Wrapping:EmailsMigrationSqlTest.kt$EmailsMigrationSqlTest$;</ID>
+    <ID>Wrapping:FlagDeltaSqlTest.kt$FlagDeltaSqlTest$;</ID>
+    <ID>Wrapping:ICalendar.kt$ICalendar$;</ID>
+    <ID>Wrapping:ICalendarStream.kt$ICalendarStream$;</ID>
+    <ID>Wrapping:IncrementalSyncSqlTest.kt$IncrementalSyncSqlTest$;</ID>
+    <ID>Wrapping:LocalSearchFolderFilterSqlTest.kt$LocalSearchFolderFilterSqlTest$;</ID>
+    <ID>Wrapping:MailRepository.kt$"($table.accountId = ? AND $table.mailboxId = ?)"</ID>
+    <ID>Wrapping:MailRepository.kt$MailRepository$;</ID>
+    <ID>Wrapping:MailRepository.kt$MailRepository$emailDao.conversationPagingSource(conversationQuery(scopes, sort, unreadOnly, accountId = null, sentMailboxes = sentMailboxes))</ID>
+    <ID>Wrapping:MailRepository.kt$MailRepository$emailDao.conversationPagingSource(conversationQuery(scopes, sort, unreadOnly, credentials.id, sentMailboxes))</ID>
+    <ID>Wrapping:MailRepository.kt$MailRepository$it.toEntity(credentials.id)</ID>
+    <ID>Wrapping:MailRepository.kt$MailRepository$it.toEntity(localAccountId, mailboxId)</ID>
+    <ID>Wrapping:OAuthTokenRefresherTest.kt$OAuthTokenRefresherTest$;</ID>
+    <ID>Wrapping:OrphanedAccountSweepSqlTest.kt$OrphanedAccountSweepSqlTest$;</ID>
+    <ID>Wrapping:OrphanedAccountSweepSqlTest.kt$OrphanedAccountSweepSqlTest.Companion$;</ID>
+    <ID>Wrapping:OrphanedAccountSweepSqlTest.kt$OrphanedAccountSweepSqlTest.SweepShape$;</ID>
+    <ID>Wrapping:RepresentativeAnchorSqlTest.kt$RepresentativeAnchorSqlTest$;</ID>
+    <ID>Wrapping:ResolvedIdentitiesTest.kt$ResolvedIdentitiesTest$(</ID>
+    <ID>Wrapping:SettingsRepository.kt$SettingsRepository$MessageTextSize.valueOf(v)</ID>
+    <ID>Wrapping:SettingsRepository.kt$SettingsRepository$NotificationContent.valueOf(v)</ID>
+    <ID>Wrapping:SettingsRepository.kt$SettingsRepository$setMessageTextSize(it)</ID>
+    <ID>Wrapping:SettingsRepository.kt$SettingsRepository$setNotificationContent(it)</ID>
+    <ID>Wrapping:SieveCodec.kt$SieveCodec$;</ID>
+    <ID>Wrapping:Srv.kt$SrvSelection$;</ID>
+    <ID>Wrapping:ThreadMembersSqlTest.kt$ThreadMembersSqlTest$;</ID>
+    <ID>Wrapping:TrashPurgeImapSnapshotTest.kt$TrashPurgeImapSnapshotTest$;</ID>
+    <ID>Wrapping:TrashPurgeSqlTest.kt$TrashPurgeSqlTest$;</ID>
+    <ID>Wrapping:UidValiditySqlTest.kt$UidValiditySqlTest$;</ID>
+    <ID>Wrapping:UnarchiveMembersSqlTest.kt$UnarchiveMembersSqlTest$;</ID>
+    <ID>Wrapping:UnreadBadgeSqlTest.kt$UnreadBadgeSqlTest$;</ID>
+  </CurrentIssues>
+</SmellBaseline>
