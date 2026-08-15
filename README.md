@@ -88,6 +88,33 @@ Thanks to [KaKeBr](https://codeberg.org/KaKeBr) for the diagnosis and the recipe
   improve the code.
 - **Modern and calm.** A clean, fast Material 3 interface that follows your
   phone's theme and language.
+- **Offline by construction.** Your mail is on your phone, not fetched when you
+  look at it. See below.
+
+## Works with no signal
+
+Most mail apps are online apps with a cache bolted on: they show you a spinner,
+ask the server, and draw whatever comes back. Gridlink is the other way round.
+Every screen reads the local database and only the local database. Syncing writes
+into that database; it never draws anything.
+
+What that means in practice:
+
+- **The app opens on your mail, not on a spinner.** The first frame is the mail
+  you already had, whether or not the phone has signal, and whether or not the
+  server answers.
+- **A refresh never blanks the screen.** New mail appears in a list that stayed
+  readable the whole time. Nothing collapses back to a loading state over content
+  you were already reading.
+- **Messages open offline**, body and all, along with any attachment you have
+  opened before. Opening a message costs no round trip.
+- **Calendar and contacts work the same way**, from the same cache.
+- **Anything you do offline is queued, not lost.** Mail you send goes into a
+  persistent outbox that survives the app being killed and retries when the
+  network comes back.
+
+The one honest limit: mail that arrived while you were offline is mail the phone
+has never seen. Everything you already had is there.
 
 ## Features
 
