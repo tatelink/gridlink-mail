@@ -848,4 +848,19 @@
     <string name="settings_tags_adopt">Adopteren</string>
     <string name="read_receipt_subject">Gelezen: %1$s</string>
     <string name="read_receipt_body">Je bericht is weergegeven op het apparaat van de ontvanger. Dat is geen garantie dat het gelezen of begrepen is.</string>
+    <string name="promises_title">Wat deze app belooft</string>
+    <string name="promises_summary">Wat hij wel en niet met je post doet</string>
+    <string name="promises_intro">Dit zijn geen voornemens. Elk punt doet de app al, en elk punt is in de broncode na te kijken.</string>
+    <string name="promises_gestures_title">Je gebaren blijven waar ze zijn</string>
+    <string name="promises_gestures_body">Vegen, tikken en snelkoppelingen die je hebt geleerd blijven staan. Een nieuw ontwerp mag ze niet onder je duim vandaan schuiven, en niets wordt opnieuw toegewezen tenzij je dat zelf kiest.</string>
+    <string name="promises_open_title">Problemen worden in het openbaar behandeld</string>
+    <string name="promises_open_body">Fouten en verzoeken gaan naar een openbare lijst, en de antwoorden zijn ook openbaar. Niets wordt stilletjes opgelost en niets wordt stilletjes geweigerd.</string>
+    <string name="promises_free_title">Niets op deze telefoon zit achter een betaling</string>
+    <string name="promises_free_body">Elke functie die op je toestel draait is gratis, nu en later. Geen betaalde versie, geen ontgrendeling, geen advertenties.</string>
+    <string name="promises_private_title">Er wordt niets over je verzameld</string>
+    <string name="promises_private_body">Geen statistieken, geen crashrapporten, geen kenmerken. Niets over hoe je deze app gebruikt verlaat je telefoon. Het reactieadres bij Over is de enige weg naar iemand, en alleen als jij schrijft.</string>
+    <string name="promises_consent_title">Er wordt niets in jouw naam verstuurd zonder te vragen</string>
+    <string name="promises_consent_body">De app beantwoordt je post niet voor je. Als een afzender wil weten dat je zijn bericht hebt gelezen, gaat er niets terug tenzij je op Bevestiging sturen tikt.</string>
+    <string name="promises_source_title">Je kunt dit allemaal nakijken</string>
+    <string name="promises_source_body">De hele app is uitgebracht onder de GPL en de repository staat hieronder. Elke belofte hier kun je in de code nalezen in plaats van op ons woord aannemen.</string>
 </resources>

@@ -212,10 +212,24 @@ drag-to-reorder third is permanently cut.
    pane, composer and settings, and a decision about the scrub-driven pickers elsewhere.
 10. **S/MIME (item 9).** Last, with a key-custody decision to make: recommendation is verify-only
     first.
-11. **Tier 3, which is policy rather than code.** Don't break gestures people already have in their
-    fingers; a public tracker with visible responses; no client-side feature ever behind a paid
-    unlock. Already how this app is being built, so the work is writing them down where a user can
-    read them.
+11. ✅ **Tier 3, which is policy rather than code.** Closed 2026-08-15. Written down in **both**
+    places, by Tate's call: `docs/PROMISES.md` for somebody who has not installed the app, and a
+    `PromisesScreen` under Settings → About for somebody holding the phone. A promise a user has to
+    visit a repo to read is not a promise made to the user, and a promise with no public copy is not
+    one an outsider can hold the app to, so neither half is optional and the two are changed
+    together.
+    Six promises: gestures stay put, problems are handled in a public tracker with public answers,
+    nothing on the phone is behind a payment, nothing is collected about you, nothing is sent in your
+    name without asking, and the source is there so all of it can be checked.
+    🔴 The rule for editing that screen: **only things the app already does**. A promise the code
+    does not keep is worse than none, because it is read as a statement of fact rather than an
+    intention. It is also deliberately a plain wall of text with nothing tappable on it: a promise
+    drawn next to a switch reads as a setting somebody could have turned off.
+    The two Tier 3 items that were already true got a sentence saying what keeping them costs (the
+    payment one rules out the ship-free-then-lock-it route; the no-telemetry one is *why* there is a
+    feedback address at all), and read receipts supplied the sixth.
+    Not yet seen on a device: it compiles and the string parity gate passes, but nobody has looked
+    at the screen.
 12. **The 49 Dependabot advisories.** Triage, not a blanket bump.
 
 ## Outside the app, still open
