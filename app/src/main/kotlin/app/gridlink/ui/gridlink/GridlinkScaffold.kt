@@ -1934,7 +1934,36 @@ fun GridlinkRoot(
                     when (action) {
                         GridlinkThreadAction.REPLY -> composing = gridlinkReplyTo(message)
                         GridlinkThreadAction.REPLY_ALL -> composing = gridlinkReplyAllTo(message)
-                        GridlinkThreadAction.FORWARD -> composing = gridlinkForward(message)
+                        // 🔴 The files are taken over BEFORE the composer opens, the same way
+                        // resuming a draft does it above, and for a related reason. A forward's
+                        // chips used to be the reader's own, whose ids are part indexes no attacher
+                        // ever minted, so the send refused with "has no file behind it" and the only
+                        // way out was to remove and re-attach by hand. [GridlinkAttacher.adopt]
+                        // downloads the parts and stages them, which is what makes the chip real.
+                        //
+                        // Opening only once that lands costs a beat on IMAP (the bytes genuinely
+                        // have to come down) and is still the right order: a composer that appeared
+                        // instantly and grew its files a second later is a composer you can send
+                        // short of what you forwarded.
+                        GridlinkThreadAction.FORWARD ->
+                            if (attacher == null || message.attachments.isEmpty()) {
+                                composing = gridlinkForward(message)
+                            } else {
+                                scope.launch {
+                                    composing = runCatching { attacher.adopt(message.id) }.fold(
+                                        onSuccess = { gridlinkForward(message, it) },
+                                        onFailure = { failure ->
+                                            // Forwarded WITHOUT the files, and said so. The message
+                                            // is still worth sending, and a chip with nothing behind
+                                            // it would only block the send a second time.
+                                            sendError = failure.message
+                                                ?: "Couldn't attach that message's files, so this " +
+                                                "forward won't carry them."
+                                            gridlinkForward(message)
+                                        },
+                                    )
+                                }
+                            }
 
                         // All three file the message and leave, and they no longer do it under the same
                         // name. The note that used to sit here said they were identical code and must not
