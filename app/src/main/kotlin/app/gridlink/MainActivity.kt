@@ -121,7 +121,11 @@ class MainActivity : AppCompatActivity() {
             val themeMode by settings.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
             val dynamicColor by settings.dynamicColor.collectAsState(initial = false)
             val density by settings.listDensity.collectAsState(initial = ListDensity.NORMAL)
-            val previewLines by settings.previewLines.collectAsState(initial = PreviewLines.ONE)
+            // 🔴 The initial value is the one every list is drawn with for the frame or two before
+            // DataStore answers, so it has to be the value that changes nothing: a taller initial
+            // would make the inbox visibly shrink on every cold start for the users who leave the
+            // setting alone, which is all of them by default.
+            val previewLines by settings.previewLines.collectAsState(initial = PreviewLines.NONE)
             // ⚠️ Only the intro overlay reads this. The Gridlink screens underneath collect it
             // again for themselves, and have to, because they cannot start on a default and correct
             // themselves later the way an animation can. See [rememberGridlinkIntroMode].

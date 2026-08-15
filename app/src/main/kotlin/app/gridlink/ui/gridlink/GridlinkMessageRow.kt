@@ -56,16 +56,25 @@ import app.gridlink.ui.theme.gridlinkSenderBarColor
 /**
  * The dense half of the app: §4 message rows and the §5 automated-sender bundle.
  *
- * 🔴 Everything here is fixed at [gridlinkRowHeight]. The brief's density target is 13 rows on a
- * folded Fold screen, and that number is the reason for every omission below: no avatars, no
- * snippet, no card, no drop shadow, no gap between rows. Rows are separated by a 1px hairline and
- * nothing else. Adding a third line to this row costs roughly a quarter of the visible inbox, so it
- * needs a very good reason.
+ * 🔴 A row is [gridlinkRowHeight] by default. The brief's density target is 13 rows on a folded Fold
+ * screen, and that number is the reason for every omission below: no avatars, no snippet, no card,
+ * no drop shadow, no gap between rows. Rows are separated by a 1px hairline and nothing else. Adding
+ * a third line to this row costs roughly a quarter of the visible inbox, so it needs a very good
+ * reason.
  *
  * 🔴 [gridlinkRowHeight] is the user's list-density setting, and it is padding ONLY: see
  * [gridlinkRowVertical]. It defaults to [GridlinkDimens.messageRowHeight] exactly, and none of the
  * omissions above come back at any setting. A row that is allowed to be roomier is not a row that
  * is allowed to grow content.
+ *
+ * ## The two things that DO add a line, and what they had to prove
+ * Both buy their own height ([gridlinkSearchRowHeight], [gridlinkPreviewRowHeight]) and neither
+ * touches anything else on the row.
+ * - The **search snippet** ([highlight]), on exactly one screen, because a result you cannot see the
+ *   match in is a result you have to open to evaluate.
+ * - The **body preview** (Settings → Appearance), because the user asked for it by name, off by
+ *   default, and can put it back at any time. That is the only warrant any of this needs, and it is
+ *   the reason the default had to be NONE rather than the ONE that was sitting unread in storage.
  */
 
 /**
@@ -166,6 +175,13 @@ fun GridlinkMessageRow(
     val mode = GridlinkTheme.mode
     val tags = remember(message.tags, tagDefinitions) { resolveTags(message.tags, tagDefinitions) }
     val snippet = highlight?.takeIf { it.isNotBlank() && message.preview.isNotBlank() }
+    // The user's preview setting, resolved to a line count. Zero is the default and the common case.
+    //
+    // 🔴 Suppressed entirely while a search snippet is showing, and that is not an ordering
+    // preference: the snippet IS this preview, with the matched words picked out in the accent.
+    // Drawing both would print the same sentence twice, once highlighted and once not.
+    val previewLines = if (snippet != null) 0 else gridlinkPreviewLines()
+    val previewText = message.preview.takeIf { previewLines > 0 && it.isNotBlank() }
     // Keyed on everything it reads, so scrolling a long result list does not re-run the fold and
     // the scan on every row on every frame.
     val snippetText = snippet?.let { query ->
@@ -206,7 +222,19 @@ fun GridlinkMessageRow(
         modifier = modifier
             .fillMaxWidth()
             .height(
-                if (snippetText != null) gridlinkSearchRowHeight() else gridlinkRowHeight(),
+                when {
+                    snippetText != null -> gridlinkSearchRowHeight()
+                    // 🔴 Keyed on the row having text to show, NOT on the setting alone. IMAP rows
+                    // carry no preview at all (see ImapMailService, which stores null), so reserving
+                    // the space from the setting would give an IMAP account a screenful of tall
+                    // blank rows the first time they touched this dial. Sized off the text, that
+                    // account simply keeps the two-line list it already has.
+                    //
+                    // The reflow this trades away barely exists: a JMAP preview arrives in the same
+                    // list response that creates the row, so a row that has one has always had one.
+                    previewText != null -> gridlinkPreviewRowHeight(previewLines)
+                    else -> gridlinkRowHeight()
+                },
             )
             .graphicsLayer {
                 scaleX = press
@@ -424,6 +452,22 @@ fun GridlinkMessageRow(
                         style = GridlinkType.metadata,
                         color = colors.textSecondary,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                if (previewText != null) {
+                    // The opt-in preview. Same style, size and colour as the search snippet above,
+                    // because it is the same line doing the same job: evidence about the row, sitting
+                    // below the subject in the hierarchy rather than beside it.
+                    //
+                    // 🔴 Plain text, drawn as plain text. This is the body of arbitrary mail; it is
+                    // never parsed as markup and never goes near the body renderer.
+                    Text(
+                        text = previewText,
+                        style = GridlinkType.metadata,
+                        color = colors.textSecondary,
+                        maxLines = previewLines,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -738,11 +782,20 @@ fun GridlinkBundledChildRow(
     tagDefinitions: List<MailTag> = emptyList(),
 ) {
     val colors = GridlinkTheme.colors
+    // 🔴 The rule has to be exactly as tall as the row beside it, so it repeats the child's own
+    // height rule rather than assuming the default. Get this wrong with the preview setting on and
+    // the containment line stops short of the row it is containing, which reads as a rendering bug.
+    val previewLines = gridlinkPreviewLines()
+    val childHeight = if (previewLines > 0 && message.preview.isNotBlank()) {
+        gridlinkPreviewRowHeight(previewLines)
+    } else {
+        gridlinkRowHeight()
+    }
     Row(modifier = modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
                 .width(GridlinkSpacing.bundleIndent)
-                .height(gridlinkRowHeight()),
+                .height(childHeight),
         ) {
             // 🔴 Leading edge, not trailing. At the trailing edge the rule lands flush against the
             // child's own sender bar and disappears into it, which loses the containment §5 asks

@@ -168,9 +168,19 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_LIST_DENSITY] = density.name }
     }
 
+    /**
+     * How many lines of body preview a message row carries.
+     *
+     * 🔴 The default is NONE, and it was ONE until the setting was wired up (2026-08-14). Until then
+     * nothing in the UI read this flow, so the stored ONE was inert and every install in existence
+     * was looking at a two-line row. Honouring ONE at the moment the wiring landed would have handed
+     * a third line to every user who had never opened this setting, which is the list they already
+     * know silently rearranging itself on an update. NONE is what they are actually looking at, so
+     * NONE is what an untouched install keeps; the preview is now something you ask for.
+     */
     val previewLines: Flow<PreviewLines> = dataStore.data.map { prefs ->
         prefs[KEY_PREVIEW_LINES]?.let { runCatching { PreviewLines.valueOf(it) }.getOrNull() }
-            ?: PreviewLines.ONE
+            ?: PreviewLines.NONE
     }
 
     suspend fun setPreviewLines(value: PreviewLines) {

@@ -5,6 +5,7 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.unit.Dp
 import app.gridlink.core.data.settings.ListDensity
 import app.gridlink.ui.components.LocalListDensity
+import app.gridlink.ui.components.LocalPreviewLines
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkSpacing
 
@@ -52,6 +53,32 @@ fun gridlinkRowHeight(): Dp = GRIDLINK_ROW_CONTENT + gridlinkRowVertical() * 2
 @Composable
 @ReadOnlyComposable
 fun gridlinkSearchRowHeight(): Dp = gridlinkRowHeight() + GRIDLINK_SEARCH_LINE
+
+/**
+ * How many lines of body preview the user asked for, 0 when they asked for none.
+ *
+ * 🔴 This is the ONE thing in the app allowed to add content to a row, and it exists because the
+ * user turned it on. The bans at the top of [GridlinkMessageRow] (no avatars, no cards, no gaps)
+ * all still hold at every setting: the preview buys its own height and nothing else moves.
+ */
+@Composable
+@ReadOnlyComposable
+fun gridlinkPreviewLines(): Int = LocalPreviewLines.current.lines
+
+/**
+ * Height of a message row carrying [lines] of preview under it.
+ *
+ * Each preview line costs exactly what the search row's third line costs, because it IS that line:
+ * same style, same size, same colour. Deriving it from the same token is what keeps a one-line
+ * preview and a search result the same height instead of two numbers that drift apart.
+ *
+ * ⚠️ Five lines at SPACED is a 172dp row, about four to a folded screen. That is the user asking for
+ * it in as many words, and the setting names the number, so it is not a surprise; but it is why the
+ * default is NONE and why nothing else in the app may reach for this.
+ */
+@Composable
+@ReadOnlyComposable
+fun gridlinkPreviewRowHeight(lines: Int): Dp = gridlinkRowHeight() + GRIDLINK_SEARCH_LINE * lines
 
 /**
  * What two lines of row text measure between them.

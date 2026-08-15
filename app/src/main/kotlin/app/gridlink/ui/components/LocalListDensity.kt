@@ -11,5 +11,12 @@ import app.gridlink.core.data.settings.PreviewLines
  */
 val LocalListDensity = compositionLocalOf { ListDensity.NORMAL }
 
-/** How many body-preview lines list rows show (Settings → Appearance). */
-val LocalPreviewLines = compositionLocalOf { PreviewLines.ONE }
+/**
+ * How many body-preview lines list rows show (Settings → Appearance).
+ *
+ * 🔴 NONE, matching [app.gridlink.core.data.settings.SettingsRepository.previewLines]'s stored
+ * default and for the same reason spelled out there. It is also the safer fallback of the two: this
+ * value is what a preview or a test composition sees when nothing provides the real setting, and a
+ * default that added a line would make every preview taller than the app.
+ */
+val LocalPreviewLines = compositionLocalOf { PreviewLines.NONE }
