@@ -264,6 +264,7 @@ class GridlinkGalleryActivity : ComponentActivity() {
         //   am start -n .../GridlinkGalleryActivity --es compose suggest
         //   am start -n .../GridlinkGalleryActivity --es compose reply --es focus none
         //   am start -n .../GridlinkGalleryActivity --es compose reply --ez schedule true
+        //   am start -n .../GridlinkGalleryActivity --es compose reply-long --es focus body
         val composeName = intent?.getStringExtra("compose")?.lowercase()?.trim()
         val draft = when (composeName) {
             null -> null
@@ -273,8 +274,12 @@ class GridlinkGalleryActivity : ComponentActivity() {
             // in the TO field of a real new message.
             "suggest" -> GridlinkComposeDraft.FreshSuggesting
             "reply" -> GridlinkComposeDraft.Reply
+            // ⚠️ NOT a frame to photograph. It is the fixture for the caret question: a body past
+            // the fold over several screens of quote, which is the only shape where "the caret
+            // jumps when you type above a long quote" can be confirmed or dismissed.
+            "reply-long" -> GridlinkComposeDraft.ReplyLong
             else -> throw IllegalArgumentException(
-                "Unknown compose draft '$composeName'. Known: fresh, suggest, reply.",
+                "Unknown compose draft '$composeName'. Known: fresh, suggest, reply, reply-long.",
             )
         }
         // Which field holds the caret, which is also what decides whether the keyboard is up and

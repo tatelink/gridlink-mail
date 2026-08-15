@@ -2,6 +2,7 @@ package app.gridlink.ui.gridlink
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,6 +25,8 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,6 +39,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,6 +56,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -518,7 +523,24 @@ private fun Modifier.gridlinkFieldUnderline(color: Color): Modifier = drawBehind
  * focus dies with it, and the keyboard closes after exactly one letter. Drawing both in the same
  * `decorationBox` means the editor is composed once and never swapped, and the placeholder is just
  * something painted under it when there is nothing to cover it. Same trick as the search pill.
+ *
+ * ## 🔴 It scrolls the caret back into view itself, because nothing else will
+ * Reproduced on the emulator 2026-08-15 against `--es compose reply-long`: with the caret at the end
+ * of a body that already fills the panel, six short phrases typed at it went in five lines BELOW the
+ * visible edge and the view never moved. You are typing blind, which is the open Tier 0 complaint
+ * ("typing above a long quote and the view scrolls away") seen from the other side: the view does not
+ * run away, it refuses to follow.
+ *
+ * It is not a bug in Compose. A [BasicTextField] scrolls its own caret into view when it has a
+ * bounded height and therefore its own scroller. Every field in this app sits in a
+ * [androidx.compose.foundation.verticalScroll] column, where the incoming max height is infinite, so
+ * the field grows to its content, never scrolls, and has nothing to keep the caret inside. The
+ * enclosing scroll is the only thing that can move, and it is not told to.
+ *
+ * So the row asks. [BringIntoViewRequester] walks up to the nearest scrollable ancestor, which makes
+ * this correct wherever the row is used and a no-op where there is nothing to scroll.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GridlinkFormTextRow(
     value: TextFieldValue,
@@ -562,6 +584,25 @@ fun GridlinkFormTextRow(
         animationSpec = GridlinkMotion.standard(),
         label = "fieldUnderline",
     )
+    // See the KDoc: this is what keeps the caret on screen inside a scrolling form.
+    val caretIntoView = remember { BringIntoViewRequester() }
+    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    // 🔴 Keyed on the SELECTION, not on the text. Those differ in both directions and both matter:
+    // moving the caret with the arrow keys or a tap changes no text, and an edit somewhere else in
+    // the document (a formatting toolbar rewriting a line) changes text the caret did not move
+    // through. What has to stay on screen is the caret.
+    LaunchedEffect(value.selection, layout, focused) {
+        if (!focused) return@LaunchedEffect
+        val measured = layout ?: return@LaunchedEffect
+        // Clamped, and not defensively: [visualTransformation] means [measured] is over the
+        // TRANSFORMED text, which for a password row is a different length than the value.
+        val offset = value.selection.end.coerceIn(0, measured.layoutInput.text.length)
+        val caret = measured.getCursorRect(offset)
+        // A line of slack above and below, so the caret arrives inside the viewport rather than
+        // flush against its edge with the next line already cut off. It also absorbs the
+        // decoration box's padding, which sits between this modifier's node and the text.
+        caretIntoView.bringIntoView(caret.inflate(caret.height))
+    }
     // One editor, dressed by the branch below. The BasicTextField itself must never fork on
     // [contained] — see the placeholder KDoc above for what swapping the focused composable costs.
     val editor: @Composable (Modifier) -> Unit = { fieldModifier ->
@@ -583,8 +624,10 @@ fun GridlinkFormTextRow(
                 // to be kept in step with [imeAction] by hand.
                 onAny = { onImeAction?.invoke() },
             ),
+            onTextLayout = { layout = it },
             modifier = fieldModifier
                 .heightIn(min = minHeight)
+                .bringIntoViewRequester(caretIntoView)
                 .focusRequester(focusRequester)
                 .onFocusChanged {
                     focused = it.isFocused
