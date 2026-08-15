@@ -54,6 +54,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Feedback
 import androidx.compose.material.icons.filled.FilterAlt
+import androidx.compose.material.icons.filled.Handshake
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
@@ -260,6 +261,7 @@ fun SettingsScreen(
                 onOpenPrivacy = { entry.navigateOnce { nav.navigate("privacy") } },
                 onOpenStorage = { entry.navigateOnce { nav.navigate("storage") } },
                 onOpenBackup = { entry.navigateOnce { nav.navigate("backup") } },
+                onOpenPromises = { entry.navigateOnce { nav.navigate("promises") } },
                 onOpenUrl = { url -> leaveOnce { openUrl(context, url) } },
                 currentAccountLabel = currentLabel,
             )
@@ -341,6 +343,9 @@ fun SettingsScreen(
         composable("storage") { entry ->
             StorageScreen(onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
+        composable("promises") { entry ->
+            PromisesScreen(onBack = { entry.navigateOnce { nav.popBackStack() } })
+        }
         composable("backup") { entry ->
             BackupScreen(
                 viewModel = viewModel,
@@ -365,6 +370,7 @@ private fun SettingsHub(
     onOpenPrivacy: () -> Unit,
     onOpenStorage: () -> Unit,
     onOpenBackup: () -> Unit,
+    onOpenPromises: () -> Unit,
     onOpenUrl: (String) -> Unit,
     currentAccountLabel: String,
 ) {
@@ -407,6 +413,14 @@ private fun SettingsHub(
             // the guard that keeps a double tap from opening it twice. No Context is taken here on
             // purpose, so a row added later cannot fire an intent of its own without saying so.
             SettingsSection(stringResource(R.string.settings_about_section)) {
+                // 🔴 First in About, and the only row in the section that does NOT leave the app: a
+                // promise a user has to visit a repo to read is not a promise made to the user.
+                SettingsCategoryRow(
+                    Icons.Filled.Handshake,
+                    stringResource(R.string.promises_title),
+                    stringResource(R.string.promises_summary),
+                    onOpenPromises,
+                )
                 SettingsCategoryRow(
                     Icons.Filled.Info,
                     stringResource(R.string.settings_about_version),
