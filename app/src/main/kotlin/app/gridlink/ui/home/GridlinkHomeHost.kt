@@ -428,6 +428,7 @@ fun GridlinkHomeHost(
             onRespondToInvite = viewModel::respondToInvite,
             onAddToCalendar = viewModel::addInviteToCalendar,
             onOpenInvitation = viewModel::openInvitationFile,
+            onSendReceipt = viewModel::sendReadReceipt,
             folders = folders,
             onFolderEdit = viewModel::editFolder,
             onMove = viewModel::move,

@@ -182,6 +182,13 @@ data class GridlinkOpenMessage(
      * when a card shoves the prose down the screen.
      */
     val invite: GridlinkInvite? = null,
+    /**
+     * The sender's read-receipt request, or null for the overwhelming majority of mail.
+     *
+     * Known from the message's own headers, so it is set the moment the body arrives and never
+     * changes afterwards except to record what the reader chose to do about it.
+     */
+    val receipt: GridlinkReceipt? = null,
 )
 
 /**

@@ -846,4 +846,6 @@
     <string name="settings_tags_unknown_section">Gezien in uw e-mail</string>
     <string name="settings_tags_unknown_note">Labels op e-mail waarvoor dit apparaat geen naam of kleur heeft. Adopteer er een om beide te geven.</string>
     <string name="settings_tags_adopt">Adopteren</string>
+    <string name="read_receipt_subject">Gelezen: %1$s</string>
+    <string name="read_receipt_body">Je bericht is weergegeven op het apparaat van de ontvanger. Dat is geen garantie dat het gelezen of begrepen is.</string>
 </resources>

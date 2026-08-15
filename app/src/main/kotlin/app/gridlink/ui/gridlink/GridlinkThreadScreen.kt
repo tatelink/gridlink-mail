@@ -166,6 +166,10 @@ fun GridlinkThreadScreen(
     onAddToCalendar: (() -> Boolean)? = null,
     /** Hand the raw .ics to whatever can open it, for an invitation this app could not read. */
     onOpenInvitation: (() -> Unit)? = null,
+    /** The sender's read-receipt request, or null. See [GridlinkReceiptRow]: never answered for them. */
+    receipt: GridlinkReceipt? = null,
+    /** Send the receipt. Null draws no button, so the gallery cannot send mail from no account. */
+    onSendReceipt: (() -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
@@ -352,6 +356,10 @@ fun GridlinkThreadScreen(
                     onOpenInvitation = onOpenInvitation,
                 )
             }
+
+            // Under the invitation and above the body: it is about this message rather than part of
+            // it, and a reader who scrolls to the end of a long mail has already decided what to do.
+            receipt?.let { GridlinkReceiptRow(receipt = it, onSend = onSendReceipt) }
 
             GridlinkMessageBody(
                 html = message.body,

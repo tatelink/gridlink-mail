@@ -794,6 +794,8 @@ fun GridlinkRoot(
     onAddToCalendar: (() -> Boolean)? = null,
     /** Hand the raw invitation file to whatever can open it, or null. */
     onOpenInvitation: (() -> Unit)? = null,
+    /** Send the open message's read receipt, or null when there is no account to send it from. */
+    onSendReceipt: (() -> Unit)? = null,
     /**
      * Put a tag on a message, or take it off, or null when nobody behind this screen can.
      *
@@ -2109,6 +2111,10 @@ fun GridlinkRoot(
                         onRespondToInvite = onRespondToInvite,
                         onAddToCalendar = onAddToCalendar,
                         onOpenInvitation = onOpenInvitation,
+                        // Same guard, and it matters as much: a receipt row drawn under the wrong
+                        // message would tell one sender you read another's mail.
+                        receipt = mail?.open?.takeIf { it.id == current.message.id }?.receipt,
+                        onSendReceipt = onSendReceipt,
                         embedded = embedded,
                         toolbarActions = toolbarActions,
                         // Bound to the message the picker is actually over, so the screen below

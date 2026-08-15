@@ -847,4 +847,6 @@
     <string name="settings_tags_unknown_section">Vues dans vos messages</string>
     <string name="settings_tags_unknown_note">Étiquettes présentes sur vos messages dont cet appareil ne connaît ni le nom ni la couleur. Adoptez-en une pour lui donner les deux.</string>
     <string name="settings_tags_adopt">Adopter</string>
+    <string name="read_receipt_subject">Lu : %1$s</string>
+    <string name="read_receipt_body">Votre message a été affiché sur l\'appareil du destinataire. Cela ne garantit pas qu\'il ait été lu ou compris.</string>
 </resources>

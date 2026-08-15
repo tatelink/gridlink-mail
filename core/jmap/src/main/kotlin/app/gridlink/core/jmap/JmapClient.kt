@@ -2334,6 +2334,7 @@ class JmapClient internal constructor(
             "htmlBody", "textBody", "attachments", "bodyValues",
             "header:List-Unsubscribe:asText",
             "header:List-Unsubscribe-Post:asText",
+            "header:Disposition-Notification-To:asText",
         )
 
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()

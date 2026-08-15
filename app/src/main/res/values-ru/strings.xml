@@ -850,4 +850,6 @@
     <string name="settings_tags_unknown_section">Встречаются в почте</string>
     <string name="settings_tags_unknown_note">Теги на письмах, для которых у этого устройства нет ни имени, ни цвета. Примите тег, чтобы задать и то, и другое.</string>
     <string name="settings_tags_adopt">Принять</string>
+    <string name="read_receipt_subject">Прочитано: %1$s</string>
+    <string name="read_receipt_body">Ваше сообщение было отображено на устройстве получателя. Это не гарантирует, что оно прочитано или понято.</string>
 </resources>

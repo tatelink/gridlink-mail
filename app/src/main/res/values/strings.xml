@@ -273,6 +273,10 @@
     <string name="calendar_responded_tentative">You tentatively accepted</string>
     <string name="calendar_reply_sending">Sending reply…</string>
     <string name="calendar_reply_failed">Couldn\'t send your reply.</string>
+    <!-- Read receipt (MDN). Translated because these two strings LEAVE the device: they are read by
+         the person who asked for the receipt, who is not the person holding this phone. -->
+    <string name="read_receipt_subject">Read: %1$s</string>
+    <string name="read_receipt_body">Your message was displayed on the recipient\'s device. This is not a guarantee that it has been read or understood.</string>
     <string name="snooze_in_1_hour">In 1 hour</string>
     <string name="snooze_this_evening">This evening, 6 PM</string>
     <string name="snooze_tomorrow">Tomorrow, 8 AM</string>

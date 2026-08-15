@@ -26,10 +26,12 @@ import app.gridlink.core.data.calendar.ParsedEvent
 import app.gridlink.core.data.mail.InboxScope
 import app.gridlink.core.data.mail.MailFilter
 import app.gridlink.core.data.mail.MailSearchResult
+import app.gridlink.core.data.mail.Mdn
 import app.gridlink.core.data.mail.ScopedInboxRow
 import app.gridlink.core.jmap.ContentTooLargeException
 import app.gridlink.core.jmap.DownloadLimits
 import app.gridlink.core.jmap.model.Email
+import app.gridlink.core.jmap.model.EmailAddress
 import app.gridlink.core.jmap.model.EmailBodyPart
 import app.gridlink.core.jmap.model.Mailbox
 import app.gridlink.core.jmap.model.SearchQuery
@@ -56,6 +58,8 @@ import app.gridlink.ui.gridlink.GridlinkMenuItem
 import app.gridlink.ui.gridlink.GridlinkMessage
 import app.gridlink.ui.gridlink.GridlinkOpenFolder
 import app.gridlink.ui.gridlink.GridlinkOpenMessage
+import app.gridlink.ui.gridlink.GridlinkReceipt
+import app.gridlink.ui.gridlink.GridlinkReceiptState
 import app.gridlink.ui.gridlink.GridlinkRowKey
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 import app.gridlink.ui.gridlink.GridlinkScheduledContent
@@ -191,6 +195,16 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
      */
     private var openInvite: OpenInvite? = null
 
+    /**
+     * The open message's read-receipt request, in the form the row does not carry.
+     *
+     * The row shows who asked; sending needs the message's own `Message-ID` and subject as well, and
+     * neither belongs on a display model. Keyed by row like [openInvite], so a receipt can never be
+     * built about a message the reader has already left — which would tell one sender, by name and
+     * to the minute, that their mail was read when it was somebody else's.
+     */
+    private var openReceipt: OpenReceipt? = null
+
     /** Which mailbox the Folders tab has open, reported by the scaffold. Null when nothing is. */
     private val openFolderId = MutableStateFlow<String?>(null)
 
@@ -272,6 +286,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         opened.value = null
         openedParts = emptyList()
         openInvite = null
+        openReceipt = null
         primed.value = false
         // The folder half of the same argument. An open mailbox id belongs to the account it was
         // tapped in, and two accounts on one server routinely share mailbox ids, so carrying it
@@ -326,6 +341,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         opened.value = null
         openedParts = emptyList()
         openInvite = null
+        openReceipt = null
         expandedThreads.value = emptySet()
         // On [viewModelScope] rather than the app scope: the drawer closes on the same tap but this
         // view model outlives it, and the list cannot re-subscribe against a preference that was
@@ -356,6 +372,15 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         val ownerId: String,
         val part: EmailBodyPart,
         val event: ParsedEvent?,
+    )
+
+    /** Everything a read receipt needs beyond the address on screen. See [openReceipt]. */
+    private data class OpenReceipt(
+        val ownerId: String,
+        val requester: String,
+        /** What the sender matches the receipt against. Absent on a message that arrived without one. */
+        val originalMessageId: String?,
+        val subject: String,
     )
 
     /** A reply that can actually be sent: the event to answer, who to, and as whom. */
@@ -1463,6 +1488,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         // With the message goes its parts: an id from the old chips must not index into these.
         openedParts = emptyList()
         openInvite = null
+        openReceipt = null
         openJob = viewModelScope.launch {
             val body = try {
                 repo.openMessage(credentials, emailId, markRead = true)
@@ -1497,7 +1523,25 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                     body.email.listUnsubscribe,
                     body.email.listUnsubscribePost,
                 ),
+                // 🔴 Drawn, never acted on. The row states that a receipt was asked for and offers a
+                // button; the app does not answer for the reader. Not shown on the user's own mail:
+                // a message in Sent or Drafts carries the request it was written WITH, and prompting
+                // someone to confirm they read their own outbox is nonsense.
+                receipt = if (body.email.isDraft || isOwnAddress(body.email.from)) {
+                    null
+                } else {
+                    Mdn.requestedBy(body.email.dispositionNotificationTo)
+                        ?.let { GridlinkReceipt(requester = it) }
+                },
             )
+            openReceipt = Mdn.requestedBy(body.email.dispositionNotificationTo)?.let {
+                OpenReceipt(
+                    ownerId = rowKey,
+                    requester = it,
+                    originalMessageId = body.email.messageId.firstOrNull(),
+                    subject = body.email.subject.orEmpty(),
+                )
+            }
             // The message has just been marked read, so its new-mail notification is now about
             // mail the user is looking at. See [dismissNotifications].
             dismissNotifications(credentials, listOf(emailId))
@@ -1756,6 +1800,71 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 openingAttachment = false
             }
         }
+    }
+
+    /** Whether one of [from] is this account's own address, so its mail is not prompted about. */
+    private fun isOwnAddress(from: List<EmailAddress>): Boolean {
+        val me = accountId.value?.let { store.credentials(it) }?.username ?: return false
+        return from.any { it.email.equals(me, ignoreCase = true) }
+    }
+
+    /**
+     * Send the read receipt the open message asked for, because the reader tapped the button.
+     *
+     * 🔴 The ONLY caller is that tap. Nothing schedules this, no setting enables it, and it is not
+     * reached by opening, scrolling or marking read: a receipt states that a named person looked at
+     * somebody's mail at a particular minute, and the person it is stated about has to be the one
+     * who says it.
+     */
+    fun sendReadReceipt() {
+        val current = opened.value ?: return
+        val request = receiptToSend(current) ?: return
+        val credentials = resolve(current.id)?.first ?: return
+        val app = getApplication<Application>()
+        setReceipt(current.id) { it.copy(state = GridlinkReceiptState.Sending) }
+        viewModelScope.launch {
+            try {
+                repo.sendReadReceipt(
+                    credentials = credentials,
+                    to = request.requester,
+                    subject = app.getString(R.string.read_receipt_subject, request.subject),
+                    textBody = app.getString(R.string.read_receipt_body),
+                    notification = Mdn.notification(
+                        reportingUa = app.getString(R.string.app_name),
+                        finalRecipient = credentials.username,
+                        originalMessageId = request.originalMessageId,
+                    ),
+                )
+                setReceipt(current.id) { it.copy(state = GridlinkReceiptState.Sent) }
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                Log.w(TAG, "read receipt failed", t)
+                // Nothing left, so the button comes back and the next tap is a retry.
+                setReceipt(current.id) { it.copy(state = GridlinkReceiptState.Failed) }
+            }
+        }
+    }
+
+    /**
+     * The receipt this message may still send, or null when it may not.
+     *
+     * One in flight, and none at all once one has gone: a second receipt for the same message says
+     * nothing new and arrives looking like a correction. The id check is [openInvite]'s, for the
+     * same reason.
+     */
+    private fun receiptToSend(open: GridlinkOpenMessage): OpenReceipt? {
+        val state = open.receipt?.state ?: return null
+        if (state == GridlinkReceiptState.Sending || state == GridlinkReceiptState.Sent) return null
+        return openReceipt?.takeIf { it.ownerId == open.id }
+    }
+
+    /** [setInvite]'s id guard, for the receipt row. */
+    private fun setReceipt(messageId: String, block: (GridlinkReceipt) -> GridlinkReceipt) {
+        opened.value = opened.value
+            ?.takeIf { it.id == messageId }
+            ?.let { open -> open.receipt?.let { open.copy(receipt = block(it)) } ?: open }
+            ?: opened.value
     }
 
     /**

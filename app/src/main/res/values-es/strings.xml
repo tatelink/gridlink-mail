@@ -845,4 +845,6 @@
     <string name="settings_tags_unknown_section">Vistas en tu correo</string>
     <string name="settings_tags_unknown_note">Etiquetas en el correo para las que este dispositivo no tiene nombre ni color. Adopta una para darle ambos.</string>
     <string name="settings_tags_adopt">Adoptar</string>
+    <string name="read_receipt_subject">Leído: %1$s</string>
+    <string name="read_receipt_body">Tu mensaje se mostró en el dispositivo del destinatario. Esto no garantiza que se haya leído ni comprendido.</string>
 </resources>
