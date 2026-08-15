@@ -208,6 +208,20 @@ fun GridlinkContactsScreen(
             )
         },
     ) {
+      // 🔴 Three states, not two. "Nobody in the book" and "the book has not answered yet" are the
+      // distinction [GridlinkContactContent.loading] exists to carry, and collapsing them here would
+      // undo it: the first frame after a cold launch would say "No contacts yet" about an address
+      // book nothing has read. While the read is out this draws the plain empty panel it always
+      // did, which is honest and lasts one frame, since the read is Room and not the network.
+      if (sections.isEmpty() && !book.contactsLoading) {
+        GridlinkEmptyContacts(
+            // Not "0 people", which the header already says one line up, and not a sync age either:
+            // this is the question the blank panel provokes, which is whether the app is broken or
+            // the book is genuinely empty.
+            subline = "Nothing in this address book",
+            onNewContact = onCompose,
+        )
+      } else {
       Column(modifier = Modifier.fillMaxSize()) {
         // ⚠️ Pinned above the list, not scrolled with it. The pill is the one control that explains
         // why the book is ordered the way it is, and scrolling it away hides that answer exactly
@@ -280,12 +294,16 @@ fun GridlinkContactsScreen(
 
         // Outside the Column and still on the scaffold's Box, so the rail spans the whole panel
         // height and centres against it rather than against the list under the pill row.
+        //
+        // Inside the else, so an empty book does not get an alphabet to steer it with. A rail with
+        // no populated letters is the control that made the blank panel read as broken.
         GridlinkAlphabetRail(
             populated = populated,
             onScrubTo = ::jumpTo,
             initialScrubLetter = initialScrubLetter,
             modifier = Modifier.align(Alignment.CenterEnd),
         )
+      }
     }
 }
 

@@ -33,7 +33,7 @@ before trusting a line, and correct the line rather than working around it.
 | Tier 2 #11 links to browser | to build | **shipped** — `GridlinkMessageBody.kt` fires `ACTION_VIEW`, zero `CustomTabs` under `ui/gridlink` |
 | Tier 2 #12 widgets | to build | **shipped, all three** — unread count, scrolling inbox, calendar agenda |
 | Tier 2 #10 density | to build | **shipped** — see above |
-| Tier 2 #9 cache on frame one | to build | **mostly there** — `GridlinkListSkeleton` covers the empty first load and cached mail renders without a network wait. Needs an audit, not a build |
+| Tier 2 #9 cache on frame one | to build | **audited and closed 2026-08-15**, see Phase 4. It was true; the audit found one silent empty state and fixed it |
 | Tier 2 #13 partial-substring search | to build | **shipped 2026-08-11** |
 
 ## Phase 1 — close Tier 0
@@ -85,10 +85,27 @@ so deleting the other UI only made two pre-existing holes impossible to keep ign
 
 ## Phase 4 — Tier 2, the visible polish
 
-✅ Density, the agenda widget and partial-substring search all shipped. One item survives:
+✅ **Closed 2026-08-15.** Density, the agenda widget and partial-substring search shipped earlier;
+the audit is now done too.
 
-6. **Cache-on-frame-one audit.** Confirm no screen waits on the network before drawing what it
-   already has; fix what does.
+6. ✅ **Cache-on-frame-one audit.** The claim holds. Every list screen reads Room and only Room, and
+   each one carries a `primed` flag that latches true on the **first** emission and is reset only by
+   an account switch, so a refresh over drawn content never blanks back to a skeleton:
+   `GridlinkMailViewModel.primed` for mail, `folderPrimed` for the tree, `calendarPrimed` and
+   `contactsPrimed` in `GridlinkDavViewModel`. Every one of those flows opens on `loading = true`
+   rather than an empty list, which is what stops the first frame flashing "Inbox zero" at somebody
+   with four hundred messages, and the skeleton is tested **before** the empty state so "no mail" is
+   only ever claimed once something has actually answered. `MailRepository.openMessage` returns a
+   cached body with no network round trip and marks it read out of band.
+   Proven live, not just read: airplane mode on, force-stop, cold launch. The inbox drew real cached
+   mail with an Offline chip, and Calendar and Contacts drew their cached state, with no network
+   available at any point.
+   One defect found and fixed, in what a screen says when the answer is genuinely nothing:
+   **Contacts had no empty state at all**, so a signed-in account with an empty book got a bare panel
+   with a dead alphabet rail down the side, which reads as broken rather than as empty. Now
+   `GridlinkEmptyContacts`, whose affordance creates a contact rather than offering a sync, because
+   contacts do not arrive the way mail does. Gated on `!contactsLoading` so the first frame after a
+   cold launch cannot claim "No contacts yet" about a book nothing has read.
 
 ## Phase 5 — FEATURES plan, resumed
 

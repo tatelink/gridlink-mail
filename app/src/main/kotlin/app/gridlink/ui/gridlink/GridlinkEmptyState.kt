@@ -247,3 +247,83 @@ fun GridlinkEmptyFiltered(
         }
     }
 }
+
+/**
+ * What the address book shows when there is nobody in it.
+ *
+ * ## Why it exists
+ * Found by the cache-on-frame-one audit, which is about what a screen draws before the network
+ * answers and therefore keeps walking into what a screen draws when the answer is *nothing*.
+ * Contacts drew a correct blank: instant, cache-first, no spinner, and completely silent. A bare
+ * panel with an alphabet rail down one side is the state that reads as **broken** rather than as
+ * empty, because the only thing on screen is a control that does nothing.
+ *
+ * ## Why the tap creates rather than syncs
+ * 🔴 This is [GridlinkEmptyInbox]'s difference, in the other direction. Mail arrives, so an empty
+ * inbox is a question about the server and its affordance is a sync. Contacts do not arrive, they
+ * are written, by you, here or on another device. So the honest action is the one the FAB already
+ * offers, and this puts it in the middle of the empty screen rather than inventing a second way to
+ * ask the network something the header has already answered.
+ *
+ * [subline] is the caller's words rather than this composable's: what an empty book means depends on
+ * what is behind it, and this composable is under `ui.gridlink`, which is not allowed to know that
+ * accounts exist.
+ */
+@Composable
+fun GridlinkEmptyContacts(
+    subline: String,
+    onNewContact: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = GridlinkTheme.colors
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) EMPTY_PRESS_SCALE else 1f,
+        animationSpec = GridlinkMotion.standard(),
+        label = "emptyContactsPress",
+    )
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onNewContact,
+            )
+            .padding(GridlinkSpacing.chrome),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier.graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            },
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            // Unlit, for [GridlinkEmptyFiltered]'s reason: the glow means a sync is running.
+            GridlinkMark(glow = 0f)
+            Text(
+                text = "No contacts yet",
+                modifier = Modifier.padding(top = EMPTY_MARK_GAP),
+                style = GridlinkType.threadTitle,
+                color = colors.textPrimary,
+            )
+            Text(
+                text = buildAnnotatedString {
+                    append(subline)
+                    append(" · ")
+                    withStyle(SpanStyle(color = colors.accent)) {
+                        append("tap to add someone")
+                    }
+                },
+                modifier = Modifier.padding(top = GridlinkSpacing.s8),
+                style = GridlinkType.metadata,
+                color = colors.textSecondary,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
