@@ -71,6 +71,15 @@ data class GridlinkInvite(
      * ORGANIZER all get the details and no buttons, because a reply to any of them goes nowhere.
      */
     val canRsvp: Boolean = false,
+    /**
+     * What is already in the calendar at this time, one finished line each, or empty for a free slot.
+     *
+     * Finished lines rather than events, for this package's usual reason, and a list rather than a
+     * count because "Standup, 09:00 - 09:30" is a thing a reader can weigh against the invitation in
+     * front of them, where "1 conflict" only tells them to go and look. Whoever fills it caps the
+     * length and counts the overflow, so the card draws whatever it is given.
+     */
+    val conflicts: List<String> = emptyList(),
     /** Where this session's RSVP has got to. Not persisted, and the card says so by forgetting. */
     val response: GridlinkInviteResponse = GridlinkInviteResponse.Idle,
     /**
@@ -192,6 +201,20 @@ fun GridlinkInviteCard(
                     )
                 }
                 if (invite.repeats) GridlinkInviteLine("Repeats")
+
+                // 🔴 Above the RSVP row, not below it: this is the thing that should change the
+                // answer, so it has to be read before the thumb reaches Accept. In caution amber
+                // rather than the destructive red — a clash is something to weigh, not a failure,
+                // and plenty of them are deliberate.
+                if (invite.conflicts.isNotEmpty()) {
+                    Text(
+                        text = "Clashes with something already in your calendar",
+                        style = GridlinkType.badge,
+                        color = colors.caution,
+                        modifier = Modifier.padding(top = GridlinkSpacing.s8),
+                    )
+                    invite.conflicts.forEach { GridlinkInviteLine(it) }
+                }
 
                 if (invite.canRsvp && onRespond != null) {
                     GridlinkInviteRsvp(response = invite.response, onRespond = onRespond)

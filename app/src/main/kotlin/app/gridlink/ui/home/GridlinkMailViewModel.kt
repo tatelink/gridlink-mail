@@ -127,6 +127,16 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     private val storage = application.container.storageRepository
 
     /**
+     * The app's own CalDAV cache, read for one thing only: whether an invitation clashes.
+     *
+     * 🔴 The app's cache, NOT the system calendar. Reading the provider would need a runtime calendar
+     * permission for a line of text on a card, and this app makes a point of not holding one — Add to
+     * calendar hands an intent to the calendar's own editor for the same reason. It also means the
+     * check works with no signal, like everything else here.
+     */
+    private val dav = application.container.davRepository
+
+    /**
      * The same store upstream's reader writes to, deliberately.
      *
      * 🔴 Not a Gridlink-only copy of the allowlist. A sender the user trusted in one reader is a
@@ -1541,6 +1551,42 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 gridlinkInviteOf(event, ZoneId.systemDefault(), Locale.getDefault())
             }
         }
+        if (event != null) loadInviteConflicts(rowKey, event)
+    }
+
+    /**
+     * Fill in what is already booked over this invitation, if anything.
+     *
+     * A second pass rather than part of the first, on purpose: the card's own details are the thing
+     * the reader opened the message for and must not wait behind a calendar read, and a free slot
+     * is the common answer, which writes nothing at all. The window is the invitation's own days,
+     * widened to at least one, and the expansion into occurrences is the calendar screen's — a
+     * weekly standup from 2019 has to be able to clash with next Tuesday.
+     */
+    private suspend fun loadInviteConflicts(rowKey: String, event: ParsedEvent) {
+        val id = accountId.value ?: return
+        val zone = ZoneId.systemDefault()
+        val from = Instant.ofEpochMilli(event.startMillis).atZone(zone).toLocalDate()
+        val to = Instant.ofEpochMilli(event.endMillis ?: event.startMillis).atZone(zone).toLocalDate()
+        val conflicts = try {
+            val occurrences = dav.observeOccurrences(id, from, maxOf(to, from)).first()
+            withContext(Dispatchers.Default) {
+                gridlinkInviteConflictLines(
+                    gridlinkInviteConflicts(event, occurrences, zone, Locale.getDefault()),
+                )
+            }
+        } catch (c: CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            // Silent, and the card simply says nothing about clashes. A calendar this app could not
+            // read is not a fact about the invitation, and "couldn't check your calendar" on every
+            // invitation for an account with no CalDAV would be noise on a card that is otherwise
+            // correct.
+            Log.w(TAG, "invite conflict check failed", t)
+            return
+        }
+        if (conflicts.isEmpty() || openInvite?.ownerId != rowKey) return
+        setInvite(rowKey) { it.copy(conflicts = conflicts) }
     }
 
     /**
