@@ -1553,8 +1553,27 @@ fun GridlinkRoot(
         if (detail == null) progress.snapTo(0f)
     }
 
+    /**
+     * True while the open message has the whole display: no list, no chrome, no system bars.
+     * Brandon: *"the mail view, when in either folded or unfolded mode, needs a maximize button
+     * (hiding) that blows up the email to literally full screen - with a 'restore' to revert it"*.
+     *
+     * 🔴 It lives HERE rather than in [GridlinkThreadScreen] because in two panes maximizing is not
+     * something the reading pane can do to itself: the list column, the nav pill and the compose
+     * button all belong to this scaffold, and they are most of what has to get out of the way.
+     *
+     * ⚠️ Deliberately NOT persisted anywhere. Maximizing is a decision about the message in front of
+     * you, and an app that reopened full screen tomorrow because of one long newsletter today would
+     * have turned a gesture into a setting nobody chose.
+     */
+    var maximized by remember { mutableStateOf(false) }
+
     /** Drops [target] with no animation. Two panes have nothing to slide, so this is the whole close. */
     fun clearDetail(target: GridlinkDetail?) {
+        // 🔴 Every close leaves the mode, and this is the one place all of them pass through. A
+        // maximized flag surviving a close would take the NEXT message full screen without being
+        // asked, and in two panes it would do it with the list hidden.
+        maximized = false
         when (target) {
             is GridlinkDetail.Thread -> openId = null
             is GridlinkDetail.Contact -> openContactId = null
@@ -1915,6 +1934,19 @@ fun GridlinkRoot(
                 }
             }
 
+            // Back leaves the maximized message before it closes the thread.
+            //
+            // 🔴 Registered AFTER both detail handlers above, and that ordering IS the behaviour:
+            // back callbacks fire most-recently-added first, so this outranks them and full screen
+            // is peeled off first. Without it, back from a maximized message would close the thread
+            // outright, dumping the reader back on the list from a screen that showed no list.
+            //
+            // A plain BackHandler on the one-pane path too, even though the handler it is shadowing
+            // there is predictive: there is nothing to scrub. Leaving full screen brings the chrome
+            // and the system bars back in place, it does not slide a screen off the edge, so a drag
+            // that peeled the message away would be describing a close that is not happening.
+            BackHandler(enabled = maximized && !formOpen) { maximized = false }
+
             // Back with messages ticked drops the selection and lands on the list, from wherever the
             // user happens to be. Brandon: "when multiple mail messages are selected, from any
             // screen, the back swipe should unselect and return to messages list".
@@ -2119,6 +2151,11 @@ fun GridlinkRoot(
                         // message would vouch for mail nobody checked.
                         signed = mail?.open?.takeIf { it.id == current.message.id }?.signed,
                         embedded = embedded,
+                        maximized = maximized,
+                        // 🔴 Null in the debug gallery's own hosting of this screen, but never here:
+                        // the scaffold IS the chrome that maximizing hides, so wherever it draws a
+                        // thread it can honour the button. See the parameter's doc.
+                        onToggleMaximize = { maximized = !maximized },
                         toolbarActions = toolbarActions,
                         // Bound to the message the picker is actually over, so the screen below
                         // never has to be told which mail a keyword belongs to.
@@ -2282,10 +2319,17 @@ fun GridlinkRoot(
                             }
                         } else {
                             val current = detail
-                            if (current == null) {
-                                GridlinkThreadPlaceholder(label = paneLabel)
-                            } else {
-                                detailScreen(current, true)
+                            when {
+                                current == null -> GridlinkThreadPlaceholder(label = paneLabel)
+                                // 🔴 The maximized message is drawn ONCE, over the whole window,
+                                // further down this file. Leaving it composed here as well would put
+                                // two copies of the same thread on screen, and the reading pane's
+                                // body is a WebView: two of those means the message's remote content
+                                // fetched twice and its scroll position owned by whichever copy the
+                                // touch happened to land on. The empty box keeps the pane's shape
+                                // under the overlay for the frame or two the toggle takes.
+                                maximized -> Box(modifier = Modifier.fillMaxSize())
+                                else -> detailScreen(current, true)
                             }
                         }
                     }
@@ -2639,6 +2683,20 @@ fun GridlinkRoot(
                             detailScreen(current, false)
                         }
                     }
+                }
+
+                // The maximized message in TWO panes: the same screen the compact layout already
+                // draws over the list, drawn over both panes instead. `embedded = false` on purpose
+                // — a pane that has taken the whole window is not a pane any more, so it paints its
+                // own backdrop, swallows stray taps and stops leaving a gap for the compose button
+                // that is now underneath it.
+                //
+                // 🔴 Compact is NOT included here: it is already drawing the detail above, and the
+                // maximized flag reaches it through [detailScreen]. Both layouts end up at the same
+                // screen with the same flag, which is the whole reason the flag lives on the screen
+                // rather than on the two-pane host.
+                if (twoPane && maximized) {
+                    detail?.let { current -> detailScreen(current, false) }
                 }
 
                 // The two "+" forms, in the same overlay slot the composer uses and for the same reason:
