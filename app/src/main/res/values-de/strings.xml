@@ -843,4 +843,6 @@
     <string name="settings_tags_unknown_section">In Ihren E-Mails gefunden</string>
     <string name="settings_tags_unknown_note">Tags auf E-Mails, für die dieses Gerät keinen Namen und keine Farbe hat. Übernehmen Sie einen, um beides zu vergeben.</string>
     <string name="settings_tags_adopt">Übernehmen</string>
+    <string name="read_receipt_subject">Gelesen: %1$s</string>
+    <string name="read_receipt_body">Ihre Nachricht wurde auf dem Gerät des Empfängers angezeigt. Das ist keine Garantie dafür, dass sie gelesen oder verstanden wurde.</string>
 </resources>

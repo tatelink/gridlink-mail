@@ -2438,6 +2438,9 @@ class MailRepository(
         return cached.withBody(body).copy(
             messageId = headerIds(MimeParser.headerOf(raw, "Message-ID")),
             references = headerIds(MimeParser.headerOf(raw, "References")),
+            // Lifted here for the same reason as the threading pair: the cache does not hold it, and
+            // an IMAP account is entitled to the same read-receipt prompt a JMAP one gets.
+            dispositionNotificationTo = MimeParser.headerOf(raw, "Disposition-Notification-To"),
         )
     }
 
@@ -5626,6 +5629,57 @@ class MailRepository(
         enqueueSend(
             credentials = credentials,
             to = listOf(organizerEmail),
+            subject = subject,
+            body = textBody,
+            attachments = listOf(attachment),
+            fromName = identity?.name,
+            fromEmail = identity?.email,
+        )
+    }
+
+    /**
+     * Send a read receipt for a message the user has just said they are happy to acknowledge.
+     *
+     * Same shape as [sendCalendarReply], and for the same reasons: a short human-readable note plus
+     * the machine-readable part as an attachment, through the persistent outbox so it retries in the
+     * background like every other send.
+     *
+     * ⚠️ The strict form of an MDN is a `multipart/report; report-type=disposition-notification`
+     * whose second part is the notification. This app builds every outgoing message through one
+     * path, which produces `multipart/mixed`, and the receiving clients that do anything with
+     * receipts find the `message/disposition-notification` part either way. Rewriting the whole send
+     * pipeline to emit a second top-level multipart type, for a feature whose entire purpose is one
+     * courtesy message, is the wrong trade. The human-readable first part is the one every other
+     * recipient actually reads.
+     *
+     * 🔴 Only ever called from a tap. Nothing in this class schedules it, and no setting turns it on.
+     */
+    suspend fun sendReadReceipt(
+        credentials: AccountCredentials,
+        to: String,
+        subject: String,
+        textBody: String,
+        notification: String,
+    ) {
+        require(to.isNotBlank()) { "There is no address to send the receipt to." }
+        val bytes = notification.toByteArray(Charsets.UTF_8)
+        val attachment = if (credentials.protocol == MailProtocol.IMAP) {
+            val file = java.io.File.createTempFile("gridlink-mdn", ".txt").apply { writeBytes(bytes) }
+            EmailBodyPart(
+                partId = file.absolutePath,
+                type = "message/disposition-notification; charset=utf-8",
+                size = bytes.size.toLong(),
+                name = "receipt.txt",
+                disposition = "attachment",
+            )
+        } else {
+            uploadAttachment(credentials, bytes, "message/disposition-notification", "receipt.txt")
+        }
+        // The invited address answers, not the login it is delegated through. See sendCalendarReply.
+        val identity = accountStore.identities(credentials.id).firstOrNull()
+        enqueueSend(
+            credentials = credentials,
+            to = listOf(to),
             subject = subject,
             body = textBody,
             attachments = listOf(attachment),

@@ -156,8 +156,26 @@ the audit is now done too.
 Items 1, 2, 3 and 5 shipped 2026-08-09. Item 4 (folder subscribe) is deferred by Brandon, and its
 drag-to-reorder third is permanently cut.
 
-7. **Read receipts / MDN (item 6).** Carries a decision: recommendation is never auto-send, prompt
-   off by default, so the app never confirms you read something without asking.
+7. ✅ **Read receipts / MDN (item 6).** Closed 2026-08-15. Brandon's decision: **ask, off by
+   default**. A message that carries `Disposition-Notification-To` draws one quiet line saying who
+   asked, with a Send receipt button. Nothing is ever sent unless that button is tapped, and there
+   is **no setting that turns auto-send on**, so the setting cannot be flipped by accident or by
+   somebody else holding the phone. Reading a message is not consent to tell the sender you read it.
+   Surfaced on both protocols: a JMAP header property (`header:Disposition-Notification-To:asText`,
+   also added to `EMAIL_BODY_PROPERTIES`) and, on IMAP, lifted from the raw source `openEmailImap`
+   already has in hand.
+   The rules live in `core/data/.../mail/Mdn.kt` and are unit-tested. 🔴 **Only the first address**
+   in the header is used: a header naming three parties is asking one tap to tell three people, and
+   nobody pressing a button labelled "Send receipt" agreed to that. 🔴 CR/LF in either the address
+   or the message id is **refused**, not stripped-and-sent: both values come off a stranger's
+   message and end up in mail this app sends, so a surviving newline would let the sender write
+   headers of their choosing. A header with nothing usable in it draws no button at all, rather than
+   a button that fails at send time. The disposition is always
+   `manual-action/MDN-sent-manually; displayed`, which is the format's own way of saying a human did
+   this; the app cannot produce any other value. Never offered on drafts or on the user's own mail.
+   One deliberate deviation, documented at the call site: the receipt goes out as `multipart/mixed`
+   with the notification as a part, following the calendar-reply precedent, rather than a strict
+   `multipart/report` that would mean rewriting the send pipeline.
 8. ✅ **Calendar conflict detection (item 7).** Closed 2026-08-15, on the back of the rebuilt
    invitation card. Opening a meeting request now reads the app's own CalDAV cache for that day and
    names what is already booked over it, above the RSVP row so it is read before the thumb reaches

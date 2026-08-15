@@ -121,6 +121,16 @@ data class Email(
      */
     @SerialName("header:List-Unsubscribe-Post:asText")
     val listUnsubscribePost: String? = null,
+    /**
+     * `Disposition-Notification-To` (RFC 8098): the sender asking to be told when this is read.
+     *
+     * A request, never an obligation, and nothing in this app acts on it without a tap — see
+     * [app.gridlink.core.data.mail.Mdn]. Fetched by name like the unsubscribe pair above, and set on
+     * the IMAP path from the raw source, so a receipt request is seen on both protocols rather than
+     * being a JMAP-only feature.
+     */
+    @SerialName("header:Disposition-Notification-To:asText")
+    val dispositionNotificationTo: String? = null,
 ) {
     /** Whether the message has been read ($seen keyword). */
     val isSeen: Boolean get() = keywords["\$seen"] == true

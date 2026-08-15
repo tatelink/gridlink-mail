@@ -847,4 +847,6 @@
     <string name="settings_tags_unknown_section">Znalezione w poczcie</string>
     <string name="settings_tags_unknown_note">Tagi na poczcie, dla których to urządzenie nie ma nazwy ani koloru. Przejmij tag, aby nadać mu oba.</string>
     <string name="settings_tags_adopt">Przejmij</string>
+    <string name="read_receipt_subject">Przeczytano: %1$s</string>
+    <string name="read_receipt_body">Twoja wiadomość została wyświetlona na urządzeniu odbiorcy. Nie gwarantuje to, że została przeczytana ani zrozumiana.</string>
 </resources>
