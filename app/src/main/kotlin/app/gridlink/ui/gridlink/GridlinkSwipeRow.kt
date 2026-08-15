@@ -55,6 +55,9 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.gridlink.ui.theme.GridlinkMotion
 import app.gridlink.ui.theme.GridlinkSpacing
@@ -456,6 +459,34 @@ fun GridlinkSwipeRow(
     Box(
         modifier = modifier
             .fillMaxWidth()
+            // 🔴 The same three actions, reachable without the gesture. A swipe is invisible to
+            // explore-by-touch: TalkBack owns the horizontal swipe for its own navigation, so with
+            // the screen reader on there is NO way to archive, delete, snooze or mark a message from
+            // the list. Not a degraded way, none. These land in TalkBack's actions menu and read out
+            // as the same words the settings screen uses, because they are the same [
+            // GridlinkSwipeAction.label].
+            //
+            // ⚠️ Reads [actions], the resolved-per-row slots, not the defaults: a row whose left
+            // swipe is switched off must not be offered a phantom action here either, and the
+            // read/star entries have to point the way THIS row's state points.
+            //
+            // The action fires straight through [currentOnAction] with no fly-off. The animation is
+            // feedback for a finger that is already dragging the row, and there is no finger here;
+            // the row leaves because the list's data changed, which is what it does anyway.
+            .semantics {
+                customActions = if (!enabled) {
+                    emptyList()
+                } else {
+                    listOfNotNull(actions.right, actions.leftShort, actions.leftLong)
+                        .distinct()
+                        .map { action ->
+                            CustomAccessibilityAction(action.label) {
+                                currentOnAction(action)
+                                true
+                            }
+                        }
+                }
+            }
             .onSizeChanged { widthPx = it.width }
             // Tells the OS not to read a drag that starts on this row as a back gesture. Android's
             // gesture navigation owns a ~20dp strip down both screen edges (the width is a user

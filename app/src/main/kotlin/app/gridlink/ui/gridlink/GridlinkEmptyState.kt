@@ -19,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextAlign
@@ -127,6 +128,11 @@ fun GridlinkEmptyInbox(
                 // state from firing at all while one is in flight is the difference between a
                 // control that is busy and one that looks unresponsive.
                 enabled = !syncing,
+                // 🔴 Declared, because nothing else here says so. This is a whole panel with a logo
+                // in the middle of it, and the ONE thing that makes it obviously a control on a
+                // sighted screen (it is the only object present) does not survive into a screen
+                // reader, which announces one node at a time and has no view of what else is around.
+                role = Role.Button,
                 onClick = onRefresh,
             )
             .padding(GridlinkSpacing.chrome),
@@ -210,6 +216,9 @@ fun GridlinkEmptyFiltered(
             .clickable(
                 interactionSource = interaction,
                 indication = null,
+                // See [GridlinkEmptyInbox]: the layout argument for the affordance does not reach a
+                // screen reader.
+                role = Role.Button,
                 onClick = onClearFilters,
             )
             .padding(GridlinkSpacing.chrome),
@@ -290,6 +299,7 @@ fun GridlinkEmptyContacts(
             .clickable(
                 interactionSource = interaction,
                 indication = null,
+                role = Role.Button,
                 onClick = onNewContact,
             )
             .padding(GridlinkSpacing.chrome),

@@ -119,8 +119,23 @@ drag-to-reorder third is permanently cut.
 
 ## Phase 6 — trust and finish
 
-9. **TalkBack sweep (item 8).** Was waiting on the UI churn of Phases 2 and 4. Both are done, so
-   this is now unblocked and will not have to be done twice.
+9. ⏸️ **TalkBack sweep (item 8).** Started 2026-08-15 and **paused by Brandon**, part done. The
+   audit found the app in better shape than expected: icon-only controls are labelled, decorative
+   icons are correctly `contentDescription = null` beside real text, and message rows already merge
+   into one node through `combinedClickable`, with the accent bar carrying the account name aloud.
+   Three real gaps found and fixed in that pass:
+   - 🔴 **Swipe actions were unreachable.** TalkBack owns the horizontal swipe, so with the screen
+     reader on there was no way to archive, delete, snooze or mark from the list. Not a worse way,
+     none. `GridlinkSwipeRow` now publishes its resolved slots as accessibility custom actions.
+   - **The alphabet rail** is hidden from the reader outright: it is a press-and-drag scrub TalkBack
+     cannot operate, and 26 `Text` letters otherwise sit as dead stops between the list and
+     everything after it. It duplicates navigation the list already offers, so nothing is lost.
+   - `role = Role.Button` on the three full-panel empty states, whose affordance was carried only by
+     "it is the only object on screen", which is a layout argument a screen reader never hears.
+
+   ⚠️ **Not verified live.** The custom actions are believed-correct from the code, not seen in
+   TalkBack's actions menu. Do that on the Z Fold. What remains after that: a walk of the reading
+   pane, composer and settings, and a decision about the scrub-driven pickers elsewhere.
 10. **S/MIME (item 9).** Last, with a key-custody decision to make: recommendation is verify-only
     first.
 11. **Tier 3, which is policy rather than code.** Don't break gestures people already have in their
