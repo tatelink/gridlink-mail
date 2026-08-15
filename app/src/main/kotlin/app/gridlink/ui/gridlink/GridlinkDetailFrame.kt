@@ -166,10 +166,12 @@ fun GridlinkDetailFrame(
     val body: @Composable () -> Unit = {
         Column(
             modifier = when {
-                // 🔴 The cutout, not the system bars. The bars are hidden while this is up, so
-                // padding for them would leave a black band where the status bar used to be; the
-                // camera hole does not go away, and text under it is text nobody can read.
-                maximized -> Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.displayCutout)
+                // 🔴 NO insets out here. The bars are hidden while this is up, so padding for them
+                // would leave a band of backdrop where the status bar used to be, and that band is
+                // the difference between "full screen" and "nearly full screen" to look at. The
+                // cutout is still respected, but INSIDE the panel (see below), so the message's own
+                // surface reaches the physical edge while its text stays clear of the camera hole.
+                maximized -> Modifier.fillMaxSize()
                 embedded -> Modifier.fillMaxSize()
                 else -> Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)
             },
@@ -254,7 +256,16 @@ fun GridlinkDetailFrame(
                 // over a hairline, which meant the panel had two shapes and the reading pane's
                 // content started a title row lower than the standing screen's. With the title
                 // above the glass in both, the panel is just the panel.
-                Box(modifier = Modifier.fillMaxSize(), content = panel)
+                // The cutout inset lives HERE when maximized, one level in from the surface, so the
+                // panel's own background paints under the camera hole and only the content moves.
+                Box(
+                    modifier = if (maximized) {
+                        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.displayCutout)
+                    } else {
+                        Modifier.fillMaxSize()
+                    },
+                    content = panel,
+                )
             }
 
             if (bottom == null) {
