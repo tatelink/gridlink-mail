@@ -32,6 +32,7 @@ import app.gridlink.ui.gridlink.GridlinkChromeConfig
 import app.gridlink.ui.gridlink.GridlinkFileAttacher
 import app.gridlink.ui.gridlink.GridlinkComposeDraft
 import app.gridlink.ui.gridlink.GridlinkMenuItem
+import app.gridlink.ui.gridlink.GridlinkDestination
 import app.gridlink.ui.gridlink.GridlinkOpenRequest
 import app.gridlink.ui.gridlink.GridlinkOutboxSender
 import app.gridlink.ui.gridlink.GridlinkRoot
@@ -103,6 +104,12 @@ fun GridlinkHomeHost(
      */
     pendingEmailOpen: EmailOpenTarget? = null,
     onEmailOpenConsumed: () -> Unit = {},
+    /**
+     * A tab a widget tap wants to land on, or null. The agenda widget's rows send
+     * [GridlinkDestination.CALENDAR] through here.
+     */
+    pendingSection: GridlinkDestination? = null,
+    onSectionConsumed: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: GridlinkMailViewModel = viewModel(),
     davViewModel: GridlinkDavViewModel = viewModel(),
@@ -240,7 +247,7 @@ fun GridlinkHomeHost(
     //
     // A notification outranks a `mailto:` when both are somehow waiting. Neither is lost: the
     // scaffold acknowledges one, that payload clears, and this recomputes to the other.
-    val openRequest = remember(pendingEmailOpen, pendingMailto, sharedFiles, account?.inboxId) {
+    val openRequest = remember(pendingEmailOpen, pendingMailto, pendingSection, sharedFiles, account?.inboxId) {
         when {
             pendingEmailOpen != null -> GridlinkOpenRequest.Message(
                 id = pendingEmailOpen.emailId,
@@ -263,6 +270,9 @@ fun GridlinkHomeHost(
                     GridlinkOpenRequest.Compose(pendingMailto.toGridlinkDraft(it))
                 }
             }
+            // Last, and deliberately: the other two name a specific thing the user asked for, and a
+            // request for a whole tab is the weakest claim on the screen of the three.
+            pendingSection != null -> GridlinkOpenRequest.Section(pendingSection)
             else -> null
         }
     }
@@ -437,6 +447,7 @@ fun GridlinkHomeHost(
                 when (openRequest) {
                     is GridlinkOpenRequest.Message -> onEmailOpenConsumed()
                     is GridlinkOpenRequest.Compose -> onMailtoConsumed()
+                    is GridlinkOpenRequest.Section -> onSectionConsumed()
                     null -> Unit
                 }
             },

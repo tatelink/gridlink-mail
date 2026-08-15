@@ -12,6 +12,7 @@ import app.gridlink.R
 import app.gridlink.container
 import app.gridlink.core.data.calendar.WidgetAgendaReader
 import app.gridlink.core.data.mail.WidgetInboxReader
+import app.gridlink.ui.gridlink.GridlinkDestination
 
 /**
  * The bits both widgets share: how they are woken, and the intents they hand the launcher.
@@ -151,18 +152,21 @@ object GridlinkWidgets {
     }
 
     /**
-     * The template every agenda row's tap is filled into.
+     * The template every agenda row's tap is filled into: the app, on the Calendar tab.
      *
      * ⚠️ Unlike [rowTemplateIntent] this one carries the whole destination, because every row goes
-     * to the same place: the app, as it normally opens. The calendar is not addressable from an
-     * Intent yet (the section lives in `GridlinkRoot`'s own state, reached through an
-     * `initialDestination` nobody passes), so a row cannot open its own event without a deep link
-     * that does not exist. It is still MUTABLE and still a template: the rows supply an empty
-     * fill-in, and building it any other way means rewriting this the day that link lands.
+     * to the same place. A row still cannot open its OWN event: an occurrence is addressed by uid
+     * and date rather than by an id the scaffold holds, and nothing in the tree takes that pair yet.
+     * So the tap lands on the calendar and the user finds the appointment they can already see, one
+     * glance away from where they tapped, which is a short and honest gap rather than a wrong screen.
+     *
+     * It is still MUTABLE and still a template: the rows supply an empty fill-in, and building it
+     * any other way means rewriting this the day a per-event link lands.
      */
     internal fun agendaRowTemplateIntent(context: Context, widgetId: Int): PendingIntent {
         val intent = Intent(context, MainActivity::class.java)
             .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            .putExtra(MainActivity.EXTRA_OPEN_SECTION, GridlinkDestination.CALENDAR.name)
         return PendingIntent.getActivity(
             context,
             REQUEST_AGENDA_ROW + widgetId,

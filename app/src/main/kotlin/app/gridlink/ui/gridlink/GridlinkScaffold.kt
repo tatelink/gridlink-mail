@@ -568,6 +568,20 @@ sealed interface GridlinkOpenRequest {
 
     /** Open the composer on a draft assembled elsewhere (a `mailto:` link, a share, a quick action). */
     data class Compose(val draft: GridlinkComposeDraft) : GridlinkOpenRequest
+
+    /**
+     * Land on one of the four tabs, with nothing panelled over it.
+     *
+     * The agenda widget's rows use this. Unlike the two above it names a screen rather than a thing
+     * on a screen, which is the honest shape for a tap that means "show me my calendar": the widget
+     * knows the day it drew, and a row's event has no id this tree can address.
+     *
+     * 🔴 It has to be a request and not [GridlinkRoot]'s `initialDestination`, for the reason at the
+     * top of this interface: the activity is `singleTask`, so a widget tap on a running app arrives
+     * through `onNewIntent` with the tree already composed, and a `rememberSaveable` key would be
+     * cleared on consumption and bounce the user straight back to the inbox.
+     */
+    data class Section(val destination: GridlinkDestination) : GridlinkOpenRequest
 }
 
 /**
@@ -1742,6 +1756,19 @@ fun GridlinkRoot(
                                 else -> GridlinkComposeField.BODY
                             },
                         )
+                        onOpenRequestConsumed()
+                    }
+                    is GridlinkOpenRequest.Section -> {
+                        // Everything the mail side may have panelled over the tab, undone first —
+                        // the same clean-up the merged-inbox route does above and for the same
+                        // reason. Arriving on Calendar with an open thread still slid across it
+                        // would show the user the mail they were reading, not the calendar they
+                        // just tapped.
+                        openFolderId = null
+                        openId = null
+                        filedOpenId = null
+                        progress.snapTo(0f)
+                        destination = request.destination
                         onOpenRequestConsumed()
                     }
                 }
