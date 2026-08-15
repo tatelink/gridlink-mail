@@ -72,7 +72,12 @@ The categories further down list the full feature set; this is the order of work
   dark mode: theme colours for plain text, CSS invert for rich HTML); plain-text
   bodies preserve paragraphs and unwrap `format=flowed` soft line breaks (RFC 3676)
   so they read as written instead of one run-on block or mid-sentence wraps
-- ✅ Offline reading (Room cache)
+- ✅ **Offline by construction, not offline as a fallback.** Every screen reads Room and only Room;
+  the network writes into Room and draws nothing. So the app opens on cached mail rather than a
+  spinner, a refresh over drawn content never blanks back to a skeleton (each list latches a
+  `primed` flag on its first emission), opening a message costs no round trip, and calendar and
+  contacts behave the same way. Audited and proven live in airplane mode 2026-08-15, not assumed.
+  See the README's "Works with no signal".
 - ✅ Mark read/unread, star, archive, delete *(M3; JMAP + IMAP)*
 - ✅ Optional "mark as read when deleting" (Settings → Reading), so deleted mail doesn't sit unread in Trash
 - ✅ Unread shown by bold text (not a status dot)

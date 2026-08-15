@@ -93,15 +93,24 @@ so deleting the other UI only made two pre-existing holes impossible to keep ign
    The switch's subline says so on IMAP accounts (`GridlinkFolderContent.watchIsInstant`).
    Turning a watch ON never floods the shade: `seedsSilently` takes a first-seen folder's contents
    into the baseline without announcing them.
-   ▶ Open, and it is a decision rather than an oversight: whether IMAP should get live watching at
-   all (a second IDLE connection, or round-robin re-selecting inside the one), which trades battery
-   and connection count for latency on accounts that are not Tate's own server.
+   ⛔ **Decided 2026-08-15 (Tate): IMAP stays on the 30-minute poll.** A second IDLE connection
+   doubles the sockets held per account against servers that cap them, round-robin re-selecting
+   breaks IDLE on every hop and puts gaps in the inbox itself, and a tighter poll costs battery on a
+   schedule for a case that is not his own mail. The subline is the answer: say the latency rather
+   than engineer around it. Do not re-propose.
 3. ✅ **Snooze, its missing screen.** Closed by `e48643d0`, see Phase 2.
 4. **Contacts and calendar as a real Android account**, so the system's own apps see them.
    Largest item in the plan by some distance: an authenticator, a sync adapter, and provider
    plumbing. Worth its own scoping pass before it starts.
-5. **Say the offline-first part out loud.** Already true architecturally (Room + Paging, cached
-   attachments) and marketed nowhere. Documentation, not code.
+5. ✅ **Say the offline-first part out loud.** Closed 2026-08-15, documentation only, as planned.
+   A "Works with no signal" section in the README that states the actual architecture in the user's
+   terms (every screen reads the cache and only the cache; the network writes into it and draws
+   nothing), and the four consequences that follow: opens on mail rather than a spinner, a refresh
+   never blanks the screen, messages open with no round trip, calendar and contacts the same. The
+   one limit is stated too, because a claim with no edge is not believed: mail that arrived while
+   you were offline is mail the phone has never seen.
+   `FEATURES.md`'s one-line "Offline reading (Room cache)" was the whole of it before, which sold a
+   cache rather than a guarantee.
 
 ## Phase 4 — Tier 2, the visible polish
 
