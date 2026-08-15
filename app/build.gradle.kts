@@ -154,6 +154,15 @@ android {
         compose = true
         buildConfig = true
     }
+
+    packaging {
+        resources {
+            // BouncyCastle ships bcprov, bcpkix and bcutil as multi-release jars, and all three
+            // carry the same OSGi manifest path. Nothing on Android reads it, and three copies of a
+            // file that cannot be told apart is a packaging clash rather than a real conflict.
+            excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+        }
+    }
 }
 
 dependencies {

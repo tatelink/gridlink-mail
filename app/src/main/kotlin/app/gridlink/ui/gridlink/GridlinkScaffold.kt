@@ -2115,6 +2115,9 @@ fun GridlinkRoot(
                         // message would tell one sender you read another's mail.
                         receipt = mail?.open?.takeIf { it.id == current.message.id }?.receipt,
                         onSendReceipt = onSendReceipt,
+                        // Same guard, and the worst one to get wrong: a verdict under the wrong
+                        // message would vouch for mail nobody checked.
+                        signed = mail?.open?.takeIf { it.id == current.message.id }?.signed,
                         embedded = embedded,
                         toolbarActions = toolbarActions,
                         // Bound to the message the picker is actually over, so the screen below

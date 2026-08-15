@@ -210,8 +210,40 @@ drag-to-reorder third is permanently cut.
    ⚠️ **Not verified live.** The custom actions are believed-correct from the code, not seen in
    TalkBack's actions menu. Do that on the Z Fold. What remains after that: a walk of the reading
    pane, composer and settings, and a decision about the scrub-driven pickers elsewhere.
-10. **S/MIME (item 9).** Last, with a key-custody decision to make: recommendation is verify-only
-    first.
+10. ✅ **S/MIME (item 9).** Closed 2026-08-15, **verify only**, by Brandon's call on both questions:
+    verify-only rather than sign-and-decrypt, and BouncyCastle rather than a hand-rolled CMS reader.
+    Nothing in the app imports, stores or uses a private key, so the feature adds nothing to the
+    phone worth stealing, and encrypted mail (`enveloped-data`) is deliberately not recognised at
+    all rather than reported as a broken signature about a message that carries none.
+
+    🔴 **The rule the whole thing is built around: the only reportable success is a signature that
+    ties this message to the address it claims to come from.** A cryptographically perfect signature
+    made with somebody else's certificate is `MISMATCH`, not "valid, with a footnote" — that is the
+    exact shape a forgery takes, and every library will happily confirm the signature itself. So the
+    address is checked **before** trust, and the row names who really signed. Five statuses, and the
+    two honest halves of "yes" are separate: `VALID` (verified, names the sender, chains to a CA the
+    device trusts) against `UNTRUSTED` (verified and names the sender, but self-signed or a private
+    CA — says who, vouches for nothing). Under an untrusted or mismatched signature the issuer is
+    **not** named: it would lend the certificate the authority of a CA nothing here agreed with.
+
+    Where it lives: `MimeParser.detectSmime` (detached `multipart/signed` and opaque
+    `pkcs7-mime`, plus Outlook's `x-pkcs7-*` spellings), `SmimeVerifier` in `core/data`, a
+    `GridlinkSignedRow` pinned above everything else in the reading pane — a verdict found halfway
+    down a long mail is a verdict found too late — and no action on it, because nothing a reader
+    could tap would change what the certificate says.
+
+    Two deliberate trades, both documented at the code: **revocation checking is off** (an OCSP or
+    CRL fetch would tell a third party which signed mail is being read, and when), and **BouncyCastle
+    parses while the platform computes** — no security provider is registered or named, so the
+    digests and RSA/EC verification run on Conscrypt and R8 strips BC's whole JCE provider tree. That
+    is a measured 885 KB back (6.86 MB → 5.97 MB); the feature still costs ~1.3 MB over the 4.65 MB
+    baseline, which is the price of a real CMS reader.
+
+    ⚠️ **Not verified on a device, and not against real signed mail.** Ten unit tests cover the
+    statuses with certificates made on the spot, so nothing in the suite can reach `VALID` — that
+    needs a real CA in the device's trust store, which is exactly the distinction `UNTRUSTED` draws.
+    What is unproven: a genuine signed message from a public CA rendering as `VALID`, and that R8
+    left the CMS path intact in a minified build.
 11. ✅ **Tier 3, which is policy rather than code.** Closed 2026-08-15. Written down in **both**
     places, by Brandon's call: `docs/PROMISES.md` for somebody who has not installed the app, and a
     `PromisesScreen` under Settings → About for somebody holding the phone. A promise a user has to

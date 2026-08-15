@@ -170,6 +170,8 @@ fun GridlinkThreadScreen(
     receipt: GridlinkReceipt? = null,
     /** Send the receipt. Null draws no button, so the gallery cannot send mail from no account. */
     onSendReceipt: (() -> Unit)? = null,
+    /** This message's S/MIME verdict, or null for mail carrying no signature. See [GridlinkSignedRow]. */
+    signed: GridlinkSigned? = null,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
@@ -336,6 +338,11 @@ fun GridlinkThreadScreen(
             // Revoke lives in Settings → Privacy, which lists every allowed sender with a per-sender
             // remove and a clear-all, so the permission is both visible and revocable — in the one
             // place you would go to audit it, rather than smeared across every message it affects.
+            // 🔴 First, above the images banner and the invitation both. Whether this message is
+            // really from the person it names governs how everything under it should be read, and a
+            // verdict discovered halfway down a long mail is a verdict discovered too late.
+            signed?.let { GridlinkSignedRow(signed = it) }
+
             if (hasRemoteContent && !showRemote) {
                 GridlinkImagesBanner(
                     sender = message.sender,

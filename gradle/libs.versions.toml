@@ -25,6 +25,11 @@ detekt = "1.23.8"
 # 3.2.0+ is built with Kotlin 2.3 (metadata unreadable from our Kotlin 2.1);
 # bump alongside the project's Kotlin upgrade.
 unifiedpush = "3.1.2"
+# BouncyCastle, for S/MIME signature VERIFICATION only (CMS SignedData lives in bcpkix,
+# the primitives in bcprov). Android ships a stripped org.bouncycastle of its own under the
+# provider name "BC", so nothing here may call Security.addProvider: the verifier passes a
+# provider INSTANCE to the Jca builders instead. See SmimeVerifier.
+bouncycastle = "1.81.1"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -62,6 +67,9 @@ okhttp-mockwebserver = { module = "com.squareup.okhttp3:mockwebserver", version.
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+
+bouncycastle-prov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
+bouncycastle-pkix = { module = "org.bouncycastle:bcpkix-jdk18on", version.ref = "bouncycastle" }
 
 junit = { module = "junit:junit", version.ref = "junit" }
 

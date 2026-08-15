@@ -62,3 +62,13 @@
 # ordinary code but wrong for a compiler-managed calling convention.
 -keep class app.gridlink.ui.components.MonogramKt { *; }
 -keep class app.gridlink.ui.components.ContactAvatarKt { *; }
+
+# BouncyCastle, for S/MIME verification. Its JCE provider tree is deliberately NOT kept: nothing
+# registers or names a provider (see SmimeVerifier), so the digests and signature checks run on the
+# platform's own crypto and R8 is free to drop the algorithm implementations only a registered
+# provider would reach — a measured 885 KB of the release APK. What survives is the CMS and ASN.1 reading, which is referenced
+# by name and needs no rule.
+# Desktop-only corners BC references and Android does not ship. Nothing here reaches them: this
+# app verifies signatures and never opens an LDAP CRL store or a JSSE socket through BC.
+-dontwarn javax.naming.**
+-dontwarn org.bouncycastle.jsse.**

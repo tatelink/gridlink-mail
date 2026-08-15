@@ -32,6 +32,34 @@ data class MimeBody(
 enum class CryptoKind { PGP_ENCRYPTED, PGP_SIGNED, PGP_INLINE }
 
 /**
+ * How a message carries an S/MIME signature.
+ *
+ * [DETACHED] is `multipart/signed`: the readable message is part one and the signature sits beside
+ * it, so a client that knows nothing about S/MIME still shows the message with a stray attachment.
+ * [OPAQUE] is `application/pkcs7-mime`, where the message is *inside* the signature blob and a
+ * client that cannot open it shows nothing at all.
+ */
+enum class SmimeKind { DETACHED, OPAQUE }
+
+/**
+ * The S/MIME pieces of a raw message, extracted without any crypto: what was signed and the CMS
+ * blob that claims to have signed it. Whether that claim holds is [app.gridlink.core.data]'s
+ * problem, deliberately: finding the bytes and judging them are separate jobs, and only the second
+ * one needs to be careful.
+ *
+ * 🔴 [signedEntityRaw] is a VERBATIM substring of the source, headers and all. A signature is over
+ * exact octets, so nothing here may be trimmed, re-flowed or re-encoded on the way past.
+ *
+ * Equality is identity for [signature], as for any class holding a [ByteArray]. Nothing compares
+ * these; they are carried straight to a verifier.
+ */
+class SmimeEnvelope(
+    val kind: SmimeKind,
+    val signature: ByteArray,
+    val signedEntityRaw: String? = null,
+)
+
+/**
  * The OpenPGP-relevant pieces of a raw message, extracted without any crypto:
  * what to decrypt (armor) or verify (exact signed bytes + detached signature).
  */
@@ -76,6 +104,17 @@ object MimeParser {
      * this the parse is refused and the caller reports it (see [MimeBody.tooLarge]).
      */
     const val MAX_BODY_CHARS = 25 * 1024 * 1024
+
+    /** The signature part of a `multipart/signed` S/MIME message, registered and Outlook spellings. */
+    private val SMIME_SIGNATURE_TYPES =
+        setOf("application/pkcs7-signature", "application/x-pkcs7-signature")
+
+    /** A whole message wrapped in CMS: signature around it, or encryption. */
+    private val SMIME_MIME_TYPES = setOf("application/pkcs7-mime", "application/x-pkcs7-mime")
+
+    /** The `smime-type` values that mean encryption rather than a signature. */
+    private val SMIME_ENCRYPTED_TYPES =
+        setOf("enveloped-data", "authenveloped-data", "compressed-data")
 
     fun parseBody(raw: String): MimeBody {
         if (raw.length > MAX_BODY_CHARS) return MimeBody(null, null, emptyList(), tooLarge = true)
@@ -268,6 +307,51 @@ object MimeParser {
         val text = parseBody(raw).text ?: return null
         val armor = extractInlineArmor(text) ?: return null
         return CryptoEnvelope(CryptoKind.PGP_INLINE, encryptedArmor = armor)
+    }
+
+    /**
+     * The S/MIME signature of a message, if it carries one, along with the bytes it covers.
+     *
+     * Signed only. `enveloped-data` and its relatives are encryption, which this app has no key for
+     * and never will while S/MIME here is verify-only, so they are turned away here rather than
+     * being handed to a verifier that would report them as broken signatures. A `pkcs7-mime` with
+     * no `smime-type` at all is passed through, because the blob's own content type is the
+     * authority on what it is and the verifier reads that.
+     *
+     * The `x-` spellings are accepted alongside the registered ones: Outlook has emitted
+     * `application/x-pkcs7-signature` for decades and those messages are real mail.
+     */
+    fun detectSmime(raw: String): SmimeEnvelope? {
+        val (headerText, body) = splitHeaders(raw)
+        val headers = parseHeaders(headerText)
+        val contentType = headers["content-type"] ?: "text/plain"
+        val mime = contentType.substringBefore(';').trim().lowercase()
+        val boundary = paramOf(contentType, "boundary")
+
+        if (mime == "multipart/signed" && boundary != null) {
+            val sigPart = splitMultipart(body, boundary)
+                .firstOrNull { partMime(it) in SMIME_SIGNATURE_TYPES } ?: return null
+            // 🔴 rawFirstPart, not the parsed body: the signature covers the entity as it arrived,
+            // headers included. Anything that reconstructed it would verify a different message.
+            val signed = rawFirstPart(body, boundary) ?: return null
+            val der = partBytes(sigPart).takeIf { it.isNotEmpty() } ?: return null
+            return SmimeEnvelope(SmimeKind.DETACHED, signature = der, signedEntityRaw = signed)
+        }
+
+        if (mime in SMIME_MIME_TYPES) {
+            if (paramOf(contentType, "smime-type")?.lowercase() in SMIME_ENCRYPTED_TYPES) return null
+            val cte = headers["content-transfer-encoding"]?.substringBefore(';')?.trim()
+            val der = decodeBytes(body, cte).takeIf { it.isNotEmpty() } ?: return null
+            return SmimeEnvelope(SmimeKind.OPAQUE, signature = der)
+        }
+        return null
+    }
+
+    /** A multipart child's body decoded per its Content-Transfer-Encoding, as octets. */
+    private fun partBytes(part: String): ByteArray {
+        val (headerText, body) = splitHeaders(part)
+        val cte = parseHeaders(headerText)["content-transfer-encoding"]?.substringBefore(';')?.trim()
+        return decodeBytes(body, cte)
     }
 
     /** The lowercased content type of a multipart child (its own headers). */
