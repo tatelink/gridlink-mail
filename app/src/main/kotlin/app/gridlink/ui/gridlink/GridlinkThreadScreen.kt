@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.AttachFile
+import androidx.compose.material.icons.outlined.CloseFullscreen
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.Email
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.HideImage
 import androidx.compose.material.icons.outlined.MarkEmailUnread
 import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.OpenInFull
 import androidx.compose.material.icons.outlined.Print
 import androidx.compose.material.icons.outlined.Report
 import androidx.compose.material.icons.outlined.Sell
@@ -172,6 +174,25 @@ fun GridlinkThreadScreen(
     onSendReceipt: (() -> Unit)? = null,
     /** This message's S/MIME verdict, or null for mail carrying no signature. See [GridlinkSignedRow]. */
     signed: GridlinkSigned? = null,
+    /**
+     * True while this message has the whole display: no list beside it, no chrome above it, and no
+     * system bars. Tate asked for a maximize that "blows up the email to literally full screen",
+     * in BOTH the folded and the unfolded layout, which is why this is a flag on the screen rather
+     * than something the two-pane host does on its own.
+     *
+     * 🔴 Owned by the caller, not remembered here. In two panes the scaffold has to stop drawing the
+     * list and take the pane's detail over the whole window, so it is the scaffold's state; a copy
+     * kept here as well would be a second answer to "is this maximized" that could disagree with the
+     * layout the user is actually looking at.
+     */
+    maximized: Boolean = false,
+    /**
+     * Toggle [maximized]. 🔴 Null draws NO maximize button at all, the same rule every other
+     * nullable callback here follows: the debug gallery draws this screen with nothing behind it, so
+     * a button that could take the message full screen but leave the gallery's own chrome in place
+     * is a control that lies about what it does.
+     */
+    onToggleMaximize: (() -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
@@ -231,23 +252,42 @@ fun GridlinkThreadScreen(
         onBack = onBack,
         modifier = modifier,
         embedded = embedded,
+        maximized = maximized,
         titleAction = {
-            GridlinkDetailToggleButton(
-                icon = Icons.Outlined.StarBorder,
-                activeIcon = Icons.Filled.Star,
-                // Names the state it will move TO, like every other toggle in the app. A control
-                // labelled with what it currently is reads as a status line to a screen reader and
-                // leaves "what happens if I press it" unanswered.
-                label = if (starred) "Remove star" else "Star",
-                active = starred,
-                onClick = {
-                    val next = !starred
-                    pendingStar = next
-                    onAction(
-                        if (next) GridlinkThreadAction.STAR else GridlinkThreadAction.UNSTAR,
+            // Two controls in the frame's one slot, as a Row rather than a second slot on the frame.
+            // The slot is specified as "one [GridlinkDimens.headerControl] of height beside the
+            // title", and a row of two circles is still exactly that height, so both layouts place
+            // it the way they already place one.
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s12),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // 🔴 Before the star, so the star keeps the trailing position it has always had.
+                // Muscle memory for the star is worth more than the new button being first.
+                if (onToggleMaximize != null) {
+                    GridlinkDetailCircleButton(
+                        icon = Icons.Outlined.OpenInFull,
+                        label = "Maximize",
+                        onClick = onToggleMaximize,
                     )
-                },
-            )
+                }
+                GridlinkDetailToggleButton(
+                    icon = Icons.Outlined.StarBorder,
+                    activeIcon = Icons.Filled.Star,
+                    // Names the state it will move TO, like every other toggle in the app. A control
+                    // labelled with what it currently is reads as a status line to a screen reader
+                    // and leaves "what happens if I press it" unanswered.
+                    label = if (starred) "Remove star" else "Star",
+                    active = starred,
+                    onClick = {
+                        val next = !starred
+                        pendingStar = next
+                        onAction(
+                            if (next) GridlinkThreadAction.STAR else GridlinkThreadAction.UNSTAR,
+                        )
+                    },
+                )
+            }
         },
         // 🔴 Embedded only, and it is the same block either way — not a second copy of the sender
         // written for the pane. In two panes the frame draws it above the glass with the subject
@@ -419,7 +459,31 @@ fun GridlinkThreadScreen(
                 }
             }
         }
+
+        // 🔴 Restore floats over the message instead of sitting where Maximize was. The header band
+        // is exactly what maximizing gave up, so the control that undoes it cannot live there, and
+        // the alternative — keeping a strip of chrome so the button has a home — is not the "literally
+        // full screen" he asked for. Top-right, over the message's own top margin, which is the one
+        // part of a mail that is reliably empty.
+        //
+        // ⚠️ It does NOT fade out after a delay. A control that hides itself is a control the reader
+        // has to remember exists, and this one is the way out of a mode with no system bars in it.
+        if (maximized && onToggleMaximize != null) {
+            GridlinkDetailCircleButton(
+                icon = Icons.Outlined.CloseFullscreen,
+                label = "Restore",
+                onClick = onToggleMaximize,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(GridlinkSpacing.s12),
+            )
+        }
     }
+
+    // Hides the status and navigation bars while this message owns the display, and puts them back
+    // on the way out however the reader leaves. See [GridlinkImmersive] for why that is a
+    // DisposableEffect rather than a pair of calls.
+    GridlinkImmersive(enabled = maximized)
 
     if (showingMore) {
         GridlinkThreadMoreSheet(

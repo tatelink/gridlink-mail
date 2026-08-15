@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -137,20 +138,46 @@ fun GridlinkDetailFrame(
      * frame has no business styling a sender.
      */
     header: (@Composable () -> Unit)? = null,
+    /**
+     * Full screen: no title, no margins, no glass, and no system bars (the caller hides those, see
+     * [GridlinkImmersive]). Tate asked for a maximize that "blows up the email to literally full
+     * screen", and every one of those is a piece of the window this frame normally keeps for itself.
+     *
+     * ## 🔴 What is NOT given up, and why
+     * The [bottom] row stays, on his call: maximizing is about reading room, and the button you want
+     * after a long message is Reply, which is the one that would have disappeared. Getting BACK is
+     * the caller's problem rather than the frame's, because the control that restores has to sit
+     * over the content once the header is gone, which is a decision about the content — see
+     * [GridlinkThreadScreen], the only screen that passes this true.
+     *
+     * ⚠️ It overrides [embedded] wherever the two disagree. A maximized pane is not a pane any more:
+     * it covers the window, so it takes the window's insets and drops the trailing gap it was
+     * leaving for a compose button that is no longer on screen.
+     */
+    maximized: Boolean = false,
     panel: @Composable BoxScope.() -> Unit,
 ) {
     val colors = GridlinkTheme.colors
-    val panelShape = RoundedCornerShape(GridlinkRadii.card)
+    // Square to the screen edges when maximized. Rounded corners are how this app says "a sheet of
+    // glass floating on a backdrop"; there is no backdrop left to float on, and a rounded rectangle
+    // with the display's own corners showing through it just looks like a mistake.
+    val panelShape = if (maximized) RoundedCornerShape(0.dp) else RoundedCornerShape(GridlinkRadii.card)
 
     val body: @Composable () -> Unit = {
         Column(
-            modifier = if (embedded) {
-                Modifier.fillMaxSize()
-            } else {
-                Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)
+            modifier = when {
+                // 🔴 The cutout, not the system bars. The bars are hidden while this is up, so
+                // padding for them would leave a black band where the status bar used to be; the
+                // camera hole does not go away, and text under it is text nobody can read.
+                maximized -> Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.displayCutout)
+                embedded -> Modifier.fillMaxSize()
+                else -> Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)
             },
         ) {
-            if (embedded) {
+            // 🔴 `&& !maximized` on both arms, so maximized draws NO header of either kind. The
+            // subject and the sender are both in the message itself, and the title band is the
+            // single biggest piece of height on offer here.
+            if (embedded && !maximized) {
                 // The pane's own header band, in the space the scaffold's chrome row used to
                 // occupy across the top of BOTH panes. That row now lives inside the list column
                 // (see [GridlinkScaffold]), so this side of the window is free, and this is what
@@ -202,7 +229,7 @@ fun GridlinkDetailFrame(
                         titleAction()
                     }
                 }
-            } else {
+            } else if (!maximized) {
                 GridlinkDetailHeader(title = title, onBack = onBack, titleAction = titleAction)
             }
 
@@ -210,10 +237,18 @@ fun GridlinkDetailFrame(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = GridlinkSpacing.chrome)
+                    .padding(horizontal = if (maximized) 0.dp else GridlinkSpacing.chrome)
                     .clip(panelShape)
                     .background(colors.listSurface, panelShape)
-                    .border(GridlinkDimens.hairline, colors.surfaceBorder, panelShape),
+                    // No hairline when maximized: it would draw a one-pixel box around the whole
+                    // display, which reads as a rendering fault rather than as an edge.
+                    .then(
+                        if (maximized) {
+                            Modifier
+                        } else {
+                            Modifier.border(GridlinkDimens.hairline, colors.surfaceBorder, panelShape)
+                        },
+                    ),
             ) {
                 // 🔴 One layout in both cases now. The pane used to draw its title inside the glass
                 // over a hairline, which meant the panel had two shapes and the reading pane's
@@ -230,7 +265,7 @@ fun GridlinkDetailFrame(
                 // so the two columns no longer shared an outline and the button sat on glass.
                 // The standing screen has no such neighbour: it covers the pill, so it keeps
                 // the tight margin.
-                val tail = if (embedded) {
+                val tail = if (embedded && !maximized) {
                     GridlinkSpacing.s16 + GRIDLINK_PILL_HEIGHT + GridlinkSpacing.chrome
                 } else {
                     GridlinkSpacing.chrome
@@ -257,7 +292,7 @@ fun GridlinkDetailFrame(
                             // the fix there was to swallow the stray tap. Here there is no stray tap
                             // to swallow: both controls are live and both are wanted, so the row
                             // moves over instead.
-                            end = if (embedded) {
+                            end = if (embedded && !maximized) {
                                 GridlinkSpacing.chrome + GridlinkDimens.composeButton +
                                     GridlinkSpacing.s16
                             } else {
@@ -273,7 +308,7 @@ fun GridlinkDetailFrame(
         }
     }
 
-    if (embedded) {
+    if (embedded && !maximized) {
         // No backdrop and no touch-swallowing. Both exist for a screen sitting ON the list; a pane
         // sitting BESIDE it has the scaffold's single backdrop underneath it and no sibling behind
         // it to leak taps into.
