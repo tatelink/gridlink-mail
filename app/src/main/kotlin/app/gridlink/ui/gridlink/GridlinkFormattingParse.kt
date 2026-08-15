@@ -35,8 +35,13 @@ private class FormattedHtmlParser(private val html: String) {
     private val open = mutableListOf<Pair<GridlinkMark, Pair<String, Int>>>()
     private var at = 0
 
-    /** Set by `</ul>` and `</ol>`: the list's last line still needs its newline, but only one. */
-    private var listJustClosed = false
+    /**
+     * Set when a block element closes: its last line still needs its newline, but only one.
+     *
+     * Every block this parser understands owes exactly the same debt, so they share the flag rather
+     * than each tracking its own.
+     */
+    private var blockJustClosed = false
 
     fun parse(): GridlinkBody? {
         while (at < html.length) {
@@ -50,15 +55,19 @@ private class FormattedHtmlParser(private val html: String) {
             when {
                 br != null -> {
                     at += br.value.length
-                    // A <br> straight after a list IS that list's line ending, not a second one:
+                    // A <br> straight after a block IS that block's line ending, not a second one:
                     // it pays the debt [separate] would otherwise have paid, and adds nothing.
-                    listJustClosed = false
+                    blockJustClosed = false
                     text.append('\n')
                 }
                 html.startsWith("<b>", at) -> { at += 3; push(GridlinkMark.BOLD) }
                 html.startsWith("<i>", at) -> { at += 3; push(GridlinkMark.ITALIC) }
+                html.startsWith("<u>", at) -> { at += 3; push(GridlinkMark.UNDERLINE) }
+                html.startsWith("<s>", at) -> { at += 3; push(GridlinkMark.STRIKE) }
                 html.startsWith("</b>", at) -> { at += 4; if (!pop(GridlinkMark.BOLD)) return null }
                 html.startsWith("</i>", at) -> { at += 4; if (!pop(GridlinkMark.ITALIC)) return null }
+                html.startsWith("</u>", at) -> { at += 4; if (!pop(GridlinkMark.UNDERLINE)) return null }
+                html.startsWith("</s>", at) -> { at += 4; if (!pop(GridlinkMark.STRIKE)) return null }
                 html.startsWith("</a>", at) -> { at += 4; if (!pop(GridlinkMark.LINK)) return null }
                 anchor != null -> {
                     at += anchor.value.length
@@ -74,6 +83,12 @@ private class FormattedHtmlParser(private val html: String) {
                         return null
                     }
                 }
+                html.startsWith("<blockquote>", at) -> {
+                    at += 12
+                    if (!quote()) return null
+                }
+                html.startsWith("<h1>", at) -> { at += 4; if (!heading(1)) return null }
+                html.startsWith("<h2>", at) -> { at += 4; if (!heading(2)) return null }
                 else -> return null
             }
         }
@@ -93,11 +108,17 @@ private class FormattedHtmlParser(private val html: String) {
         return true
     }
 
-    /** The newline a closed list still owes, paid once, immediately before whatever follows it. */
+    /** The newline a closed block still owes, paid once, immediately before whatever follows it. */
     private fun separate() {
-        if (!listJustClosed) return
-        listJustClosed = false
+        if (!blockJustClosed) return
+        blockJustClosed = false
         if (text.isNotEmpty() && text.last() != '\n') text.append('\n')
+    }
+
+    /** Begin a line at the head of a block, prefixed with the marker that block is written as. */
+    private fun startLine(prefix: String) {
+        if (text.isNotEmpty() && text.last() != '\n') text.append('\n')
+        text.append(prefix)
     }
 
     private fun push(mark: GridlinkMark, href: String = "") {
@@ -123,41 +144,72 @@ private class FormattedHtmlParser(private val html: String) {
             when {
                 !ordered && html.startsWith("</ul>", at) -> {
                     at += 5
-                    listJustClosed = true
+                    blockJustClosed = true
                     return true
                 }
                 ordered && html.startsWith("</ol>", at) -> {
                     at += 5
-                    listJustClosed = true
+                    blockJustClosed = true
                     return true
                 }
                 li != null -> {
                     at += li.value.length
                     li.groupValues[1].toIntOrNull()?.let { number = it }
-                    if (text.isNotEmpty() && text.last() != '\n') text.append('\n')
-                    text.append(if (ordered) "$number. " else GRIDLINK_BULLET_PREFIX)
+                    startLine(if (ordered) "$number. " else GRIDLINK_BULLET_PREFIX)
                     number++
-                    if (!item()) return false
+                    if (!inline("</li>")) return false
                 }
                 else -> return false
             }
         }
     }
 
-    /** The inside of one `<li>`. Inline marks only: a nested list or a `<br>` here is a refusal. */
-    private fun item(): Boolean {
+    /**
+     * One `<blockquote>` and its lines, each written back out as a `> ` line.
+     *
+     * A `<br>` inside is a line break within the quote, which is the one place this parser treats
+     * one as anything other than a plain newline.
+     */
+    private fun quote(): Boolean {
+        separate()
+        startLine(GRIDLINK_QUOTE_PREFIX)
+        if (!inline("</blockquote>", onBreak = { startLine(GRIDLINK_QUOTE_PREFIX) })) return false
+        blockJustClosed = true
+        return true
+    }
+
+    /** One `<h1>`/`<h2>`, written back out as the `# ` or `## ` line it came from. */
+    private fun heading(level: Int): Boolean {
+        separate()
+        startLine("#".repeat(level) + " ")
+        if (!inline("</h$level>")) return false
+        blockJustClosed = true
+        return true
+    }
+
+    /**
+     * The inside of one block, up to [end]. Inline marks only: a nested block is a refusal, and so
+     * is a `<br>` unless [onBreak] is given to say what one means here.
+     */
+    private fun inline(end: String, onBreak: (() -> Unit)? = null): Boolean {
         val depth = open.size
         while (at < html.length) {
             val anchor = TAG_A.matchAt(html, at)
+            val br = if (onBreak != null) TAG_BR.matchAt(html, at) else null
             when {
-                html.startsWith("</li>", at) -> {
-                    at += 5
+                html.startsWith(end, at) -> {
+                    at += end.length
                     return open.size == depth
                 }
+                br != null -> { at += br.value.length; onBreak!!() }
                 html.startsWith("<b>", at) -> { at += 3; push(GridlinkMark.BOLD) }
                 html.startsWith("<i>", at) -> { at += 3; push(GridlinkMark.ITALIC) }
+                html.startsWith("<u>", at) -> { at += 3; push(GridlinkMark.UNDERLINE) }
+                html.startsWith("<s>", at) -> { at += 3; push(GridlinkMark.STRIKE) }
                 html.startsWith("</b>", at) -> { at += 4; if (!pop(GridlinkMark.BOLD)) return false }
                 html.startsWith("</i>", at) -> { at += 4; if (!pop(GridlinkMark.ITALIC)) return false }
+                html.startsWith("</u>", at) -> { at += 4; if (!pop(GridlinkMark.UNDERLINE)) return false }
+                html.startsWith("</s>", at) -> { at += 4; if (!pop(GridlinkMark.STRIKE)) return false }
                 html.startsWith("</a>", at) -> { at += 4; if (!pop(GridlinkMark.LINK)) return false }
                 anchor != null -> {
                     at += anchor.value.length

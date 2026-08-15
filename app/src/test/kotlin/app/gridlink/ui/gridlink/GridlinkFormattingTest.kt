@@ -25,6 +25,10 @@ class GridlinkFormattingTest {
 
     private fun italic(start: Int, end: Int) = GridlinkSpan(start, end, GridlinkMark.ITALIC)
 
+    private fun underline(start: Int, end: Int) = GridlinkSpan(start, end, GridlinkMark.UNDERLINE)
+
+    private fun strike(start: Int, end: Int) = GridlinkSpan(start, end, GridlinkMark.STRIKE)
+
     private fun link(start: Int, end: Int, href: String) =
         GridlinkSpan(start, end, GridlinkMark.LINK, href)
 
@@ -64,6 +68,29 @@ class GridlinkFormattingTest {
     @Test fun `bold and italic wrap only what they cover`() {
         assertEquals("<b>hello</b> world", formattedHtml(body("hello world", bold(0, 5))))
         assertEquals("hello <i>world</i>", formattedHtml(body("hello world", italic(6, 11))))
+    }
+
+    @Test fun `underline and strikethrough wrap only what they cover`() {
+        assertEquals("<u>hello</u> world", formattedHtml(body("hello world", underline(0, 5))))
+        assertEquals("hello <s>world</s>", formattedHtml(body("hello world", strike(6, 11))))
+    }
+
+    @Test fun `all four inline marks stack on one word in a fixed order`() {
+        // 🔴 The order is `markOrder`, not the order the enum happens to declare, and it is pinned
+        // here because the parser walks it back the same way. A word wrapped in a different order
+        // still reads the same to a person and does not read back as itself.
+        val html = formattedHtml(
+            body("word", bold(0, 4), italic(0, 4), underline(0, 4), strike(0, 4)),
+        )
+        assertEquals("<b><i><u><s>word</s></u></i></b>", html)
+    }
+
+    @Test fun `neither new mark changes the plain part`() {
+        // Underline and strikethrough have no text/plain spelling anyone agrees on, so the plain
+        // part is the body as typed. A `~~word~~` there would be noise to most readers.
+        val marked = body("hello world", underline(0, 5), strike(6, 11))
+        assertEquals("hello world", formattedPlain(marked))
+        assertFalse(marked.isPlain)
     }
 
     @Test fun `overlapping marks still close in the order they opened`() {
@@ -261,20 +288,20 @@ class GridlinkFormattingTest {
     }
 
     @Test fun `toggling a list marks every line the selection touches`() {
-        val out = toggleList(body("milk\neggs"), 0, 9, ordered = false)
+        val out = toggleBlock(body("milk\neggs"), 0, 9, GridlinkBlock.BULLET)
         assertEquals("• milk\n• eggs", out.body.text)
-        val back = toggleList(out.body, 0, out.body.text.length, ordered = false)
+        val back = toggleBlock(out.body, 0, out.body.text.length, GridlinkBlock.BULLET)
         assertEquals("milk\neggs", back.body.text)
     }
 
     @Test fun `a numbered list numbers itself`() {
-        val out = toggleList(body("a\nb\nc"), 0, 5, ordered = true)
+        val out = toggleBlock(body("a\nb\nc"), 0, 5, GridlinkBlock.NUMBER)
         assertEquals("1. a\n2. b\n3. c", out.body.text)
     }
 
     @Test fun `switching list kind replaces the marker rather than stacking it`() {
-        val bullets = toggleList(body("a\nb"), 0, 3, ordered = false).body
-        val numbers = toggleList(bullets, 0, bullets.text.length, ordered = true).body
+        val bullets = toggleBlock(body("a\nb"), 0, 3, GridlinkBlock.BULLET).body
+        val numbers = toggleBlock(bullets, 0, bullets.text.length, GridlinkBlock.NUMBER).body
         assertEquals("1. a\n2. b", numbers.text)
     }
 
@@ -282,7 +309,7 @@ class GridlinkFormattingTest {
         // "milk\neggs" with "eggs" bold. Bulleting both lines inserts two markers, and the bold has
         // to end up on "eggs" and not two characters to the left of it.
         val start = body("milk\neggs", bold(5, 9))
-        val out = toggleList(start, 0, 9, ordered = false)
+        val out = toggleBlock(start, 0, 9, GridlinkBlock.BULLET)
         assertEquals("• milk\n• eggs", out.body.text)
         val span = out.body.spans.single()
         assertEquals("eggs", out.body.text.substring(span.start, span.end))
@@ -307,6 +334,120 @@ class GridlinkFormattingTest {
         assertNull(continueList(body("plain text"), 10))
         // Mid-line: this is an ordinary split, not a new item.
         assertNull(continueList(body("• milk"), 4))
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Quotes and headings
+    // -----------------------------------------------------------------------------------------
+
+    @Test fun `a run of quoted lines becomes one blockquote, not a stack of them`() {
+        // One passage that happens to wrap, not three separately indented boxes.
+        assertEquals(
+            "<blockquote>as he put it<br>and then some</blockquote>",
+            formattedHtml(body("> as he put it\n> and then some")),
+        )
+        assertEquals("<blockquote>alone</blockquote>", formattedHtml(body("> alone")))
+    }
+
+    @Test fun `a blank line between quotes keeps them apart`() {
+        assertEquals(
+            "<blockquote>a</blockquote><br><br><blockquote>b</blockquote>",
+            formattedHtml(body("> a\n\n> b")),
+        )
+    }
+
+    @Test fun `a heading is one line and stands on its own`() {
+        assertEquals("<h1>Plans</h1>", formattedHtml(body("# Plans")))
+        assertEquals("<h2>Later</h2>", formattedHtml(body("## Later")))
+        assertEquals("<h1>Plans</h1><h2>Later</h2>", formattedHtml(body("# Plans\n## Later")))
+        assertEquals("<h1>Plans</h1>the body", formattedHtml(body("# Plans\nthe body")))
+    }
+
+    @Test fun `blocks carry marks and escaping like any other line`() {
+        assertEquals("<h1><b>Plans</b></h1>", formattedHtml(body("# Plans", bold(2, 7))))
+        assertEquals("<blockquote>a &amp; b</blockquote>", formattedHtml(body("> a & b")))
+        assertEquals(
+            "<blockquote><a href=\"https://e.com\">here</a></blockquote>",
+            formattedHtml(body("> here", link(2, 6, "https://e.com"))),
+        )
+    }
+
+    @Test fun `a body carrying a quote or a heading is not plain either`() {
+        assertFalse(body("> quoted").isPlain)
+        assertFalse(body("# heading").isPlain)
+        assertFalse(body("## heading").isPlain)
+        // Three hashes is not a heading this app writes, so it stays ordinary text.
+        assertTrue(body("### not one").isPlain)
+        // A hash with no space after it is a word, not a marker.
+        assertTrue(body("#1 in the charts").isPlain)
+        // Neither is a greater-than with no space: that is a comparison.
+        assertTrue(body("a >b").isPlain)
+    }
+
+    @Test fun `toggling a block marks every line the selection touches, and takes it back off`() {
+        val quoted = toggleBlock(body("a\nb"), 0, 3, GridlinkBlock.QUOTE)
+        assertEquals("> a\n> b", quoted.body.text)
+        val back = toggleBlock(quoted.body, 0, quoted.body.text.length, GridlinkBlock.QUOTE)
+        assertEquals("a\nb", back.body.text)
+
+        val heading = toggleBlock(body("Plans"), 0, 5, GridlinkBlock.HEADING1)
+        assertEquals("# Plans", heading.body.text)
+        assertEquals("Plans", toggleBlock(heading.body, 0, 7, GridlinkBlock.HEADING1).body.text)
+    }
+
+    @Test fun `a line holds one block at a time, so applying another replaces it`() {
+        // 🔴 There is no nesting here on purpose: the marker lives in the text, and stacking them
+        // would put `> # ` in the plain part, which reads as neither.
+        val quoted = toggleBlock(body("a"), 0, 1, GridlinkBlock.QUOTE).body
+        assertEquals("# a", toggleBlock(quoted, 0, quoted.text.length, GridlinkBlock.HEADING1).body.text)
+        val h1 = toggleBlock(body("a"), 0, 1, GridlinkBlock.HEADING1).body
+        assertEquals("## a", toggleBlock(h1, 0, h1.text.length, GridlinkBlock.HEADING2).body.text)
+        assertEquals("• a", toggleBlock(h1, 0, h1.text.length, GridlinkBlock.BULLET).body.text)
+    }
+
+    @Test fun `a mark keeps its word when the line in front of it grows a heading`() {
+        val start = body("Plans", bold(0, 5))
+        val out = toggleBlock(start, 0, 5, GridlinkBlock.HEADING2)
+        assertEquals("## Plans", out.body.text)
+        val span = out.body.spans.single()
+        assertEquals("Plans", out.body.text.substring(span.start, span.end))
+    }
+
+    @Test fun `the block buttons light exactly when the toggle would turn one off`() {
+        val quoted = body("> a\n> b")
+        assertTrue(hasBlock(quoted, 0, 7, GridlinkBlock.QUOTE))
+        assertFalse(hasBlock(quoted, 0, 7, GridlinkBlock.HEADING1))
+
+        val h1 = body("# Plans")
+        assertTrue(hasBlock(h1, 0, 7, GridlinkBlock.HEADING1))
+        assertFalse(hasBlock(h1, 0, 7, GridlinkBlock.HEADING2))
+
+        // A selection spanning a quoted line and a plain one is not "on": tapping turns it all on.
+        assertFalse(hasBlock(body("intro\n> a"), 0, 9, GridlinkBlock.QUOTE))
+    }
+
+    @Test fun `the return key carries a quote on and then lets go of it`() {
+        val first = continueList(body("> quoted"), 8)!!
+        assertEquals("> quoted\n> ", first.body.text)
+        assertEquals(11, first.selectionStart)
+        val out = continueList(first.body, 11)!!
+        assertEquals("> quoted\n", out.body.text)
+    }
+
+    @Test fun `the return key ends a heading rather than making a second one`() {
+        // 🔴 A heading is a title, and nobody wants the line under it to be another title. Null
+        // here means the ordinary newline stands, which is exactly the wanted behaviour.
+        assertNull(continueList(body("# Plans"), 7))
+        assertNull(continueList(body("## Later"), 8))
+        // An empty heading still clears, like any other empty marker.
+        assertEquals("", continueList(body("# "), 2)!!.body.text)
+    }
+
+    @Test fun `plain text takes the block markers out too`() {
+        val formatted = body("# Plans\n> quoted", bold(2, 7))
+        val edit = stripFormatting(formatted, caret = 16)
+        assertEquals("Plans\nquoted", edit.body.text)
+        assertTrue(edit.body.isPlain)
     }
 
     // -----------------------------------------------------------------------------------------
@@ -341,6 +482,19 @@ class GridlinkFormattingTest {
             body("a & <b> c"),
             body("abcdefgh", bold(0, 5), italic(3, 8)),
             body("• milk\n• eggs", bold(2, 6), link(9, 13, "https://e.com")),
+            body("underlined", underline(0, 10)),
+            body("struck", strike(0, 6)),
+            body("word", bold(0, 4), italic(0, 4), underline(0, 4), strike(0, 4)),
+            body("> alone"),
+            body("> as he put it\n> and then some"),
+            body("> a\n\n> b"),
+            body("intro\n> quoted\nafter"),
+            body("# Plans"),
+            body("## Later"),
+            body("# Plans\n## Later"),
+            body("# Plans\nthe body\n\n> he said\n• milk"),
+            body("# Plans", bold(2, 7)),
+            body("> here", link(2, 6, "https://e.com")),
         )
         for (original in samples) {
             val html = formattedHtml(original)
@@ -399,18 +553,18 @@ class GridlinkFormattingTest {
 
     @Test fun `the list buttons light exactly when the toggle would turn one off`() {
         val list = body("• milk\n• eggs")
-        assertTrue(hasList(list, 0, 0, ordered = false))
-        assertTrue(hasList(list, 2, 11, ordered = false))
-        assertFalse(hasList(list, 0, 0, ordered = true))
+        assertTrue(hasBlock(list, 0, 0, GridlinkBlock.BULLET))
+        assertTrue(hasBlock(list, 2, 11, GridlinkBlock.BULLET))
+        assertFalse(hasBlock(list, 0, 0, GridlinkBlock.NUMBER))
 
         // A selection spanning a list line and a plain one is not "on": tapping turns it all on.
         val mixed = body("Shopping:\n• milk")
-        assertFalse(hasList(mixed, 0, 14, ordered = false))
-        assertTrue(hasList(mixed, 12, 14, ordered = false))
+        assertFalse(hasBlock(mixed, 0, 14, GridlinkBlock.BULLET))
+        assertTrue(hasBlock(mixed, 12, 14, GridlinkBlock.BULLET))
 
         val numbered = body("1. one\n2. two")
-        assertTrue(hasList(numbered, 0, 13, ordered = true))
-        assertFalse(hasList(numbered, 0, 13, ordered = false))
+        assertTrue(hasBlock(numbered, 0, 13, GridlinkBlock.NUMBER))
+        assertFalse(hasBlock(numbered, 0, 13, GridlinkBlock.BULLET))
     }
 
     @Test fun `plain text takes the marks off and the markers out`() {
@@ -474,6 +628,15 @@ class GridlinkFormattingTest {
             "<a href='x'>single quoted</a>",
             "<img src=\"x\">",
             "plain text with a stray > angle",
+            // Blocks this app has no marker for, and blocks nested inside each other.
+            "<h3>too deep</h3>",
+            "<blockquote><blockquote>nested</blockquote></blockquote>",
+            "<blockquote><ul><li>a</li></ul></blockquote>",
+            "<h1><h2>x</h2></h1>",
+            "<blockquote>unclosed",
+            "<h1>mismatched</h2>",
+            "<u>unclosed underline",
+            "<strike>the other spelling</strike>",
         )
         for (html in foreign) assertNull(html, parseFormattedHtml(html))
     }
