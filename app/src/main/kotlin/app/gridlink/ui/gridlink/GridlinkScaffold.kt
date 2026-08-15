@@ -785,6 +785,16 @@ fun GridlinkRoot(
      */
     onSaveAttachment: ((GridlinkAttachment) -> Unit)? = null,
     /**
+     * Answer the open message's meeting invitation, or null when nobody behind this screen can send
+     * one. Null for [onOpenAttachment]'s reason: over the sample there is no account to reply AS, so
+     * the card shows the event and no buttons rather than buttons that answer nobody.
+     */
+    onRespondToInvite: ((partstat: String) -> Unit)? = null,
+    /** Hand that event to the phone's calendar app, or null. */
+    onAddToCalendar: (() -> Boolean)? = null,
+    /** Hand the raw invitation file to whatever can open it, or null. */
+    onOpenInvitation: (() -> Unit)? = null,
+    /**
      * Put a tag on a message, or take it off, or null when nobody behind this screen can.
      *
      * Nullable for [onOpenAttachment]'s reason and with the same effect: over the sample there is no
@@ -2093,6 +2103,12 @@ fun GridlinkRoot(
                         attachmentStatus = mail?.open
                             ?.takeIf { it.id == current.message.id }
                             ?.attachmentStatus,
+                        // Same guard again, and here it is the load-bearing one: an invitation drawn
+                        // under the wrong message is a meeting the reader could accept by mistake.
+                        invite = mail?.open?.takeIf { it.id == current.message.id }?.invite,
+                        onRespondToInvite = onRespondToInvite,
+                        onAddToCalendar = onAddToCalendar,
+                        onOpenInvitation = onOpenInvitation,
                         embedded = embedded,
                         toolbarActions = toolbarActions,
                         // Bound to the message the picker is actually over, so the screen below

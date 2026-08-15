@@ -171,6 +171,17 @@ data class GridlinkOpenMessage(
      * server; putting it here means it is either fetched or the row simply is not offered.
      */
     val unsubscribe: GridlinkUnsubscribe? = null,
+    /**
+     * The meeting invitation this message carries, or null for the overwhelming majority of mail
+     * that carries none.
+     *
+     * 🔴 Here for [unsubscribe]'s reason and it is the same reason: the `text/calendar` part arrives
+     * with the BODY, and nothing about it is known from the list row. It goes non-null the moment
+     * that part is SEEN rather than when it is read, carrying [GridlinkInvite.loading]: the reader
+     * should learn there is an invitation here at the same time as the message, not a beat later
+     * when a card shoves the prose down the screen.
+     */
+    val invite: GridlinkInvite? = null,
 )
 
 /**
