@@ -186,8 +186,15 @@ object GridlinkMailMapping {
          */
         val account: Account? = null,
     ) {
-        /** An account, as a merged row needs it: one id to act on and one string to show. */
-        data class Account(val id: String, val label: String)
+        /**
+         * An account, as a merged row needs it: one id to act on, one string to name it, and the
+         * colour that names it on the row itself.
+         *
+         * [color] is ARGB and never null in the unified inbox: every account has one, chosen or
+         * assigned (see `resolveAccountColors`). The label survives alongside it because the colour
+         * is not readable aloud — it is what the bar tells a screen reader.
+         */
+        data class Account(val id: String, val label: String, val color: Int)
     }
 
     fun map(
@@ -263,6 +270,7 @@ object GridlinkMailMapping {
             // everywhere else. An id alone does not identify a message across accounts.
             id = GridlinkRowKey.encode(account?.id, email.id),
             accountLabel = account?.label,
+            accountColor = account?.color,
             // The display name if the sender wrote one, otherwise the address itself. Not the local
             // part prettied up: "accounts.payable" becoming "Accounts Payable" is the app inventing
             // a name for a correspondent, and the address is both shorter and true.
