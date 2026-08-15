@@ -285,10 +285,13 @@ drag-to-reorder third is permanently cut.
 
 ## Outside the app, still open
 
-- The **Entra app registration's display name** still reads "GridLink Mail" in the Azure console,
-  so Microsoft's device-code sign-in page shows the old casing. A console change, not a code one.
-  🔴 The display name only: the `clientId` is what every stored Outlook refresh token was issued
-  to, and changing it signs every Outlook account out.
+- ✅ **Entra app registration display name** renamed "GridLink Mail" → **"Gridlink Mail"**
+  (2026-08-15), so Microsoft's device-code sign-in page now shows the app's own casing. Done from
+  Orion with Azure CLI, signed in as brandon-parnell@outlook.com, tenant
+  `d63abcb9-1c4f-44d1-9b3a-ea03ef33b87a`. 🔴 The display name only: the `clientId` is what every
+  stored Outlook refresh token was issued to, and changing it signs every Outlook account out.
+  🔴 That tenant has **security defaults** on, which blocks `az login --use-device-code` outright
+  (AADSTS530035). Use the plain interactive browser login with `--tenant <id>`.
 
 ## Notes that outlive this plan
 

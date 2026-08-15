@@ -24,16 +24,15 @@ data class OAuthProvider(
         /**
          * Outlook / Microsoft (personal + work/school) over IMAP+SMTP with XOAUTH2.
          *
-         * [clientId] is our own Entra app registration, display name **GridLink Mail**. That name
+         * [clientId] is our own Entra app registration, display name **Gridlink Mail**. That name
          * is not decoration: Microsoft's device-code page prints the display name of whoever owns
          * the client id, so inheriting upstream's registration meant the sign-in screen said
          * "Sterna". It is a public identifier, not a secret, and it is safe in the repo.
          *
-         * ⚠️ The capital L is deliberate here and nowhere else. The app itself standardised on
-         * "Gridlink" (2026-08-14), but this line quotes what is actually typed into the Azure
-         * console today, and the sign-in page reads it from there, not from us. Correcting the
-         * spelling here without renaming the registration would leave a comment that quietly
-         * disagrees with the screen the user is looking at. Rename it in Entra first, then this.
+         * The spelling above quotes what is typed into the Azure console, because the sign-in page
+         * reads it from there and not from us. It said "GridLink Mail" until 2026-08-15, when the
+         * registration was renamed to match the app's own casing; keep the two in step, and rename
+         * in Entra FIRST so this line never disagrees with the screen the user is looking at.
          * 🔴 Rename the DISPLAY NAME only. Touching [clientId] signs every Outlook account out.
          *
          * The registration is a **public** client (Authentication → "Allow public client flows"
