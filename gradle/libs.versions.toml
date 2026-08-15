@@ -26,10 +26,15 @@ detekt = "1.23.8"
 # bump alongside the project's Kotlin upgrade.
 unifiedpush = "3.1.2"
 # BouncyCastle, for S/MIME signature VERIFICATION only (CMS SignedData lives in bcpkix,
-# the primitives in bcprov). Android ships a stripped org.bouncycastle of its own under the
-# provider name "BC", so nothing here may call Security.addProvider: the verifier passes a
-# provider INSTANCE to the Jca builders instead. See SmimeVerifier.
-bouncycastle = "1.81.1"
+# the ASN.1 and certificate reading in bcprov). 🔴 Nothing here may call Security.addProvider:
+# Android ships a stripped org.bouncycastle of its own under the provider name "BC", and the
+# verifier deliberately names no provider at all so the platform's crypto does the work. See
+# SmimeVerifier.
+# 1.84, not 1.81.1: two moderate advisories land on the older pair (an LDAP injection in
+# bcprov's X509LDAPCertStore and a risky algorithm in bcpkix). Neither is on a path this app
+# walks — it opens no LDAP store and holds no private key — but taking the fix is free, and an
+# advisory left standing on the default branch trains everyone to ignore the next one.
+bouncycastle = "1.84"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
