@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
@@ -16,10 +18,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = "17"
     }
 }
 
@@ -48,4 +46,14 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     // Real SQLite engine for unit-testing the conversation-grouping SQL on the JVM.
     testImplementation("org.xerial:sqlite-jdbc:3.45.3.0")
+}
+
+kotlin {
+    // 🔴 The `compilerOptions` DSL, not `kotlinOptions`. The old block is an ERROR from Kotlin 2.2
+    // on, which is what fails every Dependabot Kotlin bump before it compiles a line of source.
+    // Same value as `compileOptions` above and they have to stay in step: Java and Kotlin bytecode
+    // targets that disagree break at link time, not at build time.
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
+    }
 }
