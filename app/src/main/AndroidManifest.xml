@@ -8,6 +8,19 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Optional: recipient autocomplete from device contacts (off by default; opt-in in Settings). -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Optional: publishing the account's CardDAV/CalDAV cache into the system's own contacts and
+         calendar, so caller ID and the Calendar app see it (off by default; opt-in in Settings).
+         All four are asked for together and only when that switch is turned on — a sync adapter
+         runs with no Activity to attach a prompt to, so it can only check, never ask. READ is not
+         redundant beside WRITE: the mirror reconciles, so each pass has to read back what it wrote
+         last time to know what changed and what the server has since deleted. -->
+    <uses-permission android:name="android.permission.WRITE_CONTACTS" />
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+    <!-- Normal permissions (granted at install): let the app mark its own account's providers
+         syncable and ask the system to run a sync when the user turns the switch on. -->
+    <uses-permission android:name="android.permission.READ_SYNC_SETTINGS" />
+    <uses-permission android:name="android.permission.WRITE_SYNC_SETTINGS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- Normal permission (granted at install, nothing asked of the user): lets the app hear
@@ -193,6 +206,45 @@
             android:name=".widget.AgendaWidgetService"
             android:exported="false"
             android:permission="android.permission.BIND_REMOTEVIEWS" />
+
+        <!-- The system contacts/calendar mirror (Phase 3 #4). All three services are exported
+             because the system binds them from another process, and none of them carries an
+             android:permission — the framework binds them as itself, and a permission the binder
+             does not hold is a mirror that silently never runs. Nothing is exposed by that: the
+             authenticator issues no tokens and holds no credential (see GridlinkAuthenticator), and
+             a sync adapter's binder only lets a caller ask the sync framework to schedule a run. -->
+        <service
+            android:name=".sync.GridlinkAuthenticatorService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accounts.AccountAuthenticator" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accounts.AccountAuthenticator"
+                android:resource="@xml/authenticator" />
+        </service>
+
+        <service
+            android:name=".sync.ContactsSyncService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.content.SyncAdapter" />
+            </intent-filter>
+            <meta-data
+                android:name="android.content.SyncAdapter"
+                android:resource="@xml/contacts_syncadapter" />
+        </service>
+
+        <service
+            android:name=".sync.CalendarSyncService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.content.SyncAdapter" />
+            </intent-filter>
+            <meta-data
+                android:name="android.content.SyncAdapter"
+                android:resource="@xml/calendar_syncadapter" />
+        </service>
 
         <provider
             android:name="androidx.core.content.FileProvider"

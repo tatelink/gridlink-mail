@@ -150,6 +150,23 @@ class DavRepository(
     suspend fun contact(accountId: String, href: String): AddressBookContactEntity? =
         contactDao.byHref(accountId, href)
 
+    /**
+     * The whole cached address book and calendar for an account, plus the collections they came
+     * from: what the system-provider mirror republishes on each sync pass.
+     *
+     * Suspending one-shot reads rather than the Flows above, because the mirror is a batch job with
+     * a beginning and an end. Watching a Flow there would mean a write to the system providers on
+     * every keystroke of a sync, which is how a contacts database gets churned.
+     */
+    suspend fun allContacts(accountId: String): List<AddressBookContactEntity> =
+        contactDao.allForAccount(accountId)
+
+    suspend fun allEvents(accountId: String): List<CalendarEventEntity> =
+        eventDao.allForAccount(accountId)
+
+    suspend fun calendars(accountId: String): List<DavCollectionEntity> =
+        collectionDao.forKind(accountId, DavCollectionEntity.KIND_CALENDAR)
+
     // ---- Sync --------------------------------------------------------------------------------
 
     /** Bring the account's calendars up to date, if the user asked for calendars at all. */

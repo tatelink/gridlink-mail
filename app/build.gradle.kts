@@ -48,6 +48,13 @@ android {
             // A suffix only — versionName/versionCode themselves are never bumped for a test.
             versionNameSuffix = "-test"
         }
+        // The AccountManager account type behind the system contacts/calendar mirror, kept in step
+        // with applicationId by hand because a res value cannot read one.
+        //
+        // 🔴 It MUST differ between the two installable packages. Two apps claiming one account
+        // type means whichever authenticator the system happens to bind owns both apps' rows, so
+        // uninstalling the test app would take production's mirrored contacts with it.
+        resValue("string", "gridlink_account_type", if (testApp) "app.gridlink.test" else "app.gridlink")
     }
 
     // Distinct launcher icon for the test app: a greyscale copy of the Gridlink mark overriding

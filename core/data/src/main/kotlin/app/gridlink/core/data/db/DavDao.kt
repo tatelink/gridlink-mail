@@ -71,6 +71,17 @@ interface CalendarEventDao {
     @Query("SELECT * FROM calendar_events WHERE accountId = :accountId AND href = :href")
     suspend fun byHref(accountId: String, href: String): CalendarEventEntity?
 
+    /**
+     * Every cached event for an account, cancelled ones included.
+     *
+     * For the system-calendar mirror, which republishes the whole account each pass and has no
+     * window to bound the read with. Cancelled rows are kept here, unlike [observeInRange]: the
+     * mirror writes them as `STATUS_CANCELED` so a meeting called off still shows as called off in
+     * the system calendar, rather than silently vanishing from it.
+     */
+    @Query("SELECT * FROM calendar_events WHERE accountId = :accountId")
+    suspend fun allForAccount(accountId: String): List<CalendarEventEntity>
+
     @Query("SELECT COUNT(*) FROM calendar_events WHERE accountId = :accountId")
     fun observeCount(accountId: String): Flow<Int>
 
@@ -123,6 +134,10 @@ interface AddressBookContactDao {
 
     @Query("SELECT * FROM address_book_contacts WHERE accountId = :accountId AND href = :href")
     suspend fun byHref(accountId: String, href: String): AddressBookContactEntity?
+
+    /** Every cached card for an account, unsorted: the system-contacts mirror's whole input. */
+    @Query("SELECT * FROM address_book_contacts WHERE accountId = :accountId")
+    suspend fun allForAccount(accountId: String): List<AddressBookContactEntity>
 
     /**
      * Find a card by its vCard UID — how a contact just written over JMAP is found again after

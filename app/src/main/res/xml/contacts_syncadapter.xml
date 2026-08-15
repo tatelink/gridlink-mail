@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  supportsUploading="false" is the read-only declaration at the system's own level: it tells the
+  framework never to raise an upload sync for these rows, which is the other half of the
+  RAW_CONTACT_IS_READ_ONLY flag ContactsMirror writes. Editing happens in Gridlink.
+-->
+<sync-adapter xmlns:android="http://schemas.android.com/apk/res/android"
+    android:contentAuthority="com.android.contacts"
+    android:accountType="@string/gridlink_account_type"
+    android:supportsUploading="false"
+    android:userVisible="true"
+    android:isAlwaysSyncable="true" />

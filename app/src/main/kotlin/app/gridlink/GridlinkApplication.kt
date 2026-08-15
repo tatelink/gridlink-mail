@@ -115,6 +115,15 @@ class AppContainer(context: Context) {
                 Outbox.enqueue(appContext, item.id, delay)
             }
         }
+        // Keep the system contacts/calendar mirror's Android accounts in step with the app's own
+        // account list. Settings already reconciles on every switch, but an account added or
+        // removed inside Gridlink never goes near that screen, and a stale Android account is not
+        // inert: it keeps a removed mailbox's contacts sitting in the dialler. Cheap and a no-op
+        // when the mirror is off, which is the default.
+        appScope.launch {
+            runCatching { app.gridlink.sync.SystemMirror.apply(appContext, accountStore, settingsRepository) }
+                .onFailure { android.util.Log.w("GridlinkSync", "system-account reconcile failed", it) }
+        }
     }
 }
 

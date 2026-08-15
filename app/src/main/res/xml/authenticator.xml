@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The account type is a generated string resource, not a literal, because -PtestApp installs a
+  second package beside production. Two packages claiming one account type means whichever
+  authenticator the system binds owns both apps' rows. See GridlinkSystemAccount.
+-->
+<account-authenticator xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accountType="@string/gridlink_account_type"
+    android:icon="@mipmap/ic_launcher"
+    android:smallIcon="@mipmap/ic_launcher"
+    android:label="@string/app_name" />

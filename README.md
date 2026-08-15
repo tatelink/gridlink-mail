@@ -147,6 +147,11 @@ has never seen. Everything you already had is there.
   provider presets; a "test connection" button before saving
 - Per-account colour, sync window, and notification toggle; encrypted credential
   storage (AndroidKeyStore); app lock (biometric / PIN)
+- Optional: publish the account's CardDAV/CalDAV contacts and calendars into
+  **Android itself**, as a real system account, so caller ID, the Calendar app,
+  widgets and any people picker see them. Off by default; read-only (edits made
+  elsewhere are not sent to the server), and turning it off removes the account
+  and everything Gridlink put there
 
 **Encryption**
 - **OpenPGP** (via [OpenKeychain](https://f-droid.org/packages/org.sufficientlysecure.keychain/)):

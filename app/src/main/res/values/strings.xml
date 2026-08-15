@@ -469,6 +469,12 @@
     <string name="settings_recipient_suggestions_section">Recipient suggestions</string>
     <string name="settings_suggest_contacts_title">Suggest from contacts</string>
     <string name="settings_suggest_contacts_subtitle">Autocomplete recipients from this device\'s contacts while you type. Gridlink reads them on-device only, never uploads them. When off, it still suggests people you\'ve recently emailed.</string>
+    <string name="settings_system_sync_section">System contacts and calendar</string>
+    <string name="settings_system_sync_title">Add to Android</string>
+    <string name="settings_system_sync_subtitle">Publish this account\'s contacts and calendars as an Android account, so caller ID, the Calendar app, widgets and any people picker can see them.</string>
+    <string name="settings_system_sync_note">Read-only: edits made in other apps aren\'t sent back to the server. Only accounts with contact or calendar sync switched on are published. Turning this off removes the Android account and everything Gridlink put there.</string>
+    <string name="settings_system_sync_now_title">Sync now</string>
+    <string name="settings_system_sync_now_summary">Fetch from the server and refresh what Android sees</string>
     <string name="settings_storage_screen_title">Storage</string>
     <string name="settings_on_device_usage_section">On-device usage</string>
     <string name="settings_storage_total">Total</string>

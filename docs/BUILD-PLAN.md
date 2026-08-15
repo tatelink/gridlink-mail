@@ -99,9 +99,24 @@ so deleting the other UI only made two pre-existing holes impossible to keep ign
    schedule for a case that is not his own mail. The subline is the answer: say the latency rather
    than engineer around it. Do not re-propose.
 3. ✅ **Snooze, its missing screen.** Closed by `e48643d0`, see Phase 2.
-4. **Contacts and calendar as a real Android account**, so the system's own apps see them.
-   Largest item in the plan by some distance: an authenticator, a sync adapter, and provider
-   plumbing. Worth its own scoping pass before it starts.
+4. ✅ **Contacts and calendar as a real Android account.** Done 2026-08-15. An `AccountManager`
+   account per mail login (`GridlinkSystemAccount`), a credential-free authenticator
+   (`GridlinkAuthenticator`, which issues no tokens on purpose), and two sync adapters that fetch
+   over CardDAV/CalDAV and then publish the Room cache into `ContactsContract` and
+   `CalendarContract`. Off by default, one switch in Settings → Privacy and security, which is also
+   where the four contacts/calendar permissions are asked for: a sync adapter has no Activity to
+   attach a prompt to, so it can only check.
+   ⛔ **Decided 2026-08-15 (Tate): read-only, both providers.** Rows are written with
+   `CAL_ACCESS_READ` / `RAW_CONTACT_IS_READ_ONLY`, so an edit made in the system Contacts app is not
+   pushed back to the server. Two-way would need conflict handling against a DAV server the app does
+   not own, for a case DAVx5 already covers.
+   🔴 The account IS the anchor: both providers delete rows whose account is not registered, so
+   turning the switch off removes the account and the rows go with it. There is deliberately no
+   per-account switch; `SyncSelection` already answers that question.
+   The conversion rules live alone in `CalendarMirrorTimes` (all-day is midnight **UTC**; a
+   recurring row carries `RRULE` + `DURATION` and a **null** `DTEND`; an `EXDATE` on a timed event
+   must match the occurrence to the second; a detached override's `ORIGINAL_INSTANCE_TIME` comes
+   from the **master**, not from its own moved start) and are unit-tested.
 5. ✅ **Say the offline-first part out loud.** Closed 2026-08-15, documentation only, as planned.
    A "Works with no signal" section in the README that states the actual architecture in the user's
    terms (every screen reads the cache and only the cache; the network writes into it and draws

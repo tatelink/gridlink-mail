@@ -356,6 +356,12 @@
     <string name="settings_recipient_suggestions_section">Suggestions de destinataires</string>
     <string name="settings_suggest_contacts_title">Suggérer depuis les contacts</string>
     <string name="settings_suggest_contacts_subtitle">Compléter les destinataires depuis les contacts de cet appareil pendant la saisie. Gridlink les lit uniquement sur l\'appareil et ne les envoie jamais. Désactivé, il suggère quand même les personnes que vous avez contactées récemment.</string>
+    <string name="settings_system_sync_section">Contacts et agenda du système</string>
+    <string name="settings_system_sync_title">Ajouter à Android</string>
+    <string name="settings_system_sync_subtitle">Publie les contacts et agendas de ce compte comme un compte Android, afin que l\'identification d\'appel, l\'application Agenda, les widgets et tout sélecteur de contacts puissent les voir.</string>
+    <string name="settings_system_sync_note">Lecture seule : les modifications faites dans d\'autres applications ne sont pas renvoyées au serveur. Seuls les comptes dont la synchronisation des contacts ou de l\'agenda est activée sont publiés. Désactiver cette option supprime le compte Android et tout ce que Gridlink y a placé.</string>
+    <string name="settings_system_sync_now_title">Synchroniser maintenant</string>
+    <string name="settings_system_sync_now_summary">Récupérer depuis le serveur et actualiser ce que voit Android</string>
     <string name="settings_storage_screen_title">Stockage</string>
     <string name="settings_on_device_usage_section">Utilisation sur l\'appareil</string>
     <string name="settings_storage_total">Total</string>
