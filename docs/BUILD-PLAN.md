@@ -230,7 +230,20 @@ drag-to-reorder third is permanently cut.
     feedback address at all), and read receipts supplied the sixth.
     Not yet seen on a device: it compiles and the string parity gate passes, but nobody has looked
     at the screen.
-12. **The 49 Dependabot advisories.** Triage, not a blanket bump.
+12. ✅ **The 49 Dependabot advisories.** Already closed, by `c0368fab` on 2026-08-09; recorded here
+    2026-08-15 after re-checking the API, which now reports **0 open** and all 49 `fixed`.
+    The triage answer was that not one of them was in the app. The dependency graph was being
+    submitted unfiltered, so it described the **build classpath**: `com.android.tools.build:gradle`
+    drags in gRPC/Netty, BouncyCastle, protobuf, Guava, jdom2, jose4j and commons-compress, and that
+    tree produced every alert, including the one critical and the 21 highs, against code that never
+    leaves the build machine. Verified against `:app:releaseRuntimeClasspath` at the time: none of
+    those libraries ship, the only protobuf in the APK is 4.28.2 via Tink (already past the patched
+    3.25.5), and the only "guava" is `listenablefuture:1.0`, the empty placeholder artifact.
+    🔴 The reason this counted as a defect rather than a curiosity: 49 alerts about the build machine
+    are worse than no scanning at all, because a real one would have been invisible among them. The
+    fix was to submit only `runtimeClasspath` and `releaseRuntimeClasspath`, so an alert now
+    describes something a user installs. A blanket bump would have "fixed" nothing and churned the
+    toolchain.
 
 ## Outside the app, still open
 
