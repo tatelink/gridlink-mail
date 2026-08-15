@@ -1,19 +1,24 @@
 [versions]
-agp = "8.9.1"
-kotlin = "2.1.0"
+# 🔴 agp, kotlin, ksp and room move together or not at all. Kotlin 2.4 needs KSP 2.3, KSP 2.3 refuses
+# an AGP below 8.10, and KSP2 cannot run Room 2.6's processor ("unexpected jvm signature V").
+# Bumping any one of the four alone fails the build, so a Dependabot PR that touches one is either
+# taken with the rest or closed.
+# ⛔ androidx core-ktx stays at 1.15.0: 1.19 wants AGP 9.1 and compileSdk 37, which is its own job.
+agp = "8.13.2"
+kotlin = "2.4.10"
 coreKtx = "1.15.0"
 lifecycle = "2.8.7"
 activityCompose = "1.10.0"
 appcompat = "1.7.0"
 composeBom = "2025.01.00"
 navigation = "2.8.5"
-room = "2.6.1"
+room = "2.8.4"
 paging = "3.3.5"
 profileinstaller = "1.4.0"
-ksp = "2.1.0-1.0.29"
-okhttp = "4.12.0"
-kotlinxSerialization = "1.7.3"
-coroutines = "1.9.0"
+ksp = "2.3.11"
+okhttp = "5.4.0"
+kotlinxSerialization = "1.11.0"
+coroutines = "1.11.0"
 biometric = "1.1.0"
 fragment = "1.8.5"
 datastore = "1.1.1"
