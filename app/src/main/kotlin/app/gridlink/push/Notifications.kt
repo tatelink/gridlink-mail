@@ -210,15 +210,29 @@ object Notifications {
             .notify(("authrejected:$accountId").hashCode(), notification)
     }
 
-    /** The ongoing notification required for the foreground service. */
-    fun serviceNotification(context: Context): Notification =
-        NotificationCompat.Builder(context, CHANNEL_SERVICE)
+    /**
+     * The ongoing notification required for the foreground service.
+     *
+     * Tapping it opens the app. Android will not let this one be dismissed or hidden while mail is
+     * being watched, so it is the notification a user sees more than any other — and one that is
+     * always there and ignores every tap reads as broken software rather than as a requirement.
+     */
+    fun serviceNotification(context: Context): Notification {
+        val open = PendingIntent.getActivity(
+            context,
+            "watching".hashCode(),
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        return NotificationCompat.Builder(context, CHANNEL_SERVICE)
             .setSmallIcon(R.drawable.ic_stat_mail)
             .setContentTitle(context.getString(R.string.notif_watching))
             .setOngoing(true)
             .setShowWhen(false)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setContentIntent(open)
             .build()
+    }
 
     /**
      * [folderName] marks non-inbox mail (multi-folder watch, issue #16); null for the inbox.

@@ -607,6 +607,12 @@ fun ConnectScreen(
                 // add accounts, not buried in Settings → Backup. Below the form rather than above
                 // it: the setup grid is now the first thing on the screen, and two file-picker
                 // buttons wedged between that grid and the fields it fills read as part of it.
+                // 🔴 Re-decided 2026-08-15 and settled: moving them above the form was on the
+                // to-do list for a while, on the argument that somebody migrating should see the
+                // shortcut before typing credentials they did not need to type. Tate's call was
+                // to leave them here. Migrating is a once-ever action, and paying for it with a
+                // scroll is cheaper than every first-run user reading two file pickers as a third
+                // way to choose a provider. Do not move them back up without a new reason.
                 Spacer(Modifier.height(4.dp))
                 Text(stringResource(R.string.connect_import_header), style = MaterialTheme.typography.labelLarge)
                 OutlinedButton(
