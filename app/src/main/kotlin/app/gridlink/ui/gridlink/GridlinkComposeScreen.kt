@@ -413,9 +413,21 @@ fun GridlinkComposeScreen(
     }
 
     /**
-     * Bold or italic from the toolbar. With a selection it marks it; with a bare caret it arms
-     * [pendingMarks] instead, starting from what the caret would already inherit so the button
-     * reads as a switch rather than as a one-way door.
+     * A line block from the toolbar: the two lists, the quote, and the two heading levels.
+     *
+     * Unlike a mark there is nothing to arm at a bare caret, because a block belongs to the line
+     * rather than to a run of characters and the line already exists. Tapping with nothing selected
+     * therefore acts on the line the caret is in, which is what every editor does.
+     */
+    fun toggleBodyBlock(block: GridlinkBlock) {
+        val selection = body.selection
+        applyBodyEdit(toggleBlock(bodyValue(), selection.min, selection.max, block))
+    }
+
+    /**
+     * Bold, italic, underline or strikethrough from the toolbar. With a selection it marks it; with
+     * a bare caret it arms [pendingMarks] instead, starting from what the caret would already
+     * inherit so the button reads as a switch rather than as a one-way door.
      */
     fun toggleBodyMark(mark: GridlinkMark) {
         val selection = body.selection
@@ -952,22 +964,26 @@ fun GridlinkComposeScreen(
                             ?: hasMark(bodySpans, selection.min, selection.max, GridlinkMark.BOLD),
                         italic = pendingMarks[GridlinkMark.ITALIC]
                             ?: hasMark(bodySpans, selection.min, selection.max, GridlinkMark.ITALIC),
-                        bulleted = hasList(bodyValue(), selection.min, selection.max, ordered = false),
-                        numbered = hasList(bodyValue(), selection.min, selection.max, ordered = true),
+                        underlined = pendingMarks[GridlinkMark.UNDERLINE]
+                            ?: hasMark(bodySpans, selection.min, selection.max, GridlinkMark.UNDERLINE),
+                        struck = pendingMarks[GridlinkMark.STRIKE]
+                            ?: hasMark(bodySpans, selection.min, selection.max, GridlinkMark.STRIKE),
+                        bulleted = hasBlock(bodyValue(), selection.min, selection.max, GridlinkBlock.BULLET),
+                        numbered = hasBlock(bodyValue(), selection.min, selection.max, GridlinkBlock.NUMBER),
+                        quoted = hasBlock(bodyValue(), selection.min, selection.max, GridlinkBlock.QUOTE),
+                        heading1 = hasBlock(bodyValue(), selection.min, selection.max, GridlinkBlock.HEADING1),
+                        heading2 = hasBlock(bodyValue(), selection.min, selection.max, GridlinkBlock.HEADING2),
                         linked = linkAt(bodySpans, selection.start) != null,
                         canClear = !bodyValue().isPlain,
                         onBold = { toggleBodyMark(GridlinkMark.BOLD) },
                         onItalic = { toggleBodyMark(GridlinkMark.ITALIC) },
-                        onBulleted = {
-                            applyBodyEdit(
-                                toggleList(bodyValue(), selection.min, selection.max, ordered = false),
-                            )
-                        },
-                        onNumbered = {
-                            applyBodyEdit(
-                                toggleList(bodyValue(), selection.min, selection.max, ordered = true),
-                            )
-                        },
+                        onUnderline = { toggleBodyMark(GridlinkMark.UNDERLINE) },
+                        onStrike = { toggleBodyMark(GridlinkMark.STRIKE) },
+                        onBulleted = { toggleBodyBlock(GridlinkBlock.BULLET) },
+                        onNumbered = { toggleBodyBlock(GridlinkBlock.NUMBER) },
+                        onQuoted = { toggleBodyBlock(GridlinkBlock.QUOTE) },
+                        onHeading1 = { toggleBodyBlock(GridlinkBlock.HEADING1) },
+                        onHeading2 = { toggleBodyBlock(GridlinkBlock.HEADING2) },
                         onLink = { linking = true },
                         onClear = { applyBodyEdit(stripFormatting(bodyValue(), selection.start)) },
                     )

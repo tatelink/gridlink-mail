@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -22,6 +24,9 @@ import androidx.compose.material.icons.outlined.FormatClear
 import androidx.compose.material.icons.outlined.FormatItalic
 import androidx.compose.material.icons.outlined.FormatListBulleted
 import androidx.compose.material.icons.outlined.FormatListNumbered
+import androidx.compose.material.icons.outlined.FormatQuote
+import androidx.compose.material.icons.outlined.FormatStrikethrough
+import androidx.compose.material.icons.outlined.FormatUnderlined
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -43,6 +48,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
@@ -115,6 +122,8 @@ data class GridlinkBodyMarks(
 private fun styleFor(mark: GridlinkMark, linkColor: Color): SpanStyle = when (mark) {
     GridlinkMark.BOLD -> SpanStyle(fontWeight = FontWeight.Bold)
     GridlinkMark.ITALIC -> SpanStyle(fontStyle = FontStyle.Italic)
+    GridlinkMark.UNDERLINE -> SpanStyle(textDecoration = TextDecoration.Underline)
+    GridlinkMark.STRIKE -> SpanStyle(textDecoration = TextDecoration.LineThrough)
     // Colour AND underline. Colour alone is the web's convention and it is the wrong one inside an
     // editor, where the accent already means "focused" on the row this text sits in.
     GridlinkMark.LINK -> SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)
@@ -125,7 +134,7 @@ private fun styleFor(mark: GridlinkMark, linkColor: Color): SpanStyle = when (ma
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Bold, italic, the two lists, link, and a way back to plain text.
+ * The four inline marks, the five line blocks, link, and a way back to plain text.
  *
  * It lives on the nav-pill baseline, in the slot the attach and send buttons vacate when the
  * keyboard comes up — which is exactly when it is wanted and never when it is not. That band is
@@ -134,33 +143,56 @@ private fun styleFor(mark: GridlinkMark, linkColor: Color): SpanStyle = when (ma
  * 🔴 The plain-text control is shown only when there is formatting to remove. The app's rule is that
  * an on/off control must never be dimmed, because dim reads as "off" and would say this message is
  * already plain; absent says the same thing without the ambiguity, and there is nothing to discover
- * here that the six other buttons do not already advertise.
+ * here that the other buttons do not already advertise.
+ *
+ * ⚠️ Eleven controls no longer fit the narrowest phone this app targets, so the row scrolls
+ * sideways. The order is deliberate rather than alphabetical: the four inline marks first, because
+ * they are what a caret in the middle of a sentence wants, then the blocks, then link and plain
+ * text. Everything that was on the bar before this grew is still left of the fold.
  */
 @Composable
 fun GridlinkFormatToolbar(
     bold: Boolean,
     italic: Boolean,
+    underlined: Boolean,
+    struck: Boolean,
     bulleted: Boolean,
     numbered: Boolean,
+    quoted: Boolean,
+    heading1: Boolean,
+    heading2: Boolean,
     linked: Boolean,
     canClear: Boolean,
     onBold: () -> Unit,
     onItalic: () -> Unit,
+    onUnderline: () -> Unit,
+    onStrike: () -> Unit,
     onBulleted: () -> Unit,
     onNumbered: () -> Unit,
+    onQuoted: () -> Unit,
+    onHeading1: () -> Unit,
+    onHeading2: () -> Unit,
     onLink: () -> Unit,
     onClear: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = modifier,
+        modifier = modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s4),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         GridlinkFormatButton(Icons.Outlined.FormatBold, "Bold", bold, onBold)
         GridlinkFormatButton(Icons.Outlined.FormatItalic, "Italic", italic, onItalic)
+        GridlinkFormatButton(Icons.Outlined.FormatUnderlined, "Underline", underlined, onUnderline)
+        GridlinkFormatButton(Icons.Outlined.FormatStrikethrough, "Strikethrough", struck, onStrike)
         GridlinkFormatButton(Icons.Outlined.FormatListBulleted, "Bulleted list", bulleted, onBulleted)
         GridlinkFormatButton(Icons.Outlined.FormatListNumbered, "Numbered list", numbered, onNumbered)
+        GridlinkFormatButton(Icons.Outlined.FormatQuote, "Quote", quoted, onQuoted)
+        // 🔴 Lettering, not a glyph. The icon set this app ships has nothing that says "heading
+        // level one" — the nearest is a generic `Title` that would have to serve for both — and two
+        // buttons a person cannot tell apart are worse than two they have to read.
+        GridlinkFormatTextButton("H1", "Heading", heading1, onHeading1)
+        GridlinkFormatTextButton("H2", "Subheading", heading2, onHeading2)
         GridlinkFormatButton(Icons.Outlined.Link, "Link", linked, onLink)
         if (canClear) {
             GridlinkFormatButton(Icons.Outlined.FormatClear, "Plain text", active = false, onClick = onClear)
@@ -187,6 +219,45 @@ private fun GridlinkFormatButton(
     modifier: Modifier = Modifier,
 ) {
     val colors = GridlinkTheme.colors
+    GridlinkFormatSlot(active, onClick, modifier) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = if (active) colors.accent else colors.textSecondary,
+            modifier = Modifier.size(FORMAT_GLYPH),
+        )
+    }
+}
+
+/** The same button, wearing letters. See the heading controls for why one is needed at all. */
+@Composable
+private fun GridlinkFormatTextButton(
+    text: String,
+    label: String,
+    active: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = GridlinkTheme.colors
+    GridlinkFormatSlot(active, onClick, modifier) {
+        Text(
+            text = text,
+            style = GridlinkType.senderName,
+            color = if (active) colors.accent else colors.textSecondary,
+            modifier = Modifier.semantics { contentDescription = label },
+        )
+    }
+}
+
+/** The tap target and the armed ring, shared so a lettered control is the same object as a glyph. */
+@Composable
+private fun GridlinkFormatSlot(
+    active: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val colors = GridlinkTheme.colors
     Box(
         modifier = modifier
             .size(FORMAT_BUTTON)
@@ -203,17 +274,15 @@ private fun GridlinkFormatButton(
             .focusProperties { canFocus = false }
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = if (active) colors.accent else colors.textSecondary,
-            modifier = Modifier.size(FORMAT_GLYPH),
-        )
-    }
+        content = { content() },
+    )
 }
 
-/** Six of these plus their gaps fit the narrowest phone this app targets with room to spare. */
+/**
+ * Six of these plus their gaps fit the narrowest phone this app targets. There are eleven now, so
+ * the row that holds them scrolls rather than these getting smaller: 40dp is already the floor for
+ * a control someone taps with a thumb while holding the phone one-handed.
+ */
 private val FORMAT_BUTTON = 40.dp
 private val FORMAT_GLYPH = 20.dp
 

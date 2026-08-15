@@ -4,8 +4,9 @@ import androidx.compose.runtime.Immutable
 import app.gridlink.core.data.text.htmlEscape
 
 /**
- * The composer's formatting model: bold, italic, links, and the two list kinds, carried alongside
- * the plain body text rather than inside it.
+ * The composer's formatting model: bold, italic, underline, strikethrough and links, plus the
+ * line-level blocks (two list kinds, quote, two heading levels), carried alongside the plain body
+ * text rather than inside it.
  *
  * 🔴 The body stays a `String` and the field editing it stays an ordinary text field. Marks live in
  * a separate list of [GridlinkSpan] keyed by character offset, and [remapSpans] drags them across
@@ -14,11 +15,13 @@ import app.gridlink.core.data.text.htmlEscape
  * [app.gridlink.core.data.text.htmlEscapeMultiline] would have, character for character, and
  * [formattedPlain] returns the body unchanged. `GridlinkFormattingTest` pins both.
  *
- * Lists are the exception, and deliberately so: they are real characters in the text (`• ` and
- * `1. `), not spans. A list item that only exists in a span layer is invisible to anyone reading
- * the text/plain part, and it would need its own remapping rules on every newline. As prefixes it
- * reads correctly in a plain-text client, survives editing without any bookkeeping, and
- * [formattedHtml] lifts it back into `<ul>`/`<ol>` for clients that can do better.
+ * The blocks are the exception, and deliberately so: they are real characters in the text (`• `,
+ * `1. `, `> `, `# `), not spans. A block that only exists in a span layer is invisible to anyone
+ * reading the text/plain part, and it would need its own remapping rules on every newline. As
+ * prefixes they read correctly in a plain-text client, survive editing without any bookkeeping, and
+ * [formattedHtml] lifts them back into `<ul>`, `<ol>`, `<blockquote>` and `<h1>`/`<h2>` for clients
+ * that can do better. Every one of the four is a notation people already read as what it means,
+ * which is why none of them needs the plain part to apologise for it.
  *
  * The HTML this produces is the *whole* reason the send path grew an alternative part. A lone
  * text/plain body is subject to format=flowed reflow by some servers (Stalwart among them), which
@@ -26,8 +29,14 @@ import app.gridlink.core.data.text.htmlEscape
  * survives that.
  */
 
-/** A character-level mark. Lists are line prefixes, not marks, which is why they are absent here. */
-enum class GridlinkMark { BOLD, ITALIC, LINK }
+/**
+ * A character-level mark. Lists, quotes and headings are line prefixes, not marks, which is why they
+ * are absent here.
+ *
+ * ⚠️ Order matters only to [normalizeSpans], which walks [entries] to group spans by mark. Nesting
+ * order in the output is [markOrder]'s answer and not this one.
+ */
+enum class GridlinkMark { BOLD, ITALIC, UNDERLINE, STRIKE, LINK }
 
 /**
  * [mark] over the half-open character range `[start, end)` of the body.
@@ -64,6 +73,23 @@ data class GridlinkBodyEdit(
 
 /** The bullet a bulleted line starts with. U+2022 and a space, so plain-text readers see a list. */
 const val GRIDLINK_BULLET_PREFIX: String = "• "
+
+/**
+ * What a quoted line starts with: the convention every mail client and every reader already knows,
+ * which is the whole reason to spell a blockquote this way rather than as a span.
+ */
+const val GRIDLINK_QUOTE_PREFIX: String = "> "
+
+/**
+ * `# ` or `## ` at the head of a line, with the hashes captured so the level comes out of the match.
+ *
+ * ⚠️ Like `1. ` before it, this is a real prefix in real text, so a line someone typed as `# 1 goal`
+ * without ever opening the toolbar now renders as a heading. That is the accepted cost of keeping
+ * block structure in the characters instead of in a parallel span layer: it survives every edit, it
+ * reads correctly in the text/plain part, and it cannot drift out of step with the body. The
+ * text/plain part is unaffected either way, so nobody loses the line.
+ */
+private val HEADING_PREFIX = Regex("^(#{1,2}) ")
 
 /** Only these schemes are ever emitted as an `<a href>`. Everything else renders as bare text. */
 private val SAFE_HREF = Regex("^(https?|mailto):", RegexOption.IGNORE_CASE)
@@ -317,13 +343,53 @@ internal sealed interface LineMarker {
     }
 
     data class Ordered(val number: Int, override val length: Int) : LineMarker
+
+    data object Quote : LineMarker {
+        override val length: Int get() = GRIDLINK_QUOTE_PREFIX.length
+    }
+
+    /** [level] is 1 or 2, matching the number of hashes and the `<h1>`/`<h2>` it renders as. */
+    data class Heading(val level: Int, override val length: Int) : LineMarker
 }
 
 internal fun lineMarker(line: String): LineMarker? = when {
     line.startsWith(GRIDLINK_BULLET_PREFIX) -> LineMarker.Bullet
-    else -> ORDERED_PREFIX.find(line)?.let {
+    line.startsWith(GRIDLINK_QUOTE_PREFIX) -> LineMarker.Quote
+    else -> HEADING_PREFIX.find(line)?.let {
+        LineMarker.Heading(it.groupValues[1].length, it.value.length)
+    } ?: ORDERED_PREFIX.find(line)?.let {
         LineMarker.Ordered(it.groupValues[1].toInt(), it.value.length)
     }
+}
+
+/**
+ * A line-level shape, of which a line has at most one.
+ *
+ * 🔴 At most one on purpose. Every one of these is a prefix occupying the head of the line, so they
+ * cannot stack without inventing an order for the prefixes and a parser for the combinations.
+ * Applying one to a line that already carries another replaces it, which is the same single-step
+ * swap [toggleBlock] has always done between the two list kinds.
+ */
+enum class GridlinkBlock { BULLET, NUMBER, QUOTE, HEADING1, HEADING2 }
+
+/** Whether [marker] is the marker [block] would put there. */
+private fun matches(marker: LineMarker?, block: GridlinkBlock): Boolean = when (block) {
+    GridlinkBlock.BULLET -> marker is LineMarker.Bullet
+    GridlinkBlock.NUMBER -> marker is LineMarker.Ordered
+    GridlinkBlock.QUOTE -> marker is LineMarker.Quote
+    GridlinkBlock.HEADING1 -> marker is LineMarker.Heading && marker.level == 1
+    GridlinkBlock.HEADING2 -> marker is LineMarker.Heading && marker.level == 2
+}
+
+/**
+ * The prefix [block] writes at the head of a line. [number] is read only by [GridlinkBlock.NUMBER].
+ */
+private fun blockPrefix(block: GridlinkBlock, number: Int): String = when (block) {
+    GridlinkBlock.BULLET -> GRIDLINK_BULLET_PREFIX
+    GridlinkBlock.NUMBER -> "$number. "
+    GridlinkBlock.QUOTE -> GRIDLINK_QUOTE_PREFIX
+    GridlinkBlock.HEADING1 -> "# "
+    GridlinkBlock.HEADING2 -> "## "
 }
 
 /**
@@ -351,19 +417,18 @@ private fun touchedLines(text: String, from: Int, to: Int): List<Int> {
  * function on purpose: a button that says a list is on while the tap turns one on is a lie that
  * costs two taps every time.
  */
-fun hasList(
+fun hasBlock(
     body: GridlinkBody,
     selectionStart: Int,
     selectionEnd: Int,
-    ordered: Boolean,
+    block: GridlinkBlock,
 ): Boolean {
     val text = body.text
     val from = selectionStart.coerceIn(0, text.length)
     val to = selectionEnd.coerceIn(from, text.length)
     return touchedLines(text, from, to).all { start ->
         val end = text.indexOf('\n', start).let { if (it < 0) text.length else it }
-        val marker = lineMarker(text.substring(start, end))
-        if (ordered) marker is LineMarker.Ordered else marker is LineMarker.Bullet
+        matches(lineMarker(text.substring(start, end)), block)
     }
 }
 
@@ -408,17 +473,17 @@ fun stripFormatting(body: GridlinkBody, caret: Int): GridlinkBodyEdit {
  * own delta, so a bolded word four lines down lands in the right place rather than being smeared by
  * a single whole-selection diff.
  */
-fun toggleList(
+fun toggleBlock(
     body: GridlinkBody,
     selectionStart: Int,
     selectionEnd: Int,
-    ordered: Boolean,
+    block: GridlinkBlock,
 ): GridlinkBodyEdit {
     val text = body.text
     val from = selectionStart.coerceIn(0, text.length)
     val to = selectionEnd.coerceIn(from, text.length)
     val lines = touchedLines(text, from, to)
-    val turningOff = hasList(body, from, to, ordered)
+    val turningOff = hasBlock(body, from, to, block)
 
     var outText = text
     var outSpans = body.spans
@@ -432,11 +497,7 @@ fun toggleList(
         val line = outText.substring(lineStart, lineEnd)
         val marker = lineMarker(line)
         val strip = if (marker != null) marker.length else 0
-        val add = when {
-            turningOff -> ""
-            ordered -> "${number++}. "
-            else -> GRIDLINK_BULLET_PREFIX
-        }
+        val add = if (turningOff) "" else blockPrefix(block, number++)
         // Replace whatever marker is there with the one we want. Swapping a bullet for a number in
         // one step, rather than off-then-on, keeps a single delta per line.
         if (strip == 0 && add.isEmpty()) continue
@@ -452,9 +513,12 @@ fun toggleList(
 }
 
 /**
- * Continue a list when the return key is pressed at the end of a marked line, and end it when that
- * line is empty apart from its marker. The second half is the important one: without it the only
- * way out of a list is to delete the marker by hand.
+ * Continue a list or a quote when the return key is pressed at the end of a marked line, and end it
+ * when that line is empty apart from its marker. The second half is the important one: without it
+ * the only way out of a list is to delete the marker by hand.
+ *
+ * A heading is the exception and continues into nothing, because a heading is a single line and the
+ * line after one is ordinary text every time.
  *
  * Returns null when the caret is not somewhere this applies, and the ordinary newline should stand.
  */
@@ -481,6 +545,11 @@ fun continueList(body: GridlinkBody, caret: Int): GridlinkBodyEdit? {
     val next = when (marker) {
         is LineMarker.Bullet -> GRIDLINK_BULLET_PREFIX
         is LineMarker.Ordered -> "${marker.number + 1}. "
+        is LineMarker.Quote -> GRIDLINK_QUOTE_PREFIX
+        // 🔴 A heading is one line by definition, so the return key leaves it rather than making a
+        // second one, and the ordinary newline stands. The empty-line branch above still runs first,
+        // so a heading marker with nothing after it is cleared exactly like an empty list item.
+        is LineMarker.Heading -> return null
     }
     val insert = "\n$next"
     val out = text.substring(0, caret) + insert + text.substring(caret)
@@ -567,6 +636,8 @@ fun formattedHtml(body: GridlinkBody): String {
                 null -> Entry.Plain(html, line.isEmpty())
                 is LineMarker.Bullet -> Entry.Item(html, ordered = false, number = 0)
                 is LineMarker.Ordered -> Entry.Item(html, ordered = true, number = marker.number)
+                is LineMarker.Quote -> Entry.Quote(html)
+                is LineMarker.Heading -> Entry.Heading(html, marker.level)
             },
         )
         if (nl < 0) break
@@ -577,25 +648,52 @@ fun formattedHtml(body: GridlinkBody): String {
     var i = 0
     var previous: Entry? = null
     while (i < entries.size) {
-        val entry = entries[i]
-        if (entry is Entry.Plain) {
-            if (previous != null && breakBetween(previous, entry)) out.append("<br>")
-            out.append(entry.html)
-            previous = entry
-            i++
-            continue
+        when (val entry = entries[i]) {
+            is Entry.Plain -> {
+                if (previous != null && breakBetween(previous, entry)) out.append("<br>")
+                out.append(entry.html)
+                previous = entry
+                i++
+            }
+
+            is Entry.Heading -> {
+                // Standalone: a heading is one line, so there is no run of them to gather the way
+                // there is for the other two blocks.
+                if (previous != null && breakBetween(previous, entry)) out.append("<br>")
+                out.append("<h${entry.level}>").append(entry.html).append("</h${entry.level}>")
+                previous = entry
+                i++
+            }
+
+            is Entry.Quote -> {
+                val group = mutableListOf<Entry.Quote>()
+                while (i < entries.size) {
+                    group.add(entries[i] as? Entry.Quote ?: break)
+                    i++
+                }
+                if (previous != null && breakBetween(previous, group.first())) out.append("<br>")
+                // One blockquote for the run, its lines separated by `<br>`. A blockquote per line
+                // would draw a stack of separately indented boxes rather than one quoted passage.
+                out.append("<blockquote>")
+                    .append(group.joinToString("<br>") { it.html })
+                    .append("</blockquote>")
+                previous = group.last()
+            }
+
+            is Entry.Item -> {
+                val ordered = entry.ordered
+                val group = mutableListOf<Entry.Item>()
+                while (i < entries.size) {
+                    val next = entries[i] as? Entry.Item ?: break
+                    if (next.ordered != ordered) break
+                    group.add(next)
+                    i++
+                }
+                if (previous != null && breakBetween(previous, group.first())) out.append("<br>")
+                out.append(listHtml(group, ordered))
+                previous = group.last()
+            }
         }
-        val ordered = (entry as Entry.Item).ordered
-        val group = mutableListOf<Entry.Item>()
-        while (i < entries.size) {
-            val next = entries[i] as? Entry.Item ?: break
-            if (next.ordered != ordered) break
-            group.add(next)
-            i++
-        }
-        if (previous != null && breakBetween(previous, group.first())) out.append("<br>")
-        out.append(listHtml(group, ordered))
-        previous = group.last()
     }
     return out.toString()
 }
@@ -604,12 +702,19 @@ private sealed interface Entry {
     data class Plain(val html: String, val blank: Boolean) : Entry
 
     data class Item(val html: String, val ordered: Boolean, val number: Int) : Entry
+
+    data class Quote(val html: String) : Entry
+
+    data class Heading(val html: String, val level: Int) : Entry
 }
 
 /**
- * A `<br>` between two ordinary lines, and none around a list — `<ul>` and `<ol>` break the line
- * themselves and a `<br>` beside one shows up as a stray gap. A blank line the writer deliberately
- * left next to a list is the exception and keeps its break.
+ * A `<br>` between two ordinary lines, and none around a block — `<ul>`, `<ol>`, `<blockquote>` and
+ * the headings all break the line themselves, and a `<br>` beside one shows up as a stray gap. A
+ * blank line the writer deliberately left next to a block is the exception and keeps its break.
+ *
+ * Every block case falls out of the two [Entry.Plain] tests below rather than being listed: if
+ * neither side is an ordinary line, neither side needs a break made for it.
  */
 private fun breakBetween(previous: Entry, next: Entry): Boolean = when {
     previous is Entry.Plain && next is Entry.Plain -> true
@@ -650,6 +755,8 @@ private fun markOrder(mark: GridlinkMark): Int = when (mark) {
     GridlinkMark.LINK -> 0
     GridlinkMark.BOLD -> 1
     GridlinkMark.ITALIC -> 2
+    GridlinkMark.UNDERLINE -> 3
+    GridlinkMark.STRIKE -> 4
 }
 
 private data class OpenTag(val mark: GridlinkMark, val href: String)
@@ -694,12 +801,16 @@ private fun inlineHtml(text: String, spans: List<GridlinkSpan>, from: Int, to: I
 private fun openTag(tag: OpenTag): String = when (tag.mark) {
     GridlinkMark.BOLD -> "<b>"
     GridlinkMark.ITALIC -> "<i>"
+    GridlinkMark.UNDERLINE -> "<u>"
+    GridlinkMark.STRIKE -> "<s>"
     GridlinkMark.LINK -> "<a href=\"${attrEscape(tag.href)}\">"
 }
 
 private fun closeTag(tag: OpenTag): String = when (tag.mark) {
     GridlinkMark.BOLD -> "</b>"
     GridlinkMark.ITALIC -> "</i>"
+    GridlinkMark.UNDERLINE -> "</u>"
+    GridlinkMark.STRIKE -> "</s>"
     GridlinkMark.LINK -> "</a>"
 }
 
