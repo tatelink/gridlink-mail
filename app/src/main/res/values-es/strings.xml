@@ -272,6 +272,7 @@
     <string name="settings_swipe_delete">Eliminar</string>
     <string name="settings_swipe_archive">Archivar</string>
     <string name="settings_swipe_flag">Destacar/quitar destacado</string>
+    <string name="settings_swipe_snooze">Posponer</string>
     <string name="settings_notifications_screen_title">Notificaciones</string>
     <string name="settings_new_mail_section">Correo nuevo</string>
     <string name="settings_notif_content_section">Contenido de las notificaciones</string>
@@ -819,6 +820,7 @@
     <string name="settings_thread_action_star">Destacar</string>
     <string name="settings_thread_action_print">Imprimir</string>
     <string name="settings_thread_action_junk">Spam</string>
+    <string name="settings_thread_action_snooze">Posponer</string>
     <string name="settings_tags_title">Etiquetas</string>
     <string name="settings_tags_summary">Marcas de color para tu correo</string>
     <string name="settings_tags_section">Tus etiquetas</string>

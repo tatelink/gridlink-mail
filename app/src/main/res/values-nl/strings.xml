@@ -272,6 +272,7 @@
     <string name="settings_swipe_delete">Verwijderen</string>
     <string name="settings_swipe_archive">Archiveren</string>
     <string name="settings_swipe_flag">Ster toevoegen/verwijderen</string>
+    <string name="settings_swipe_snooze">Snoozen</string>
     <string name="settings_notifications_screen_title">Meldingen</string>
     <string name="settings_new_mail_section">Nieuwe e-mail</string>
     <string name="settings_notif_content_section">Notificatie-inhoud</string>
@@ -820,6 +821,7 @@
     <string name="settings_thread_action_star">Ster</string>
     <string name="settings_thread_action_print">Afdrukken</string>
     <string name="settings_thread_action_junk">Spam</string>
+    <string name="settings_thread_action_snooze">Snoozen</string>
     <string name="settings_tags_title">Labels</string>
     <string name="settings_tags_summary">Gekleurde markeringen voor uw e-mail</string>
     <string name="settings_tags_section">Uw labels</string>

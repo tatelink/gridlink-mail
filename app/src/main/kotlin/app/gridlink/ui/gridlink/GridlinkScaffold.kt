@@ -3,7 +3,6 @@ package app.gridlink.ui.gridlink
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
-import androidx.core.text.HtmlCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -42,7 +41,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
@@ -50,9 +48,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.core.text.HtmlCompat
 import app.gridlink.core.data.contacts.ContactEdit
 import app.gridlink.core.data.mail.MailFilter
 import app.gridlink.core.data.settings.ThreadToolbarAction
@@ -62,9 +62,12 @@ import app.gridlink.ui.theme.GridlinkMotion
 import app.gridlink.ui.theme.GridlinkRadii
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
-import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.ZonedDateTime
 
 /**
  * The frame every Gridlink screen sits in: backdrop, header, one panel of glass, and the floating
@@ -462,14 +465,16 @@ fun GridlinkScaffold(
                     // honest behaviour for a destination that does not exist yet.
                     onSelect = {
                         menuOpen = false
-                        // Drafts and Scheduled are scaffold destinations, not host ones: Drafts is
-                        // a folder the scaffold can already open and Scheduled is a scaffold
-                        // overlay, and the HOST (which owns onSelectMenu) can reach neither. The
-                        // wish is posted on the chrome holder instead, and whichever [GridlinkRoot]
-                        // is composed consumes it. See [GridlinkChromeState.menuRoute].
+                        // Drafts, Scheduled and Snoozed are scaffold destinations, not host ones:
+                        // Drafts is a folder the scaffold can already open and the other two are
+                        // scaffold overlays, and the HOST (which owns onSelectMenu) can reach none
+                        // of them. The wish is posted on the chrome holder instead, and whichever
+                        // [GridlinkRoot] is composed consumes it. See [GridlinkChromeState.menuRoute].
                         when (it) {
-                            GridlinkMenuItem.DRAFTS, GridlinkMenuItem.SCHEDULED ->
-                                chrome.routeMenu(it)
+                            GridlinkMenuItem.DRAFTS,
+                            GridlinkMenuItem.SCHEDULED,
+                            GridlinkMenuItem.SNOOZED,
+                            -> chrome.routeMenu(it)
                             else -> Unit
                         }
                         chrome.config.onSelectMenu(it)
@@ -865,6 +870,22 @@ fun GridlinkRoot(
      */
     onCancelScheduled: (Long) -> Unit = {},
     /**
+     * The account's snoozed mail, or null to draw the sample's. Same null contract as [mail].
+     */
+    snoozed: GridlinkSnoozedContent? = null,
+    /**
+     * Put a message away until a moment. The scaffold decides WHICH moment (the sheet is its own)
+     * and hands over the answer; the caller writes the row and arms the worker.
+     *
+     * 🔴 The first argument is a ROW key, the same opaque string every other list action carries,
+     * NOT an account/id pair: in the unified inbox it arrives account-qualified and only the host
+     * knows how to undo that (`GridlinkRowKey.decode`). Taking a [GridlinkSnoozedKey] here would
+     * make this screen invent an account, and two of Tate's accounts share message ids.
+     */
+    onSnooze: (String, Long) -> Unit = { _, _ -> },
+    /** Wake a snoozed message now: drop the snooze, disarm its worker, let the message reappear. */
+    onWakeSnoozed: (GridlinkSnoozedKey) -> Unit = {},
+    /**
      * Open the draft with this server id in the composer, or clear the request with null.
      *
      * 🔴 A round trip, not a callback that returns the draft: the body has to be fetched, so the
@@ -951,6 +972,20 @@ fun GridlinkRoot(
     // is one boolean: surviving the fold costs nothing here, and losing the screen at the hinge
     // would be losing the very list the user unfolded the phone to read.
     var scheduledOpen by rememberSaveable { mutableStateOf(false) }
+
+    // The Snoozed overlay, on the same terms and for the same reasons.
+    var snoozedOpen by rememberSaveable { mutableStateOf(false) }
+
+    // Which message the snooze sheet is currently asking about, null when it is shut. The row key
+    // rather than a boolean: the sheet is opened from a thread and from a swipe, and the one thing
+    // it must never do is snooze whatever happens to be open instead of what was tapped.
+    var snoozing by remember { mutableStateOf<String?>(null) }
+
+    // The custom pick, one rung further out: the date sheet, then the time sheet for that date.
+    // Held apart from `snoozing` because the message survives both, and folding them together is
+    // how the second sheet ends up not knowing what it is scheduling.
+    var snoozePickingDate by remember { mutableStateOf(false) }
+    var snoozeDate by remember { mutableStateOf<LocalDate?>(null) }
 
     // §6c's undo window. Lives here rather than in the composer for the obvious reason: the composer
     // is gone by the time the bar is up. It is the same shape as `composing` — one nullable value
@@ -1575,6 +1610,26 @@ fun GridlinkRoot(
         closeDetail()
     }
 
+    /**
+     * Answers the snooze sheet: hands the moment over, shuts the sheet, tidies the pickers.
+     *
+     * Defined here rather than inside the sheet because the custom pick answers from two sheets
+     * further out ([GridlinkTimePickerSheet]), and two copies of this is how one of them ends up
+     * leaving `snoozing` set and snoozing the next message the user opens.
+     *
+     * 🔴 Closes the reading pane only when the snoozed message IS the one being read. A snooze
+     * takes the message out of every list, so a pane still sitting on it would be showing mail the
+     * app has stopped showing; but the same sheet is raised by a swipe, with a contact card open
+     * beside it on two panes, and an unconditional close would shut that instead.
+     */
+    fun applySnooze(id: String, untilMillis: Long) {
+        snoozing = null
+        snoozeDate = null
+        snoozePickingDate = false
+        onSnooze(id, untilMillis)
+        if ((detail as? GridlinkDetail.Thread)?.message?.id == id) closeDetail()
+    }
+
     // 🔴 Everything below reads its calendar and address book from here. Provided at the root and
     // not at the two screens that obviously need it: the composer suggests recipients from it, the
     // event card lists what else is on the day, and the reading pane renders inside the scaffold, so
@@ -1600,7 +1655,7 @@ fun GridlinkRoot(
             // where things sit in this file, and a form moved during a refactor would silently
             // reorder the ladder. The explicit gate makes the intent survive the move.
             val formOpen = composing != null || creating != null ||
-                editingEvent != null || editingContact != null || scheduledOpen
+                editingEvent != null || editingContact != null || scheduledOpen || snoozedOpen
 
             // The drawer's Drafts and Scheduled rows, delivered through the chrome holder because
             // the drawer is composed above this function and dispatches to the HOST, which cannot
@@ -1629,6 +1684,7 @@ fun GridlinkRoot(
                             }
                     }
                     GridlinkMenuItem.SCHEDULED -> scheduledOpen = true
+                    GridlinkMenuItem.SNOOZED -> snoozedOpen = true
                     else -> Unit
                 }
                 chromeState.consumeMenuRoute()
@@ -1917,6 +1973,16 @@ fun GridlinkRoot(
                         // comes up over the app and the thread is still there underneath when it is
                         // dismissed, which is what printing something you are reading should do.
                         GridlinkThreadAction.PRINT -> gridlinkPrintMessage(context, message)
+
+                        // Asks first, like Move: the sheet is what supplies the moment, and there
+                        // is nothing to put away until it has. Dismissing it writes nothing and
+                        // leaves the thread open, which is the same contract Move already has.
+                        //
+                        // 🔴 The thread is NOT closed here, and that is not an oversight: closing
+                        // happens when the sheet answers, in `onPick` below, because a snooze that
+                        // ended the reading session on the way to a cancelled sheet would have
+                        // thrown away the message for nothing.
+                        GridlinkThreadAction.SNOOZE -> snoozing = message.id
 
                         // 🔴 Straight to [onMailAction], NOT through `fileOpenThread`. Every other
                         // branch here ends the reading session on purpose; this one is a switch on
@@ -2247,6 +2313,9 @@ fun GridlinkRoot(
                             // folder screen's own state.
                             folders = folderTree,
                             onMove = onMove,
+                            // The swipe asks; the sheet that answers is composed at the scaffold's
+                            // root beside the thread's, so both entry points offer the same times.
+                            onSnoozeRequest = { snoozing = it },
                         )
 
                         // 🔴 One destination, two screens, and which one shows depends on whether a
@@ -2598,6 +2667,72 @@ fun GridlinkRoot(
                         scheduled = scheduled,
                         onCancel = onCancelScheduled,
                         onClose = { scheduledOpen = false },
+                    )
+                }
+
+                // The Snoozed overlay, on the Scheduled overlay's terms exactly.
+                if (snoozedOpen) {
+                    GridlinkSnoozeScreen(
+                        snoozed = snoozed,
+                        onWake = onWakeSnoozed,
+                        onClose = { snoozedOpen = false },
+                    )
+                }
+
+                // "Snooze until", over whatever asked for it: the open thread's More sheet or a
+                // swipe. Both route here rather than each carrying their own picker, so the times
+                // on offer cannot disagree between entry points.
+                //
+                // 🔴 Closes the thread when the snoozed message IS the one being read, and only
+                // then. A snooze means the message goes away until a moment, so a reading pane left
+                // sitting on it would be showing mail the list has already stopped showing; but the
+                // same sheet is raised by a swipe with a contact card open beside it on two panes,
+                // and an unconditional close would shut that instead.
+                snoozing?.let { key ->
+                    GridlinkSnoozeSheet(
+                        // Computed when the sheet opens, not when the scaffold did: "Later today"
+                        // has to be judged against the clock the user is looking at.
+                        presets = remember(key) { gridlinkSnoozePresets(ZonedDateTime.now()) },
+                        onPick = { millis -> applySnooze(key, millis) },
+                        onPickCustom = { snoozePickingDate = true },
+                        onDismiss = { snoozing = null },
+                    )
+                }
+
+                // The custom pick: the calendar's own date and time sheets in sequence, the same
+                // pair Send Later uses. 🔴 `snoozing` is deliberately still set underneath — it is
+                // the message being snoozed, and clearing it here would leave the time sheet with
+                // an answer and nothing to apply it to.
+                if (snoozePickingDate) {
+                    GridlinkDatePickerSheet(
+                        selected = remember { LocalDate.now() },
+                        onPick = { snoozeDate = it },
+                        onDismiss = { snoozePickingDate = false },
+                    )
+                }
+                snoozeDate?.let { date ->
+                    GridlinkTimePickerSheet(
+                        title = date.format(SCHEDULE_DATE_TITLE),
+                        selected = remember { defaultScheduleTime(date) },
+                        // A moment already gone is not a snooze: it would fire the instant it was
+                        // set, which is an elaborate way of doing nothing.
+                        notBefore = if (date == LocalDate.now()) LocalTime.now() else null,
+                        onPick = { time ->
+                            // The elvis is not paranoia: nothing to snooze means the sheets still
+                            // have to come down, and `applySnooze` is the only thing that lowers
+                            // them. Left out, a lost message id would strand the picker on screen.
+                            snoozing?.let { key ->
+                                applySnooze(
+                                    key,
+                                    date.atTime(time).atZone(ZoneId.systemDefault())
+                                        .toInstant().toEpochMilli(),
+                                )
+                            } ?: run {
+                                snoozeDate = null
+                                snoozePickingDate = false
+                            }
+                        },
+                        onDismiss = { snoozeDate = null },
                     )
                 }
 

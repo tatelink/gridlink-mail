@@ -600,7 +600,8 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val signatureDelimiter by viewModel.signatureDelimiter.collectAsStateWithLifecycle()
     val threadToolbarActions by viewModel.threadToolbarActions.collectAsStateWithLifecycle()
     val options = listOf(
-        SwipeAction.TOGGLE_READ, SwipeAction.DELETE, SwipeAction.ARCHIVE, SwipeAction.FLAG, SwipeAction.NONE,
+        SwipeAction.TOGGLE_READ, SwipeAction.DELETE, SwipeAction.ARCHIVE, SwipeAction.FLAG,
+        SwipeAction.SNOOZE, SwipeAction.NONE,
     )
     val context = LocalContext.current
     DetailScaffold(title = stringResource(R.string.settings_reading_screen_title), onBack = onBack) { padding ->
@@ -776,6 +777,7 @@ private fun threadActionLabel(context: Context, action: ThreadToolbarAction): St
     ThreadToolbarAction.STAR -> context.getString(R.string.settings_thread_action_star)
     ThreadToolbarAction.PRINT -> context.getString(R.string.settings_thread_action_print)
     ThreadToolbarAction.JUNK -> context.getString(R.string.settings_thread_action_junk)
+    ThreadToolbarAction.SNOOZE -> context.getString(R.string.settings_thread_action_snooze)
 }
 
 private fun swipeLabel(context: Context, action: SwipeAction): String = when (action) {
@@ -784,6 +786,7 @@ private fun swipeLabel(context: Context, action: SwipeAction): String = when (ac
     SwipeAction.DELETE -> context.getString(R.string.settings_swipe_delete)
     SwipeAction.ARCHIVE -> context.getString(R.string.settings_swipe_archive)
     SwipeAction.FLAG -> context.getString(R.string.settings_swipe_flag)
+    SwipeAction.SNOOZE -> context.getString(R.string.settings_swipe_snooze)
 }
 
 /** The three independent cases of the "Mark as read when" group — each one its own

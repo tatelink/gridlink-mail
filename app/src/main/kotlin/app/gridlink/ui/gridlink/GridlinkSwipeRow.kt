@@ -12,19 +12,20 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.horizontalDrag
-import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Snooze
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
@@ -100,6 +101,14 @@ enum class GridlinkSwipeAction(val label: String, val icon: ImageVector) {
     STAR("Star", Icons.Filled.Star),
     UNSTAR("Unstar", Icons.Outlined.StarBorder),
     DELETE("Delete", Icons.Outlined.Delete),
+
+    /**
+     * 🔴 The one action here that does not finish on release. Every other entry writes something
+     * the moment the finger lifts; this one raises the "Snooze until" sheet and the row springs
+     * back, because a snooze with no moment attached is not a snooze. The row leaves when the
+     * answer arrives, through the query that hides snoozed mail, not through [removesRow].
+     */
+    SNOOZE("Snooze", Icons.Outlined.Snooze),
     ;
 
     /**
@@ -127,6 +136,11 @@ private fun GridlinkSwipeAction.trackColor(): Color = when (this) {
     GridlinkSwipeAction.MARK_UNREAD, GridlinkSwipeAction.MARK_READ -> GridlinkTheme.colors.caution
     GridlinkSwipeAction.STAR, GridlinkSwipeAction.UNSTAR -> GridlinkTheme.colors.accent
     GridlinkSwipeAction.DELETE -> GridlinkTheme.colors.destructive
+
+    // Accent, sharing with the star pair rather than taking caution's amber. Caution means "keep
+    // going and this gets worse", and putting mail aside for the afternoon is not a warning about
+    // anything. One slot resolves to one action, so the two never appear on the same track.
+    GridlinkSwipeAction.SNOOZE -> GridlinkTheme.colors.accent
 }
 
 /** Icon slot size. Large enough to carry the trash glyph, small enough that the dot is not a puddle. */

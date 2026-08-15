@@ -272,6 +272,7 @@
     <string name="settings_swipe_delete">Löschen</string>
     <string name="settings_swipe_archive">Archivieren</string>
     <string name="settings_swipe_flag">Markieren/Markierung entfernen</string>
+    <string name="settings_swipe_snooze">Zurückstellen</string>
     <string name="settings_notifications_screen_title">Benachrichtigungen</string>
     <string name="settings_new_mail_section">Neue E-Mails</string>
     <string name="settings_notif_content_section">Benachrichtigungsinhalt</string>
@@ -817,6 +818,7 @@
     <string name="settings_thread_action_star">Markieren</string>
     <string name="settings_thread_action_print">Drucken</string>
     <string name="settings_thread_action_junk">Spam</string>
+    <string name="settings_thread_action_snooze">Zurückstellen</string>
     <string name="settings_tags_title">Tags</string>
     <string name="settings_tags_summary">Farbige Markierungen für Ihre E-Mails</string>
     <string name="settings_tags_section">Ihre Tags</string>

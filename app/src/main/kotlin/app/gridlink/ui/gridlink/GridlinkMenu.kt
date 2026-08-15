@@ -34,6 +34,7 @@ import androidx.compose.material.icons.outlined.ManageAccounts
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Snooze
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -366,9 +367,9 @@ fun GridlinkSyncChip(
 /**
  * What the menu sheet can take you to.
  *
- * Four, and they are no longer the whole drawer. These are the two mailboxes that are states rather
+ * Five, and they are no longer the whole drawer. These are the three mailboxes that are states rather
  * than places (a draft is a message you have not finished, a scheduled message is one you have not
- * sent) plus the two rows that configure the app.
+ * sent, a snoozed one is mail you have not dealt with yet) plus the two rows that configure the app.
  *
  * ⚠️ This used to argue that listing mailboxes here "would be a second navigation system disagreeing
  * with the first one". Tate settled that the other way: the mailboxes ARE the drawer now (see
@@ -388,19 +389,25 @@ enum class GridlinkMenuItem(
     val countNoun: String? = null,
 ) {
     SCHEDULED("Scheduled", Icons.Outlined.Schedule, countNoun = "waiting"),
+    SNOOZED("Snoozed", Icons.Outlined.Snooze, countNoun = "waiting"),
     DRAFTS("Drafts", Icons.Outlined.Drafts, countNoun = "unsent"),
     ACCOUNTS("Accounts", Icons.Outlined.ManageAccounts),
     SETTINGS("Settings", Icons.Outlined.Settings),
 }
 
 /**
- * The two rows that are mailboxes rather than places, drawn as their own group under the folder tree.
+ * The rows that are mailboxes rather than places, drawn as their own group under the folder tree.
  *
  * ⚠️ This no longer means "above the appearance control". Appearance and Settings were pinned to the
  * top of the drawer on 2026-08-12, so this list is now only the split between the mailbox group and
  * the leftovers below it.
+ *
+ * Snoozed sits beside Scheduled because they are the same kind of thing (mail waiting on a clock)
+ * and because it is otherwise unreachable: snoozed mail is hidden from every list by definition, so
+ * this row is the only route to it in the app.
  */
-private val MAILBOX_ITEMS = listOf(GridlinkMenuItem.SCHEDULED, GridlinkMenuItem.DRAFTS)
+private val MAILBOX_ITEMS =
+    listOf(GridlinkMenuItem.SCHEDULED, GridlinkMenuItem.SNOOZED, GridlinkMenuItem.DRAFTS)
 
 /**
  * ⚠️ Sample data, and the only piece of it that is hard-coded outside `GridlinkSample*`. A real
@@ -426,6 +433,9 @@ const val GRIDLINK_SAMPLE_ACCOUNT = "tate@gridlink.me"
  */
 val GRIDLINK_SAMPLE_MENU_COUNTS = mapOf(
     GridlinkMenuItem.SCHEDULED to 2,
+    // Same literal, same defence as Scheduled: gridlinkSampleSnoozed builds its rows against a
+    // `now` this constant does not have.
+    GridlinkMenuItem.SNOOZED to 2,
     GridlinkMenuItem.DRAFTS to GridlinkSample.draftMessages.size,
 )
 

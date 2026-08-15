@@ -272,6 +272,7 @@
     <string name="settings_swipe_delete">Excluir</string>
     <string name="settings_swipe_archive">Arquivar</string>
     <string name="settings_swipe_flag">Adicionar/remover estrela</string>
+    <string name="settings_swipe_snooze">Adiar</string>
     <string name="settings_notifications_screen_title">Notificações</string>
     <string name="settings_new_mail_section">Novos e-mails</string>
     <string name="settings_notif_content_section">Conteúdo das notificações</string>
@@ -823,6 +824,7 @@
     <string name="settings_thread_action_star">Marcar com estrela</string>
     <string name="settings_thread_action_print">Imprimir</string>
     <string name="settings_thread_action_junk">Spam</string>
+    <string name="settings_thread_action_snooze">Adiar</string>
     <string name="settings_tags_title">Etiquetas</string>
     <string name="settings_tags_summary">Marcas coloridas para o seu email</string>
     <string name="settings_tags_section">As suas etiquetas</string>

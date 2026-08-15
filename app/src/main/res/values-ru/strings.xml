@@ -272,6 +272,7 @@
     <string name="settings_swipe_delete">Удалить</string>
     <string name="settings_swipe_archive">Архивировать</string>
     <string name="settings_swipe_flag">Пометить/снять пометку</string>
+    <string name="settings_swipe_snooze">Отложить</string>
     <string name="settings_notifications_screen_title">Уведомления</string>
     <string name="settings_new_mail_section">Новые письма</string>
     <string name="settings_notif_content_section">Содержимое уведомлений</string>
@@ -824,6 +825,7 @@
     <string name="settings_thread_action_star">В избранное</string>
     <string name="settings_thread_action_print">Печать</string>
     <string name="settings_thread_action_junk">Спам</string>
+    <string name="settings_thread_action_snooze">Отложить</string>
     <string name="settings_tags_title">Теги</string>
     <string name="settings_tags_summary">Цветные метки для почты</string>
     <string name="settings_tags_section">Ваши теги</string>

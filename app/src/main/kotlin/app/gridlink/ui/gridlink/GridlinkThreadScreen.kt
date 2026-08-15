@@ -37,6 +37,7 @@ import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Print
 import androidx.compose.material.icons.outlined.Report
 import androidx.compose.material.icons.outlined.Sell
+import androidx.compose.material.icons.outlined.Snooze
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.Unsubscribe
 import androidx.compose.material3.Icon
@@ -785,6 +786,7 @@ enum class GridlinkThreadAction {
     MOVE,
     MARK_UNREAD,
     PRINT,
+    SNOOZE,
 }
 
 /**
@@ -810,6 +812,7 @@ internal fun ThreadToolbarAction.gridlinkThreadAction(starred: Boolean): Gridlin
     ThreadToolbarAction.STAR -> if (starred) GridlinkThreadAction.UNSTAR else GridlinkThreadAction.STAR
     ThreadToolbarAction.PRINT -> GridlinkThreadAction.PRINT
     ThreadToolbarAction.JUNK -> GridlinkThreadAction.SPAM
+    ThreadToolbarAction.SNOOZE -> GridlinkThreadAction.SNOOZE
 }
 
 /**
@@ -830,6 +833,7 @@ internal fun gridlinkToolbarLabel(action: ThreadToolbarAction, starred: Boolean)
     ThreadToolbarAction.STAR -> if (starred) "Remove star" else "Star"
     ThreadToolbarAction.PRINT -> "Print"
     ThreadToolbarAction.JUNK -> "Junk"
+    ThreadToolbarAction.SNOOZE -> "Snooze"
 }
 
 /** The glyph for each, shared by the bar and the sheet so one action never wears two icons. */
@@ -843,6 +847,7 @@ internal fun gridlinkToolbarIcon(action: ThreadToolbarAction, starred: Boolean):
     ThreadToolbarAction.STAR -> if (starred) Icons.Filled.Star else Icons.Outlined.StarBorder
     ThreadToolbarAction.PRINT -> Icons.Outlined.Print
     ThreadToolbarAction.JUNK -> Icons.Outlined.Report
+    ThreadToolbarAction.SNOOZE -> Icons.Outlined.Snooze
 }
 
 /**
