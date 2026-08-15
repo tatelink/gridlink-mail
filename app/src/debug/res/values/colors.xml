@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only colours. Nothing here is compiled into a release build. -->
+<resources>
+    <!--
+      The widget gallery's stand-in for wallpaper. A mid grey rather than black or white on
+      purpose: the widget card is translucent, and both extremes flatter it. Grey is the honest
+      middle, and it is the one background against which a contrast problem shows up as one.
+    -->
+    <color name="widget_gallery_backdrop">#FF4A4A4E</color>
+</resources>
