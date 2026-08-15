@@ -1110,8 +1110,19 @@ internal fun gridlinkReplyAllTo(message: GridlinkMessage): GridlinkComposeReques
  * focus instead of the body. The attachment travels, because a forwarded invoice without the invoice
  * is the most annoying possible outcome. And the subject is prefixed "Fwd: " rather than "Re: ",
  * which is the only thing telling the far end this is a relay and not a conversation.
+ *
+ * 🔴 [attachments] comes from the caller, and it must be chips something is actually holding the
+ * bytes behind (see [GridlinkAttacher.adopt]). It used to be `message.attachments`, which is the
+ * READER's chips: those carry a part index as their id ("0", "1"), no attacher ever minted them, and
+ * so every forward of a message with a file refused to send with "has no file behind it. Remove and
+ * attach again to send." The file travelling is the whole point of the paragraph above, so the
+ * caller stages it first and hands the staged chips in. Defaults to none for the screenshot build,
+ * where there is no attacher and therefore no honest chip to show.
  */
-internal fun gridlinkForward(message: GridlinkMessage): GridlinkComposeRequest {
+internal fun gridlinkForward(
+    message: GridlinkMessage,
+    attachments: List<GridlinkAttachment> = emptyList(),
+): GridlinkComposeRequest {
     val subject = if (message.subject.startsWith("Fwd: ", ignoreCase = true)) {
         message.subject
     } else {
@@ -1125,7 +1136,7 @@ internal fun gridlinkForward(message: GridlinkMessage): GridlinkComposeRequest {
             subject = subject,
             body = "",
             quoted = gridlinkForwardQuote(message),
-            attachments = message.attachments,
+            attachments = attachments,
         ),
         focus = GridlinkComposeField.TO,
     )
