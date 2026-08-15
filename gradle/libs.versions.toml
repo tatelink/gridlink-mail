@@ -24,7 +24,7 @@ junit = "4.13.2"
 detekt = "1.23.8"
 # 3.2.0+ is built with Kotlin 2.3 (metadata unreadable from our Kotlin 2.1);
 # bump alongside the project's Kotlin upgrade.
-unifiedpush = "3.1.2"
+unifiedpush = "3.3.3"
 # BouncyCastle, for S/MIME signature VERIFICATION only (CMS SignedData lives in bcpkix,
 # the primitives in bcprov). Android ships a stripped org.bouncycastle of its own under the
 # provider name "BC", so nothing here may call Security.addProvider: the verifier passes a
