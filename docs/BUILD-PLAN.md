@@ -64,19 +64,39 @@ Neither gap was CAUSED by it. Gridlink's own composer and list were already the 
 so deleting the other UI only made two pre-existing holes impossible to keep ignoring.
 
 - ✅ **Scheduled came back** as `GridlinkScheduledScreen`, a full-screen overlay off the drawer.
-- ⛔ **Snooze did not.** `SnoozedDao` is alive, the migration is in, and mail can still be snoozed;
-  what is missing is the only screen that ever showed it. So the app can put a message away and
-  then offer no way to look at what it is holding. See Phase 3 #3.
+- ✅ **Snooze came back too**, `e48643d0`: `GridlinkSnoozeScreen`, reached from the drawer beside
+  Scheduled, because they are the same kind of thing (mail waiting on a clock). Phase 3 #3 is
+  therefore closed; this file went on listing it as open for a day.
 - ✅ **The inert settings are all wired**, or removed where they could not be made to mean
   anything. That rule stands: either the feature lands or the switch comes off the screen.
 
 ## Phase 3 — Tier 1, the differentiators
 
-2. **Push into subfolders**, not just the inbox. The single most-repeated complaint in the corpus
-   about every competitor.
-3. **Snooze, its missing screen.** Small next to the rest of this phase and the only item in the
-   plan that closes a hole rather than adding a feature: the data layer is already there and
-   already working, so this is a list and a route to it.
+2. ✅ **Push into subfolders**, not just the inbox. The single most-repeated complaint in the corpus
+   about every competitor, and the tree said the engine had been built and left unreachable: the
+   push layer has read `AccountStore.watchedFolders` since issue #16, and the only things that ever
+   WROTE that set were cleanup paths (a folder deleted server-side unwatches itself, a rename
+   re-keys it). Nothing in the app could add a folder, so on every install the set was empty and
+   only the inbox ever notified, whatever Sieve did with the mail.
+   Now a **Notify me here** switch in the folder long-press sheet, and a bell on the row so the
+   state is visible without opening the sheet. `GridlinkFolder.watched` carries it, and
+   `GridlinkFolderEdit.Watch` is deliberately in the same sealed set as rename/delete despite
+   touching nothing on the server, because the sheet is where a user goes to say something about a
+   folder.
+   Two rules came out of building it, both stated in the code: **watching is not editing**, so a
+   mailbox the server has locked down (`myRights`, a role, the roleless Archive) still offers the
+   switch, which is why `mayEdit` split off `hasActions`; and the **inbox has no switch**, because
+   OFF there would be a lie and ON a preference nothing reads.
+   ⚠️ Honest about latency rather than quiet about it: JMAP's `StateChange` covers the whole
+   account so a watched folder is as live as the inbox, but IMAP IDLE selects one mailbox and this
+   app selects the INBOX, so on IMAP a watched folder rides `MailFetchWorker`'s ~30-minute cycle.
+   The switch's subline says so on IMAP accounts (`GridlinkFolderContent.watchIsInstant`).
+   Turning a watch ON never floods the shade: `seedsSilently` takes a first-seen folder's contents
+   into the baseline without announcing them.
+   ▶ Open, and it is a decision rather than an oversight: whether IMAP should get live watching at
+   all (a second IDLE connection, or round-robin re-selecting inside the one), which trades battery
+   and connection count for latency on accounts that are not Tate's own server.
+3. ✅ **Snooze, its missing screen.** Closed by `e48643d0`, see Phase 2.
 4. **Contacts and calendar as a real Android account**, so the system's own apps see them.
    Largest item in the plan by some distance: an authenticator, a sync adapter, and provider
    plumbing. Worth its own scoping pass before it starts.

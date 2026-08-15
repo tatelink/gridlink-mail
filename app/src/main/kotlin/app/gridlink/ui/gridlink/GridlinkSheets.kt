@@ -705,6 +705,14 @@ fun GridlinkSheetAction(
      * looks tappable and is not.
      */
     indent: Dp = 0.dp,
+    /**
+     * Drawn hard against the end of the row, after the label column takes the slack.
+     *
+     * For a row whose tap changes a state rather than opening something: the state has to be
+     * readable before the tap, and a sheet action that silently means "off" is a control the user
+     * has to poke to interrogate.
+     */
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
     val enabled = onClick != null
@@ -727,7 +735,11 @@ fun GridlinkSheetAction(
             tint = contentColor,
             modifier = Modifier.size(20.dp),
         )
-        Column(modifier = Modifier.padding(start = GridlinkSpacing.s16)) {
+        Column(
+            modifier = Modifier
+                .padding(start = GridlinkSpacing.s16)
+                .then(if (trailing != null) Modifier.weight(1f) else Modifier),
+        ) {
             Text(
                 text = label,
                 style = GridlinkType.senderName,
@@ -740,6 +752,10 @@ fun GridlinkSheetAction(
                     color = colors.textSecondary,
                 )
             }
+        }
+        if (trailing != null) {
+            Spacer(Modifier.width(GridlinkSpacing.s12))
+            trailing()
         }
     }
 }

@@ -44,6 +44,8 @@ import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.DriveFileRenameOutline
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Inbox
+import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Report
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -95,10 +97,10 @@ import app.gridlink.ui.theme.GridlinkRadii
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
-import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.abs
 
 /**
  * §6d, the folder tree.
@@ -208,6 +210,8 @@ fun GridlinkFolderScreen(
      * number that is not known yet. The rows are absent either way, so there is nothing to skeleton.
      */
     loading: Boolean = false,
+    /** See [GridlinkFolderContent.watchIsInstant]. Wording only: it changes no behaviour here. */
+    watchIsInstant: Boolean = true,
     /** Screen-capture hook: which folders start open, for §6d's collapsed and expanded frames. */
     initiallyExpanded: Set<String> = setOf("inbox"),
     /** Screen-capture hook: open the long-press sheet on this folder without long-pressing it. */
@@ -512,7 +516,15 @@ fun GridlinkFolderScreen(
                     ?.let { tree.findFolder(it)?.name },
                 onRename = { stage = GridlinkFolderStage.RENAME },
                 onDelete = { stage = GridlinkFolderStage.DELETE },
+                // 🔴 Does NOT dismiss. Every other line in this sheet is the start of something
+                // (a dialog, a destruction); this one finishes where it is tapped, and a sheet that
+                // slams shut on a switch never lets the user see which way the switch went.
+                onWatch = { watched ->
+                    onTreeChange(tree.updateFolder(actionFolder.id) { it.copy(watched = watched) })
+                    onEdit(GridlinkFolderEdit.Watch(id = actionFolder.id, watched = watched))
+                },
                 onDismiss = ::dismiss,
+                watchIsInstant = watchIsInstant,
             )
 
             GridlinkFolderStage.RENAME -> GridlinkRenameFolderDialog(
@@ -964,6 +976,21 @@ private fun GridlinkFolderRow(
                 .padding(start = GridlinkSpacing.s12),
         )
 
+        // 🔴 On the row, not only inside the long-press sheet. State that lives exclusively behind a
+        // gesture is state the user has to go looking for, and this one is the answer to "why did
+        // the phone not tell me". Contentless for TalkBack: the sheet says it in words, and a bell
+        // announced on every row of the tree is noise around the folder name.
+        if (row.folder.watched) {
+            Icon(
+                imageVector = Icons.Outlined.NotificationsActive,
+                contentDescription = null,
+                tint = colors.textSecondary,
+                modifier = Modifier
+                    .padding(end = GridlinkSpacing.s8)
+                    .size(14.dp),
+            )
+        }
+
         if (row.folder.unread > 0) {
             Text(
                 text = row.folder.unread.toString(),
@@ -1229,9 +1256,12 @@ private fun GridlinkNewFolderRow(
 /**
  * What a long-press offers, for a folder that is allowed to be touched.
  *
- * Two actions and no more. Create-subfolder and mark-all-read belong here eventually and neither
+ * Three actions and no more. Create-subfolder and mark-all-read belong here eventually and neither
  * works yet, and a sheet listing two things that do nothing beside two that do is how a prototype
  * starts lying about how finished it is.
+ *
+ * 🔴 "Notify me here" is why this sheet now opens on folders the app refuses to rename or delete.
+ * A role mailbox is untouchable in every sense except this one: whether the phone mentions it.
  *
  * ⚠️ Move is absent on purpose and is the one omission worth arguing about: it is a real, working
  * operation, reachable only by dragging. That leaves TalkBack with no way to reparent a folder. A
@@ -1244,7 +1274,9 @@ private fun GridlinkFolderActionSheet(
     parentName: String?,
     onRename: () -> Unit,
     onDelete: () -> Unit,
+    onWatch: (Boolean) -> Unit,
     onDismiss: () -> Unit,
+    watchIsInstant: Boolean = true,
 ) {
     val colors = GridlinkTheme.colors
     GridlinkCenterSheet(onDismiss = onDismiss) {
@@ -1256,6 +1288,28 @@ private fun GridlinkFolderActionSheet(
             subline = parentName?.let { "in $it" },
         )
         GridlinkSheetDivider()
+        if (folder.mayWatch) {
+            GridlinkSheetAction(
+                label = "Notify me here",
+                icon = if (folder.watched) {
+                    Icons.Outlined.NotificationsActive
+                } else {
+                    Icons.Outlined.NotificationsNone
+                },
+                onClick = { onWatch(!folder.watched) },
+                // 🔴 The OFF line names the inbox rather than saying "no notifications", because
+                // that is what the user is actually choosing between. Nobody long-presses a folder
+                // wondering whether the app notifies at all.
+                subline = when {
+                    !folder.watched -> "Off. Only the inbox raises a notification"
+                    watchIsInstant -> "On. New mail here notifies as it arrives"
+                    // Said out loud rather than hidden, because a switch that promises "notify me"
+                    // and delivers a message half an hour late is worse than one that said so.
+                    else -> "On, but checked every 30 min. IMAP only reports the inbox live"
+                },
+                trailing = { GridlinkOnOffPill(folder.watched) },
+            )
+        }
         if (folder.mayRename) {
             GridlinkSheetAction(
                 label = "Rename",

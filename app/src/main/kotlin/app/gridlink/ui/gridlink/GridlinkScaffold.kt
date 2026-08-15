@@ -2442,6 +2442,9 @@ fun GridlinkRoot(
                                 onTreeChange = { if (folders == null) sampleFolderTree = it },
                                 onEdit = onFolderEdit,
                                 loading = folders?.loading == true,
+                                // Sample trees claim instant, because the sample has no protocol to
+                                // be honest about and the caveat is about IMAP specifically.
+                                watchIsInstant = folders?.watchIsInstant ?: true,
                                 // The account's inbox, once there is one to name. The parameter's
                                 // default is the sample's literal "inbox" id, which no real server ever
                                 // uses, so without this a signed-in user opens the tab on a tree that is

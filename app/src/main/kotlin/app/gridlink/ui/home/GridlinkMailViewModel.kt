@@ -18,6 +18,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.gridlink.container
 import app.gridlink.core.data.account.AccountCredentials
+import app.gridlink.core.data.account.MailProtocol
 import app.gridlink.core.data.mail.InboxScope
 import app.gridlink.core.data.mail.MailFilter
 import app.gridlink.core.data.mail.MailSearchResult
@@ -843,9 +844,16 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         if (id == null) {
             flowOf(emptyList())
         } else {
-            repo.observeMailboxes(id)
-                .onEach { folderPrimed.value = true }
-                .map { GridlinkFolderMapping.tree(it) }
+            // 🔴 The watched set is combined in rather than read once, because it is written from
+            // this same screen: the long-press sheet's switch calls [AccountStore.setFolderWatched],
+            // which republishes `accountsFlow`, which is what flips the pill. Read once at
+            // subscription time, the switch would move nothing until the next mailbox sync.
+            combine(
+                repo.observeMailboxes(id).onEach { folderPrimed.value = true },
+                store.accountsFlow.map { list ->
+                    list.firstOrNull { it.id == id }?.watchedFolders.orEmpty()
+                }.distinctUntilChanged(),
+            ) { mailboxes, watched -> GridlinkFolderMapping.tree(mailboxes, watched) }
         }
     }
 
@@ -924,10 +932,26 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
+    /**
+     * Is a watched folder live on this account? See [GridlinkFolderContent.watchIsInstant].
+     *
+     * JMAP's `StateChange` is per account, so every watched folder is as live as the inbox. IMAP
+     * IDLE selects one mailbox and this app selects the INBOX, so the rest ride `MailFetchWorker`.
+     */
+    private val watchIsInstant: Flow<Boolean> =
+        combine(accountId, store.accountsFlow) { id, accounts ->
+            accounts.firstOrNull { it.id == id }?.protocol != MailProtocol.IMAP
+        }.distinctUntilChanged()
+
     /** The Folders tab, as [app.gridlink.ui.gridlink.GridlinkRoot] takes it. */
     val folders: StateFlow<GridlinkFolderContent> =
-        combine(folderTree, folderPrimed, folderMail) { tree, ready, open ->
-            GridlinkFolderContent(tree = tree, loading = !ready, open = open)
+        combine(folderTree, folderPrimed, folderMail, watchIsInstant) { tree, ready, open, instant ->
+            GridlinkFolderContent(
+                tree = tree,
+                loading = !ready,
+                open = open,
+                watchIsInstant = instant,
+            )
         }.stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(SUBSCRIPTION_GRACE_MS),
@@ -1200,6 +1224,14 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                             openFolderId.value = null
                         }
                     }
+
+                    // 🔴 Local, and the only edit here that never touches the server. The push layer
+                    // has read this set since issue #16 and nothing could write it, so every install
+                    // has been notifying about the inbox and nothing else no matter where mail was
+                    // filed. `AccountStore` publishes on write, so the tree's pill flips from the
+                    // store rather than from an optimistic copy.
+                    is GridlinkFolderEdit.Watch ->
+                        store.setFolderWatched(id, edit.id, edit.watched)
                 }
             } catch (c: CancellationException) {
                 throw c
