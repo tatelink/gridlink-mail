@@ -1256,6 +1256,73 @@ data class GridlinkComposeDraft(
             ),
             attachments = listOf(GridlinkAttachment("wk32_schedule_1155.pdf", "84 KB")),
         )
+
+        /**
+         * [Reply] onto a quote several screens deep: the fixture for the caret question.
+         *
+         * 🔴 It exists to REPRODUCE, not to photograph. The open complaint against this composer is
+         * that typing above a long quote makes the caret jump or the view scroll away, and [Reply]'s
+         * two-sentence quote cannot show that either way: the whole form fits on one screen, so the
+         * scroll never has anywhere to go. This one runs the body past the fold and puts several
+         * more screens of quote under it, which is the only shape in which the question has an
+         * answer.
+         *
+         * Built by folding the real sample messages into one chain through [gridlinkReplyQuote] and
+         * [gridlinkQuoteText], rather than by pasting a wall of lorem in. Two reasons, and the
+         * second is the one that matters: a hand-written blob would be as long as I made it and no
+         * more honest for it, and the fold exercises the same functions a live reply calls, so a
+         * quote that renders wrong here renders wrong there.
+         *
+         * ⚠️ Sample data. Nothing outside the debug gallery may open this.
+         */
+        val ReplyLong: GridlinkComposeDraft by lazy {
+            val chain = GridlinkSample.messages
+                .sortedByDescending { it.body.length }
+                .take(CHAIN_DEPTH)
+            val head = chain.first()
+            Reply.copy(
+                title = "Reply",
+                subject = "Re: ${head.subject}",
+                // Long enough to pass the fold on its own, because half the complaint is about what
+                // happens to text ABOVE the quote and a two-line body never leaves the top.
+                body = LONG_REPLY_BODY,
+                quoted = gridlinkReplyQuote(head).copy(
+                    // ⚠️ The HEAD's attribution is NOT repeated in here. `gridlinkReplyQuote`
+                    // already put it in `attribution`, which the composer draws as the label above
+                    // the block, so folding it in as well printed the same line twice.
+                    text = (
+                        listOf(gridlinkQuoteText(head)) + chain.drop(1).map { message ->
+                            "On ${message.timestamp}, ${message.sender} <${message.address}> " +
+                                "wrote:\n" + gridlinkQuoteText(message)
+                        }
+                        ).joinToString("\n\n"),
+                ),
+            )
+        }
+
+        /** How many sample messages the [ReplyLong] chain folds together. */
+        private const val CHAIN_DEPTH = 8
+
+        /**
+         * [ReplyLong]'s own words: what someone would actually have typed above a long chain.
+         *
+         * Six paragraphs, so the caret can be put at the top, the middle and the end of a body that
+         * is itself taller than the panel. A one-line body would only ever test the first of those.
+         */
+        private val LONG_REPLY_BODY = listOf(
+            "Approved the OT for Perez. Post the updated schedule tonight and copy Danielle when " +
+                "she is back on.",
+            "On the rest of the chain below: I read all of it and I am not re-litigating the " +
+                "Kirkwood swap here. That decision stands until the district call.",
+            "Coverage first. Two callouts overnight is the whole problem and everything after it " +
+                "is downstream of that, so please stop routing it through scheduling.",
+            "If the truck is late again on Thursday we hold the line at the same answer we gave " +
+                "last month. I will put that in writing to Brightmar myself.",
+            "Training hours come out of the same bucket and I would rather spend them on the new " +
+                "openers than on a second pass at the certification everyone already has.",
+            "Anything I have missed, reply on this thread rather than starting a new one. The " +
+                "history below is why.",
+        ).joinToString("\n\n")
     }
 }
 
