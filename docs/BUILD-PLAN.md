@@ -158,8 +158,20 @@ drag-to-reorder third is permanently cut.
 
 7. **Read receipts / MDN (item 6).** Carries a decision: recommendation is never auto-send, prompt
    off by default, so the app never confirms you read something without asking.
-8. **Calendar conflict detection (item 7).** Unblocked, reads the app's own CalDAV cache, needs no
-   Android permission.
+8. ✅ **Calendar conflict detection (item 7).** Closed 2026-08-15, on the back of the rebuilt
+   invitation card. Opening a meeting request now reads the app's own CalDAV cache for that day and
+   names what is already booked over it, above the RSVP row so it is read before the thumb reaches
+   Accept, in caution amber rather than destructive red — a clash is something to weigh, and plenty
+   of them are deliberate.
+   🔴 The app's OWN cache, not the system calendar: reading the provider would need a runtime
+   calendar permission for one line of text, and it works with no signal. Same reason Add to
+   calendar hands an intent to the calendar's own editor instead of writing through the provider.
+   The rules live in `gridlinkInviteConflicts` and are unit-tested: overlap is **half-open**, so
+   back-to-back meetings do not clash (the case that decides whether the feature is usable at all);
+   all-day entries are ignored on both sides, since "Alice on leave" spans a day without occupying
+   it; the invitation never clashes with **itself** (matched by UID, for one already accepted or
+   re-sent); a zero-length span counts only where it touches, rather than being widened to an
+   invented default. Past three clashes the rest are counted rather than dropped.
 
 ## Phase 6 — trust and finish
 

@@ -1,12 +1,15 @@
 package app.gridlink.ui.home
 
 import app.gridlink.core.data.calendar.Attendee
+import app.gridlink.core.data.calendar.CalendarOccurrence
 import app.gridlink.core.data.calendar.ParsedEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 import java.util.Locale
 
@@ -38,7 +41,9 @@ class GridlinkInviteMappingTest {
         method: String? = "REQUEST",
         status: String? = null,
         organizerEmail: String? = "chair@example.com",
+        uid: String? = "the-invitation",
     ) = ParsedEvent(
+        uid = uid,
         title = "Quarterly review",
         startMillis = start,
         endMillis = end,
@@ -137,5 +142,105 @@ class GridlinkInviteMappingTest {
         // would show an empty line where the name of the meeting goes.
         val invite = gridlinkInviteOf(event().copy(title = "   "), chicago, locale)
         assertNull(invite.title)
+    }
+
+    // ---- Conflicts ------------------------------------------------------------------------------
+
+    /** The invitation above runs 09:00-10:00 in Chicago on this day. */
+    private val day: LocalDate = LocalDate.of(2026, 8, 20)
+
+    private fun booked(
+        summary: String? = "Standup",
+        from: LocalTime? = LocalTime.of(9, 30),
+        to: LocalTime? = LocalTime.of(9, 45),
+        uid: String = "something-else",
+    ) = CalendarOccurrence(
+        uid = uid,
+        date = day,
+        start = from,
+        end = to,
+        summary = summary,
+        location = null,
+        organizerEmail = null,
+    )
+
+    private fun conflicts(vararg booked: CalendarOccurrence, on: ParsedEvent = event()) =
+        gridlinkInviteConflicts(on, booked.toList(), chicago, locale)
+
+    @Test
+    fun `something booked over the invitation is named, with its time`() {
+        assertEquals(listOf("Standup, 09:30 - 09:45"), conflicts(booked()))
+    }
+
+    @Test
+    fun `back-to-back meetings do not clash`() {
+        // 🔴 The case that decides whether this feature is usable at all. A day of touching
+        // half-hours is a normal day, and flagging every join would make the warning meaningless
+        // by lunchtime.
+        val before = booked(summary = "Earlier", from = LocalTime.of(8, 0), to = LocalTime.of(9, 0))
+        val after = booked(summary = "Later", from = LocalTime.of(10, 0), to = LocalTime.of(11, 0))
+        assertEquals(emptyList<String>(), conflicts(before, after))
+    }
+
+    @Test
+    fun `an all-day event is not a clash`() {
+        // A null start is what all-day MEANS here. "Alice on leave" spans the day without occupying
+        // it, and it is exactly the sort of entry a busy calendar is full of.
+        assertEquals(emptyList<String>(), conflicts(booked(summary = "Alice on leave", from = null, to = null)))
+    }
+
+    @Test
+    fun `the invitation does not clash with itself`() {
+        // Already accepted, or re-sent by the organiser: the cached row IS this meeting, and saying
+        // so would tell the reader they are double-booked against what they are looking at.
+        assertEquals(emptyList<String>(), conflicts(booked(uid = "the-invitation")))
+    }
+
+    @Test
+    fun `an all-day invitation asks for no slot, so nothing clashes with it`() {
+        assertEquals(emptyList<String>(), conflicts(booked(), on = event(allDay = true)))
+    }
+
+    @Test
+    fun `a cancelled invitation reports no clashes`() {
+        // Nothing is being asked for, so there is nothing to weigh.
+        assertEquals(emptyList<String>(), conflicts(booked(), on = event(status = "CANCELLED")))
+    }
+
+    @Test
+    fun `an event with no end still clashes where it touches`() {
+        // Both directions of the zero-length rule: a cached row with no end, inside the invitation.
+        val instant = booked(summary = "Reminder", from = LocalTime.of(9, 30), to = null)
+        assertEquals(listOf("Reminder, 09:30"), conflicts(instant))
+        // And an invitation with no end, inside a cached row.
+        assertEquals(
+            listOf("All morning, 08:00 - 12:00"),
+            conflicts(
+                booked(summary = "All morning", from = LocalTime.of(8, 0), to = LocalTime.of(12, 0)),
+                on = event(end = null),
+            ),
+        )
+    }
+
+    @Test
+    fun `a nameless clash still says something`() {
+        assertEquals(listOf("(No title), 09:30 - 09:45"), conflicts(booked(summary = "  ")))
+    }
+
+    @Test
+    fun `past three clashes the rest are counted`() {
+        val many = (1..5).map { booked(summary = "Meeting $it", uid = "uid-$it") }
+        val lines = gridlinkInviteConflictLines(gridlinkInviteConflicts(event(), many, chicago, locale))
+        assertEquals(
+            listOf("Meeting 1, 09:30 - 09:45", "Meeting 2, 09:30 - 09:45", "Meeting 3, 09:30 - 09:45", "and 2 more"),
+            lines,
+        )
+    }
+
+    @Test
+    fun `exactly three clashes are all named`() {
+        val three = (1..3).map { booked(summary = "Meeting $it", uid = "uid-$it") }
+        val lines = gridlinkInviteConflictLines(gridlinkInviteConflicts(event(), three, chicago, locale))
+        assertEquals(three.size, lines.size)
     }
 }

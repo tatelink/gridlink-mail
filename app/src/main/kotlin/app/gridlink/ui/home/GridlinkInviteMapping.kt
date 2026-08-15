@@ -1,5 +1,6 @@
 package app.gridlink.ui.home
 
+import app.gridlink.core.data.calendar.CalendarOccurrence
 import app.gridlink.core.data.calendar.ParsedEvent
 import app.gridlink.ui.gridlink.GridlinkInvite
 import app.gridlink.ui.gridlink.GridlinkInviteResponse
@@ -75,4 +76,89 @@ internal fun gridlinkInviteWhen(event: ParsedEvent, zone: ZoneId, locale: Locale
         end.format(dateTime)
     }
     return "$startText - $endText"
+}
+
+/** How many clashes are named before the card says "and N more". Four lines is already a wall. */
+private const val CONFLICT_LIMIT = 3
+
+/**
+ * What is already in the calendar at the time this meeting is being asked for.
+ *
+ * The one thing a reader needs before answering that the invitation itself cannot tell them, and the
+ * app already has the answer sitting in its own CalDAV cache — no Android calendar permission, no
+ * provider read, nothing that leaves the device.
+ *
+ * ## What counts as a clash
+ * Overlap in the reader's own zone, which is why [occurrences] arrive already expanded into it: a
+ * weekly standup written in 2019 clashes with next Tuesday, and only the expander knows that.
+ * Deliberately NOT counted:
+ * - **All-day events**, on either side. "Alice on leave" and "Quarter ends" sit across a day without
+ *   occupying it, and a card that called every one of them a clash would cry wolf on the days most
+ *   likely to have one. An all-day INVITATION is skipped for the same reason: it is not asking for
+ *   a slot.
+ * - **This meeting itself.** An invitation already in the calendar (accepted earlier, or re-sent by
+ *   the organiser) matches by UID, and reporting it would tell a reader they are double-booked
+ *   against the very thing they are looking at.
+ *
+ * A zero-length span on either side — an invitation with no DTEND, a cached row with no end — counts
+ * as a clash only where it touches, rather than being widened to some invented default length.
+ */
+internal fun gridlinkInviteConflicts(
+    event: ParsedEvent,
+    occurrences: List<CalendarOccurrence>,
+    zone: ZoneId,
+    locale: Locale,
+): List<String> {
+    if (event.allDay || event.cancelled) return emptyList()
+    val timeOnly = DateTimeFormatter.ofPattern("HH:mm", locale)
+    val start = event.startMillis
+    val end = (event.endMillis ?: start).coerceAtLeast(start)
+    return occurrences.asSequence()
+        .filter { it.start != null && it.uid != event.uid }
+        .filter { occurrence ->
+            val from = occurrence.date.atTime(occurrence.start).atZone(zone).toInstant().toEpochMilli()
+            val to = occurrence.end
+                ?.let { occurrence.date.atTime(it).atZone(zone).toInstant().toEpochMilli() }
+                ?.coerceAtLeast(from)
+                ?: from
+            overlaps(start, end, from, to)
+        }
+        .map { occurrence ->
+            val title = occurrence.summary?.takeIf { it.isNotBlank() } ?: "(No title)"
+            val from = occurrence.start?.format(timeOnly)
+            val to = occurrence.end?.format(timeOnly)
+            when {
+                from != null && to != null && to != from -> "$title, $from - $to"
+                from != null -> "$title, $from"
+                else -> title
+            }
+        }
+        .toList()
+}
+
+/**
+ * Half-open overlap, except where a span has no length.
+ *
+ * Half-open is what makes back-to-back meetings not clash: a 09:00-10:00 and a 10:00-11:00 share an
+ * instant and nothing else, and calling that a conflict would flag most of a working day. A
+ * zero-length span has no interior to be inside, so for those the comparison closes up and touching
+ * counts — otherwise an invitation with no DTEND could never clash with anything at all.
+ */
+private fun overlaps(aStart: Long, aEnd: Long, bStart: Long, bEnd: Long): Boolean =
+    if (aStart == aEnd || bStart == bEnd) {
+        maxOf(aStart, bStart) <= minOf(aEnd, bEnd)
+    } else {
+        aStart < bEnd && bStart < aEnd
+    }
+
+/**
+ * The clash lines, capped, with the overflow counted rather than dropped.
+ *
+ * Silently showing three of eleven would understate a genuinely awful morning, and eleven lines
+ * would bury the invitation under its own warning.
+ */
+internal fun gridlinkInviteConflictLines(conflicts: List<String>): List<String> {
+    if (conflicts.size <= CONFLICT_LIMIT) return conflicts
+    val extra = conflicts.size - CONFLICT_LIMIT
+    return conflicts.take(CONFLICT_LIMIT) + if (extra == 1) "and 1 more" else "and $extra more"
 }
