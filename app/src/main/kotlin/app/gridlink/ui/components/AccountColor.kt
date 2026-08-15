@@ -1,6 +1,7 @@
 package app.gridlink.ui.components
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 
 /**
  * Black or white, whichever has the higher WCAG contrast ratio on [background].
@@ -39,3 +40,43 @@ object AccountPalette {
 
 /** An account's stored accent colour (ARGB) as a Compose [Color], or null for auto. */
 fun accountColorOf(argb: Int?): Color? = argb?.let { Color(it) }
+
+/**
+ * Every account's accent colour, chosen ones honoured and the rest handed a distinct one.
+ *
+ * ## 🔴 Why this is assignment rather than a hash of the address
+ * The colour is the only thing naming the account on a merged inbox row (the text label came off
+ * when the bar took the job), so two accounts sharing one is not a cosmetic collision, it is the row
+ * answering "whose is this" wrongly. A hash cannot promise otherwise: eight colours and any two
+ * addresses collide about one time in eight, silently, and the user's only recourse would be to
+ * discover the setting and fix it by hand. Assignment can promise it, so it does.
+ *
+ * Chosen colours are taken first and are never moved: an override is the user's answer, and a later
+ * account arriving must not repaint an account they already coloured. What CAN move is an
+ * auto-assigned colour, when a later override claims it. That is the right way round — an automatic
+ * choice yielding to a deliberate one — and the alternative is two accounts the same colour.
+ *
+ * [accounts] is (id, chosen colour or null) in stored order, and the order is what makes the result
+ * stable: the same accounts in the same order always produce the same map, so the colours do not
+ * shuffle between the mail list and settings, or across a restart.
+ *
+ * Past [AccountPalette.colors].size accounts there is nothing honest left to hand out, so the
+ * palette repeats from the top. Eight accounts is already well past what this is designed for, and a
+ * repeat is better than a ninth colour invented off the end of a curated set.
+ */
+fun resolveAccountColors(accounts: List<Pair<String, Int?>>): Map<String, Int> {
+    val palette = AccountPalette.colors.map { it.toArgb() }
+    val taken = accounts.mapNotNull { it.second }.toMutableSet()
+    val resolved = LinkedHashMap<String, Int>(accounts.size)
+    var wrap = 0
+    accounts.forEach { (id, chosen) ->
+        val color = chosen
+            ?: palette.firstOrNull { it !in taken }
+            // Every colour is spoken for: repeat rather than invent, and step through the palette so
+            // a ninth and tenth account are at least not the same colour as each other.
+            ?: palette[wrap++ % palette.size]
+        taken += color
+        resolved[id] = color
+    }
+    return resolved
+}

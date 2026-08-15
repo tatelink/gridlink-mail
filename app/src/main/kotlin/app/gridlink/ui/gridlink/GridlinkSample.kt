@@ -605,8 +605,21 @@ data class GridlinkMessage(
      * Non-null ONLY in the unified inbox, and that is the point: it is the answer to "whose mail is
      * this" in the one list where the question can be asked, and drawing it in a single-account
      * inbox would be a column of the same address repeated down the screen.
+     *
+     * 🔴 No longer DRAWN. The identity bar carries the account now (see [accountColor]), and this is
+     * what the bar is announced as, so the answer is still there for a screen reader that cannot see
+     * a colour. Deleting it would make the merged inbox unusable without sight.
      */
     val accountLabel: String? = null,
+    /**
+     * The account's accent colour (ARGB), set exactly when [accountLabel] is.
+     *
+     * 🔴 It REPLACES the sender colour on the identity bar rather than joining it — one bar, whose
+     * meaning changes with the list it is in. Merged, "whose account" is the question the row cannot
+     * otherwise answer; anywhere else the account is fixed and the sender is the useful distinction.
+     * Two bars would cost the row width it does not have and leave the user reading two colour codes.
+     */
+    val accountColor: Int? = null,
     val sender: String,
     /** Drives the identity bar colour. See `gridlinkSenderBarColor`. */
     val domain: String,

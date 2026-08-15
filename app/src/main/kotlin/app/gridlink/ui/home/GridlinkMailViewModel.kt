@@ -11,6 +11,7 @@ import android.provider.MediaStore
 import android.util.Log
 import android.widget.Toast
 import androidx.annotation.RequiresApi
+import androidx.compose.ui.graphics.toArgb
 import androidx.core.content.FileProvider
 import androidx.core.text.HtmlCompat
 import androidx.lifecycle.AndroidViewModel
@@ -32,6 +33,8 @@ import app.gridlink.push.FetchAndNotify
 import app.gridlink.push.Notifications
 import app.gridlink.send.ScheduledSends
 import app.gridlink.snooze.Snoozes
+import app.gridlink.ui.components.AccountPalette
+import app.gridlink.ui.components.resolveAccountColors
 import app.gridlink.ui.gridlink.GridlinkAttachment
 import app.gridlink.ui.gridlink.GridlinkComposeDraft
 import app.gridlink.ui.gridlink.GridlinkFolder
@@ -329,6 +332,15 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     private data class InboxWindow(
         val scopes: List<InboxScope>,
         val accounts: Map<String, String> = emptyMap(),
+        /**
+         * Each account's accent colour (ARGB), which is what a merged row is marked with now that
+         * the text marker has gone. Keyed like [accounts] and populated with it.
+         *
+         * 🔴 Resolved across EVERY stored account, not just the ones in this window, so an account
+         * that is merely not syncing yet still holds its colour: assignment that only saw the usable
+         * accounts would hand its colour to someone else and then repaint both when it arrived.
+         */
+        val colors: Map<String, Int> = emptyMap(),
         val filter: MailFilter = MailFilter.none,
     ) {
         /** The list is merging more than one account, so identity has to carry the account. */
@@ -338,9 +350,22 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         fun mailboxOf(accountId: String): String? =
             scopes.firstOrNull { it.accountId == accountId }?.mailboxId
 
-        /** The marker a row from [accountId] draws, or null when there is nothing to disambiguate. */
+        /**
+         * The marker a row from [accountId] draws, or null when there is nothing to disambiguate.
+         *
+         * The colour falls back to the first palette entry only if resolution somehow missed this
+         * account, which cannot happen while [colors] is built from the full account list: a marker
+         * with no colour would be an unmarked row in a merged list, and that is worse than a
+         * repeated colour.
+         */
         fun rowAccount(accountId: String): GridlinkMailMapping.Row.Account? =
-            accounts[accountId]?.let { GridlinkMailMapping.Row.Account(accountId, it) }
+            accounts[accountId]?.let {
+                GridlinkMailMapping.Row.Account(
+                    id = accountId,
+                    label = it,
+                    color = colors[accountId] ?: AccountPalette.colors.first().toArgb(),
+                )
+            }
     }
 
     /**
@@ -375,6 +400,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 InboxWindow(
                     scopes = usable.map { InboxScope(it.id, it.inboxId.orEmpty(), it.syncWindow.limit) },
                     accounts = usable.associate { it.id to it.label() },
+                    colors = resolveAccountColors(accounts.map { it.id to it.color }),
                     filter = chips,
                 )
             } else {

@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -41,6 +40,8 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -272,15 +273,29 @@ fun GridlinkMessageRow(
             // line 1 are one identity between them, and leaving the bar on the sender would paint a
             // whole Sent list in a single colour (your own domain, on every row) beside a column of
             // names that all differ. The colour has to name the same party the text does.
+            //
+            // 🔴 In the MERGED inbox it means the account instead, and the sender colour stands down
+            // for it: see [GridlinkMessage.accountColor]. One bar whose meaning follows the list.
+            // The sender is still named in words on line 1; the account, since the text marker came
+            // off, is named by nothing else, so it takes the colour where the two compete.
             Box(
                 modifier = Modifier
                     .width(GridlinkDimens.senderBarWidth)
                     .fillMaxHeight()
                     .background(
-                        gridlinkSenderBarColor(
+                        message.accountColor?.let { Color(it) } ?: gridlinkSenderBarColor(
                             mode,
                             message.sentTo?.domain?.takeIf { it.isNotBlank() } ?: message.domain,
                         ),
+                    )
+                    // A colour says nothing aloud. With the text marker gone this is the only place
+                    // the account is stated, so the bar carries it for TalkBack; on every other list
+                    // it stays silent rather than announcing a hashed sender colour nobody asked
+                    // about.
+                    .then(
+                        message.accountLabel?.let { label ->
+                            Modifier.semantics { contentDescription = label }
+                        } ?: Modifier,
                     ),
             )
             Column(
@@ -319,28 +334,16 @@ fun GridlinkMessageRow(
                         // Takes all the slack, which pins the timestamp to the trailing edge.
                         modifier = Modifier.weight(1f),
                     )
-                    // 🔴 Only in the merged inbox, and null everywhere else. In a single-account
-                    // list every row would carry the same word, which is a column of noise that
-                    // costs the sender its width and says nothing; merged, it is the one thing the
-                    // row cannot otherwise tell you, because two accounts on one server routinely
-                    // hold the same message ids and the same senders write to both.
+                    // ⚠️ The merged inbox's account marker WAS a second text here, between the
+                    // sender and the timestamp. It is now the identity bar's colour instead, on
+                    // request: at this density the marker was taking width off a sender name that
+                    // already ellipsizes, on every row, to repeat one of two or three words. The bar
+                    // costs the row nothing — it is already drawn — and is readable down the whole
+                    // column at a glance rather than word by word.
                     //
-                    // Metadata weight beside the sender's, and capped, so it reads as the row's
-                    // provenance rather than as part of the name. The sender takes the slack
-                    // (`weight(1f)` above), so a long account label shortens the NAME rather than
-                    // pushing the timestamp off the edge; this cap is what stops it going far.
-                    if (message.accountLabel != null) {
-                        Text(
-                            text = message.accountLabel,
-                            style = GridlinkType.metadata,
-                            color = colors.textSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
-                                .padding(start = GridlinkSpacing.s8)
-                                .widthIn(max = ACCOUNT_LABEL_MAX),
-                        )
-                    }
+                    // 🔴 [GridlinkMessage.accountLabel] is still set, and still says the account
+                    // aloud from the bar. Colour alone would have answered "whose is this" for
+                    // sighted users only.
                     Text(
                         text = message.timestamp,
                         style = GridlinkType.timestamp,
@@ -476,15 +479,6 @@ fun GridlinkMessageRow(
         }
     }
 }
-
-/**
- * How wide the merged inbox's account marker may get before it ellipsises.
- *
- * Sized to hold a short account name or the local part of an address, which is what distinguishes
- * two accounts in practice. Wider would start competing with the sender for line 1; narrower would
- * cut every label to two characters and answer nothing.
- */
-private val ACCOUNT_LABEL_MAX = 96.dp
 
 /**
  * The count pill on a conversation row: how many messages are behind it, and the tap that unfolds

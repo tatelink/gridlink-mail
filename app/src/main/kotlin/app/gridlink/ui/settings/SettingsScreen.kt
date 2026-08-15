@@ -1,28 +1,22 @@
 package app.gridlink.ui.settings
 
-import app.gridlink.BuildConfig
-import app.gridlink.contacts.AndroidContacts
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import app.gridlink.core.data.account.StoredAccount
-import app.gridlink.pgp.rememberPgpInteractionLauncher
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.foundation.layout.size
-import app.gridlink.ui.components.AccountPalette
-import app.gridlink.ui.components.accountColorOf
-import app.gridlink.ui.components.onAccentColor
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -30,35 +24,37 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.BeachAccess
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Feedback
 import androidx.compose.material.icons.filled.FilterAlt
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
@@ -66,12 +62,6 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.minimumInteractiveComponentSize
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.role
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.selected
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
@@ -85,12 +75,17 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
@@ -98,65 +93,71 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import android.content.Context
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import app.gridlink.BuildConfig
+import app.gridlink.R
+import app.gridlink.contacts.AndroidContacts
+import app.gridlink.core.data.account.AuthType
 import app.gridlink.core.data.account.ConnectionSecurity
 import app.gridlink.core.data.account.MailProtocol
+import app.gridlink.core.data.account.StoredAccount
 import app.gridlink.core.data.account.StoredIdentity
 import app.gridlink.core.data.account.SyncWindow
+import app.gridlink.core.data.mail.OAuthProvider
+import app.gridlink.core.data.settings.DeliveryMode
 import app.gridlink.core.data.settings.ListDensity
 import app.gridlink.core.data.settings.MessageTextSize
+import app.gridlink.core.data.settings.NotificationContent
 import app.gridlink.core.data.settings.PreviewLines
 import app.gridlink.core.data.settings.SwipeAction
 import app.gridlink.core.data.settings.ThreadToolbarAction
-import app.gridlink.core.data.settings.DeliveryMode
-import app.gridlink.core.data.settings.NotificationContent
 import app.gridlink.core.data.text.htmlToText
+import app.gridlink.pgp.rememberPgpInteractionLauncher
 import app.gridlink.push.PushController
 import app.gridlink.push.PushStatus
 import app.gridlink.ui.SCREEN_SLIDE_MS
 import app.gridlink.ui.appLabelOf
+import app.gridlink.ui.components.AccountPalette
+import app.gridlink.ui.components.AppPasswordHelpLink
+import app.gridlink.ui.components.PendingImportAccountsSection
+import app.gridlink.ui.components.accountColorOf
+import app.gridlink.ui.components.onAccentColor
+import app.gridlink.ui.components.resolveAccountColors
+import app.gridlink.ui.connect.ConnectScreen
+import app.gridlink.ui.gridlink.GridlinkDetailFrame
 import app.gridlink.ui.navigateOnce
 import app.gridlink.ui.rememberLeaveOnce
 import app.gridlink.ui.rememberMotionEnabled
-import app.gridlink.R
-import app.gridlink.ui.gridlink.GridlinkDetailFrame
 import app.gridlink.ui.theme.GridlinkMaterialSkin
 import app.gridlink.ui.theme.GridlinkSpacing
-import app.gridlink.ui.connect.ConnectScreen
-import app.gridlink.ui.components.AppPasswordHelpLink
-import app.gridlink.ui.components.PendingImportAccountsSection
-import app.gridlink.core.data.account.AuthType
-import app.gridlink.core.data.mail.OAuthProvider
-import android.widget.Toast
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -1282,7 +1283,7 @@ private fun QuotaRow(quota: QuotaUi) {
 
 /** A circular colour choice for the per-account accent picker; "Auto" when [color] is null. */
 @Composable
-private fun ColourSwatch(color: Color?, selected: Boolean, onClick: () -> Unit) {
+private fun ColourSwatch(color: Color?, selected: Boolean, label: String? = null, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .minimumInteractiveComponentSize()
@@ -1299,12 +1300,16 @@ private fun ColourSwatch(color: Color?, selected: Boolean, onClick: () -> Unit) 
         contentAlignment = Alignment.Center,
     ) {
         when {
-            color == null -> Text(
-                stringResource(R.string.settings_account_colour_auto),
+            // The Auto swatch is filled with the colour auto would actually give this account, not
+            // left blank: "Auto" beside an empty circle looks like "no colour", and the account has
+            // one either way. Its word stays on top so the choice is still readable as automatic.
+            label != null -> Text(
+                label,
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = color?.let { onAccentColor(it) } ?: MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            selected -> Icon(Icons.Filled.Check, contentDescription = null, tint = onAccentColor(color))
+            color != null && selected ->
+                Icon(Icons.Filled.Check, contentDescription = null, tint = onAccentColor(color))
         }
     }
 }
@@ -1359,6 +1364,10 @@ private fun AccountsScreen(
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    // The same assignment the merged inbox marks its rows with, so the swatch beside an account here
+    // is the bar the user will see beside its mail. Resolved over the WHOLE stored list, unfiltered,
+    // for the reason in [resolveAccountColors]: a different input set is a different answer.
+    val resolvedColors = remember(accounts) { resolveAccountColors(accounts.map { it.id to it.color }) }
     fun dismissWithUndo(account: StoredAccount) {
         viewModel.dismissImport(account.id)
         scope.launch {
@@ -1397,7 +1406,7 @@ private fun AccountsScreen(
                     label = account.label(),
                     email = account.username,
                     isCurrent = account.id == currentId,
-                    color = accountColorOf(account.color),
+                    color = accountColorOf(resolvedColors[account.id] ?: account.color),
                     subtitle = sharedLabels.takeIf { it.isNotEmpty() }?.let {
                         stringResource(R.string.settings_shared_accounts_under, it.joinToString(", "))
                     },
@@ -1663,7 +1672,19 @@ private fun AccountDetailScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    ColourSwatch(color = null, selected = colorArgb == null) {
+                    // What this account would be given with no choice of its own: resolved with its
+                    // own override cleared, so the Auto swatch shows the colour it is offering
+                    // rather than the colour the account currently has.
+                    val autoColor = remember(accounts, accountId) {
+                        resolveAccountColors(
+                            accounts.map { a -> a.id to a.color.takeIf { a.id != accountId } },
+                        )[accountId]
+                    }
+                    ColourSwatch(
+                        color = accountColorOf(autoColor),
+                        selected = colorArgb == null,
+                        label = stringResource(R.string.settings_account_colour_auto),
+                    ) {
                         colorArgb = null; viewModel.setColor(accountId, null); onAccountsChanged()
                     }
                     AccountPalette.colors.forEach { swatch ->
