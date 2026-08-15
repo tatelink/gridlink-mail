@@ -50,6 +50,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -68,9 +69,9 @@ import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
 import app.gridlink.ui.theme.gridlinkSenderBarColor
+import kotlinx.coroutines.launch
 import kotlin.math.exp
 import kotlin.math.roundToInt
-import kotlinx.coroutines.launch
 
 /**
  * Contacts: the address book, and the alphabet you steer it with.
@@ -634,6 +635,18 @@ private fun GridlinkAlphabetRail(
             // Wide enough to hold the bubble as well as the rail. Only the letter column takes
             // pointer input, so the empty part of this box does not steal touches from the list.
             .width(BUBBLE_SIZE + BUBBLE_GAP + RAIL_EXPANDED)
+            // 🔴 Hidden from the screen reader outright, which is a deliberate call and not an
+            // oversight. The rail is a press-and-drag scrub: TalkBack owns that gesture, so the
+            // control cannot be operated with it on, and every letter in it is a `Text`, so left as
+            // it stands it puts TWENTY-SIX dead stops between the contact list and everything after
+            // it. Nothing is lost by hiding it. It is a shortcut to a position in a list that
+            // TalkBack can already jump through by its own heading navigation, and the section
+            // labels it would scrub to are exactly those headings.
+            //
+            // ⚠️ Contrast [GridlinkSwipeRow], where the answer was the opposite. A swipe is the ONLY
+            // route to archive or delete, so hiding it would remove the feature; the rail duplicates
+            // something already reachable, so hiding it removes only noise.
+            .clearAndSetSemantics { }
             .padding(vertical = GridlinkDimens.listFade),
     ) {
         // The pill. Invisible at rest — "translucent" is Tate's word for the letters, and a bar
