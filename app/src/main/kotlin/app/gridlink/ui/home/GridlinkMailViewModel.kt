@@ -19,18 +19,19 @@ import app.gridlink.container
 import app.gridlink.core.data.account.AccountCredentials
 import app.gridlink.core.data.mail.InboxScope
 import app.gridlink.core.data.mail.MailFilter
-import app.gridlink.core.data.mail.ScopedInboxRow
 import app.gridlink.core.data.mail.MailSearchResult
+import app.gridlink.core.data.mail.ScopedInboxRow
 import app.gridlink.core.jmap.ContentTooLargeException
 import app.gridlink.core.jmap.DownloadLimits
 import app.gridlink.core.jmap.model.Email
-import app.gridlink.core.jmap.model.Mailbox
 import app.gridlink.core.jmap.model.EmailBodyPart
+import app.gridlink.core.jmap.model.Mailbox
 import app.gridlink.core.jmap.model.SearchQuery
 import app.gridlink.mail.MessageDestroyWorker
 import app.gridlink.push.FetchAndNotify
 import app.gridlink.push.Notifications
 import app.gridlink.send.ScheduledSends
+import app.gridlink.snooze.Snoozes
 import app.gridlink.ui.gridlink.GridlinkAttachment
 import app.gridlink.ui.gridlink.GridlinkComposeDraft
 import app.gridlink.ui.gridlink.GridlinkFolder
@@ -43,33 +44,36 @@ import app.gridlink.ui.gridlink.GridlinkMailContent
 import app.gridlink.ui.gridlink.GridlinkMailMapping
 import app.gridlink.ui.gridlink.GridlinkMenuItem
 import app.gridlink.ui.gridlink.GridlinkMessage
-import app.gridlink.ui.gridlink.GridlinkRowKey
 import app.gridlink.ui.gridlink.GridlinkOpenFolder
 import app.gridlink.ui.gridlink.GridlinkOpenMessage
+import app.gridlink.ui.gridlink.GridlinkRowKey
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 import app.gridlink.ui.gridlink.GridlinkScheduledContent
 import app.gridlink.ui.gridlink.GridlinkScheduledSend
 import app.gridlink.ui.gridlink.GridlinkSearchContent
+import app.gridlink.ui.gridlink.GridlinkSnoozedContent
+import app.gridlink.ui.gridlink.GridlinkSnoozedItem
+import app.gridlink.ui.gridlink.GridlinkSnoozedKey
 import app.gridlink.ui.gridlink.GridlinkUnsubscribe
 import app.gridlink.ui.gridlink.gridlinkTypedRecipient
-import app.gridlink.ui.gridlink.parseFormattedHtml
 import app.gridlink.ui.gridlink.gridlinkUnsubscribeOf
+import app.gridlink.ui.gridlink.parseFormattedHtml
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -967,6 +971,86 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     }
 
     /**
+     * The account's snoozed mail, soonest-first sorting left to the screen.
+     *
+     * 🔴 Filtered here for [scheduled]'s reason: [MailRepository.snoozedFlow] is every account's,
+     * because the un-snoozing worker wants every account's. Filtered to whatever the LIST is
+     * currently showing, though, not to the bound account: see the note on `scope` below.
+     *
+     * The sender falls back through name, address, then blank, and the screen draws the placeholder
+     * for a blank one. The headers are a LEFT JOIN on the cached message: a snooze outlives the
+     * cached copy of what was snoozed, and a row that lost its subject is still a row the user has
+     * to be able to see and wake.
+     */
+    val snoozed: StateFlow<GridlinkSnoozedContent> =
+        combine(accountId, unified, store.accountsFlow, repo.snoozedFlow()) { id, merged, all, rows ->
+            // 🔴 The visible scope, not the bound account, and the difference is reachable: a swipe
+            // in the unified inbox can snooze a message belonging to an account that is not bound,
+            // and filtering to `accountId` alone would put that message somewhere nothing lists it.
+            // Mail the app is holding must always be somewhere the user can find it.
+            val scope = if (merged) all.map { it.id }.toSet() else setOfNotNull(id)
+            GridlinkSnoozedContent(
+                items = rows.filter { it.accountId in scope }.map { row ->
+                    GridlinkSnoozedItem(
+                        key = GridlinkSnoozedKey(accountId = row.accountId, emailId = row.emailId),
+                        sender = row.fromName ?: row.fromEmail.orEmpty(),
+                        subject = row.subject.orEmpty(),
+                        untilMillis = row.until,
+                    )
+                },
+            )
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(SUBSCRIPTION_GRACE_MS),
+            initialValue = GridlinkSnoozedContent(items = emptyList()),
+        )
+
+    /**
+     * Put a message away until [untilMillis]: write the row, then arm the worker.
+     *
+     * 🔴 [rowKey] is a ROW key and is decoded, never used as an email id. In the unified inbox it
+     * carries the account, and two of Brandon's accounts on one Stalwart genuinely share message
+     * ids (issue #31) — an undecoded key would write a snooze against an id that means a different
+     * message in the account that happens to be bound.
+     *
+     * Row first, worker second, [cancelScheduled]'s order and reason: the row is what hides the
+     * message, and a worker armed against a row that was never written wakes to find nothing.
+     */
+    fun snooze(rowKey: String, untilMillis: Long) {
+        val (keyAccount, emailId) = GridlinkRowKey.decode(rowKey)
+        val account = keyAccount ?: accountId.value ?: return
+        viewModelScope.launch {
+            try {
+                repo.snooze(emailId = emailId, accountId = account, until = untilMillis)
+                Snoozes.enqueue(getApplication(), emailId, account, untilMillis)
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                Log.w(TAG, "snooze failed", t)
+            }
+        }
+    }
+
+    /**
+     * Bring a snoozed message back now: drop the row, disarm the worker.
+     *
+     * Takes the real pair rather than a row key, because this one is called from the Snoozed list,
+     * whose rows come from the snooze table and already know which account they belong to.
+     */
+    fun wakeSnoozed(key: GridlinkSnoozedKey) {
+        viewModelScope.launch {
+            try {
+                repo.unsnooze(key.accountId, key.emailId)
+                Snoozes.cancel(getApplication(), key.accountId, key.emailId)
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                Log.w(TAG, "wake snoozed failed", t)
+            }
+        }
+    }
+
+    /**
      * Drafts total off the folder table, not a Gridlink count of cached rows: the Drafts mailbox is
      * usually unfetched (the sync only pulls the inbox), so counting cached mail would say 0 over a
      * folder with real drafts in it. [Mailbox.totalEmails] is the server's own total, refreshed on
@@ -985,12 +1069,16 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         }
     }.distinctUntilChanged()
 
-    /** The drawer's live sublines. Only the two rows that have a number to say appear as keys. */
+    /** The drawer's live sublines. Only the three rows that have a number to say appear as keys. */
     val menuCounts: StateFlow<Map<GridlinkMenuItem, Int>> =
-        combine(draftsCount, scheduled) { drafts, waiting ->
+        combine(draftsCount, scheduled, snoozed) { drafts, waiting, sleeping ->
             mapOf(
                 GridlinkMenuItem.DRAFTS to drafts,
                 GridlinkMenuItem.SCHEDULED to waiting.items.size,
+                // 🔴 The count is what makes the row findable. Snoozed mail is invisible by
+                // definition, so without a number beside it the drawer offers no evidence the app
+                // is holding anything at all, which is the hole this whole feature closes.
+                GridlinkMenuItem.SNOOZED to sleeping.items.size,
             )
         }.stateIn(
             scope = viewModelScope,

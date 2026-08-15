@@ -29,7 +29,13 @@ class GridlinkToolbarLayoutTest {
         val layout = gridlinkToolbarLayout(defaults, hasUnsubscribe = false, slots = 3)
         assertEquals(listOf(ThreadToolbarAction.FORWARD, ThreadToolbarAction.ARCHIVE), layout.inBar)
         assertTrue(layout.showMore)
-        assertEquals(listOf(ThreadToolbarAction.REPLY_ALL, ThreadToolbarAction.JUNK), layout.inSheet)
+        // Snooze rides along at the end: it is in DEFAULTS and it declares last, so it lands in the
+        // sheet without moving anything that was already on the bar. That is the whole reason it was
+        // appended rather than slotted in beside Archive.
+        assertEquals(
+            listOf(ThreadToolbarAction.REPLY_ALL, ThreadToolbarAction.JUNK, ThreadToolbarAction.SNOOZE),
+            layout.inSheet,
+        )
     }
 
     @Test
@@ -62,7 +68,12 @@ class GridlinkToolbarLayoutTest {
         // action, so dropping a prefix would silently swallow it.
         val layout = gridlinkToolbarLayout(defaults, hasUnsubscribe = false, slots = 2)
         assertEquals(
-            listOf(ThreadToolbarAction.FORWARD, ThreadToolbarAction.REPLY_ALL, ThreadToolbarAction.JUNK),
+            listOf(
+                ThreadToolbarAction.FORWARD,
+                ThreadToolbarAction.REPLY_ALL,
+                ThreadToolbarAction.JUNK,
+                ThreadToolbarAction.SNOOZE,
+            ),
             layout.inSheet,
         )
     }

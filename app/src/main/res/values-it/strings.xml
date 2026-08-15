@@ -272,6 +272,7 @@
     <string name="settings_swipe_delete">Elimina</string>
     <string name="settings_swipe_archive">Archivia</string>
     <string name="settings_swipe_flag">Aggiungi/rimuovi da Speciali</string>
+    <string name="settings_swipe_snooze">Posticipa</string>
     <string name="settings_notifications_screen_title">Notifiche</string>
     <string name="settings_new_mail_section">Nuova posta</string>
     <string name="settings_notif_content_section">Contenuto delle notifiche</string>
@@ -819,6 +820,7 @@
     <string name="settings_thread_action_star">Aggiungi a speciali</string>
     <string name="settings_thread_action_print">Stampa</string>
     <string name="settings_thread_action_junk">Spam</string>
+    <string name="settings_thread_action_snooze">Posticipa</string>
     <string name="settings_tags_title">Etichette</string>
     <string name="settings_tags_summary">Contrassegni colorati per la posta</string>
     <string name="settings_tags_section">Le tue etichette</string>

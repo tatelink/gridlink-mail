@@ -126,6 +126,7 @@ fun GridlinkHomeHost(
     val mail by viewModel.mail.collectAsStateWithLifecycle()
     val folders by viewModel.folders.collectAsStateWithLifecycle()
     val scheduled by viewModel.scheduled.collectAsStateWithLifecycle()
+    val snoozed by viewModel.snoozed.collectAsStateWithLifecycle()
     val menuCounts by viewModel.menuCounts.collectAsStateWithLifecycle()
     val unifiedActive by viewModel.unified.collectAsStateWithLifecycle()
 
@@ -308,7 +309,7 @@ fun GridlinkHomeHost(
                     GridlinkMenuItem.SETTINGS, GridlinkMenuItem.ACCOUNTS -> openSettings()
                     // Routed by the scaffold via [GridlinkChromeState.routeMenu], not from here:
                     // this config lives ABOVE the scaffold and cannot reach its navigation state.
-                    GridlinkMenuItem.SCHEDULED, GridlinkMenuItem.DRAFTS -> Unit
+                    GridlinkMenuItem.SCHEDULED, GridlinkMenuItem.SNOOZED, GridlinkMenuItem.DRAFTS -> Unit
                 }
             },
             // 🔴 The boolean is the MAIL result and only the mail result. The calendar and address
@@ -436,6 +437,9 @@ fun GridlinkHomeHost(
             contactWriter = davViewModel.contactWriter,
             scheduled = scheduled,
             onCancelScheduled = viewModel::cancelScheduled,
+            snoozed = snoozed,
+            onSnooze = viewModel::snooze,
+            onWakeSnoozed = viewModel::wakeSnoozed,
             onEditDraft = viewModel::editDraft,
             onEmptyFolder = viewModel::emptyFolder,
             openRequest = openRequest,

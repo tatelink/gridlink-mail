@@ -377,6 +377,16 @@ fun GridlinkMessageListScreen(
      * the whole of this is opt-in from above rather than reached out for from in here.
      */
     onAction: (Set<String>, GridlinkMailAction) -> Unit = { _, _ -> },
+    /**
+     * A row was swiped to Snooze and now needs a moment picked for it.
+     *
+     * 🔴 A REQUEST, not a filing, and the one swipe outcome that is neither. Nothing has happened
+     * yet: the sheet that answers this lives in [GridlinkScaffold], the user can dismiss it, and
+     * the row therefore springs back rather than flying off. It leaves later, when the answer is
+     * written and the query that hides snoozed mail stops returning it — which is why this does not
+     * go through [onAction] and does not report through [onFiled] either.
+     */
+    onSnoozeRequest: (String) -> Unit = {},
     onOpenMessage: (GridlinkMessage) -> Unit = {},
     onCompose: () -> Unit = {},
     /**
@@ -671,6 +681,11 @@ fun GridlinkMessageListScreen(
                 edit(ids) { it.copy(starred = false) }
                 onAction(ids, GridlinkMailAction.UNSTAR)
             }
+
+            // 🔴 Writes nothing and removes nothing: it asks. See [onSnoozeRequest]. One id because
+            // the sheet names one message; a swipe only ever carries one row, and the multi-select
+            // path does not offer Snooze.
+            GridlinkSwipeAction.SNOOZE -> ids.firstOrNull()?.let(onSnoozeRequest)
 
             GridlinkSwipeAction.ARCHIVE, GridlinkSwipeAction.DELETE -> {
                 remove(ids)

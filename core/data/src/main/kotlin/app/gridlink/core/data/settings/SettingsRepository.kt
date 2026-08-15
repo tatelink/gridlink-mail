@@ -34,8 +34,14 @@ enum class ListDensity { COMPACT, NORMAL, SPACED }
 /** How much of each message's body preview to show in the list. */
 enum class PreviewLines(val lines: Int) { NONE(0), ONE(1), THREE(3), FIVE(5) }
 
-/** An action bound to a swipe gesture on a message row. */
-enum class SwipeAction { NONE, TOGGLE_READ, DELETE, ARCHIVE, FLAG }
+/**
+ * An action bound to a swipe gesture on a message row.
+ *
+ * ⚠️ Persisted BY NAME, so appending is safe and reordering is not. SNOOZE was appended rather
+ * than slotted in beside ARCHIVE for exactly that reason, and it is deliberately NOT a default:
+ * a swipe someone already has in their fingers must not change meaning under them.
+ */
+enum class SwipeAction { NONE, TOGGLE_READ, DELETE, ARCHIVE, FLAG, SNOOZE }
 
 /**
  * An action the reader may put on the open thread's bottom bar.
@@ -68,6 +74,11 @@ enum class ThreadToolbarAction {
     STAR,
     PRINT,
     JUNK,
+
+    // Appended last on purpose. Order here is bar order, so anything ahead of JUNK would push a
+    // shipped action off the visible slots of every untouched install to make room for a new one.
+    // Last means Snooze arrives under More, which is where a rarely-used action belongs anyway.
+    SNOOZE,
     ;
 
     companion object {
@@ -83,8 +94,13 @@ enum class ThreadToolbarAction {
          * Star is off despite being on Brandon's list, because the lit star beside the subject is
          * already on screen whenever this bar is; enabling it puts the same toggle in two places.
          * It is offered because he asked for it, not recommended.
+         *
+         * SNOOZE is on despite being new, and that does not move anything: it declares last, so it
+         * lands under More beside Reply all and Junk while Forward and Archive keep the two visible
+         * slots. Off by default it would ship a snooze list with no way to put mail in it, which is
+         * the hole this feature exists to close.
          */
-        val DEFAULTS: Set<ThreadToolbarAction> = setOf(FORWARD, ARCHIVE, REPLY_ALL, JUNK)
+        val DEFAULTS: Set<ThreadToolbarAction> = setOf(FORWARD, ARCHIVE, REPLY_ALL, JUNK, SNOOZE)
     }
 }
 

@@ -272,6 +272,7 @@
     <string name="settings_swipe_delete">Usuń</string>
     <string name="settings_swipe_archive">Archiwizuj</string>
     <string name="settings_swipe_flag">Oznacz/usuń oznaczenie</string>
+    <string name="settings_swipe_snooze">Odłóż</string>
     <string name="settings_notifications_screen_title">Powiadomienia</string>
     <string name="settings_new_mail_section">Nowe wiadomości</string>
     <string name="settings_notif_content_section">Treść powiadomień</string>
@@ -821,6 +822,7 @@
     <string name="settings_thread_action_star">Oznacz gwiazdką</string>
     <string name="settings_thread_action_print">Drukuj</string>
     <string name="settings_thread_action_junk">Spam</string>
+    <string name="settings_thread_action_snooze">Odłóż</string>
     <string name="settings_tags_title">Tagi</string>
     <string name="settings_tags_summary">Kolorowe oznaczenia poczty</string>
     <string name="settings_tags_section">Twoje tagi</string>

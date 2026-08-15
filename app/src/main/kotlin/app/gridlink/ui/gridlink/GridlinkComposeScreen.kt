@@ -14,10 +14,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -66,13 +66,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -1528,7 +1526,7 @@ private fun GridlinkSendButton(
             // Scaled off the circle rather than fixed, so the 44dp and 64dp placements carry the
             // same glyph-to-circle ratio and the smaller one does not read as a shrunken version of
             // a button with a big icon in it.
-            modifier = Modifier.size(size * 0.41f),
+            modifier = Modifier.size(size * GRIDLINK_SEND_GLYPH_RATIO),
         )
     }
 }
@@ -1747,6 +1745,12 @@ private fun GridlinkSuggestionRow(
 private val GRIDLINK_WORD_BREAKS = charArrayOf(' ', '.', '@', '-', '_', '+')
 
 /**
+ * The send glyph as a fraction of its circle, so the 44dp and 64dp placements read as the same
+ * button at two sizes rather than one of them looking like a big icon crammed into a small circle.
+ */
+private const val GRIDLINK_SEND_GLYPH_RATIO = 0.41f
+
+/**
  * Paints [match] accent wherever it starts a word, leaving the rest to the caller's colour.
  *
  * 🔴 Word starts only, and this is the same rule [gridlinkRecipientSuggestions] filters by. A plain
@@ -1930,9 +1934,15 @@ private fun GridlinkAttachmentRow(
 // §1e Schedule send
 // ---------------------------------------------------------------------------------------------
 
-/** One Send Later shortcut: the human word, the exact time beside it, and the moment it means. */
+/**
+ * One time shortcut: the human word, the exact time beside it, and the moment it means.
+ *
+ * Not Send-Later's alone. Snooze offers the same bargain in the same shape (see
+ * [gridlinkSnoozePresets]), and two identical triples under two names would drift the day one of
+ * them grew a field.
+ */
 @Immutable
-data class GridlinkSchedulePresetTime(val label: String, val time: String, val millis: Long)
+data class GridlinkPresetTime(val label: String, val time: String, val millis: Long)
 
 /**
  * The presets, judged against the clock at the moment the sheet opens. Wording is relative and
@@ -1943,15 +1953,15 @@ data class GridlinkSchedulePresetTime(val label: String, val time: String, val m
  * disabled option, it is a time that does not exist. "Monday" likewise stands down whenever
  * tomorrow already is Monday — two rows meaning the same morning would make the sheet look broken.
  */
-internal fun gridlinkSchedulePresets(now: ZonedDateTime): List<GridlinkSchedulePresetTime> = buildList {
+internal fun gridlinkSchedulePresets(now: ZonedDateTime): List<GridlinkPresetTime> = buildList {
     val today = now.toLocalDate()
     val tonight = today.atTime(18, 0).atZone(now.zone)
     if (tonight.isAfter(now)) {
-        add(GridlinkSchedulePresetTime("Tonight", "6:00 PM", tonight.toInstant().toEpochMilli()))
+        add(GridlinkPresetTime("Tonight", "6:00 PM", tonight.toInstant().toEpochMilli()))
     }
     val tomorrow = today.plusDays(1)
     add(
-        GridlinkSchedulePresetTime(
+        GridlinkPresetTime(
             "Tomorrow",
             "7:00 AM",
             tomorrow.atTime(7, 0).atZone(now.zone).toInstant().toEpochMilli(),
@@ -1960,7 +1970,7 @@ internal fun gridlinkSchedulePresets(now: ZonedDateTime): List<GridlinkScheduleP
     val monday = today.with(TemporalAdjusters.next(DayOfWeek.MONDAY))
     if (monday != tomorrow) {
         add(
-            GridlinkSchedulePresetTime(
+            GridlinkPresetTime(
                 "Monday",
                 "8:00 AM",
                 monday.atTime(8, 0).atZone(now.zone).toInstant().toEpochMilli(),
@@ -2003,7 +2013,7 @@ internal fun defaultScheduleTime(date: LocalDate): LocalTime =
  */
 @Composable
 private fun GridlinkScheduleSheet(
-    presets: List<GridlinkSchedulePresetTime>,
+    presets: List<GridlinkPresetTime>,
     onPick: (Long) -> Unit,
     onPickCustom: () -> Unit,
     onDismiss: () -> Unit,
@@ -2022,13 +2032,13 @@ private fun GridlinkScheduleSheet(
             ),
         )
         presets.forEach { preset ->
-            GridlinkSchedulePreset(
+            GridlinkTimePresetRow(
                 label = preset.label,
                 trailing = preset.time,
                 onClick = { onPick(preset.millis) },
             )
         }
-        GridlinkSchedulePreset(
+        GridlinkTimePresetRow(
             label = "Pick a time",
             trailing = null,
             // 🔴 The only accent row, because it is the only one that opens something else. The rows
@@ -2046,9 +2056,13 @@ private fun GridlinkScheduleSheet(
  *
  * A whole row is the target, not the time inside it. The clock glyph is a leading marker rather than
  * a control, which is why the row and not the glyph carries the click.
+ *
+ * Internal because the snooze sheet is built out of these too. Both sheets ask the same question
+ * (when?) and offer the same kind of answer, so they are the same row: a second copy under another
+ * name is how one of them ends up 4dp taller than the other.
  */
 @Composable
-private fun GridlinkSchedulePreset(
+internal fun GridlinkTimePresetRow(
     label: String,
     trailing: String?,
     onClick: () -> Unit,

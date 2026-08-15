@@ -70,6 +70,9 @@ private fun SwipeAction.resolve(unread: Boolean, starred: Boolean): GridlinkSwip
     SwipeAction.DELETE -> GridlinkSwipeAction.DELETE
     SwipeAction.TOGGLE_READ -> if (unread) GridlinkSwipeAction.MARK_READ else GridlinkSwipeAction.MARK_UNREAD
     SwipeAction.FLAG -> if (starred) GridlinkSwipeAction.UNSTAR else GridlinkSwipeAction.STAR
+
+    // Neither toggle nor filing: the row asks a question. See [GridlinkSwipeAction.SNOOZE].
+    SwipeAction.SNOOZE -> GridlinkSwipeAction.SNOOZE
 }
 
 /**
