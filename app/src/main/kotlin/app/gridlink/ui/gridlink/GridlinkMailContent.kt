@@ -189,6 +189,17 @@ data class GridlinkOpenMessage(
      * changes afterwards except to record what the reader chose to do about it.
      */
     val receipt: GridlinkReceipt? = null,
+    /**
+     * What this message's S/MIME signature turned out to be worth, or null for the mail that
+     * carries none — which is nearly all of it.
+     *
+     * 🔴 Arrives a beat after the body, like [invite], because checking it needs the message's raw
+     * source and that is a second round-trip. Unlike the invitation there is no "loading" state:
+     * an empty space is the honest picture of "not checked yet", where a placeholder saying so
+     * would put a security-shaped box on every signed message for a second and teach readers to
+     * ignore it.
+     */
+    val signed: GridlinkSigned? = null,
 )
 
 /**

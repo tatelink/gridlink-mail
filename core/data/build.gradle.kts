@@ -38,6 +38,11 @@ dependencies {
 
     implementation(libs.androidx.datastore.preferences)
 
+    // S/MIME signature verification (item 9). Verify only: no private key is ever imported,
+    // so nothing here can sign, decrypt or be stolen off the phone.
+    implementation(libs.bouncycastle.prov)
+    implementation(libs.bouncycastle.pkix)
+
     testImplementation(libs.junit)
     // Virtual time, to unit-test the outbox badge without waiting out real undo windows.
     testImplementation(libs.kotlinx.coroutines.test)

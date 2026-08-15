@@ -1548,6 +1548,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             // Last, and inside the same job on purpose: it is a second round-trip, the body must not
             // wait behind it, and opening something else has to abandon it. [openJob] gives all
             // three for free.
+            loadSignature(credentials, rowKey, emailId, body.email)
             loadInvite(credentials, rowKey, emailId, body.email)
         }
     }
@@ -1596,6 +1597,40 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             }
         }
         if (event != null) loadInviteConflicts(rowKey, event)
+    }
+
+    /**
+     * Check this message's S/MIME signature, if it has one, into [GridlinkOpenMessage.signed].
+     *
+     * 🔴 Nothing is drawn while it runs and nothing is drawn if the message carries no signature.
+     * The row appears only when there is a verdict, which keeps a security-shaped box off every
+     * ordinary message — a badge that shows up everywhere is a badge nobody reads.
+     *
+     * The verdict is thrown away with the message and never cached in the database: it is a
+     * statement about bytes this app just checked, and a stored "verified" would outlive the check
+     * and start vouching for mail nobody looked at.
+     */
+    private suspend fun loadSignature(
+        credentials: AccountCredentials,
+        rowKey: String,
+        emailId: String,
+        email: Email,
+    ) {
+        val verdict = try {
+            repo.verifySmime(credentials, email, emailId)
+        } catch (c: CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            // Silence, and no row. A check this app could not run is not a fact about the sender,
+            // and the alternative — a permanent "couldn't check" line — reads as an accusation
+            // against mail that may be perfectly fine.
+            Log.w(TAG, "signature check failed", t)
+            null
+        } ?: return
+        opened.value = opened.value
+            ?.takeIf { it.id == rowKey }
+            ?.copy(signed = gridlinkSignedOf(verdict))
+            ?: opened.value
     }
 
     /**

@@ -2570,6 +2570,42 @@ class MailRepository(
         return null
     }
 
+    // ---- S/MIME read path --------------------------------------------------------------------
+
+    /**
+     * What this message's S/MIME signature turns out to be worth, or null if it carries none.
+     *
+     * 🔴 Verify only, and structurally cheap to say no to: [smimeSigned] looks at the parts already
+     * in hand, and only a message that really carries a PKCS#7 signature costs a raw fetch. Mail
+     * without one — which is nearly all of it — never touches the network for this.
+     *
+     * Nothing here needs a key, a provider or a decision from the user, so unlike the OpenPGP path
+     * it can simply run when a message opens. Any failure is [SmimeStatus.UNSUPPORTED] rather than
+     * an exception: a signature this app cannot check is a fact about the signature, not an error
+     * the reader did something to cause.
+     */
+    suspend fun verifySmime(
+        credentials: AccountCredentials,
+        email: Email,
+        emailId: String,
+    ): SmimeVerdict? {
+        if (!smimeSigned(email)) return null
+        val raw = runCatching { fetchRawSource(credentials, email, emailId) }.getOrNull() ?: return null
+        val envelope = runCatching { MimeParser.detectSmime(raw) }.getOrNull() ?: return null
+        return SmimeVerifier.verify(envelope, email.from.firstOrNull()?.email)
+    }
+
+    /**
+     * Structural check for a PKCS#7 signature on an already-fetched [Email], by the same reasoning
+     * as [cryptoKindOf]: both protocols surface the control part as a typed attachment part.
+     * `x-pkcs7-*` is here because Outlook still writes it and those are real signed messages.
+     */
+    private fun smimeSigned(email: Email): Boolean = email.attachments.any {
+        val type = it.type?.lowercase()
+        type == "application/pkcs7-signature" || type == "application/x-pkcs7-signature" ||
+            type == "application/pkcs7-mime" || type == "application/x-pkcs7-mime"
+    }
+
     /** The exact raw RFC 5322 source of a message (IMAP fetch or JMAP blob download). */
     private suspend fun fetchRawSource(
         credentials: AccountCredentials,
