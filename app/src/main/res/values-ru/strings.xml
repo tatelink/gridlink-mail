@@ -801,6 +801,16 @@
     <string name="widget_empty_not_synced">Откройте GridLink один раз, чтобы это заполнить.</string>
     <string name="widget_empty_inbox">Ничего не ждёт.</string>
     <string name="widget_time_now">сейчас</string>
+    <string name="widget_agenda_label">Расписание Gridlink</string>
+    <string name="widget_agenda_title">Расписание</string>
+    <string name="widget_agenda_description">Что впереди, прямо из вашего календаря.</string>
+    <string name="widget_agenda_all_day">Весь день</string>
+    <string name="widget_agenda_today">Сегодня</string>
+    <string name="widget_agenda_tomorrow">Завтра</string>
+    <string name="widget_agenda_no_title">(Без названия)</string>
+    <string name="widget_empty_agenda">Ничего не запланировано.</string>
+    <string name="widget_empty_calendar_off">Синхронизация календаря отключена для этой учётной записи.</string>
+    <string name="widget_empty_calendar_not_synced">Откройте GridLink один раз, чтобы синхронизировать календарь.</string>
     <string name="settings_bundle_automated_title">Группировать автоматические письма</string>
     <string name="settings_bundle_automated_subtitle">Собирает отправителей вида no-reply, уведомлений и оповещений в одну свёрнутую строку над списком. По умолчанию выключено: список показывает все письма по дате. В обоих случаях ничего не скрывается, а отправитель определяется по адресу, поэтому человек, пишущий с адреса notifications@, тоже попадёт в группу.</string>
     <string name="settings_thread_actions_section">Действия с письмом</string>

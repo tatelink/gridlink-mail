@@ -1,6 +1,7 @@
 package app.gridlink.widget
 
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -114,6 +115,63 @@ internal object GridlinkWidgetFormat {
         count > COUNT_CAP -> "$COUNT_CAP+"
         else -> count.coerceAtLeast(0).toString()
     }
+
+    /**
+     * The clock time an agenda row starts at, in the user's own 12- or 24-hour convention.
+     *
+     * [FormatStyle.SHORT] and nothing else: the row gives this a narrow fixed column, and a
+     * format with seconds or a zone in it would either wrap or push the summary off the widget.
+     */
+    fun agendaTime(millis: Long, zone: ZoneId, locale: Locale): String =
+        DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT)
+            .withLocale(locale)
+            .format(Instant.ofEpochMilli(millis).atZone(zone))
+
+    /**
+     * The end of an agenda row, or null when there is nothing worth printing under the start.
+     *
+     * Null for an event with no end and for one that ends when it starts (a zero-length marker,
+     * which real calendars are full of). Also null once the end has fallen on a later day: the
+     * second line of a two-line time column is read as "…until", and a time from tomorrow sitting
+     * under today's start says the meeting ends this morning.
+     */
+    fun agendaEndTime(startMillis: Long, endMillis: Long?, zone: ZoneId, locale: Locale): String? {
+        if (endMillis == null || endMillis <= startMillis) return null
+        val start = Instant.ofEpochMilli(startMillis).atZone(zone)
+        val end = Instant.ofEpochMilli(endMillis).atZone(zone)
+        if (end.toLocalDate() != start.toLocalDate()) return null
+        return DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale).format(end)
+    }
+
+    /**
+     * The heading a day's first row carries: "Today", "Tomorrow", or a dated weekday.
+     *
+     * The two near labels are passed in for the same reason [relativeTime]'s is — they are words,
+     * and the rest of this comes out of [DateTimeFormatter] already localised. Only those two get
+     * names: "yesterday" never appears (the window starts today) and a third relative word would
+     * have the user counting forward from it, which is exactly the arithmetic a date saves them.
+     *
+     * The weekday is printed WITH its date. A widget looking a fortnight ahead sees each weekday
+     * twice, and "Tue" alone cannot say which of the two Tuesdays it means.
+     */
+    fun agendaDayLabel(
+        epochDay: Long,
+        todayEpochDay: Long,
+        locale: Locale,
+        todayLabel: String,
+        tomorrowLabel: String,
+    ): String = when (epochDay) {
+        todayEpochDay -> todayLabel
+        todayEpochDay + 1L -> tomorrowLabel
+        else -> DateTimeFormatter.ofPattern("EEE d MMM", locale)
+            .format(LocalDate.ofEpochDay(epochDay))
+    }
+
+    /** An event's title, or null when it has none. Same collapse as a subject, same reason. */
+    fun eventSummary(raw: String): String? = raw.collapseOrNull()
+
+    /** Where an event is, or null when it said nothing. Truncated like a preview, for the same reason. */
+    fun eventLocation(raw: String): String? = raw.collapseOrNull()?.take(PREVIEW_LIMIT)
 
     /** Collapse runs of whitespace (including the newlines a preview arrives with) or give up. */
     private fun String.collapseOrNull(): String? =

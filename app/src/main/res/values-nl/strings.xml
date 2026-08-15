@@ -797,6 +797,16 @@
     <string name="widget_empty_not_synced">Open GridLink één keer om dit te vullen.</string>
     <string name="widget_empty_inbox">Niets in afwachting.</string>
     <string name="widget_time_now">nu</string>
+    <string name="widget_agenda_label">Gridlink agenda</string>
+    <string name="widget_agenda_title">Agenda</string>
+    <string name="widget_agenda_description">Wat eraan komt, rechtstreeks uit je agenda.</string>
+    <string name="widget_agenda_all_day">Hele dag</string>
+    <string name="widget_agenda_today">Vandaag</string>
+    <string name="widget_agenda_tomorrow">Morgen</string>
+    <string name="widget_agenda_no_title">(Geen titel)</string>
+    <string name="widget_empty_agenda">Niets gepland.</string>
+    <string name="widget_empty_calendar_off">Agendasynchronisatie staat uit voor dit account.</string>
+    <string name="widget_empty_calendar_not_synced">Open GridLink één keer om je agenda te synchroniseren.</string>
     <string name="settings_bundle_automated_title">Automatische post groeperen</string>
     <string name="settings_bundle_automated_subtitle">Verzamelt no-reply-, notificatie- en waarschuwingsafzenders in één ingeklapte rij boven de lijst. Standaard uit: de lijst toont elk bericht op datum. In beide gevallen wordt niets verborgen, en de afzender wordt afgeleid uit het adres, dus iemand die vanaf een notifications@-adres schrijft wordt ook gegroepeerd.</string>
     <string name="settings_thread_actions_section">Berichtacties</string>

@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The agenda widget: a header this layout's provider draws, and a scrolling list of occurrences.
+
+  Deliberately the same shape as widget_inbox: two widgets from one app that sit side by side on a
+  home screen and are built out of different boxes read as two apps. The ids differ so a redraw of
+  one cannot address the other's views by accident.
+
+  No compose button here. The calendar is read-only (see DavRepository), so a "new event" button
+  would be an invitation to a screen that does not exist.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_card"
+    android:padding="12dp">
+
+    <LinearLayout
+        android:id="@+id/agenda_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="4dp"
+        android:paddingEnd="0dp"
+        android:paddingBottom="8dp">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/agenda_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/widget_on_card"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:text="@string/widget_agenda_title" />
+
+            <TextView
+                android:id="@+id/agenda_subtitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/widget_on_card_dim"
+                android:textSize="11sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/agenda_refresh"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:padding="7dp"
+            android:src="@drawable/ic_widget_refresh"
+            android:contentDescription="@string/widget_refresh" />
+    </LinearLayout>
+
+    <ListView
+        android:id="@+id/agenda_list"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:divider="@null"
+        android:dividerHeight="0dp"
+        android:scrollbars="none" />
+
+    <TextView
+        android:id="@+id/agenda_empty"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:padding="12dp"
+        android:textColor="@color/widget_on_card_dim"
+        android:textSize="13sp" />
+</LinearLayout>

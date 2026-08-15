@@ -794,6 +794,16 @@
     <string name="widget_empty_not_synced">Öffne GridLink einmal, damit hier etwas steht.</string>
     <string name="widget_empty_inbox">Nichts wartet.</string>
     <string name="widget_time_now">jetzt</string>
+    <string name="widget_agenda_label">Gridlink Termine</string>
+    <string name="widget_agenda_title">Termine</string>
+    <string name="widget_agenda_description">Was ansteht, direkt aus deinem Kalender.</string>
+    <string name="widget_agenda_all_day">Ganztägig</string>
+    <string name="widget_agenda_today">Heute</string>
+    <string name="widget_agenda_tomorrow">Morgen</string>
+    <string name="widget_agenda_no_title">(Kein Titel)</string>
+    <string name="widget_empty_agenda">Nichts geplant.</string>
+    <string name="widget_empty_calendar_off">Die Kalendersynchronisierung ist für dieses Konto aus.</string>
+    <string name="widget_empty_calendar_not_synced">Öffne GridLink einmal, um deinen Kalender zu synchronisieren.</string>
     <string name="settings_bundle_automated_title">Automatische Mails gruppieren</string>
     <string name="settings_bundle_automated_subtitle">Fasst Absender von No-Reply-, Benachrichtigungs- und Warnmails in einer eingeklappten Zeile über der Liste zusammen. Standardmäßig aus: die Liste zeigt jede Nachricht nach Datum. So oder so wird nichts versteckt, und der Absender wird an seiner Adresse erkannt, also wird auch eine Person, die von einer notifications@-Adresse schreibt, mitgruppiert.</string>
     <string name="settings_thread_actions_section">Nachrichtenaktionen</string>

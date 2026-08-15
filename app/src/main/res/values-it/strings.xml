@@ -796,6 +796,16 @@
     <string name="widget_empty_not_synced">Apri GridLink una volta per riempire questo spazio.</string>
     <string name="widget_empty_inbox">Nulla in attesa.</string>
     <string name="widget_time_now">ora</string>
+    <string name="widget_agenda_label">Agenda Gridlink</string>
+    <string name="widget_agenda_title">Agenda</string>
+    <string name="widget_agenda_description">Cosa ti aspetta, direttamente dal tuo calendario.</string>
+    <string name="widget_agenda_all_day">Tutto il giorno</string>
+    <string name="widget_agenda_today">Oggi</string>
+    <string name="widget_agenda_tomorrow">Domani</string>
+    <string name="widget_agenda_no_title">(Senza titolo)</string>
+    <string name="widget_empty_agenda">Niente in programma.</string>
+    <string name="widget_empty_calendar_off">La sincronizzazione del calendario è disattivata per questo account.</string>
+    <string name="widget_empty_calendar_not_synced">Apri GridLink una volta per sincronizzare il calendario.</string>
     <string name="settings_bundle_automated_title">Raggruppa la posta automatica</string>
     <string name="settings_bundle_automated_subtitle">Raccoglie i mittenti no-reply, di notifica e di avviso in una riga compressa sopra l\'elenco. Disattivato per impostazione predefinita: l\'elenco mostra ogni messaggio in ordine di data. In nessuno dei due casi viene nascosto qualcosa, e il mittente viene dedotto dal suo indirizzo, quindi anche una persona che scrive da un indirizzo notifications@ viene raggruppata.</string>
     <string name="settings_thread_actions_section">Azioni del messaggio</string>
