@@ -139,11 +139,16 @@ fun GridlinkDetailFrame(
      */
     header: (@Composable () -> Unit)? = null,
     /**
-     * Full screen: no title, no margins, no glass, and no system bars (the caller hides those, see
-     * [GridlinkImmersive]). Brandon asked for a maximize that "blows up the email to literally full
-     * screen", and every one of those is a piece of the window this frame normally keeps for itself.
+     * Full screen: no title row, and no system bars (the caller hides those, see [GridlinkImmersive]).
+     * Brandon asked for a maximize that "blows up the email to literally full screen", and those two
+     * are the pieces of the window this frame normally keeps for itself.
      *
      * ## 🔴 What is NOT given up, and why
+     * The app's own edges. The margins, the rounded corners and the hairline all stay exactly as
+     * they are everywhere else, and the panel simply runs the full height of the window instead:
+     * *"it still needs edges of the app instead of just stretching to the edge of the screen. format
+     * it like a regular message would appear, just large."* A build that dropped them too read as
+     * unfinished on the device, because a surface with no margin has nothing to say it is a surface.
      * The [bottom] row stays, on his call: maximizing is about reading room, and the button you want
      * after a long message is Reply, which is the one that would have disappeared. Getting BACK is
      * the caller's problem rather than the frame's, because the control that restores has to sit
@@ -151,27 +156,39 @@ fun GridlinkDetailFrame(
      * [GridlinkThreadScreen], the only screen that passes this true.
      *
      * ⚠️ It overrides [embedded] wherever the two disagree. A maximized pane is not a pane any more:
-     * it covers the window, so it takes the window's insets and drops the trailing gap it was
+     * it covers the window, so it takes the window's cutout inset and drops the trailing gap it was
      * leaving for a compose button that is no longer on screen.
      */
     maximized: Boolean = false,
     panel: @Composable BoxScope.() -> Unit,
 ) {
     val colors = GridlinkTheme.colors
-    // Square to the screen edges when maximized. Rounded corners are how this app says "a sheet of
-    // glass floating on a backdrop"; there is no backdrop left to float on, and a rounded rectangle
-    // with the display's own corners showing through it just looks like a mistake.
-    val panelShape = if (maximized) RoundedCornerShape(0.dp) else RoundedCornerShape(GridlinkRadii.card)
+    // 🔴 The SAME glass in every state, maximized included. This was square-cornered and edge-to-edge
+    // for one build, on the reading that "literally full screen" meant the message surface should
+    // touch the display. On the device it read as unfinished, and his word for it was the right one:
+    // a message with no margin, no corner and no edge stops looking like a sheet of paper in an app
+    // and starts looking like a web page that failed to load its stylesheet. Maximized buys its
+    // height by dropping the TITLE ROW, not by dropping the app.
+    val panelShape = RoundedCornerShape(GridlinkRadii.card)
 
     val body: @Composable () -> Unit = {
         Column(
             modifier = when {
-                // 🔴 NO insets out here. The bars are hidden while this is up, so padding for them
-                // would leave a band of backdrop where the status bar used to be, and that band is
-                // the difference between "full screen" and "nearly full screen" to look at. The
-                // cutout is still respected, but INSIDE the panel (see below), so the message's own
-                // surface reaches the physical edge while its text stays clear of the camera hole.
-                maximized -> Modifier.fillMaxSize()
+                // 🔴 [displayCutout] and NOT [systemBars] while maximized, and the difference is not
+                // cosmetic: the bars are hidden here, so their insets report zero and padding for
+                // them would collapse to nothing. The cutout is a hole in the panel, not a bar, so
+                // it keeps reporting its size whatever the bars are doing, and it is the one thing
+                // that must be cleared or the glass runs under the camera.
+                //
+                // [chrome] on top of it so the panel opens on the same margin it keeps on its sides
+                // rather than starting hard against the window. This is the top-to-bottom he asked
+                // for: the panel begins where the TITLE ROW used to, which is the height maximizing
+                // actually buys, and it ends on the action row's own margin at the bottom.
+                maximized ->
+                    Modifier
+                        .fillMaxSize()
+                        .windowInsetsPadding(WindowInsets.displayCutout)
+                        .padding(top = GridlinkSpacing.chrome)
                 embedded -> Modifier.fillMaxSize()
                 else -> Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)
             },
@@ -239,33 +256,16 @@ fun GridlinkDetailFrame(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = if (maximized) 0.dp else GridlinkSpacing.chrome)
+                    .padding(horizontal = GridlinkSpacing.chrome)
                     .clip(panelShape)
                     .background(colors.listSurface, panelShape)
-                    // No hairline when maximized: it would draw a one-pixel box around the whole
-                    // display, which reads as a rendering fault rather than as an edge.
-                    .then(
-                        if (maximized) {
-                            Modifier
-                        } else {
-                            Modifier.border(GridlinkDimens.hairline, colors.surfaceBorder, panelShape)
-                        },
-                    ),
+                    .border(GridlinkDimens.hairline, colors.surfaceBorder, panelShape),
             ) {
                 // 🔴 One layout in both cases now. The pane used to draw its title inside the glass
                 // over a hairline, which meant the panel had two shapes and the reading pane's
                 // content started a title row lower than the standing screen's. With the title
                 // above the glass in both, the panel is just the panel.
-                // The cutout inset lives HERE when maximized, one level in from the surface, so the
-                // panel's own background paints under the camera hole and only the content moves.
-                Box(
-                    modifier = if (maximized) {
-                        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.displayCutout)
-                    } else {
-                        Modifier.fillMaxSize()
-                    },
-                    content = panel,
-                )
+                Box(modifier = Modifier.fillMaxSize(), content = panel)
             }
 
             if (bottom == null) {
