@@ -160,7 +160,7 @@ fun GridlinkListSkeleton(modifier: Modifier = Modifier) {
         // One more than fits, so the panel is never seen to end. A skeleton with a last row has
         // told you how much mail there is, which is the one fact it cannot possibly know.
         val rows = ceil(
-            (maxHeight - GridlinkDimens.listFade) / GridlinkDimens.messageRowHeight,
+            (maxHeight - GridlinkDimens.listFade) / gridlinkRowHeight(),
         ).toInt().coerceAtLeast(1) + 1
 
         Column(
@@ -231,7 +231,7 @@ private fun GridlinkSkeletonRow(index: Int) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(GridlinkDimens.messageRowHeight),
+            .height(gridlinkRowHeight()),
     ) {
         // The sender bar, uncoloured. Its colour comes from the sending domain, which is not known
         // yet, so it holds the space in the skeleton tint and fills in with the real hue on arrival.
