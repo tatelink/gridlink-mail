@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -179,6 +180,11 @@ fun GridlinkCalendarScreen(
     // Two panes keep the on-row title: there the row has the width, and moving the date down
     // would spend a line to fix a problem that pane count does not have.
     val onePane = sidePane == null
+    // 🔴 The agenda's title has to be built from the SAME date its range was, or it names a window
+    // the list is not showing: [range] pins the agenda to today while [anchor] keeps whatever month
+    // the user last paged to, so titling it off the anchor would print "8 Sep – 6 Oct" over a list
+    // that starts today. Every other view pages, so every other view titles off the anchor.
+    val titleAnchor = if (view == GridlinkCalendarView.AGENDA) today else anchor
     // One steppers Row used by whichever seat currently owns the date, never both.
     val steppers: @Composable () -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -204,7 +210,7 @@ fun GridlinkCalendarScreen(
         header = {
             GridlinkHeader(
                 // "Calendar" cannot truncate; the date it displaces is on the line below.
-                title = if (onePane) "Calendar" else view.title(anchor),
+                title = if (onePane) "Calendar" else view.title(titleAnchor),
                 unread = 0,
                 // The agenda used to say "upcoming" here, which was true when its window ran
                 // forward from today. It now includes the week just past, so "upcoming" would
@@ -225,21 +231,36 @@ fun GridlinkCalendarScreen(
         trailing = if (view == GridlinkCalendarView.AGENDA || onePane) null else steppers,
         belowHeader = {
             Column {
-                // No date line on the agenda: its "title" is the word Agenda, which the switcher
-                // directly below is already displaying as the selected pill. One pane grows this
-                // band freely — [LocalGridlinkPaneHeaderHeight] only matters when a side pane has
-                // to clear it, and one pane is defined by not having one.
-                if (onePane && view != GridlinkCalendarView.AGENDA) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                // 🔴 EVERY view draws this line, including the agenda, and the height is held by the
+                // step buttons whether or not they are drawn. The agenda used to skip the line
+                // entirely, so switching to it pulled the view switcher up by the line's height and
+                // switching back dropped it again: *"when i tap agenda, the navbar jumps - it
+                // shouldnt change while in calendar view, no matter which subview."* A control that
+                // moves under the finger that is using it is worse than a redundant line, and the
+                // line is no longer redundant anyway (see [title]).
+                //
+                // One pane grows this band freely — [LocalGridlinkPaneHeaderHeight] only matters
+                // when a side pane has to clear it, and one pane is defined by not having one.
+                if (onePane) {
+                    Row(
+                        // ⚠️ The floor, not the steppers' own height. With the buttons gone on the
+                        // agenda the Row would shrink to its text, which is the same jump one level
+                        // down: the switcher would still land somewhere new.
+                        modifier = Modifier.heightIn(min = CALENDAR_STEPPER_SIZE),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Text(
-                            text = view.title(anchor),
+                            text = view.title(titleAnchor),
                             style = GridlinkType.screenTitle,
                             color = GridlinkTheme.colors.textPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
-                        steppers()
+                        // Still no step buttons on the agenda, for the reason recorded at [trailing]:
+                        // paging a list that never says where it is is a control with an invisible
+                        // effect. Only its SPACE is kept.
+                        if (view != GridlinkCalendarView.AGENDA) steppers()
                     }
                     Spacer(Modifier.height(GridlinkSpacing.s12))
                 }
@@ -353,7 +374,16 @@ private fun GridlinkCalendarView.step(anchor: LocalDate, forward: Boolean): Loca
 
 private fun GridlinkCalendarView.title(anchor: LocalDate): String = when (this) {
     GridlinkCalendarView.MONTH -> anchor.format(MONTH_TITLE)
-    GridlinkCalendarView.AGENDA -> "Agenda"
+    // 🔴 The agenda names its WINDOW, not itself. It used to say "Agenda", which the selected pill
+    // directly below already says, so the line was pure repetition and got dropped on this view
+    // alone — and dropping it moved the switcher up by a whole line every time the view changed.
+    // Tate: *"when i tap agenda, the navbar jumps - it shouldnt change while in calendar view,
+    // no matter which subview."* The window is the one thing this view could not otherwise tell you:
+    // it runs a week back and three weeks on, and nothing on screen said where it stopped.
+    GridlinkCalendarView.AGENDA -> {
+        val (start, end) = rangeAround(anchor)
+        "${start.format(RANGE_END)} – ${end.format(RANGE_END)}"
+    }
     else -> {
         val (start, end) = rangeAround(anchor)
         // "26 – 1 Aug" when the range stays inside one month, "30 Jul – 1 Aug" when it crosses one.
@@ -433,6 +463,15 @@ internal fun LocalTime.compact(): String {
     return if (minute == 0) "$h $suffix" else "$h:${minute.toString().padStart(2, '0')} $suffix"
 }
 
+/**
+ * Height of the date line, and the diameter of the buttons that set it.
+ *
+ * 🔴 Named rather than repeated because the agenda draws the line WITHOUT the buttons and still has
+ * to measure the same: the view switcher sits directly under it, and a switcher that moves when you
+ * change view is a control that dodges the finger already on it.
+ */
+private val CALENDAR_STEPPER_SIZE = 36.dp
+
 /** Header step control. Deliberately not an M3 IconButton: those come with a 48dp ripple that does
  *  not fit beside a screen title, and the app has no other filled icon buttons to match. */
 @Composable
@@ -440,7 +479,7 @@ internal fun GridlinkStepButton(forward: Boolean, onClick: () -> Unit) {
     val colors = GridlinkTheme.colors
     Box(
         modifier = Modifier
-            .size(36.dp)
+            .size(CALENDAR_STEPPER_SIZE)
             .clip(CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
