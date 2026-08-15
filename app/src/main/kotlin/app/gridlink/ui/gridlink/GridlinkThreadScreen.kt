@@ -152,6 +152,20 @@ fun GridlinkThreadScreen(
     onSetTag: ((keyword: String, applied: Boolean) -> Unit)? = null,
     /** Open the tag manager in Settings. Null in the gallery, where Settings is not reachable. */
     onManageTags: (() -> Unit)? = null,
+    /**
+     * The meeting invitation this message carries, or null for mail that carries none — which is
+     * almost all of it, and which draws no card and costs no space.
+     *
+     * 🔴 A finished [GridlinkInvite], not a parsed .ics: the loader converts, for the package rule
+     * that keeps the calendar layer out of here. See [GridlinkInviteCard].
+     */
+    invite: GridlinkInvite? = null,
+    /** Send an RSVP (ACCEPTED / TENTATIVE / DECLINED). Null draws no buttons — [onOpenAttachment]'s rule. */
+    onRespondToInvite: ((partstat: String) -> Unit)? = null,
+    /** Hand the event to the phone's calendar app. Null draws no button. */
+    onAddToCalendar: (() -> Boolean)? = null,
+    /** Hand the raw .ics to whatever can open it, for an invitation this app could not read. */
+    onOpenInvitation: (() -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
@@ -323,6 +337,19 @@ fun GridlinkThreadScreen(
                     sender = message.sender,
                     onShowOnce = { showOnce = true },
                     onAlwaysAllow = { onAlwaysAllowImages(true) },
+                )
+            }
+
+            // 🔴 Above the body, and pinned like everything else here rather than scrolling with it.
+            // A meeting request's prose is usually the organiser's client talking to itself — the
+            // same times again in a table, or nothing at all — so the part that answers "what is
+            // this and when" goes where the eye lands, and the message keeps its place underneath.
+            invite?.let {
+                GridlinkInviteCard(
+                    invite = it,
+                    onRespond = onRespondToInvite,
+                    onAddToCalendar = onAddToCalendar,
+                    onOpenInvitation = onOpenInvitation,
                 )
             }
 

@@ -7,6 +7,7 @@ import android.content.Intent
 import android.database.sqlite.SQLiteConstraintException
 import android.net.Uri
 import android.os.Build
+import android.provider.CalendarContract
 import android.provider.MediaStore
 import android.util.Log
 import android.widget.Toast
@@ -16,9 +17,12 @@ import androidx.core.content.FileProvider
 import androidx.core.text.HtmlCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import app.gridlink.R
 import app.gridlink.container
 import app.gridlink.core.data.account.AccountCredentials
 import app.gridlink.core.data.account.MailProtocol
+import app.gridlink.core.data.calendar.ICalendar
+import app.gridlink.core.data.calendar.ParsedEvent
 import app.gridlink.core.data.mail.InboxScope
 import app.gridlink.core.data.mail.MailFilter
 import app.gridlink.core.data.mail.MailSearchResult
@@ -43,6 +47,8 @@ import app.gridlink.ui.gridlink.GridlinkFolderContent
 import app.gridlink.ui.gridlink.GridlinkFolderEdit
 import app.gridlink.ui.gridlink.GridlinkFolderMapping
 import app.gridlink.ui.gridlink.GridlinkFolderRole
+import app.gridlink.ui.gridlink.GridlinkInvite
+import app.gridlink.ui.gridlink.GridlinkInviteResponse
 import app.gridlink.ui.gridlink.GridlinkMailAction
 import app.gridlink.ui.gridlink.GridlinkMailContent
 import app.gridlink.ui.gridlink.GridlinkMailMapping
@@ -91,6 +97,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
+import java.util.Locale
 
 /**
  * Real mail for the Gridlink screens: the cached inbox as a flow, and the four things a tap can ask
@@ -161,6 +168,18 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
 
     /** One attachment download at a time. Guards the tap, not the file: reopening later is free. */
     private var openingAttachment = false
+
+    /**
+     * The open message's meeting invitation, in the form the CARD cannot hold.
+     *
+     * [GridlinkOpenMessage.invite] is display-ready strings, on purpose — the UI package is not
+     * allowed to know what a VEVENT is. But an RSVP has to echo the invitation's own UID, DTSTART,
+     * SEQUENCE and ORGANIZER back verbatim ([ICalendar.buildReply]), and "Open invitation" needs the
+     * part the bytes come from. So the real thing is kept here, beside [openedParts] and for the
+     * same reason, keyed by the row it belongs to so a reply can never be built from the invitation
+     * of a message the reader has already left.
+     */
+    private var openInvite: OpenInvite? = null
 
     /** Which mailbox the Folders tab has open, reported by the scaffold. Null when nothing is. */
     private val openFolderId = MutableStateFlow<String?>(null)
@@ -242,6 +261,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         openJob?.cancel()
         opened.value = null
         openedParts = emptyList()
+        openInvite = null
         primed.value = false
         // The folder half of the same argument. An open mailbox id belongs to the account it was
         // tapped in, and two accounts on one server routinely share mailbox ids, so carrying it
@@ -295,6 +315,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         openJob?.cancel()
         opened.value = null
         openedParts = emptyList()
+        openInvite = null
         expandedThreads.value = emptySet()
         // On [viewModelScope] rather than the app scope: the drawer closes on the same tap but this
         // view model outlives it, and the list cannot re-subscribe against a preference that was
@@ -310,6 +331,30 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
      * re-subscribes the Room query and the narrowing happens in SQL, before the limit. See
      * [MailRepository.observeMailboxWindow].
      */
+    /**
+     * The parsed invitation behind the open message's card, and the part it was read from.
+     *
+     * [ownerId] is the ROW key it belongs to, checked before every use. A reply built from the
+     * previous message's event would go to the previous organiser about the previous meeting, under
+     * this account's name, and nothing on screen would look wrong while it happened.
+     *
+     * [event] is null between seeing the `text/calendar` part and reading it, and stays null when it
+     * could not be read at all — which is exactly when [part] earns its place: the raw file can
+     * still be handed to an app that understands it.
+     */
+    private data class OpenInvite(
+        val ownerId: String,
+        val part: EmailBodyPart,
+        val event: ParsedEvent?,
+    )
+
+    /** A reply that can actually be sent: the event to answer, who to, and as whom. */
+    private data class InviteReply(
+        val event: ParsedEvent,
+        val organizer: String,
+        val credentials: AccountCredentials,
+    )
+
     private data class Window(
         val accountId: String,
         val mailboxId: String,
@@ -1407,6 +1452,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         opened.value = null
         // With the message goes its parts: an id from the old chips must not index into these.
         openedParts = emptyList()
+        openInvite = null
         openJob = viewModelScope.launch {
             val body = try {
                 repo.openMessage(credentials, emailId, markRead = true)
@@ -1445,7 +1491,240 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             // The message has just been marked read, so its new-mail notification is now about
             // mail the user is looking at. See [dismissNotifications].
             dismissNotifications(credentials, listOf(emailId))
+            // Last, and inside the same job on purpose: it is a second round-trip, the body must not
+            // wait behind it, and opening something else has to abandon it. [openJob] gives all
+            // three for free.
+            loadInvite(credentials, rowKey, emailId, body.email)
         }
+    }
+
+    /**
+     * Read the message's meeting invitation, if it has one, into [GridlinkOpenMessage.invite].
+     *
+     * Fetched because the message is open, not because anyone asked for it, so it is bounded like
+     * the invitation a parser will accept ([DownloadLimits.CALENDAR_MAX_BYTES]) rather than like a
+     * tapped attachment. 🔴 Parsing happens on [Dispatchers.Default]: this is untrusted text from a
+     * stranger on an input with no fixed size, and a pathological .ics must not be able to freeze
+     * the reader it arrived in.
+     *
+     * A download or parse miss is not silence. The card stays, saying it could not read this one and
+     * offering the raw file to whatever app can — which is the honest answer, since a calendar app
+     * that speaks a dialect this parser does not is entirely possible.
+     */
+    private suspend fun loadInvite(
+        credentials: AccountCredentials,
+        rowKey: String,
+        emailId: String,
+        email: Email,
+    ) {
+        val part = email.calendarParts().firstOrNull() ?: return
+        openInvite = OpenInvite(ownerId = rowKey, part = part, event = null)
+        setInvite(rowKey) { GridlinkInvite(loading = true) }
+        val event = try {
+            val bytes = repo.downloadAttachment(credentials, part, emailId, DownloadLimits.CALENDAR_MAX_BYTES)
+            // The part's own charset, not a guess: an invitation whose SUMMARY is Latin-1 renders as
+            // mojibake under UTF-8, and the times come out of the same bytes as the title does.
+            val charset = runCatching { charset(part.charset ?: "UTF-8") }.getOrDefault(Charsets.UTF_8)
+            withContext(Dispatchers.Default) { ICalendar.parse(String(bytes, charset)) }
+        } catch (c: CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            Log.w(TAG, "invite load failed", t)
+            null
+        }
+        if (openInvite?.ownerId != rowKey) return
+        openInvite = openInvite?.copy(event = event)
+        setInvite(rowKey) {
+            if (event == null) {
+                GridlinkInvite(failed = true)
+            } else {
+                gridlinkInviteOf(event, ZoneId.systemDefault(), Locale.getDefault())
+            }
+        }
+    }
+
+    /**
+     * RSVP to the open invitation: build an iTIP REPLY for [partstat] and mail it to the organiser.
+     *
+     * The reply echoes the invitation's own UID, DTSTART, SEQUENCE and ORGANIZER lines back verbatim
+     * ([ICalendar.buildReply]) — that is what makes the organiser's calendar recognise it as an
+     * answer to THIS meeting rather than a new one, and echoing the raw lines is also what keeps a
+     * time zone the parser did not fully understand from being rewritten into something else.
+     *
+     * ⚠️ The result is remembered for this reading session and nowhere else. The server has no place
+     * to put "I accepted" that this app reads back, so re-opening the message shows the buttons
+     * again. That is the honest state: the reply was sent, and this app does not know what the
+     * organiser did with it.
+     */
+    fun respondToInvite(partstat: String) {
+        val current = opened.value ?: return
+        // One reply in flight. A second tap while the first is going would send two answers, and an
+        // organiser cannot tell which of them you meant.
+        if (current.invite?.response == GridlinkInviteResponse.Sending) return
+        val reply = inviteReply(current.id) ?: return
+        // Taken here and passed in, so the builder stays a pure function of its arguments.
+        val now = System.currentTimeMillis()
+        val app = getApplication<Application>()
+        setInvite(current.id) { it.copy(response = GridlinkInviteResponse.Sending, note = null) }
+        viewModelScope.launch {
+            try {
+                val event = reply.event
+                // The attendee replying IS this account. Its display name is taken from the
+                // invitation's own ATTENDEE line when it lists us, so the organiser sees the name
+                // they invited rather than a bare address.
+                val accountEmail = reply.credentials.username
+                val cn = event.attendees.firstOrNull { it.email.equals(accountEmail, true) }?.cn
+                val ics = ICalendar.buildReply(event, accountEmail, cn, partstat, now)
+                val summary = event.title?.takeIf { it.isNotBlank() }
+                    ?: app.getString(R.string.calendar_event_untitled)
+                repo.sendCalendarReply(
+                    reply.credentials,
+                    reply.organizer,
+                    app.getString(inviteReplySubject(partstat), summary),
+                    app.getString(inviteReplyBody(partstat), cn?.takeIf { it.isNotBlank() } ?: accountEmail),
+                    ics.toByteArray(Charsets.UTF_8),
+                )
+                setInvite(current.id) { it.copy(response = GridlinkInviteResponse.Sent(partstat)) }
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                Log.w(TAG, "invite reply failed", t)
+                // Failed means nothing was sent, so the buttons come back and the next tap is a
+                // retry rather than a second answer.
+                setInvite(current.id) { it.copy(response = GridlinkInviteResponse.Failed) }
+            }
+        }
+    }
+
+    /**
+     * Everything an RSVP needs, or null when this message cannot produce one.
+     *
+     * The three ways it can be null are the three ways a reply would be wrong rather than merely
+     * unsent: the invitation on hand belongs to another message, it was never readable, or it names
+     * no organiser to answer. [GridlinkInvite.canRsvp] already keeps the buttons off the card in the
+     * last two cases; this is the half that holds even if something else calls the method.
+     */
+    private fun inviteReply(messageId: String): InviteReply? {
+        val event = openInvite?.takeIf { it.ownerId == messageId }?.event ?: return null
+        val organizer = event.organizerEmail?.takeIf { it.isNotBlank() } ?: return null
+        val credentials = resolve(messageId)?.first ?: return null
+        return InviteReply(event, organizer, credentials)
+    }
+
+    /**
+     * 🔴 Translated, unlike the invitation card's own labels. These two strings LEAVE the device:
+     * they are the subject and body of mail an organiser reads, and that organiser is not the person
+     * holding this phone.
+     */
+    private fun inviteReplySubject(partstat: String): Int = when (partstat) {
+        "ACCEPTED" -> R.string.calendar_reply_subject_accepted
+        "DECLINED" -> R.string.calendar_reply_subject_declined
+        else -> R.string.calendar_reply_subject_tentative
+    }
+
+    private fun inviteReplyBody(partstat: String): Int = when (partstat) {
+        "ACCEPTED" -> R.string.calendar_reply_body_accepted
+        "DECLINED" -> R.string.calendar_reply_body_declined
+        else -> R.string.calendar_reply_body_tentative
+    }
+
+    /**
+     * Hand the open invitation's event to whatever calendar app the phone has.
+     *
+     * An `ACTION_INSERT`, which needs no permission and writes nothing itself: the calendar's own
+     * editor comes up prefilled and the user is the one who saves it. 🔴 That also means this app
+     * never has to hold a calendar permission to be useful with invitations, which is the whole
+     * reason it is done this way rather than through the provider.
+     *
+     * 🔴 Returns whether the phone actually left, because the card's button holds a leave guard and
+     * the guard latches on a true. Adding to a calendar CREATES something and the editor takes a
+     * moment to appear, so an ungated second tap files the same meeting twice and the duplicate
+     * outlives the mail. A phone with no calendar app leaves nothing to double, and says false so the
+     * button stays live.
+     */
+    fun addInviteToCalendar(): Boolean {
+        val current = opened.value ?: return false
+        val event = openInvite?.takeIf { it.ownerId == current.id }?.event ?: return false
+        val app = getApplication<Application>()
+        val intent = Intent(Intent.ACTION_INSERT)
+            .setData(CalendarContract.Events.CONTENT_URI)
+            .putExtra(CalendarContract.Events.TITLE, event.title)
+            .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, event.startMillis)
+            .putExtra(CalendarContract.EXTRA_EVENT_ALL_DAY, event.allDay)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        event.endMillis?.let { intent.putExtra(CalendarContract.EXTRA_EVENT_END_TIME, it) }
+        event.location?.let { intent.putExtra(CalendarContract.Events.EVENT_LOCATION, it) }
+        event.description?.let { intent.putExtra(CalendarContract.Events.DESCRIPTION, it) }
+        return try {
+            app.startActivity(intent)
+            setInvite(current.id) { it.copy(note = null) }
+            true
+        } catch (t: Throwable) {
+            Log.w(TAG, "no calendar app", t)
+            // Said on the card rather than in a toast: it is a fact about this invitation on this
+            // phone, and the reader is already looking at the thing it is about.
+            setInvite(current.id) { it.copy(note = "No calendar app on this phone.") }
+            false
+        }
+    }
+
+    /**
+     * Hand the raw `.ics` to whatever app can open it.
+     *
+     * The fallback for an invitation this app could not parse. Same shape as [openAttachment] —
+     * download, cache, chooser — because it is the same thing: a file in a message the reader wants
+     * somewhere else. It is offered ONLY on the failed card, so a parse miss is a detour rather than
+     * a dead end.
+     */
+    fun openInvitationFile() {
+        if (openingAttachment) return
+        val current = opened.value ?: return
+        val part = openInvite?.takeIf { it.ownerId == current.id }?.part ?: return
+        val (credentials, emailId) = resolve(current.id) ?: return
+        openingAttachment = true
+        val app = getApplication<Application>()
+        setInvite(current.id) { it.copy(note = "Opening the invitation…") }
+        viewModelScope.launch {
+            try {
+                val bytes = repo.downloadAttachment(credentials, part, emailId, DownloadLimits.CALENDAR_MAX_BYTES)
+                val file = storage.cacheAttachment(part.name ?: "invitation.ics", bytes)
+                val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
+                val view = Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(uri, "text/calendar")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                // unguarded: not a tap. The tap was handled above, by the same [openingAttachment]
+                // latch [openAttachment] uses, and for the same reason: the file has to come down
+                // before it can be handed anywhere, and there is no composition down here to hang
+                // the shared leave guard on. Opening a file twice also creates nothing, which is
+                // what makes a latch enough here where Add to calendar needs the real guard.
+                app.startActivity(
+                    Intent.createChooser(view, "Open with").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+                setInvite(current.id) { it.copy(note = null) }
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                Log.w(TAG, "invitation open failed", t)
+                setInvite(current.id) { it.copy(note = "Couldn't open the invitation.") }
+            } finally {
+                openingAttachment = false
+            }
+        }
+    }
+
+    /**
+     * Rewrite the open message's invite, if the message on screen is still the one it belongs to.
+     *
+     * The same id guard [status] uses, and for the same reason: a download or a send outlives the
+     * message it was started from, and the only correct thing for a late answer to do is nothing.
+     * [block] receives the current card so a caller can amend one field of it, and a null one is
+     * given a fresh [GridlinkInvite] so the first call does not have to be a special case.
+     */
+    private fun setInvite(messageId: String, block: (GridlinkInvite) -> GridlinkInvite) {
+        opened.value = opened.value
+            ?.takeIf { it.id == messageId }
+            ?.let { it.copy(invite = block(it.invite ?: GridlinkInvite())) }
+            ?: opened.value
     }
 
     /**

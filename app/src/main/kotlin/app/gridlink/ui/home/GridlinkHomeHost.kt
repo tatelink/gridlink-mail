@@ -423,6 +423,11 @@ fun GridlinkHomeHost(
                     saveLauncher.launch(attachment.name)
                 }
             },
+            // The invitation card's three actions. All real here, unlike in the gallery: there is an
+            // account to reply as, a phone to hand the event to, and bytes to fetch.
+            onRespondToInvite = viewModel::respondToInvite,
+            onAddToCalendar = viewModel::addInviteToCalendar,
+            onOpenInvitation = viewModel::openInvitationFile,
             folders = folders,
             onFolderEdit = viewModel::editFolder,
             onMove = viewModel::move,
