@@ -441,7 +441,7 @@ private fun SettingsHub(
                 ) {
                     onOpenUrl(
                         "mailto:$FEEDBACK_ADDRESS?subject=" +
-                            Uri.encode("GridLink feedback (${BuildConfig.VERSION_NAME})"),
+                            Uri.encode("Gridlink feedback (${BuildConfig.VERSION_NAME})"),
                     )
                 }
                 // ⛔ There is NO support/donate row here and there must not be one. Brandon, using
