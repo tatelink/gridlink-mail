@@ -356,6 +356,12 @@
     <string name="settings_recipient_suggestions_section">Empfängervorschläge</string>
     <string name="settings_suggest_contacts_title">Aus Kontakten vorschlagen</string>
     <string name="settings_suggest_contacts_subtitle">Empfänger während der Eingabe aus den Kontakten dieses Geräts vervollständigen. Gridlink liest sie nur auf dem Gerät und lädt sie nie hoch. Wenn deaktiviert, werden trotzdem Personen vorgeschlagen, denen du kürzlich geschrieben hast.</string>
+    <string name="settings_system_sync_section">Systemkontakte und -kalender</string>
+    <string name="settings_system_sync_title">Zu Android hinzufügen</string>
+    <string name="settings_system_sync_subtitle">Kontakte und Kalender dieses Kontos als Android-Konto veröffentlichen, damit Anruferkennung, die Kalender-App, Widgets und jede Personenauswahl sie sehen.</string>
+    <string name="settings_system_sync_note">Nur lesend: Änderungen in anderen Apps werden nicht an den Server zurückgesendet. Es werden nur Konten veröffentlicht, bei denen die Kontakt- oder Kalendersynchronisierung aktiviert ist. Beim Deaktivieren werden das Android-Konto und alles, was Gridlink dort abgelegt hat, entfernt.</string>
+    <string name="settings_system_sync_now_title">Jetzt synchronisieren</string>
+    <string name="settings_system_sync_now_summary">Vom Server abrufen und aktualisieren, was Android sieht</string>
     <string name="settings_storage_screen_title">Speicher</string>
     <string name="settings_on_device_usage_section">Nutzung auf dem Gerät</string>
     <string name="settings_storage_total">Gesamt</string>

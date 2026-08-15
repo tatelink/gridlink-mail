@@ -61,6 +61,7 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -143,6 +144,7 @@ import app.gridlink.core.data.text.htmlToText
 import app.gridlink.pgp.rememberPgpInteractionLauncher
 import app.gridlink.push.PushController
 import app.gridlink.push.PushStatus
+import app.gridlink.sync.SystemMirror
 import app.gridlink.ui.SCREEN_SLIDE_MS
 import app.gridlink.ui.appLabelOf
 import app.gridlink.ui.components.AccountPalette
@@ -1036,6 +1038,7 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
     val appLock by viewModel.appLockEnabled.collectAsStateWithLifecycle()
     val appLockUnavailable by viewModel.appLockUnavailable.collectAsStateWithLifecycle()
     val contactSuggestions by viewModel.contactSuggestions.collectAsStateWithLifecycle()
+    val systemMirror by viewModel.systemAccountMirror.collectAsStateWithLifecycle()
     val stripTracking by viewModel.stripTrackingParams.collectAsStateWithLifecycle()
     val confirmLinks by viewModel.confirmLinks.collectAsStateWithLifecycle()
     val imageAllowlist by viewModel.imageAllowlist.collectAsStateWithLifecycle()
@@ -1043,6 +1046,12 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
     val contactsPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted -> viewModel.setContactSuggestions(granted) }
+    // 🔴 All four or none. A mirror holding contacts permission but not calendar would register an
+    // account, publish half of what the switch promised, and log a permission failure the user
+    // never sees. Partial grants are possible: the system shows one dialog per permission group.
+    val mirrorPermissions = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { granted -> viewModel.setSystemAccountMirror(granted.values.all { it }) }
     DetailScaffold(title = stringResource(R.string.settings_privacy_screen_title), onBack = onBack) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
@@ -1170,6 +1179,37 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
                         }
                     },
                 )
+            }
+            SettingsSection(stringResource(R.string.settings_system_sync_section)) {
+                SettingSwitch(
+                    title = stringResource(R.string.settings_system_sync_title),
+                    subtitle = stringResource(R.string.settings_system_sync_subtitle),
+                    checked = systemMirror,
+                    onCheckedChange = { wantOn ->
+                        when {
+                            !wantOn -> viewModel.setSystemAccountMirror(false)
+                            SystemMirror.hasPermissions(context) -> viewModel.setSystemAccountMirror(true)
+                            else -> mirrorPermissions.launch(SystemMirror.PERMISSIONS)
+                        }
+                    },
+                )
+                Text(
+                    stringResource(R.string.settings_system_sync_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                // Only offered while the mirror is on: with no account registered there is nothing
+                // for the system to sync, and a button that quietly does nothing is worse than no
+                // button. The adapters otherwise run on the system's own schedule.
+                if (systemMirror) {
+                    SettingsCategoryRow(
+                        Icons.Filled.Sync,
+                        stringResource(R.string.settings_system_sync_now_title),
+                        stringResource(R.string.settings_system_sync_now_summary),
+                        viewModel::syncSystemAccountsNow,
+                    )
+                }
             }
         }
     }

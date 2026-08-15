@@ -356,6 +356,12 @@
     <string name="settings_recipient_suggestions_section">Ontvangersuggesties</string>
     <string name="settings_suggest_contacts_title">Suggesties uit contacten</string>
     <string name="settings_suggest_contacts_subtitle">Vul ontvangers aan uit de contacten van dit apparaat terwijl je typt. Gridlink leest ze alleen op het apparaat en uploadt ze nooit. Uitgeschakeld stelt het nog steeds mensen voor die je onlangs hebt gemaild.</string>
+    <string name="settings_system_sync_section">Systeemcontacten en -agenda</string>
+    <string name="settings_system_sync_title">Aan Android toevoegen</string>
+    <string name="settings_system_sync_subtitle">Publiceert de contacten en agenda\'s van dit account als een Android-account, zodat nummerherkenning, de Agenda-app, widgets en elke personenkiezer ze kunnen zien.</string>
+    <string name="settings_system_sync_note">Alleen-lezen: wijzigingen in andere apps worden niet naar de server teruggestuurd. Alleen accounts met contact- of agendasynchronisatie ingeschakeld worden gepubliceerd. Uitschakelen verwijdert het Android-account en alles wat Gridlink daarin heeft gezet.</string>
+    <string name="settings_system_sync_now_title">Nu synchroniseren</string>
+    <string name="settings_system_sync_now_summary">Van de server ophalen en vernieuwen wat Android ziet</string>
     <string name="settings_storage_screen_title">Opslag</string>
     <string name="settings_on_device_usage_section">Gebruik op apparaat</string>
     <string name="settings_storage_total">Totaal</string>

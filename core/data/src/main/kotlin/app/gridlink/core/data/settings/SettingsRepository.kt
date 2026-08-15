@@ -387,6 +387,21 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_CONTACT_SUGGESTIONS] = enabled }
     }
 
+    /**
+     * Whether the account's CardDAV/CalDAV cache is published into Android's own contacts and
+     * calendar providers, so caller ID and the system Calendar app see it (off by default).
+     *
+     * 🔴 Off is not a neutral default here, it is the safe one. Turning it on registers an account
+     * with the system and writes into two databases every other app can read; turning it back off
+     * unregisters that account, which is what deletes the rows again. Nothing should do either
+     * without being asked. Read by `app.gridlink.sync.SystemMirror`.
+     */
+    val systemAccountMirror: Flow<Boolean> = dataStore.data.map { it[KEY_SYSTEM_ACCOUNT_MIRROR] ?: false }
+
+    suspend fun setSystemAccountMirror(enabled: Boolean) {
+        dataStore.edit { it[KEY_SYSTEM_ACCOUNT_MIRROR] = enabled }
+    }
+
     /** Whether the first-launch privacy welcome has been shown (shown once, before adding an account). */
     val hasSeenWelcome: Flow<Boolean> = dataStore.data.map { it[KEY_HAS_SEEN_WELCOME] ?: false }
 
@@ -707,6 +722,7 @@ class SettingsRepository(context: Context) {
         private val KEY_SIGNATURE_DELIMITER = booleanPreferencesKey("signature_delimiter")
         private val KEY_MESSAGE_TEXT_SIZE = stringPreferencesKey("message_text_size")
         private val KEY_CONTACT_SUGGESTIONS = booleanPreferencesKey("contact_suggestions")
+        private val KEY_SYSTEM_ACCOUNT_MIRROR = booleanPreferencesKey("system_account_mirror")
         private val KEY_HAS_SEEN_WELCOME = booleanPreferencesKey("has_seen_welcome")
         private val KEY_HAS_PRIMED_CONTACTS = booleanPreferencesKey("has_primed_contacts")
         private val KEY_INTRO_SEEN_ACCOUNTS = intPreferencesKey("intro_seen_account_count")

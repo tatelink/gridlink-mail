@@ -356,6 +356,12 @@
     <string name="settings_recipient_suggestions_section">Sugestie odbiorców</string>
     <string name="settings_suggest_contacts_title">Sugeruj z kontaktów</string>
     <string name="settings_suggest_contacts_subtitle">Automatycznie uzupełniaj odbiorców z kontaktów tego urządzenia podczas pisania. Gridlink odczytuje je tylko na urządzeniu i nigdy ich nie przesyła. Po wyłączeniu nadal sugeruje osoby, do których ostatnio pisałeś.</string>
+    <string name="settings_system_sync_section">Kontakty i kalendarz systemowy</string>
+    <string name="settings_system_sync_title">Dodaj do Androida</string>
+    <string name="settings_system_sync_subtitle">Publikuje kontakty i kalendarze tego konta jako konto Androida, aby identyfikacja dzwoniącego, aplikacja Kalendarz, widżety i dowolny wybór osób mogły je zobaczyć.</string>
+    <string name="settings_system_sync_note">Tylko do odczytu: zmiany wprowadzone w innych aplikacjach nie są wysyłane z powrotem na serwer. Publikowane są tylko konta z włączoną synchronizacją kontaktów lub kalendarza. Wyłączenie tej opcji usuwa konto Androida i wszystko, co Gridlink tam umieścił.</string>
+    <string name="settings_system_sync_now_title">Synchronizuj teraz</string>
+    <string name="settings_system_sync_now_summary">Pobierz z serwera i odśwież to, co widzi Android</string>
     <string name="settings_storage_screen_title">Pamięć</string>
     <string name="settings_on_device_usage_section">Użycie na urządzeniu</string>
     <string name="settings_storage_total">Łącznie</string>

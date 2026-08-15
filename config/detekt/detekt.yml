@@ -30,6 +30,10 @@ complexity:
   TooManyFunctions:
     thresholdInFiles: 30
     thresholdInClasses: 20
+    # Interfaces default to 11, which is stricter than the class limit above for no reason that
+    # applies here: a Room DAO is a list of queries against one table, not a class doing eleven
+    # things, and splitting it to satisfy a counter would scatter one table's access across files.
+    thresholdInInterfaces: 20
     ignoreAnnotatedFunctions: ['Composable', 'Preview']
     ignorePrivate: true
   CyclomaticComplexMethod:

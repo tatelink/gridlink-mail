@@ -6,9 +6,11 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.gridlink.container
 import app.gridlink.core.data.account.K9SettingsImporter
+import app.gridlink.core.data.settings.DeliveryMode
 import app.gridlink.core.data.settings.ListDensity
 import app.gridlink.core.data.settings.MailTag
 import app.gridlink.core.data.settings.MessageTextSize
+import app.gridlink.core.data.settings.NotificationContent
 import app.gridlink.core.data.settings.PreviewLines
 import app.gridlink.core.data.settings.SettingsBackup
 import app.gridlink.core.data.settings.SettingsBackupCodec
@@ -17,11 +19,10 @@ import app.gridlink.core.data.settings.SwipeAction
 import app.gridlink.core.data.settings.TagColor
 import app.gridlink.core.data.settings.ThemeMode
 import app.gridlink.core.data.settings.ThreadToolbarAction
-import app.gridlink.core.data.settings.DeliveryMode
-import app.gridlink.core.data.settings.NotificationContent
 import app.gridlink.push.NewMailNotifier
 import app.gridlink.push.PushController
 import app.gridlink.security.canAuthenticate
+import app.gridlink.sync.SystemMirror
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -102,6 +103,32 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun setContactSuggestions(value: Boolean) {
         viewModelScope.launch { settings.setContactSuggestions(value) }
+    }
+
+    val systemAccountMirror = settings.systemAccountMirror.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = false,
+    )
+
+    /**
+     * Turn the system contacts/calendar mirror on or off, then reconcile immediately.
+     *
+     * 🔴 The reconcile is part of the action, not a background tidy-up. Turning the switch off is
+     * how the user asks for their contacts to be taken back out of the system, and that removal
+     * happens inside [SystemMirror.apply] by unregistering the account. Leaving it to the next app
+     * start would mean the switch reads "off" while the data is still there.
+     */
+    fun setSystemAccountMirror(value: Boolean) {
+        viewModelScope.launch {
+            settings.setSystemAccountMirror(value)
+            SystemMirror.apply(getApplication(), store, settings)
+        }
+    }
+
+    /** Ask both sync adapters to run now, for the "Sync now" row. */
+    fun syncSystemAccountsNow() {
+        SystemMirror.requestSync(getApplication())
     }
 
     val stripTrackingParams = settings.stripTrackingParams.stateIn(

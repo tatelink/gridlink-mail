@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- See contacts_syncadapter.xml for why uploading is refused. -->
+<sync-adapter xmlns:android="http://schemas.android.com/apk/res/android"
+    android:contentAuthority="com.android.calendar"
+    android:accountType="@string/gridlink_account_type"
+    android:supportsUploading="false"
+    android:userVisible="true"
+    android:isAlwaysSyncable="true" />
