@@ -930,6 +930,29 @@ object GridlinkType {
         fontWeight = FontWeight.SemiBold,
         lineHeight = 24.sp,
     )
+
+    /**
+     * A person's name across the top of their own card, over their photograph.
+     *
+     * The one place in the app that goes bigger than [screenTitle], and the only place that should:
+     * a screen title labels a screen, this IS the screen's subject. Tate's words for what the
+     * card was missing were "HERO image and name", and 32sp under a photograph reads as another
+     * caption rather than as the headline.
+     *
+     * ⚠️ The size here is the ceiling, not the size. A long name gets stepped down by the card (see
+     * `gridlinkHeroNameStyle`), because a hero whose name wraps to three lines has stopped being a
+     * hero and started being a wall.
+     *
+     * Line height is deliberately tighter than the size (44 on 40): two lines of a name are one
+     * object and should sit as a block, where the type scale's usual airy leading pulls them apart.
+     */
+    val heroName = TextStyle(
+        fontFamily = GridlinkFontFamily,
+        fontSize = 40.sp,
+        fontWeight = FontWeight.ExtraBold,
+        letterSpacing = (-0.8).sp,
+        lineHeight = 44.sp,
+    )
 }
 
 // ---------------------------------------------------------------------------------------------

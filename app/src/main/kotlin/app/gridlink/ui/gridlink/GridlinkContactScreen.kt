@@ -6,7 +6,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -18,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
@@ -32,13 +30,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 import app.gridlink.ui.rememberLeaveOnce
 import app.gridlink.ui.theme.GridlinkDimens
@@ -86,7 +88,6 @@ fun GridlinkContactScreen(
     embedded: Boolean = false,
 ) {
     val colors = GridlinkTheme.colors
-    val mode = GridlinkTheme.mode
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     // The share sheet is the one place these cards leave the app, and a card is not a nav
@@ -141,69 +142,7 @@ fun GridlinkContactScreen(
                 .verticalScroll(rememberScrollState())
                 .gridlinkEdgeFade(fadeTop = false),
         ) {
-            // The identity block. No avatar and no initials disc: §9's ban on them is about the
-            // list, but the reason behind it is not, and a card that answers "who is this" twice
-            // answers it worse. The bar is the answer everywhere else in the app, so it is the
-            // answer here. A real photograph is different in kind — it is card DATA the user put
-            // there, not decoration invented for them — so when the card carries one it sits at
-            // the header's trailing edge, and when it does not, nothing stands in for it.
-            val photoBitmap = rememberGridlinkContactPhoto(contact.photo)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(IntrinsicSize.Min),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .width(GridlinkDimens.senderBarWidth)
-                        .fillMaxHeight()
-                        .background(gridlinkSenderBarColor(mode, contact.domain)),
-                )
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(
-                            horizontal = GridlinkSpacing.rowHorizontal,
-                            vertical = GridlinkSpacing.s16,
-                        ),
-                ) {
-                    Text(
-                        text = contact.role,
-                        style = GridlinkType.senderName,
-                        color = colors.textPrimary,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    // Absent rather than blank: most real cards carry no address, and an empty
-                    // metadata line under the role reads as a rendering bug, not a fact.
-                    if (contact.email.isNotBlank()) {
-                        Text(
-                            text = contact.email,
-                            style = GridlinkType.metadata,
-                            color = colors.textSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = GridlinkSpacing.s4),
-                        )
-                    }
-                }
-                if (photoBitmap != null) {
-                    Image(
-                        bitmap = photoBitmap,
-                        contentDescription = "Contact photo",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .align(Alignment.CenterVertically)
-                            .padding(
-                                end = GridlinkSpacing.rowHorizontal,
-                                top = GridlinkSpacing.s16,
-                                bottom = GridlinkSpacing.s16,
-                            )
-                            .size(64.dp)
-                            .clip(RoundedCornerShape(GridlinkSpacing.s8)),
-                    )
-                }
-            }
+            GridlinkContactHero(contact = contact)
 
             Box(
                 modifier = Modifier
@@ -316,6 +255,181 @@ internal fun gridlinkWriteTo(contact: GridlinkContact): GridlinkComposeRequest =
     ),
     focus = GridlinkComposeField.SUBJECT,
 )
+
+/**
+ * The card's hero: the photograph full-bleed across the top, the person's name across it.
+ *
+ * ## Why this replaced the old header
+ * Tate, looking at a real card: *"in contacts, the image needs to be a hero card along with a
+ * huge name of the person. Right now its very plain and boring."* The old header was a 64dp thumbnail
+ * parked at the trailing edge of a two-line block, which is the treatment a list row gets. On the
+ * screen that exists to be about ONE person, the photograph is the content and it was being filed as
+ * metadata. The name was not on the card at all — only in the frame's title bar, at chrome size,
+ * where it reads as a label for the screen rather than as the person.
+ *
+ * ## 🔴 This does not reopen §9's ban on avatars
+ * That ban is about the list, and about INVENTED identity: initials discs and generated blobs
+ * standing in for people. Nothing here is invented. The photograph is card data the user or the
+ * server put there, and the card with no photograph gets no fake one — it gets a field of that
+ * contact's own identity colour, the same [gridlinkSenderBarColor] their bar has in every list in
+ * the app, so the card is recognisably theirs without pretending to a picture that does not exist.
+ * The bar itself stays down the leading edge in both cases, which is what ties the hero back to the
+ * rest of the app.
+ *
+ * ## Legibility over a photograph nobody vetted
+ * A contact photo is arbitrary: it can be a white wall or a snowfield, and white text on it would
+ * be gone. Hence the scrim, a vertical wash to near-black at the bottom where the text sits, plus a
+ * soft shadow on the glyphs themselves for the case where the photo is busy rather than bright. Both
+ * are cheap and neither depends on inspecting the image.
+ *
+ * ⚠️ The text over the hero is white in all three modes, and that is not a palette leak: it is white
+ * because it sits on the scrim, which is black in all three modes for the reason above. Pulling
+ * `textPrimary` in here would make Day mode's near-black text invisible on its own scrim.
+ */
+@Composable
+private fun GridlinkContactHero(
+    contact: GridlinkContact,
+    modifier: Modifier = Modifier,
+) {
+    val mode = GridlinkTheme.mode
+    val identity = gridlinkSenderBarColor(mode, contact.domain)
+    val photo = rememberGridlinkContactPhoto(contact.photo)
+        ?: rememberGridlinkSampleContactPhoto(contact.id)
+    val name = contact.displayName
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            // Taller with a picture than without. A card holding a photograph is showing you
+            // something and wants the room; a card with only a colour field would be spending the
+            // same 300dp saying nothing, which is how a hero turns into dead space.
+            .height(if (photo != null) HERO_PHOTO_HEIGHT else HERO_PLAIN_HEIGHT),
+    ) {
+        if (photo != null) {
+            Image(
+                bitmap = photo,
+                contentDescription = "Photo of $name",
+                contentScale = ContentScale.Crop,
+                // Faces sit in the top half of a portrait, and the bottom is where the name lands.
+                // Cropping from the top keeps the head and spends the floor.
+                alignment = Alignment.TopCenter,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.linearGradient(
+                            listOf(identity.deepen(HERO_FIELD_TOP), identity.deepen(HERO_FIELD_BOTTOM)),
+                        ),
+                    ),
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        HERO_SCRIM_KNEE to Color.Black.copy(alpha = HERO_SCRIM_MID),
+                        1f to Color.Black.copy(alpha = HERO_SCRIM_FOOT),
+                    ),
+                ),
+        )
+        // The identity bar, unchanged in job and width, running the full height of the image. It is
+        // drawn OVER the photo rather than beside it so the picture stays full-bleed: a hero inset
+        // by 3dp on one side reads as a photo that failed to load square.
+        Box(
+            modifier = Modifier
+                .width(GridlinkDimens.senderBarWidth)
+                .fillMaxHeight()
+                .background(identity),
+        )
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(
+                    start = GridlinkSpacing.rowHorizontal,
+                    end = GridlinkSpacing.rowHorizontal,
+                    bottom = GridlinkSpacing.s16,
+                ),
+        ) {
+            Text(
+                text = name,
+                style = gridlinkHeroNameStyle(name),
+                color = Color.White,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (contact.role.isNotBlank()) {
+                Text(
+                    text = contact.role,
+                    style = GridlinkType.senderName,
+                    color = Color.White.copy(alpha = HERO_ROLE_ALPHA),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = GridlinkSpacing.s8),
+                )
+            }
+            // Absent rather than blank: most real cards carry no address, and an empty metadata
+            // line under the role reads as a rendering bug, not a fact.
+            if (contact.email.isNotBlank()) {
+                Text(
+                    text = contact.email,
+                    style = GridlinkType.metadata,
+                    color = Color.White.copy(alpha = HERO_EMAIL_ALPHA),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = GridlinkSpacing.s4),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * [GridlinkType.heroName] stepped down to fit the name it has to carry.
+ *
+ * 🔴 Steps, not [androidx.compose.foundation.text.BasicText]'s auto-sizing. A ladder of three sizes
+ * means two cards opened one after the other either match or differ visibly, where continuous
+ * shrinking gives every card its own slightly-off size and the type scale stops being a scale.
+ * The thresholds are the width the longest of them fills on a folded phone, which is the narrowest
+ * this card is ever drawn at, so a name that fits here fits everywhere.
+ */
+private fun gridlinkHeroNameStyle(name: String): TextStyle = when {
+    name.length <= HERO_NAME_FULL -> GridlinkType.heroName
+    name.length <= HERO_NAME_MID -> GridlinkType.heroName.copy(fontSize = 32.sp, lineHeight = 36.sp)
+    else -> GridlinkType.heroName.copy(fontSize = 26.sp, lineHeight = 30.sp)
+}
+
+/**
+ * [this] multiplied toward black by [factor].
+ *
+ * Multiplying rather than blending toward a fixed dark keeps the hue: an identity colour is the one
+ * thing on this card that says WHICH person, and a blend to charcoal walks the light end of the ramp
+ * (`#94A3B8`, `#7DD3FC`) into the same grey. It also guarantees the result is dark enough for white
+ * text no matter where in the ramp it came from, which a blend cannot promise.
+ */
+private fun Color.deepen(factor: Float): Color =
+    Color(red = red * factor, green = green * factor, blue = blue * factor, alpha = alpha)
+
+private val HERO_PHOTO_HEIGHT = 300.dp
+private val HERO_PLAIN_HEIGHT = 168.dp
+
+private const val HERO_FIELD_TOP = 0.62f
+private const val HERO_FIELD_BOTTOM = 0.26f
+
+/** Where the scrim starts doing real work: above this the photograph is untouched. */
+private const val HERO_SCRIM_KNEE = 0.45f
+private const val HERO_SCRIM_MID = 0.20f
+private const val HERO_SCRIM_FOOT = 0.78f
+
+private const val HERO_ROLE_ALPHA = 0.88f
+private const val HERO_EMAIL_ALPHA = 0.72f
+
+private const val HERO_NAME_FULL = 16
+private const val HERO_NAME_MID = 26
 
 /** One field on the card: what it is, what it says, and what tapping it does (null: nothing). */
 private class GridlinkContactField(
