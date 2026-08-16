@@ -62,6 +62,39 @@ data class CalendarEventEntity(
     val startDay: Long,
     /** Epoch day of the last day this event covers, in [zoneId]; null when it is one day. */
     val endDay: Long?,
-    /** The original iCalendar text. */
+    /**
+     * The payload behind the columns, written in [payloadFormat].
+     *
+     * The CalDAV path stores the `.ics` byte for byte. The JMAP path stores Gridlink's own
+     * serialisation of the event it modelled, which is not quite the same thing: see `JsCalendar`.
+     */
     val raw: String,
-)
+    /**
+     * Which language [raw] is written in: [FORMAT_ICALENDAR] or [FORMAT_JSCALENDAR].
+     *
+     * ## 🔴 Why the payload is stored in the protocol's own language, not converted
+     * The CalDAV path receives a `.ics` file; the JMAP path receives a JSCalendar object. It is
+     * tempting to render the JSCalendar one down to iCalendar on the way in so there is only ever
+     * one format in this column, and that would be lossy in exactly the places the JMAP path was
+     * added for: an HTML description has no home in iCalendar (it gets smuggled through
+     * `X-ALT-DESC`), attachments become `ATTACH` URIs that lose their blob ids, and a structured
+     * recurrence rule becomes a string this app then has to hand-validate. Down-converting at sync
+     * time would throw all of that away permanently, before anything had a chance to use it.
+     *
+     * So the column is a discriminator, not a migration target. The parsed columns above are the
+     * index either way, and only the re-parse in `DavMappers.toParsed` needs to know which reader
+     * to use.
+     *
+     * Defaults to [FORMAT_ICALENDAR] so every row written before this column existed, and every row
+     * the CalDAV path writes, means what it always meant.
+     */
+    val payloadFormat: String = FORMAT_ICALENDAR,
+) {
+    companion object {
+        /** [raw] is an iCalendar VCALENDAR (RFC 5545), from CalDAV or a message part. */
+        const val FORMAT_ICALENDAR = "icalendar"
+
+        /** [raw] is a single JSCalendar Event object (RFC 8984) as JSON, from JMAP. */
+        const val FORMAT_JSCALENDAR = "jscalendar"
+    }
+}

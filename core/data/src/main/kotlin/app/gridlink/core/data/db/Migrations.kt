@@ -574,3 +574,24 @@ val MIGRATION_23_24 = object : Migration(23, 24) {
 
 /** The column [MIGRATION_23_24] adds; shared with the JVM test so it replays the real one. */
 const val EMAILS_KEYWORDS_SQL: String = "ALTER TABLE `emails` ADD COLUMN `keywordsJson` TEXT"
+
+/**
+ * Additive 24→25: which language a cached calendar payload is written in.
+ *
+ * One column with a default, because every row that already exists came from CalDAV and is
+ * therefore iCalendar. The default is what makes this backfill-free: an upgraded install's rows
+ * mean exactly what they meant before, and no sync is needed to make them readable again.
+ *
+ * 🔴 NOT NULL with a default rather than nullable. A null here would be a third state ("format
+ * unknown") that every reader would have to guess at, and the guess would be "icalendar" in all of
+ * them, which is what the default says once instead of in four places.
+ */
+val MIGRATION_24_25 = object : Migration(24, 25) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(CALENDAR_PAYLOAD_FORMAT_SQL)
+    }
+}
+
+/** The column [MIGRATION_24_25] adds; shared with the JVM test so it replays the real one. */
+const val CALENDAR_PAYLOAD_FORMAT_SQL: String =
+    "ALTER TABLE `calendar_events` ADD COLUMN `payloadFormat` TEXT NOT NULL DEFAULT 'icalendar'"
