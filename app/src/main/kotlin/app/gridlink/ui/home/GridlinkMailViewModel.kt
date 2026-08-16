@@ -876,15 +876,17 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             // while the other three each have their own clock (a settings write, a keystroke, a
             // Drafts tap).
             combine(rows, opened, primed) { listRows, open, ready -> Triple(listRows, open, ready) },
-            // Two preferences in one slot, for the same ceiling reason as the triple above. They are
-            // unrelated, so the pair means nothing beyond "both are settings reads".
-            combine(settings.imageAllowlist, settings.bundleAutomated) { allowed, bundling ->
-                allowed to bundling
-            },
+            // Three preferences in one slot, for the same ceiling reason as the triple above. They
+            // are unrelated, so the triple means nothing beyond "all three are settings reads".
+            combine(
+                settings.imageAllowlist,
+                settings.bundleAutomated,
+                settings.blockRemoteImages,
+            ) { allowed, bundling, blocking -> Triple(allowed, bundling, blocking) },
             search,
             draftEdit,
             threads,
-        ) { (listRows, open, ready), (allowed, bundling), found, editing, unfolded ->
+        ) { (listRows, open, ready), (allowed, bundling, blocking), found, editing, unfolded ->
             val zone = ZoneId.systemDefault()
             val mapped = GridlinkMailMapping.map(
                 rows = listRows,
@@ -899,6 +901,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 loading = !ready,
                 open = open,
                 imageAllowlist = allowed,
+                blockRemoteImages = blocking,
                 search = found,
                 draftEdit = editing,
                 threads = unfolded,

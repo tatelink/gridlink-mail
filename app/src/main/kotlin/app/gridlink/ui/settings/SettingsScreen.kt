@@ -1099,6 +1099,7 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
     val systemMirror by viewModel.systemAccountMirror.collectAsStateWithLifecycle()
     val stripTracking by viewModel.stripTrackingParams.collectAsStateWithLifecycle()
     val confirmLinks by viewModel.confirmLinks.collectAsStateWithLifecycle()
+    val blockRemoteImages by viewModel.blockRemoteImages.collectAsStateWithLifecycle()
     val imageAllowlist by viewModel.imageAllowlist.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val contactsPermission = rememberLauncherForActivityResult(
@@ -1145,6 +1146,15 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
                 )
             }
             SettingsSection(stringResource(R.string.settings_image_allowlist_section)) {
+                // 🔴 Above the list, because it governs whether the list means anything. With this
+                // off every sender is allowed, so an allowlist rendered above it would be reading
+                // out trust decisions that are not currently being consulted.
+                SettingSwitch(
+                    title = stringResource(R.string.settings_block_remote_images_title),
+                    subtitle = stringResource(R.string.settings_block_remote_images_subtitle),
+                    checked = blockRemoteImages,
+                    onCheckedChange = viewModel::setBlockRemoteImages,
+                )
                 var showAddSender by remember { mutableStateOf(false) }
                 if (imageAllowlist.isEmpty()) {
                     Text(

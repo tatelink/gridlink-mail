@@ -30,6 +30,7 @@ data class SettingsBackup(
     val contactSuggestions: Boolean? = null,
     val stripTracking: Boolean? = null,
     val confirmLinks: Boolean? = null,
+    val blockRemoteImages: Boolean? = null,
     val imageAllowlist: List<String>? = null,
     val quietHoursEnabled: Boolean? = null,
     val quietHoursStart: Int? = null,

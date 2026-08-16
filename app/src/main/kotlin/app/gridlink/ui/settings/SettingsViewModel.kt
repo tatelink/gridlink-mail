@@ -170,6 +170,19 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { settings.setConfirmLinks(value) }
     }
 
+    // 🔴 initialValue matches the repository's default, not `false`. The switch is drawn from this
+    // before the first DataStore read lands, and a privacy control that flickers off on entry
+    // invites the reader to "fix" a setting that was never broken.
+    val blockRemoteImages = settings.blockRemoteImages.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = true,
+    )
+
+    fun setBlockRemoteImages(value: Boolean) {
+        viewModelScope.launch { settings.setBlockRemoteImages(value) }
+    }
+
     val imageAllowlist = settings.imageAllowlist.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),

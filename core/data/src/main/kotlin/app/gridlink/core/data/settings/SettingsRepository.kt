@@ -510,6 +510,35 @@ class SettingsRepository(context: Context) {
         dataStore.edit { it[KEY_CONFIRM_LINKS] = enabled }
     }
 
+    /**
+     * Whether a message body is stopped from fetching anything off the network (on by default).
+     *
+     * ## What turning it off actually does
+     * It loads every remote image in every message, always, with no banner and no per-sender
+     * question. Tate asked for exactly that: *"give a toggle in settings to block trackers but
+     * on by default. turning it off just loads all images always."* The honest framing is that off
+     * is not "show pictures", it is "answer every read receipt", because the pixel that reports
+     * back is indistinguishable from a picture until it has already been fetched.
+     *
+     * ## 🔴 On is the default and the default is the point
+     * A privacy control that ships off protects the people who already knew to look for it, which
+     * is nobody who needed it. The cost of shipping it on is that marketing mail arrives looking
+     * broken, and that cost is paid back by the per-message banner and the per-sender allowlist:
+     * the reader can see one message, or trust one sender, without disarming the whole thing.
+     * This flag is the outermost of those three and the only one that is all-or-nothing.
+     *
+     * ## Why it is not the same as [imageAllowlist] being full
+     * The allowlist is a set of senders that grows one deliberate tap at a time and can be read
+     * back later ("who did I trust?"). This is a single switch with no memory of who sent what.
+     * Keeping them separate means turning blocking back on restores the reader's existing trust
+     * decisions instead of starting them over.
+     */
+    val blockRemoteImages: Flow<Boolean> = dataStore.data.map { it[KEY_BLOCK_REMOTE_IMAGES] ?: true }
+
+    suspend fun setBlockRemoteImages(enabled: Boolean) {
+        dataStore.edit { it[KEY_BLOCK_REMOTE_IMAGES] = enabled }
+    }
+
     /** Sender addresses (lower-cased) whose remote images load automatically. */
     val imageAllowlist: Flow<Set<String>> = dataStore.data.map { it[KEY_IMAGE_ALLOWLIST] ?: emptySet() }
 
@@ -634,6 +663,7 @@ class SettingsRepository(context: Context) {
         contactSuggestions = contactSuggestions.first(),
         stripTracking = stripTrackingParams.first(),
         confirmLinks = confirmLinks.first(),
+        blockRemoteImages = blockRemoteImages.first(),
         imageAllowlist = imageAllowlist.first().toList(),
         quietHoursEnabled = quietHoursEnabled.first(),
         quietHoursStart = quietHoursStart.first(),
@@ -672,6 +702,10 @@ class SettingsRepository(context: Context) {
         backup.contactSuggestions?.let { setContactSuggestions(it) }
         backup.stripTracking?.let { setStripTrackingParams(it) }
         backup.confirmLinks?.let { setConfirmLinks(it) }
+        // 🔴 Absent means "a backup written before this setting existed", and the `?.let` leaves it
+        // at its default of ON. Restoring an old backup must never be a way to quietly disarm
+        // blocking on a phone that was blocking a moment ago.
+        backup.blockRemoteImages?.let { setBlockRemoteImages(it) }
         backup.imageAllowlist?.let { setImageAllowlist(it.toSet()) }
         backup.quietHoursEnabled?.let { setQuietHoursEnabled(it) }
         backup.quietHoursStart?.let { setQuietHoursStart(it) }
@@ -777,6 +811,7 @@ class SettingsRepository(context: Context) {
         private val KEY_INTRO_SEEN_ACCOUNTS = intPreferencesKey("intro_seen_account_count")
         private val KEY_STRIP_TRACKING = booleanPreferencesKey("strip_tracking_params")
         private val KEY_CONFIRM_LINKS = booleanPreferencesKey("confirm_links")
+        private val KEY_BLOCK_REMOTE_IMAGES = booleanPreferencesKey("block_remote_images")
         private val KEY_IMAGE_ALLOWLIST = stringSetPreferencesKey("image_allowlist")
         private val KEY_DELIVERY_MODE = stringPreferencesKey("delivery_mode")
         private val KEY_NOTIFICATION_CONTENT = stringPreferencesKey("notification_content")

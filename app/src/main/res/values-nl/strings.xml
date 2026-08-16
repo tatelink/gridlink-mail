@@ -356,6 +356,8 @@
     <string name="settings_app_lock_unavailable">Stel eerst een vingerafdruk, gezichtsontgrendeling of schermvergrendeling in bij je apparaatinstellingen.</string>
     <string name="settings_links_section">Links</string>
     <string name="settings_image_allowlist_section">Externe afbeeldingen</string>
+    <string name="settings_block_remote_images_title">Externe afbeeldingen blokkeren</string>
+    <string name="settings_block_remote_images_subtitle">Voorkomt dat berichten afbeeldingen van de server van de afzender laden, waarmee een trackingpixel doorgeeft dat je ze hebt geopend. Je kunt afbeeldingen nog steeds per bericht tonen of een afzender hieronder vertrouwen.</string>
     <string name="settings_image_allowlist_clear">Wissen</string>
     <string name="settings_strip_tracking_title">Trackingparameters verwijderen</string>
     <string name="settings_strip_tracking_subtitle">Verwijder trackers (utm_*, fbclid, gclid…) uit links voordat je ze opent, zodat afzenders niet kunnen zien wanneer je klikt.</string>

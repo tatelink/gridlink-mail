@@ -468,6 +468,8 @@
     <string name="settings_app_lock_subtitle">Require your fingerprint, face, or screen PIN to open Gridlink.</string>
     <string name="settings_app_lock_unavailable">Set up a fingerprint, face unlock, or screen lock in your device settings first.</string>
     <string name="settings_image_allowlist_section">Remote images</string>
+    <string name="settings_block_remote_images_title">Block remote images</string>
+    <string name="settings_block_remote_images_subtitle">Stop messages loading pictures from the sender\'s server, which is how a tracking pixel reports that you opened them. You can still show images for one message, or trust a sender below.</string>
     <string name="settings_image_allowlist_clear">Clear all</string>
     <string name="settings_image_allowlist_empty">No senders are set to always show images yet.</string>
     <string name="settings_image_allowlist_add">Add sender…</string>

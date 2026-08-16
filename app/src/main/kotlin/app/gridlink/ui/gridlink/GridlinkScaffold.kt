@@ -2152,7 +2152,12 @@ fun GridlinkRoot(
                         // 🔴 [GridlinkMessage.address], not `sender`, and lowercased on both sides:
                         // `sender` is a display name. The write half lowercases too, so an address
                         // stored in one case and asked about in another cannot silently miss.
-                        imagesAlwaysAllowed = current.message.address.lowercase() in
+                        // 🔴 The global switch first, then the per-sender allowlist. Blocking off
+                        // means every message, so it cannot be expressed by filling the allowlist:
+                        // it has to short-circuit it, and it has to leave it intact so turning
+                        // blocking back on restores who the reader had already trusted.
+                        imagesAlwaysAllowed = mail?.blockRemoteImages == false ||
+                            current.message.address.lowercase() in
                             (mail?.imageAllowlist ?: emptySet()),
                         onAlwaysAllowImages = { onAllowImages(current.message.address, it) },
                         onOpenAttachment = onOpenAttachment,

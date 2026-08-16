@@ -356,6 +356,8 @@
     <string name="settings_app_lock_unavailable">Primero configura una huella, el desbloqueo facial o un bloqueo de pantalla en los ajustes de tu dispositivo.</string>
     <string name="settings_links_section">Enlaces</string>
     <string name="settings_image_allowlist_section">Imágenes remotas</string>
+    <string name="settings_block_remote_images_title">Bloquear imágenes remotas</string>
+    <string name="settings_block_remote_images_subtitle">Impide que los mensajes carguen imágenes desde el servidor del remitente, que es como un píxel de seguimiento informa de que los has abierto. Puedes mostrar las imágenes de un mensaje concreto o confiar en un remitente más abajo.</string>
     <string name="settings_image_allowlist_clear">Borrar</string>
     <string name="settings_strip_tracking_title">Eliminar parámetros de seguimiento</string>
     <string name="settings_strip_tracking_subtitle">Elimina los rastreadores (utm_*, fbclid, gclid…) de los enlaces antes de abrirlos, para que los remitentes no puedan saber cuándo haces clic.</string>

@@ -356,6 +356,8 @@
     <string name="settings_app_lock_unavailable">Najpierw skonfiguruj odcisk palca, rozpoznawanie twarzy lub blokadę ekranu w ustawieniach urządzenia.</string>
     <string name="settings_links_section">Linki</string>
     <string name="settings_image_allowlist_section">Obrazy zdalne</string>
+    <string name="settings_block_remote_images_title">Blokuj zdalne obrazy</string>
+    <string name="settings_block_remote_images_subtitle">Zapobiega pobieraniu przez wiadomości obrazów z serwera nadawcy – właśnie tak piksel śledzący zgłasza, że je otworzyłeś. Nadal możesz pokazać obrazy w pojedynczej wiadomości lub zaufać nadawcy poniżej.</string>
     <string name="settings_image_allowlist_clear">Wyczyść</string>
     <string name="settings_strip_tracking_title">Usuwaj parametry śledzące</string>
     <string name="settings_strip_tracking_subtitle">Usuwaj elementy śledzące (utm_*, fbclid, gclid…) z linków przed ich otwarciem, aby nadawcy nie wiedzieli, kiedy w nie klikasz.</string>

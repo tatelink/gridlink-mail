@@ -356,6 +356,8 @@
     <string name="settings_app_lock_unavailable">Configurez d\'abord une empreinte, le déverrouillage par le visage ou un verrouillage d\'écran dans les réglages de votre appareil.</string>
     <string name="settings_links_section">Liens</string>
     <string name="settings_image_allowlist_section">Images distantes</string>
+    <string name="settings_block_remote_images_title">Bloquer les images distantes</string>
+    <string name="settings_block_remote_images_subtitle">Empêche les messages de charger des images depuis le serveur de l\'expéditeur, ce qui permet à un pixel espion de signaler que vous les avez ouverts. Vous pouvez toujours afficher les images d\'un message, ou faire confiance à un expéditeur ci-dessous.</string>
     <string name="settings_image_allowlist_clear">Effacer</string>
     <string name="settings_strip_tracking_title">Supprimer les paramètres de suivi</string>
     <string name="settings_strip_tracking_subtitle">Supprimez les traceurs (utm_*, fbclid, gclid…) des liens avant de les ouvrir, afin que les expéditeurs ne puissent pas savoir quand vous cliquez.</string>

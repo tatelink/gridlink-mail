@@ -61,6 +61,16 @@ data class GridlinkMailContent(
      */
     val imageAllowlist: Set<String> = emptySet(),
     /**
+     * Whether message bodies are stopped from fetching remote content at all.
+     *
+     * 🔴 Defaults to true here as well as in the repository, and both defaults are load-bearing.
+     * This one covers the window before the first settings emission and every caller that builds
+     * content without a store behind it (the gallery, previews, tests). A default of false would
+     * mean a body that fetches trackers for the few frames before the real answer arrives, which
+     * is indistinguishable from not having the feature: the pixel only has to fire once.
+     */
+    val blockRemoteImages: Boolean = true,
+    /**
      * The server search the pill's text asked for, or null when the pill is empty.
      *
      * Rides in here rather than as its own screen parameter because it is mail, and everything

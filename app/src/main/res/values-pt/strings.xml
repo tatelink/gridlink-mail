@@ -356,6 +356,8 @@
     <string name="settings_app_lock_unavailable">Configure primeiro uma impressão digital, desbloqueio facial ou bloqueio de tela nas configurações do seu aparelho.</string>
     <string name="settings_links_section">Links</string>
     <string name="settings_image_allowlist_section">Imagens remotas</string>
+    <string name="settings_block_remote_images_title">Bloquear imagens remotas</string>
+    <string name="settings_block_remote_images_subtitle">Impede que as mensagens carreguem imagens do servidor do remetente, que é como um pixel de rastreio comunica que as abriste. Podes na mesma mostrar as imagens de uma mensagem ou confiar num remetente abaixo.</string>
     <string name="settings_image_allowlist_clear">Limpar</string>
     <string name="settings_strip_tracking_title">Remover parâmetros de rastreamento</string>
     <string name="settings_strip_tracking_subtitle">Remove rastreadores (utm_*, fbclid, gclid…) dos links antes de abri-los, para que os remetentes não saibam quando você clica.</string>
