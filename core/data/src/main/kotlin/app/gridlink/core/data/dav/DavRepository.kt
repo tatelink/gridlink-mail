@@ -97,10 +97,12 @@ data class DavWriteOutcome(
 // on the function counter. Splitting it by kind would duplicate the whole access, sync and error
 // story twice over, which is the thing the counter is supposed to prevent, not cause.
 //
-// LargeClass is a fair complaint and not one this comment dismisses: the JMAP sync halves (state,
-// changes, paging, caching, for calendars and now contacts alike) are the bulk of it, and they are
-// the natural thing to lift into a `JmapCollectionSync` collaborator. That is a refactor with its
-// own risk, so it is named here rather than done in the same change that added the second half.
+// LargeClass is a fair complaint and not one this comment dismisses. The JMAP sync algorithm has
+// since moved out into [JmapCollectionSync], which both kinds now share; what is left over here is
+// the DAV write story (build the payload, PUT it with an If-Match, re-parse what was sent) twice,
+// once per kind, and that is genuinely most of the remaining length. Splitting THAT by kind is the
+// duplication the function counter is meant to prevent, so the suppression stays until there is a
+// better idea than moving the same problem to two files.
 @Suppress("TooManyFunctions", "LargeClass")
 class DavRepository(
     private val client: DavClient,
@@ -819,18 +821,9 @@ class DavRepository(
     /**
      * One calendar sync over JMAP, into the same tables CalDAV fills.
      *
-     * ## The order of the three network steps is the point
-     * The state is read FIRST, then the listing. An edit that lands between them is re-reported on
-     * the next run, because the stored state predates it; taking the state last would put that edit
-     * in the gap between what was listed and what the state claims was seen, and it would never be
-     * asked for again. Erring towards re-fetching is free. Erring the other way loses an
-     * appointment silently, which is the one failure a calendar must not have.
-     *
-     * ## Why the state is written to every calendar row
-     * `CalendarEvent/changes` is scoped to the ACCOUNT, not to one calendar, so there is exactly one
-     * state for all of them. Rather than elect a row to hold it (and lose the sync history the day
-     * that calendar is unshared), every row carries the same copy and any of them can seed the next
-     * run.
+     * The sync itself is [JmapCollectionSync], which contacts share; everything below is the half
+     * of it that is specifically about calendars. See that class for why the state is read before
+     * the listing and written to every calendar row afterwards.
      */
     private suspend fun syncCalendarsOverJmap(
         accountId: String,
@@ -838,166 +831,77 @@ class DavRepository(
         session: JmapSession,
         jmapAccountId: String,
         auth: BasicAuth,
-    ): DavSyncOutcome {
-        val calendars = try {
-            jmapClient.getCalendars(session, jmapAccountId, auth)
-        } catch (c: CancellationException) {
-            throw c
-        } catch (e: Exception) {
-            return DavSyncOutcome(0, 0, 0, error = describeJmap(e))
-        }
-        val existing = collectionDao.forKind(accountId, DavCollectionEntity.KIND_CALENDAR)
-        // 🔴 Before anything else, and before the events: a calendar this account already synced
-        // over CalDAV keeps its row rather than being deleted and recreated under a `jmap:` url.
-        // See DavMappers.adoptCollectionUrls for what that costs the user otherwise. It has to
-        // happen first because the events are filed under these urls and `deleteNotInCollections`
-        // below would drop every event of an adopted calendar if it ran against the synthetic list.
-        val adopted = DavMappers.adoptCollectionUrls(
-            existing = existing,
-            collections = calendars.map { it.id to it.name },
-            syntheticUrl = DavMappers::jmapCollectionUrl,
-        )
-        val urls = calendars.mapNotNull { adopted[it.id] }
-        val resumeFrom = existing.firstNotNullOfOrNull { it.syncToken }
-        collectionDao.replaceDiscovered(
-            accountId = accountId,
-            kind = DavCollectionEntity.KIND_CALENDAR,
-            discovered = calendars.mapIndexed { i, c ->
-                DavMappers.jmapCollection(accountId, adopted.getValue(c.id), c, i)
-            },
-        )
-        // A calendar the server no longer lists takes its events with it. This also clears rows a
-        // previous CalDAV sync of the same account left behind whose calendar was NOT adopted, since
-        // an unadopted DAV url cannot appear among these.
-        if (urls.isEmpty()) {
-            clearItems(accountId, DavCollectionEntity.KIND_CALENDAR)
-            return DavSyncOutcome(collections = 0, itemsChanged = 0, itemsRemoved = 0)
-        }
-        eventDao.deleteNotInCollections(accountId, urls)
+    ): DavSyncOutcome = JmapCollectionSync(
+        accountId = accountId,
+        kind = DavCollectionEntity.KIND_CALENDAR,
+        collectionDao = collectionDao,
+        syntheticUrl = DavMappers::jmapCollectionUrl,
+        ops = calendarOps(accountId, jmapClient, session, jmapAccountId, auth),
+    ).run()
 
-        return try {
-            val nextState = jmapClient.calendarEventState(session, jmapAccountId, auth)
-            val delta = incrementalCalendarSync(jmapClient, session, jmapAccountId, auth, resumeFrom)
-            val outcome = if (delta != null) {
-                applyCalendarDelta(accountId, jmapClient, session, jmapAccountId, auth, delta)
-            } else {
-                fullCalendarSync(accountId, jmapClient, session, jmapAccountId, auth)
+    /** The calendar half of a JMAP sync: which methods to call and which table to fill. */
+    private fun calendarOps(
+        accountId: String,
+        jmapClient: JmapClient,
+        session: JmapSession,
+        jmapAccountId: String,
+        auth: BasicAuth,
+    ) = object : JmapCollectionSync.Ops {
+
+        override suspend fun collections() =
+            jmapClient.getCalendars(session, jmapAccountId, auth).map { calendar ->
+                JmapCollectionSync.Discovered(id = calendar.id, name = calendar.name) { url, order ->
+                    DavMappers.jmapCollection(accountId, url, calendar, order)
+                }
             }
-            // Written last, and only after the rows it describes are stored: a state recorded before
-            // them would make a crash mid-sync look like a completed one, and everything in between
-            // would never be asked for again. Same rule the DAV sync token follows.
-            if (nextState != null) urls.forEach { collectionDao.setSyncToken(accountId, it, nextState) }
-            outcome.copy(collections = calendars.size)
-        } catch (c: CancellationException) {
-            throw c
-        } catch (e: Exception) {
-            DavSyncOutcome(calendars.size, 0, 0, error = describeJmap(e))
-        }
-    }
 
-    /**
-     * Every change since [resumeFrom], or null when the server cannot say and a full list is needed.
-     *
-     * Null is returned for both "we have never synced" and "the server answered
-     * `cannotCalculateChanges`", because the answer to both is the same and treating the second as
-     * an empty change set would stop this account syncing without ever reporting an error.
-     */
-    // Four of the five exits are "this delta cannot be trusted, list everything", each spotted at a
-    // different point in the loop. A single exit would need a flag threaded through the loop body
-    // and would make it easy to add a fifth failure that forgets to set it.
-    @Suppress("ReturnCount")
-    private suspend fun incrementalCalendarSync(
-        jmapClient: JmapClient,
-        session: JmapSession,
-        jmapAccountId: String,
-        auth: BasicAuth,
-        resumeFrom: String?,
-    ): JmapDelta? {
-        if (resumeFrom.isNullOrBlank()) return null
-        val changed = LinkedHashSet<String>()
-        val destroyed = LinkedHashSet<String>()
-        var state: String? = resumeFrom
-        var rounds = 0
-        while (rounds < MAX_CHANGE_ROUNDS) {
-            val result = jmapClient.calendarEventChanges(session, jmapAccountId, state, auth)
-            if (!result.calculated) return null
-            changed += result.created
-            changed += result.updated
-            destroyed += result.destroyed
-            rounds++
-            if (!result.hasMoreChanges) return JmapDelta(changed.toList(), destroyed.toList())
-            // A server that reports more changes but no new state would spin this loop forever on
-            // the same page. Falling back to a full list is slower and always terminates.
-            state = result.newState ?: return null
-        }
-        // More rounds than a sane delta needs means the account has effectively been rewritten;
-        // listing it is cheaper than paging through the rest of the history.
-        return null
-    }
+        override suspend fun state() = jmapClient.calendarEventState(session, jmapAccountId, auth)
 
-    /** Apply a change set: fetch what changed, drop what was destroyed. */
-    private suspend fun applyCalendarDelta(
-        accountId: String,
-        jmapClient: JmapClient,
-        session: JmapSession,
-        jmapAccountId: String,
-        auth: BasicAuth,
-        delta: JmapDelta,
-    ): DavSyncOutcome {
-        val events = jmapClient.getCalendarEvents(session, jmapAccountId, delta.changed, auth)
-        val changed = cacheJmapEvents(accountId, events).size
-        // 🔴 Ids the server reported as changed but did not return are deleted, not skipped. An id
-        // that vanishes between the two calls has been removed in the meantime, and leaving its row
-        // in place would keep a deleted appointment on the phone until the next full list.
-        val returned = events.mapTo(HashSet()) { it.id }
-        val missing = delta.changed.filterNot { it in returned }
-        (delta.destroyed + missing).forEach { forgetJmapEvent(accountId, it) }
-        return DavSyncOutcome(0, changed, delta.destroyed.size + missing.size)
-    }
-
-    /** List the whole account and make the cache match it. */
-    private suspend fun fullCalendarSync(
-        accountId: String,
-        jmapClient: JmapClient,
-        session: JmapSession,
-        jmapAccountId: String,
-        auth: BasicAuth,
-    ): DavSyncOutcome {
-        val ids = LinkedHashSet<String>()
-        var page = 0
-        var more = true
-        while (more && page < MAX_QUERY_PAGES) {
-            // 🔴 No date window. `after`/`before` filter on OCCURRENCES, so a window would be a
-            // sensible-looking way to bound the sync, and it would also delete every event outside
-            // it from a cache the month view can scroll anywhere in. CalDAV syncs the lot; so does
-            // this.
-            val result = jmapClient.queryCalendarEventIds(
-                session = session,
-                accountId = jmapAccountId,
-                auth = auth,
-                limit = QUERY_PAGE_SIZE,
-                position = ids.size,
+        override suspend fun changes(since: String?): JmapCollectionSync.ChangeRound {
+            val result = jmapClient.calendarEventChanges(session, jmapAccountId, since, auth)
+            return JmapCollectionSync.ChangeRound(
+                calculated = result.calculated,
+                changed = result.created + result.updated,
+                destroyed = result.destroyed,
+                hasMore = result.hasMoreChanges,
+                newState = result.newState,
             )
-            val before = ids.size
-            ids += result.ids
-            // Stop on a short page (it was the last one) and on a page that added nothing, which is
-            // a server paging in circles: a full page of ids we already hold would otherwise loop
-            // until the page cap with the same request every time.
-            more = ids.size > before && result.ids.size >= QUERY_PAGE_SIZE
-            page++
         }
-        val events = jmapClient.getCalendarEvents(session, jmapAccountId, ids.toList(), auth)
-        val changed = cacheJmapEvents(accountId, events).size
 
-        // Anything JMAP-backed the listing did not name is gone from the server. Rows with no
-        // remoteId are not touched here: they were already cleared by collection, and having come
-        // over JMAP is the only thing that makes a row this listing's business. The test is the
-        // column rather than the href prefix because an adopted row kept its CalDAV href.
-        val keep = events.mapTo(HashSet()) { it.id }
-        val stale = eventDao.allForAccount(accountId)
-            .filter { it.remoteId != null && it.remoteId !in keep }
-        stale.map { it.href }.chunked(DELETE_CHUNK).forEach { eventDao.deleteByHrefs(accountId, it) }
-        return DavSyncOutcome(0, changed, stale.size)
+        override suspend fun queryIds(limit: Int, position: Int) = jmapClient.queryCalendarEventIds(
+            session = session,
+            accountId = jmapAccountId,
+            auth = auth,
+            limit = limit,
+            position = position,
+        ).ids
+
+        override suspend fun fetch(ids: List<String>): JmapCollectionSync.Fetched {
+            val events = jmapClient.getCalendarEvents(session, jmapAccountId, ids, auth)
+            return JmapCollectionSync.Fetched(
+                returned = events.mapTo(HashSet()) { it.id },
+                hrefs = cacheJmapEvents(accountId, events),
+            )
+        }
+
+        override suspend fun forget(id: String) = forgetJmapEvent(accountId, id)
+
+        override suspend fun deleteStale(keep: Set<String>): Int {
+            // Rows with no remoteId are not touched here: they were already cleared by collection,
+            // and having come over JMAP is the only thing that makes a row this listing's business.
+            // The test is the column rather than the href prefix because an adopted row kept its
+            // CalDAV href.
+            val stale = eventDao.allForAccount(accountId)
+                .filter { it.remoteId != null && it.remoteId !in keep }
+                .map { it.href }
+            stale.chunked(DELETE_CHUNK).forEach { eventDao.deleteByHrefs(accountId, it) }
+            return stale.size
+        }
+
+        override suspend fun deleteNotInCollections(urls: List<String>) =
+            eventDao.deleteNotInCollections(accountId, urls)
+
+        override suspend fun clearItems() = eventDao.deleteForAccount(accountId)
     }
 
     /**
@@ -1114,16 +1018,11 @@ class DavRepository(
         return DavWriteOutcome(href = href)
     }
 
-    /** What one `Foo/changes` run came back with, flattened. Shared by both collections. */
-    private data class JmapDelta(val changed: List<String>, val destroyed: List<String>)
-
     /**
      * One contacts sync over JMAP, into the same tables CardDAV fills.
      *
-     * [syncCalendarsOverJmap]'s shape, and every note on it applies here: the state is read before
-     * the listing so an edit made mid-sync is re-reported rather than lost, and it is written to
-     * every book row afterwards because `ContactCard/changes` is scoped to the account rather than
-     * to one address book.
+     * [syncCalendarsOverJmap]'s sync, run against the other collection kind: same class, same
+     * order, same rules, and the only difference is [contactOps].
      */
     private suspend fun syncContactsOverJmap(
         accountId: String,
@@ -1131,140 +1030,75 @@ class DavRepository(
         session: JmapSession,
         jmapAccountId: String,
         auth: BasicAuth,
-    ): DavSyncOutcome {
-        val books = try {
-            jmapClient.getAddressBooks(session, jmapAccountId, auth)
-        } catch (c: CancellationException) {
-            throw c
-        } catch (e: Exception) {
-            return DavSyncOutcome(0, 0, 0, error = describeJmap(e))
-        }
-        val existing = collectionDao.forKind(accountId, DavCollectionEntity.KIND_CONTACTS)
-        // The calendar pass's adoption, for the same reason and in the same order. See
-        // syncCalendarsOverJmap.
-        val adopted = DavMappers.adoptCollectionUrls(
-            existing = existing,
-            collections = books.map { it.id to it.name },
-            syntheticUrl = DavMappers::jmapBookUrl,
-        )
-        val urls = books.mapNotNull { adopted[it.id] }
-        val resumeFrom = existing.firstNotNullOfOrNull { it.syncToken }
-        collectionDao.replaceDiscovered(
-            accountId = accountId,
-            kind = DavCollectionEntity.KIND_CONTACTS,
-            discovered = books.mapIndexed { i, b ->
-                DavMappers.jmapBook(accountId, adopted.getValue(b.id), b, i)
-            },
-        )
-        // A book the server no longer lists takes its cards with it. This also clears rows a
-        // previous CardDAV sync of the same account left behind whose book was NOT adopted, since an
-        // unadopted DAV url cannot appear among these.
-        if (urls.isEmpty()) {
-            clearItems(accountId, DavCollectionEntity.KIND_CONTACTS)
-            return DavSyncOutcome(collections = 0, itemsChanged = 0, itemsRemoved = 0)
-        }
-        contactDao.deleteNotInCollections(accountId, urls)
+    ): DavSyncOutcome = JmapCollectionSync(
+        accountId = accountId,
+        kind = DavCollectionEntity.KIND_CONTACTS,
+        collectionDao = collectionDao,
+        syntheticUrl = DavMappers::jmapBookUrl,
+        ops = contactOps(accountId, jmapClient, session, jmapAccountId, auth),
+    ).run()
 
-        return try {
-            val nextState = jmapClient.contactCardState(session, jmapAccountId, auth)
-            val delta = incrementalContactSync(jmapClient, session, jmapAccountId, auth, resumeFrom)
-            val outcome = if (delta != null) {
-                applyContactDelta(accountId, jmapClient, session, jmapAccountId, auth, delta)
-            } else {
-                fullContactSync(accountId, jmapClient, session, jmapAccountId, auth)
+    /** The contacts half of a JMAP sync: which methods to call and which table to fill. */
+    private fun contactOps(
+        accountId: String,
+        jmapClient: JmapClient,
+        session: JmapSession,
+        jmapAccountId: String,
+        auth: BasicAuth,
+    ) = object : JmapCollectionSync.Ops {
+
+        override suspend fun collections() =
+            jmapClient.getAddressBooks(session, jmapAccountId, auth).map { book ->
+                JmapCollectionSync.Discovered(id = book.id, name = book.name) { url, order ->
+                    DavMappers.jmapBook(accountId, url, book, order)
+                }
             }
-            // Written last, and only after the rows it describes are stored; see the calendar's.
-            if (nextState != null) urls.forEach { collectionDao.setSyncToken(accountId, it, nextState) }
-            outcome.copy(collections = books.size)
-        } catch (c: CancellationException) {
-            throw c
-        } catch (e: Exception) {
-            DavSyncOutcome(books.size, 0, 0, error = describeJmap(e))
-        }
-    }
 
-    /** Every card change since [resumeFrom], or null when the server cannot say. */
-    // [incrementalCalendarSync]'s exits, one per way a delta can turn out untrustworthy.
-    @Suppress("ReturnCount")
-    private suspend fun incrementalContactSync(
-        jmapClient: JmapClient,
-        session: JmapSession,
-        jmapAccountId: String,
-        auth: BasicAuth,
-        resumeFrom: String?,
-    ): JmapDelta? {
-        if (resumeFrom.isNullOrBlank()) return null
-        val changed = LinkedHashSet<String>()
-        val destroyed = LinkedHashSet<String>()
-        var state: String? = resumeFrom
-        var rounds = 0
-        while (rounds < MAX_CHANGE_ROUNDS) {
-            val result = jmapClient.contactCardChanges(session, jmapAccountId, state, auth)
-            if (!result.calculated) return null
-            changed += result.created
-            changed += result.updated
-            destroyed += result.destroyed
-            rounds++
-            if (!result.hasMoreChanges) return JmapDelta(changed.toList(), destroyed.toList())
-            state = result.newState ?: return null
-        }
-        return null
-    }
+        override suspend fun state() = jmapClient.contactCardState(session, jmapAccountId, auth)
 
-    /** Apply a card change set: fetch what changed, drop what was destroyed. */
-    private suspend fun applyContactDelta(
-        accountId: String,
-        jmapClient: JmapClient,
-        session: JmapSession,
-        jmapAccountId: String,
-        auth: BasicAuth,
-        delta: JmapDelta,
-    ): DavSyncOutcome {
-        val cards = jmapClient.getContactCards(session, jmapAccountId, delta.changed, auth)
-        val changed = cacheJmapCards(accountId, cards).size
-        // 🔴 Ids reported as changed but not returned are deleted, not skipped; see the calendar's.
-        val returned = cards.mapTo(HashSet()) { it.id }
-        val missing = delta.changed.filterNot { it in returned }
-        (delta.destroyed + missing).forEach { forgetJmapCard(accountId, it) }
-        return DavSyncOutcome(0, changed, delta.destroyed.size + missing.size)
-    }
-
-    /** List every card in the account and make the cache match it. */
-    private suspend fun fullContactSync(
-        accountId: String,
-        jmapClient: JmapClient,
-        session: JmapSession,
-        jmapAccountId: String,
-        auth: BasicAuth,
-    ): DavSyncOutcome {
-        val ids = LinkedHashSet<String>()
-        var page = 0
-        var more = true
-        while (more && page < MAX_QUERY_PAGES) {
-            val result = jmapClient.queryContactCardIds(
-                session = session,
-                accountId = jmapAccountId,
-                auth = auth,
-                limit = QUERY_PAGE_SIZE,
-                position = ids.size,
+        override suspend fun changes(since: String?): JmapCollectionSync.ChangeRound {
+            val result = jmapClient.contactCardChanges(session, jmapAccountId, since, auth)
+            return JmapCollectionSync.ChangeRound(
+                calculated = result.calculated,
+                changed = result.created + result.updated,
+                destroyed = result.destroyed,
+                hasMore = result.hasMoreChanges,
+                newState = result.newState,
             )
-            val before = ids.size
-            ids += result.ids
-            // Stop on a short page and on a page that added nothing; see fullCalendarSync.
-            more = ids.size > before && result.ids.size >= QUERY_PAGE_SIZE
-            page++
         }
-        val cards = jmapClient.getContactCards(session, jmapAccountId, ids.toList(), auth)
-        val changed = cacheJmapCards(accountId, cards).size
 
-        // By remoteId rather than by the href prefix; see fullCalendarSync for why an adopted row
-        // makes the prefix the wrong test.
-        val keep = cards.mapTo(HashSet()) { it.id }
-        val stale = contactDao.allForAccount(accountId)
-            .filter { it.remoteId != null && it.remoteId !in keep }
-            .map { it.href }
-        stale.chunked(DELETE_CHUNK).forEach { contactDao.deleteByHrefs(accountId, it) }
-        return DavSyncOutcome(0, changed, stale.size)
+        override suspend fun queryIds(limit: Int, position: Int) = jmapClient.queryContactCardIds(
+            session = session,
+            accountId = jmapAccountId,
+            auth = auth,
+            limit = limit,
+            position = position,
+        ).ids
+
+        override suspend fun fetch(ids: List<String>): JmapCollectionSync.Fetched {
+            val cards = jmapClient.getContactCards(session, jmapAccountId, ids, auth)
+            return JmapCollectionSync.Fetched(
+                returned = cards.mapTo(HashSet()) { it.id },
+                hrefs = cacheJmapCards(accountId, cards),
+            )
+        }
+
+        override suspend fun forget(id: String) = forgetJmapCard(accountId, id)
+
+        override suspend fun deleteStale(keep: Set<String>): Int {
+            // By remoteId rather than by the href prefix; see the calendar's for why an adopted row
+            // makes the prefix the wrong test.
+            val stale = contactDao.allForAccount(accountId)
+                .filter { it.remoteId != null && it.remoteId !in keep }
+                .map { it.href }
+            stale.chunked(DELETE_CHUNK).forEach { contactDao.deleteByHrefs(accountId, it) }
+            return stale.size
+        }
+
+        override suspend fun deleteNotInCollections(urls: List<String>) =
+            contactDao.deleteNotInCollections(accountId, urls)
+
+        override suspend fun clearItems() = contactDao.deleteForAccount(accountId)
     }
 
     /**
@@ -1362,18 +1196,6 @@ class DavRepository(
                 error = "Saved to the server, but this device could not read it back. Sync to see it.",
             )
         return DavWriteOutcome(href = href)
-    }
-
-    /**
-     * A JMAP failure in words worth showing. [describe]'s job for the other protocol.
-     *
-     * 401 is the one the user can act on, and it arrives as a transport failure here rather than as
-     * a DavException, so the same sentence has to be reached by a different route.
-     */
-    private fun describeJmap(e: Exception): String = when ((e as? JmapException)?.httpCode) {
-        401 -> "Sign-in was refused. Check the password for this account."
-        403 -> "The server refused access to this calendar."
-        else -> e.message?.takeIf { it.isNotBlank() } ?: "Sync failed"
     }
 
     /** Cache a vCard the DAV path just uploaded, re-parsed from the SAME text (see [createEvent]). */
@@ -1576,18 +1398,6 @@ class DavRepository(
         else -> e.message ?: "Sync failed"
     }
 }
-
-/**
- * Most `CalendarEvent/changes` rounds one sync will page through before giving up and listing.
- *
- * A delta this long is not a delta: it means the account has effectively been rewritten, and a
- * single listing costs less than paging the rest of its history.
- */
-private const val MAX_CHANGE_ROUNDS = 20
-
-/** Ids per `CalendarEvent/query` page, and the most pages one sync will ask for. */
-private const val QUERY_PAGE_SIZE = 500
-private const val MAX_QUERY_PAGES = 40
 
 /** Hrefs per DELETE. SQLite caps host parameters, and a large calendar can exceed it. */
 private const val DELETE_CHUNK = 400
