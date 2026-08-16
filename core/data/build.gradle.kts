@@ -45,7 +45,7 @@ dependencies {
     // Virtual time, to unit-test the outbox badge without waiting out real undo windows.
     testImplementation(libs.kotlinx.coroutines.test)
     // Real SQLite engine for unit-testing the conversation-grouping SQL on the JVM.
-    testImplementation("org.xerial:sqlite-jdbc:3.45.3.0")
+    testImplementation("org.xerial:sqlite-jdbc:3.53.2.1")
 }
 
 kotlin {
