@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -114,6 +115,21 @@ data class DavWriteResult(
  * quietly answer false for two copies of the same file, and nothing here wants to compare downloads.
  */
 class DavDownload(val bytes: ByteArray, val contentType: String?)
+
+/**
+ * What the server said after taking a managed attachment (RFC 8607 §4.1).
+ *
+ * [managedId] is the handle the attachment is removed or replaced by later, and it is the one field
+ * that is never null: an attachment this client cannot name again is one it can only ever add.
+ *
+ * [url] is where the bytes now live, and [etag] the event's new version. Both are the server's to
+ * omit, and both being null still describes a completed write — the following sync fills them in.
+ */
+data class DavManagedAttachment(
+    val managedId: String,
+    val url: String?,
+    val etag: String?,
+)
 
 class DavException(message: String, val code: Int? = null) : Exception(message)
 
@@ -417,6 +433,136 @@ class DavClient internal constructor(
     }
 
     /**
+     * Whether this server implements RFC 8607 managed calendar attachments.
+     *
+     * ## 🔴 Ask, never assume, and never ask more than once per sync
+     * Almost no CalDAV server implements this. Stalwart, measured 2026-08-16, answers
+     * `DAV: 1, 2, 3, access-control, extended-mkcol, calendar-access, calendar-auto-schedule,
+     * calendar-no-timezone, addressbook` — no `calendar-managed-attachments` token. So the honest
+     * default for any server is "no", and the attach affordance stays out of the reader's way until
+     * a server says otherwise. Posting an attachment to a server that never advertised the
+     * capability is not a graceful degradation, it is a POST to a URL with a query string the server
+     * has no opinion about, and the plausible outcomes include silently replacing the event.
+     *
+     * The token is defined in RFC 8607 §5.1. It arrives in the `DAV:` response header of an OPTIONS
+     * on any resource in the calendar home, which is why this takes a URL rather than a collection.
+     */
+    suspend fun managedAttachmentsSupported(
+        url: String,
+        credentials: DavCredentials,
+    ): Boolean = withContext(Dispatchers.IO) {
+        val target = url.toHttpUrlOrNull() ?: throw DavException("Bad URL: $url")
+        val request = Request.Builder()
+            .url(target)
+            .method("OPTIONS", null)
+            .header("Authorization", credentials.authorizationHeader())
+            .build()
+        http.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return@use false
+            // Every DAV: header on the response, not just the first: the header is repeatable and
+            // a server is free to split its tokens across several of them.
+            response.headers("DAV")
+                .flatMap { it.split(',') }
+                .any { it.trim().equals(MANAGED_ATTACHMENTS_TOKEN, ignoreCase = true) }
+        }
+    }
+
+    /**
+     * Attach a file to an existing event, the RFC 8607 way (§4.1).
+     *
+     * ## What the server does with this, and why it is a POST and not a PUT
+     * The bytes are handed to the server, which stores them somewhere of its choosing, invents a
+     * managed id for them, and rewrites the event's iCalendar to carry a new `ATTACH` line pointing
+     * at them. The client never edits the event: doing this as "download event, add ATTACH, PUT it
+     * back" is the same operation with a lost-update race in the middle, which is precisely what the
+     * spec exists to remove.
+     *
+     * ## 🔴 [fileName] is put into a header, so it is sanitised here and not by the caller
+     * `Content-Disposition` is how the name travels, and a name carrying a quote or a newline is a
+     * header injection waiting for the one caller who forgot. Anything outside a conservative set is
+     * dropped rather than escaped, and an empty result becomes [FALLBACK_ATTACHMENT_NAME]: a file
+     * named something odd is a cosmetic problem, a request with an injected header is not.
+     *
+     * [recurrenceId] attaches to a single instance of a repeating event rather than the series, and
+     * null means the series, which is what almost every caller wants.
+     */
+    suspend fun addManagedAttachment(
+        objectUrl: String,
+        credentials: DavCredentials,
+        fileName: String,
+        contentType: String,
+        bytes: ByteArray,
+        recurrenceId: String? = null,
+    ): DavManagedAttachment = withContext(Dispatchers.IO) {
+        if (bytes.size > MAX_DOWNLOAD_BYTES) {
+            throw DavException("Attachment is too large (${bytes.size} bytes)")
+        }
+        val target = actionUrl(objectUrl, ACTION_ADD, recurrenceId = recurrenceId)
+        val media = contentType.toMediaTypeOrFallback()
+        val request = Request.Builder()
+            .url(target)
+            .post(bytes.toRequestBody(media))
+            .header("Content-Disposition", "attachment;filename=\"${safeFileName(fileName)}\"")
+            .header("Authorization", credentials.authorizationHeader())
+            .build()
+        http.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw DavException(errorFor(response), response.code)
+            // 🔴 The managed id is the whole point of the round trip: without it the attachment
+            // cannot be removed or replaced later, so a server that answers 2xx without one has
+            // done something this client cannot represent, and saying so beats storing a blank.
+            val managedId = response.header("Cal-Managed-ID")?.trim()?.takeIf { it.isNotBlank() }
+                ?: throw DavException("Server accepted the attachment but returned no Cal-Managed-ID")
+            DavManagedAttachment(
+                managedId = managedId,
+                url = response.header("Location")?.trim()?.takeIf { it.isNotBlank() },
+                etag = response.header("ETag")?.trim('"', ' ')?.takeIf { it.isNotBlank() },
+            )
+        }
+    }
+
+    /**
+     * Detach a managed attachment from an event (RFC 8607 §4.3).
+     *
+     * Returns the event's new etag when the server offered one. ⚠️ Null is not a failure, for the
+     * reason written on [create]: a server may legitimately answer 204 with nothing to say about
+     * the version, and the next sync settles it.
+     */
+    suspend fun removeManagedAttachment(
+        objectUrl: String,
+        credentials: DavCredentials,
+        managedId: String,
+        recurrenceId: String? = null,
+    ): String? = withContext(Dispatchers.IO) {
+        val target = actionUrl(objectUrl, ACTION_REMOVE, managedId = managedId, recurrenceId = recurrenceId)
+        val request = Request.Builder()
+            .url(target)
+            .post(ByteArray(0).toRequestBody(null))
+            .header("Authorization", credentials.authorizationHeader())
+            .build()
+        http.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw DavException(errorFor(response), response.code)
+            response.header("ETag")?.trim('"', ' ')?.takeIf { it.isNotBlank() }
+        }
+    }
+
+    /** The event URL carrying the RFC 8607 query string for [action]. */
+    private fun actionUrl(
+        objectUrl: String,
+        action: String,
+        managedId: String? = null,
+        recurrenceId: String? = null,
+    ): HttpUrl {
+        val base = objectUrl.toHttpUrlOrNull() ?: throw DavException("Bad event URL: $objectUrl")
+        return base.newBuilder()
+            .addQueryParameter("action", action)
+            .apply {
+                if (managedId != null) addQueryParameter("managed-id", managedId)
+                if (recurrenceId != null) addQueryParameter("rid", recurrenceId)
+            }
+            .build()
+    }
+
+    /**
      * Whether [target] may be sent this account's password. See the 🔴 on [fetch].
      *
      * Its own function because it is the security decision in this class that is worth testing on
@@ -583,6 +729,51 @@ class DavClient internal constructor(
 
     companion object {
         private val XML = "application/xml; charset=utf-8".toMediaType()
+
+        /** The RFC 8607 §5.1 capability token, as it appears in a `DAV:` response header. */
+        internal const val MANAGED_ATTACHMENTS_TOKEN = "calendar-managed-attachments"
+
+        private const val ACTION_ADD = "attachment-add"
+        private const val ACTION_REMOVE = "attachment-remove"
+
+        /** What an attachment is called when its real name survives [safeFileName] as nothing. */
+        internal const val FALLBACK_ATTACHMENT_NAME = "attachment"
+
+        /**
+         * A file name safe to place inside a quoted `Content-Disposition` header.
+         *
+         * 🔴 An allowlist, not an escape. Quotes, backslashes, CR and LF are the injection, but a
+         * filter written as "remove those four" is one that has to be revisited every time somebody
+         * learns a new thing headers do. Keeping letters, digits and a short list of punctuation
+         * cannot be wrong in that direction, and the cost is a file called `résumé.pdf` arriving as
+         * `rsum.pdf`, which is visible, harmless, and fixable by renaming.
+         *
+         * ⚠️ Path separators go too. RFC 8607 says the name is a name, and a server that took
+         * `../../x` literally is one this client should not have handed the opportunity to.
+         */
+        internal fun safeFileName(name: String): String = name
+            .trim()
+            .map { if (it.isLetterOrDigit() || it in FILENAME_PUNCTUATION) it else '_' }
+            .joinToString("")
+            .trim('_', '.')
+            .take(MAX_FILENAME_CHARS)
+            .ifBlank { FALLBACK_ATTACHMENT_NAME }
+
+        private const val FILENAME_PUNCTUATION = ".-_ ()[]+"
+        private const val MAX_FILENAME_CHARS = 120
+
+        /**
+         * The declared type, or `application/octet-stream` when it is not a type at all.
+         *
+         * The string comes from whatever the phone said about a file the user picked, and okhttp
+         * throws on a malformed one. Refusing to attach a file because Android described it oddly is
+         * the wrong trade: octet-stream is the honest "bytes, unknown", and the server is free to
+         * sniff.
+         */
+        private fun String.toMediaTypeOrFallback() =
+            trim().toMediaTypeOrNull() ?: OCTET_STREAM
+
+        private val OCTET_STREAM = "application/octet-stream".toMediaType()
 
         /**
          * The most a single attachment may be. Held to the same 24 MB as a sync body: the bytes are
