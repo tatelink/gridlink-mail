@@ -646,6 +646,22 @@ fun GridlinkRoot(
     initiallyLoading: Boolean = false,
     initialOpenId: String? = null,
     /**
+     * A signature verdict to draw on the open sample message, or null.
+     *
+     * 🔴 Harness-only, and ignored the moment [mail] is supplied: with a repository behind the
+     * screen the verdict must come from a real check of a real message, and nothing else may be
+     * able to put a shield above someone's mail. It exists because [GridlinkSignedRow] is drawn
+     * only for signed mail, so with no account there is no route to it at all, and a row nobody can
+     * look at is a row nobody reviews. See the gallery's `--es signed` extra.
+     */
+    sampleSigned: GridlinkSigned? = null,
+    /**
+     * An invitation to draw on the open sample message, or null. [sampleSigned]'s twin, with the
+     * same 🔴: ignored whenever [mail] is supplied, because a card offering to RSVP to a meeting
+     * that does not exist is worse than no card.
+     */
+    sampleInvite: GridlinkInvite? = null,
+    /**
      * The contact whose card is already open, by [GridlinkContact.id].
      *
      * The Contacts tab's equivalent of [initialOpenId], and it shares [initialOpenFraction] with it
@@ -2139,7 +2155,10 @@ fun GridlinkRoot(
                             ?.attachmentStatus,
                         // Same guard again, and here it is the load-bearing one: an invitation drawn
                         // under the wrong message is a meeting the reader could accept by mistake.
-                        invite = mail?.open?.takeIf { it.id == current.message.id }?.invite,
+                        // The harness fixture is reached only with no repository behind the screen,
+                        // so a real mailbox cannot end up drawing an invitation nobody sent.
+                        invite = mail?.open?.takeIf { it.id == current.message.id }?.invite
+                            ?: sampleInvite.takeIf { mail == null },
                         onRespondToInvite = onRespondToInvite,
                         onAddToCalendar = onAddToCalendar,
                         onOpenInvitation = onOpenInvitation,
@@ -2149,7 +2168,8 @@ fun GridlinkRoot(
                         onSendReceipt = onSendReceipt,
                         // Same guard, and the worst one to get wrong: a verdict under the wrong
                         // message would vouch for mail nobody checked.
-                        signed = mail?.open?.takeIf { it.id == current.message.id }?.signed,
+                        signed = mail?.open?.takeIf { it.id == current.message.id }?.signed
+                            ?: sampleSigned.takeIf { mail == null },
                         embedded = embedded,
                         maximized = maximized,
                         // 🔴 Null in the debug gallery's own hosting of this screen, but never here:
