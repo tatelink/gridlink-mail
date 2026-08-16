@@ -134,6 +134,7 @@ import app.gridlink.core.data.account.StoredAccount
 import app.gridlink.core.data.account.StoredIdentity
 import app.gridlink.core.data.account.SyncWindow
 import app.gridlink.core.data.mail.OAuthProvider
+import app.gridlink.core.data.settings.AppIcon
 import app.gridlink.core.data.settings.DeliveryMode
 import app.gridlink.core.data.settings.ListDensity
 import app.gridlink.core.data.settings.MessageTextSize
@@ -513,6 +514,7 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val density by viewModel.listDensity.collectAsStateWithLifecycle()
     val previewLines by viewModel.previewLines.collectAsStateWithLifecycle()
     val bundleAutomated by viewModel.bundleAutomated.collectAsStateWithLifecycle()
+    val appIcon by viewModel.appIcon.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var language by remember { mutableStateOf(currentAppLanguage()) }
     DetailScaffold(title = stringResource(R.string.settings_appearance_screen_title), onBack = onBack) { padding ->
@@ -546,6 +548,27 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
             // handful of surfaces that never go through the skin (dialogs raised by the system,
             // the first frame before the palette resolves), and backup/restore still carries it.
             // What is gone is the claim that the user is driving it from this screen.
+            // 🔴 The one appearance control on this screen that the drawer CANNOT own, which is why
+            // it is here and the palette pill is not. Everything else about how the app looks is
+            // decided by the app, live, and belongs where the user is looking at it. The launcher
+            // icon is drawn by another process on a screen this app never sees, out of the SYSTEM's
+            // configuration rather than Gridlink's palette, and it is changed by enabling one of
+            // four manifest aliases. That is a settings decision in every sense: rare, external,
+            // and with a consequence the drawer could not preview even if it wanted to.
+            SettingsSection(stringResource(R.string.settings_app_icon_section)) {
+                SettingChoiceRow(
+                    title = stringResource(R.string.settings_app_icon_title),
+                    options = listOf(AppIcon.AUTO, AppIcon.LIGHT, AppIcon.DARK, AppIcon.OLED),
+                    selected = appIcon,
+                    optionLabel = { appIconLabel(context, it) },
+                    // Subtitles on two of the four, and only where the label is genuinely not
+                    // enough: what Auto follows (the system, NOT the app's palette, which is the
+                    // assumption everyone makes) and that OLED is standing in for artwork that has
+                    // not been drawn yet. Light and Dark say what they are.
+                    optionSubtitle = { appIconSubtitle(context, it) },
+                    onSelect = viewModel::setAppIcon,
+                )
+            }
             SettingsSection(stringResource(R.string.settings_message_list_section)) {
                 SettingChoiceRow(
                     title = stringResource(R.string.settings_density_title),
@@ -574,6 +597,19 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
             }
         }
     }
+}
+
+private fun appIconLabel(context: Context, icon: AppIcon): String = when (icon) {
+    AppIcon.AUTO -> context.getString(R.string.settings_app_icon_auto)
+    AppIcon.LIGHT -> context.getString(R.string.settings_app_icon_light)
+    AppIcon.DARK -> context.getString(R.string.settings_app_icon_dark)
+    AppIcon.OLED -> context.getString(R.string.settings_app_icon_oled)
+}
+
+private fun appIconSubtitle(context: Context, icon: AppIcon): String? = when (icon) {
+    AppIcon.AUTO -> context.getString(R.string.settings_app_icon_auto_subtitle)
+    AppIcon.OLED -> context.getString(R.string.settings_app_icon_oled_subtitle)
+    AppIcon.LIGHT, AppIcon.DARK -> null
 }
 
 private fun languageLabel(context: Context, language: AppLanguage): String = when (language) {

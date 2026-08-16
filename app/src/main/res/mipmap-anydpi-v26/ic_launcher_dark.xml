@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The always DARK launcher icon, worn when the user picks it in Settings > Appearance > App icon.
+  Bound to an activity-alias in AndroidManifest.xml; the switching itself is [AppIconVariant].
+
+  Points at the UNQUALIFIED variant drawables, which is the whole point of this file: @drawable/
+  ic_launcher_background resolves against the system's night mode and cannot be told to do otherwise,
+  so a forced choice has to name the art it wants. The AUTO icon (ic_launcher.xml) is the one that
+  goes through the aliases in values/ and values-night/.
+
+  🔴 Keep this in step with its _round twin. A launcher that asks for the round icon and gets a
+  different variant than the square one is a bug nobody sees until it is on someone's home screen.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background_dark" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground_dark" />
+    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
+</adaptive-icon>

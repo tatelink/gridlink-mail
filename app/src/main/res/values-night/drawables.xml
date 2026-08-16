@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The AUTO icon's dark half. See values/drawables.xml for why these are aliases and not art.
+
+  ⚠️ This file is what makes "Auto" mean anything: the launcher resolves the icon's resources against
+  the SYSTEM configuration, so the icon follows the device's dark mode without the app being asked.
+  The app's own in-app palette (Day / Night / OLED in the drawer) does NOT reach here, which is
+  exactly why the icon is a separate setting rather than being read off the theme.
+-->
+<resources>
+    <item name="ic_launcher_background" type="drawable">@drawable/ic_launcher_background_dark</item>
+    <item name="ic_launcher_foreground" type="drawable">@drawable/ic_launcher_foreground_dark</item>
+</resources>

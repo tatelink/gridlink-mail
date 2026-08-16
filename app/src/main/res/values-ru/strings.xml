@@ -246,6 +246,14 @@
     <string name="settings_language_dutch">Nederlands</string>
     <string name="settings_language_russian">Русский</string>
     <string name="settings_language_polish">Polski</string>
+    <string name="settings_app_icon_section">Значок приложения</string>
+    <string name="settings_app_icon_title">Значок</string>
+    <string name="settings_app_icon_auto">Авто</string>
+    <string name="settings_app_icon_light">Светлый</string>
+    <string name="settings_app_icon_dark">Тёмный</string>
+    <string name="settings_app_icon_oled">OLED</string>
+    <string name="settings_app_icon_auto_subtitle">Следует тёмной теме телефона, а не палитре приложения</string>
+    <string name="settings_app_icon_oled_subtitle">Пока что временное изображение</string>
     <string name="settings_message_list_section">Список писем</string>
     <string name="settings_density_title">Плотность</string>
     <string name="settings_preview_title">Предпросмотр</string>

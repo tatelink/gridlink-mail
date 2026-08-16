@@ -246,6 +246,14 @@
     <string name="settings_language_dutch">Nederlands</string>
     <string name="settings_language_russian">Русский</string>
     <string name="settings_language_polish">Polski</string>
+    <string name="settings_app_icon_section">Ícone da aplicação</string>
+    <string name="settings_app_icon_title">Ícone</string>
+    <string name="settings_app_icon_auto">Automático</string>
+    <string name="settings_app_icon_light">Claro</string>
+    <string name="settings_app_icon_dark">Escuro</string>
+    <string name="settings_app_icon_oled">OLED</string>
+    <string name="settings_app_icon_auto_subtitle">Segue o modo escuro do telefone, não a paleta da aplicação</string>
+    <string name="settings_app_icon_oled_subtitle">Ilustração provisória por agora</string>
     <string name="settings_message_list_section">Lista de mensagens</string>
     <string name="settings_density_title">Densidade</string>
     <string name="settings_preview_title">Prévia</string>

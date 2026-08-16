@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Which launcher art the AUTO icon wears, light half. The dark half is the values-night twin.
+
+  🔴 Aliases, not a second copy of the art. Both variants are authored in Tate's icon pack and
+  ported into `drawable/ic_launcher_{foreground,background}_{light,dark}.xml`, which are UNQUALIFIED
+  on purpose: the app also offers "always light", "always dark" and OLED as an explicit choice
+  (see the activity-aliases in AndroidManifest.xml), and a forced variant cannot be built out of a
+  `-night` qualified drawable, because the qualifier resolves against the system's night mode and
+  there is no way to ask for the other one. Naming the two variants outright and pointing the auto
+  name at whichever the configuration wants gets both behaviours from one copy of the art.
+
+  This is also why `drawable-night/` no longer exists here.
+-->
+<resources>
+    <item name="ic_launcher_background" type="drawable">@drawable/ic_launcher_background_light</item>
+    <item name="ic_launcher_foreground" type="drawable">@drawable/ic_launcher_foreground_light</item>
+</resources>

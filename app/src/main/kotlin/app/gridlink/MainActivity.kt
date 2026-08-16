@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
@@ -17,24 +18,24 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import app.gridlink.core.data.settings.GridlinkPalette
 import app.gridlink.core.data.settings.ListDensity
 import app.gridlink.core.data.settings.PreviewLines
 import app.gridlink.core.data.settings.ThemeMode
+import app.gridlink.icon.AppIcons
 import app.gridlink.ui.AppNavHost
+import app.gridlink.ui.components.LocalListDensity
+import app.gridlink.ui.components.LocalPreviewLines
 import app.gridlink.ui.gridlink.GridlinkDestination
 import app.gridlink.ui.gridlink.GridlinkIntroOverlay
 import app.gridlink.ui.gridlink.LocalGridlinkIntroPlaying
 import app.gridlink.ui.gridlink.rememberGridlinkIntroMode
-import app.gridlink.ui.components.LocalListDensity
-import app.gridlink.ui.components.LocalPreviewLines
 import app.gridlink.ui.theme.AppTheme
 import app.gridlink.ui.theme.ProvideGridlinkTokens
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 class MainActivity : AppCompatActivity() {
     /** A mailto: link waiting to open the compose screen (Codeberg #15). Set from the launch
@@ -125,6 +126,12 @@ class MainActivity : AppCompatActivity() {
             introReady.value = true
         }
         val settings = application.container.settingsRepository
+        // 🔴 Re-assert the chosen launcher icon over whatever the system currently has enabled. The
+        // two are separate copies of one fact and they DO drift: "clear app data" resets this store
+        // to AUTO while leaving the alias where it was, so the phone would keep showing an icon the
+        // app no longer believes it chose. The stored value wins, because it is the one the user
+        // made. See [AppIcons.reconcile]; every call is a no-op when the state already agrees.
+        lifecycleScope.launch { AppIcons.reconcile(this@MainActivity, settings.appIcon.first()) }
         setContent {
             val themeMode by settings.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
             val dynamicColor by settings.dynamicColor.collectAsState(initial = false)

@@ -7,9 +7,19 @@
 
     <application>
         <!--
-          Gallery host for the Gridlink UI work (docs/GRIDLINK-UI-BRIEF.md). Its own launcher entry
-          so the screens can be opened directly, without navigating the real app to reach a
-          half-built screen.
+          Gallery host for the Gridlink UI work (docs/GRIDLINK-UI-BRIEF.md). Opened by name from adb:
+
+              am start -n app.gridlink/app.gridlink.gallery.GridlinkGalleryActivity
+
+          🔴 NO launcher entry, and it is not coming back. It had one until 2026-08-15, which put a
+          second icon in the drawer of a debug build that carries the REAL applicationId, wearing the
+          real app's icon and a label one word different. Tate opened it, found the drawer's
+          Settings row dead (the gallery runs on [gridlinkSampleChromeConfig], whose onSelectMenu is
+          empty by design) and reported settings as broken. It was not: he was in a mock of his own
+          app, holding sample mail that looks plausible enough not to give itself away.
+
+          A design harness must not be reachable by the same gesture as the app it mocks. Same rule
+          as the widget gallery below, which never had one.
         -->
         <!--
           🔴 Required for the thread view's back gesture to report progress. Without it the system
@@ -36,12 +46,7 @@
             android:exported="true"
             android:label="Gridlink UI"
             android:theme="@style/Theme.Gridlink"
-            android:windowSoftInputMode="adjustResize">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:windowSoftInputMode="adjustResize" />
 
         <!--
           The home-screen widgets, drawn from the sample calendar. No launcher entry: this is a

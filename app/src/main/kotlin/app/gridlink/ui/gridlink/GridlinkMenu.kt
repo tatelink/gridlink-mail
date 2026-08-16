@@ -573,7 +573,20 @@ fun GridlinkMenuPanel(
         MenuRow(GridlinkMenuItem.SETTINGS, counts, accountCount, onSelect)
 
         if (unified != null || folders.isNotEmpty()) {
+            // 🔴 The ONE divider in this sheet with air around it, and the air is the point. Tate:
+            // *"add space on the menu below settings, above the first folder - its too cramped and
+            // settings icon gets buried."* Every other rule in the drawer says separate, never gap,
+            // because a list of mailboxes reads as one thing. This boundary is not inside that list:
+            // above it are the two controls pinned to the top of the panel (appearance and Settings),
+            // below it is the mailbox tree, which is arbitrarily long. Run them flush and Settings
+            // becomes the last row before a wall of folders, which is how a pinned control ends up
+            // scanned as the first mailbox instead of the thing that never moves.
+            //
+            // Space, not a heading: the group needs to stop being a list, and it does not need a
+            // word for what it is.
+            Spacer(Modifier.height(GridlinkSpacing.s12))
             GridlinkSheetDivider()
+            Spacer(Modifier.height(GridlinkSpacing.s12))
             if (unified != null) {
                 MenuUnifiedRows(unified, folders, onSelectUnified)
             }

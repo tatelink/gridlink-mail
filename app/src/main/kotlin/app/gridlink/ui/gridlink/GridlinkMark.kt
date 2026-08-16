@@ -23,8 +23,8 @@ import app.gridlink.ui.theme.GridlinkTheme
  *
  * ## 🔴 Why this is not `painterResource(R.drawable.ic_launcher_foreground)`
  * That drawable exists, it is the same artwork, and reusing it would have been one line. It is also
- * wrong here, for a reason that is invisible until the day it bites: the launcher icon picks its
- * variant with a **`-night` resource qualifier**, which follows the *system* theme. Gridlink's
+ * wrong here, for a reason that is invisible until the day it bites: `ic_launcher_foreground` is an
+ * alias resolved by a **`-night` resource qualifier**, which follows the *system* theme. Gridlink's
  * palette does not. The mode ladder is Auto / Day / Night / OLED and the user can pin any of them
  * from the drawer, so a phone in system-light with the app pinned to Night would draw the pale-tile
  * mark, near-black inert blocks and all, on a near-black panel. Two of the four blocks would simply
@@ -33,7 +33,9 @@ import app.gridlink.ui.theme.GridlinkTheme
  * So the mark reads [GridlinkTheme.mode] like every other coloured thing in the app.
  *
  * ## The artwork is still the pack's
- * Every number below is transcribed from `res/drawable{,-night}/ic_launcher_foreground.xml`, which
+ * Every number below is transcribed from `res/drawable/ic_launcher_foreground_{light,dark}.xml`
+ * (the unqualified variant drawables that the AUTO aliases in `values{,-night}/drawables.xml` and
+ * the forced Light/Dark launcher aliases both point at), which
  * were themselves ported from Tate's authored icon pack (its README calls the variant "11a - Hot
  * node"). 🔴 **The pack is the master.** If the mark changes it changes there, gets re-ported into
  * the two vector drawables on the `android = svg/8 + 22` transform, and then gets copied here. It is

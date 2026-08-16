@@ -60,10 +60,11 @@
             android:label="${appLabel}"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.Gridlink.Splash">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
+            <!-- 🔴 No MAIN/LAUNCHER here. It moved to the .icon.Auto alias below so the app icon can
+                 be chosen in Settings; see that block. MainActivity stays exported and enabled, and
+                 every filter that is not "this is the launcher entry" stays on it, because those
+                 answer questions about what the app can OPEN and have nothing to do with what it
+                 looks like on a home screen. -->
             <!-- mailto: links (Codeberg #15) — from browsers/webviews (VIEW+BROWSABLE) and from
                  apps dispatching a compose action (SENDTO). Registers Gridlink as an email app in
                  the system's open-with choices. -->
@@ -92,6 +93,86 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
+
+        <!--
+          ## The launcher entry, one alias per icon (Settings > Appearance > App icon)
+
+          Tate, 2026-08-15: *"make the icon change a setting - light, dark, auto, or oled."*
+
+          Android has no API to set an app's icon. The only mechanism is this: declare the launcher
+          entry N times as an activity-alias, each wearing a different icon, and enable exactly one
+          through PackageManager. [app.gridlink.icon.AppIcons] owns that, and it is the ONLY thing
+          that should ever touch these components.
+
+          🔴 EXACTLY ONE of these four is ever enabled. Two enabled means two icons in the drawer;
+          zero means the app vanishes from it and can only be reached from Settings > Apps, which for
+          a mail client on someone's phone is indistinguishable from having been uninstalled. That
+          invariant is enforced in code (enable the new one BEFORE disabling the rest), not here.
+
+          ⚠️ `android:enabled` below is only the FACTORY state, which is what a fresh install and a
+          "clear app data" both get. After that the system's own component state wins, it survives
+          app updates, and it is not readable from any resource. The stored [AppIcon] and these
+          components are therefore two copies of one fact, and AppIcons reconciles them at startup.
+
+          The names are frozen: `app.gridlink.icon.Auto` and friends are what a launcher records when
+          the user pins the app to a home screen. Renaming one orphans that shortcut on every device
+          that has it. Add, never rename.
+        -->
+        <activity-alias
+            android:name="app.gridlink.icon.Auto"
+            android:targetActivity=".MainActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher_round"
+            android:label="${appLabel}">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name="app.gridlink.icon.Light"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_light"
+            android:roundIcon="@mipmap/ic_launcher_light_round"
+            android:label="${appLabel}">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name="app.gridlink.icon.Dark"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_dark"
+            android:roundIcon="@mipmap/ic_launcher_dark_round"
+            android:label="${appLabel}">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name="app.gridlink.icon.Oled"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_oled"
+            android:roundIcon="@mipmap/ic_launcher_oled_round"
+            android:label="${appLabel}">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <!-- specialUse (not dataSync): Android 15+ budgets dataSync FGS and then blocks
              background restarts, which silently killed push on newer devices (#11). The
