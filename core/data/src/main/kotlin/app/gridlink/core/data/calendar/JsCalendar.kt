@@ -95,6 +95,11 @@ object JsCalendar {
             recurrenceId = null,
             organizerEmail = event.organizerEmail(),
             description = event.description?.takeIf { it.isNotBlank() },
+            // JSCalendar `keywords` is a set and CATEGORIES is a list, but the edit form offers one
+            // box, so the reader takes one the same way the iCalendar reader takes the first
+            // CATEGORIES value. The rest stay in the stored payload and survive a patch edit.
+            category = event.firstKeyword(),
+            reminders = event.reminderMinutes(),
         )
     }
 

@@ -70,8 +70,11 @@ object DataFactory {
             collectionDao = database.davCollectionDao(),
             eventDao = database.calendarEventDao(),
             contactDao = database.addressBookContactDao(),
-            // The shared JMAP client, for contact writes on servers that speak RFC 9610. A
-            // write is one small request, so mail's connection pool is the right one for it.
+            // The shared JMAP client: contact writes on servers that speak RFC 9610, and the
+            // whole calendar sync on servers that speak JMAP for Calendars. Contact writes are
+            // one small request each, and a calendar sync is a query plus chunked gets rather
+            // than the single large response a DAV first sync can be, so mail's connection pool
+            // is the right one for both.
             jmap = client,
         )
         return DataLayer(

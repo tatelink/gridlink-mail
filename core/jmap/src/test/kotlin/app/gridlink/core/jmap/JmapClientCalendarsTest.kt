@@ -3,7 +3,9 @@ package app.gridlink.core.jmap
 import app.gridlink.core.jmap.model.JmapAccount
 import app.gridlink.core.jmap.model.JmapSession
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
@@ -280,6 +282,27 @@ class JmapClientCalendarsTest {
         assertEquals(0, server.requestCount)
     }
 
+    @Test fun calendarEventState_asksForNoEventBodiesAtAll() = runBlocking {
+        server.enqueue(MockResponse().setBody(STATE_ONLY_JSON))
+
+        val state = client.calendarEventState(calendarSession(), "d", BasicAuth("u", "p"))
+
+        assertEquals("swuwa", state)
+        val body = server.takeRequest().body.readUtf8()
+        assertTrue(body.contains("CalendarEvent/get"))
+        // Empty ids: the state is the whole point of the call, and pulling every event down to read
+        // one string off the envelope would make the cheap half of a sync the expensive half.
+        assertTrue(body.contains("\"ids\":[]"))
+    }
+
+    @Test fun calendarEventState_missingStateIsNullSoTheCallerDoesAFullSync() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"methodResponses":[["CalendarEvent/get",{"list":[]},"cs0"]]}"""))
+
+        // A server that named no state has not given a seed, and "" is not one either: the caller
+        // must fall back to listing everything rather than invent a baseline.
+        assertNull(client.calendarEventState(calendarSession(), "d", BasicAuth("u", "p")))
+    }
+
     @Test fun calendarEventChanges_cannotCalculateIsNotAnEmptyChangeSet() = runBlocking {
         server.enqueue(MockResponse().setBody(CANNOT_CALCULATE_JSON))
 
@@ -289,6 +312,80 @@ class JmapClientCalendarsTest {
         assertFalse(result.calculated)
         assertTrue(result.created.isEmpty())
         assertNull(result.newState)
+    }
+
+    @Test fun createCalendarEvent_sendsTheEventAndReturnsTheServersId() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"methodResponses":[["CalendarEvent/set",{"created":{"new":{"id":"e42","uid":"u1"}}},"cx0"]]}""",
+            ),
+        )
+
+        val id = client.createCalendarEvent(
+            calendarSession(), "d",
+            buildJsonObject {
+                put("@type", JsonPrimitive("Event"))
+                put("title", JsonPrimitive("Dentist"))
+            },
+            BasicAuth("u", "p"),
+        )
+
+        assertEquals("e42", id)
+        val body = server.takeRequest().body.readUtf8()
+        assertTrue(body.contains("\"create\":{\"new\":{"))
+        assertTrue(body.contains("\"title\":\"Dentist\""))
+    }
+
+    @Test fun createCalendarEvent_refusalIsAnErrorCarryingTheServersReason() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"methodResponses":[["CalendarEvent/set",{"created":null,"notCreated":
+                    {"new":{"type":"forbidden","description":"Read-only calendar"}}},"cx0"]]}""",
+            ),
+        )
+
+        // 🔴 A refused create answers HTTP 200. Anything short of throwing here would show the user
+        // an event that only exists on their phone.
+        val failure = runCatching {
+            client.createCalendarEvent(calendarSession(), "d", buildJsonObject {}, BasicAuth("u", "p"))
+        }.exceptionOrNull()
+        assertTrue(failure is JmapException)
+        assertTrue(failure?.message.orEmpty().contains("Read-only calendar"))
+    }
+
+    @Test fun updateCalendarEvent_sendsPointersVerbatimSoAnOverrideIsPatchedInPlace() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody("""{"methodResponses":[["CalendarEvent/set",{"updated":{"e42":null}},"cx1"]]}"""),
+        )
+
+        client.updateCalendarEvent(
+            calendarSession(), "d", "e42",
+            mapOf("recurrenceOverrides/2026-06-15T09:00:00/title" to JsonPrimitive("Moved")),
+            BasicAuth("u", "p"),
+        )
+
+        val body = server.takeRequest().body.readUtf8()
+        assertTrue(body.contains("\"update\":{\"e42\":{"))
+        // The pointer must survive as one key. Splitting it into nested objects would replace the
+        // whole overrides map and cancel every other detached day of the series.
+        assertTrue(body.contains("\"recurrenceOverrides/2026-06-15T09:00:00/title\":\"Moved\""))
+    }
+
+    @Test fun updateCalendarEvent_anIdMissingFromUpdatedIsAFailedSave() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"methodResponses":[["CalendarEvent/set",{"updated":{},"notUpdated":
+                    {"e42":{"type":"invalidPatch"}}},"cx1"]]}""",
+            ),
+        )
+
+        val failure = runCatching {
+            client.updateCalendarEvent(
+                calendarSession(), "d", "e42", mapOf("title" to JsonPrimitive("x")), BasicAuth("u", "p"),
+            )
+        }.exceptionOrNull()
+        assertTrue(failure is JmapException)
+        assertTrue(failure?.message.orEmpty().contains("invalidPatch"))
     }
 
     private companion object {
@@ -398,6 +495,11 @@ class JmapClientCalendarsTest {
             {"methodResponses":[["CalendarEvent/changes",{"accountId":"d","oldState":"swuwa",
               "newState":"swuwb","hasMoreChanges":false,"created":["n1"],"updated":["i"],
               "destroyed":["q"]},"cc0"]]}
+        """.trimIndent()
+
+        val STATE_ONLY_JSON = """
+            {"methodResponses":[["CalendarEvent/get",{"accountId":"d","state":"swuwa",
+              "list":[],"notFound":[]},"cs0"]]}
         """.trimIndent()
 
         val CANNOT_CALCULATE_JSON = """

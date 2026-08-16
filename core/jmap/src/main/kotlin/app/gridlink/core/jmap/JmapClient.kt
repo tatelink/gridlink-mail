@@ -1612,8 +1612,9 @@ class JmapClient internal constructor(
         val args = methodResponseArgs(postJmap(session, auth, payload), "CalendarEvent/query")
         CalendarEventIdPage(
             ids = args["ids"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty(),
-            // 🔴 The state to hand the NEXT incremental sync. See calendarEventChanges: this is the
-            // only legitimate source of one, so dropping it here means a full re-query every time.
+            // ⚠️ NOT the seed for an incremental sync: a queryState belongs to `queryChanges`, and
+            // `CalendarEvent/changes` wants the state from a `CalendarEvent/get`. That one comes
+            // from `calendarEventState`. Carried here because a paged query is resumed against it.
             queryState = args["queryState"]?.jsonPrimitive?.contentOrNull,
             total = args["total"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(),
         )
@@ -1687,6 +1688,133 @@ class JmapClient internal constructor(
             }
             decodeList(postJmap(session, auth, payload), "CalendarEvent/get", JmapCalendarEvent.serializer())
         }
+    }
+
+    /**
+     * Create one event, returning the id the server gave it.
+     *
+     * [event] is the whole JSCalendar object minus its id, built by the caller: this method is not
+     * the place that decides what an event looks like, and a typed parameter list here would have
+     * to grow a case for every JSCalendar property the app ever writes.
+     *
+     * Throws on refusal rather than returning null, because a create that did not happen is not the
+     * same as a create whose id was not reported, and the caller has a user waiting on an answer.
+     */
+    suspend fun createCalendarEvent(
+        session: JmapSession,
+        accountId: String,
+        event: JsonObject,
+        auth: JmapAuth,
+    ): String = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.CALENDARS_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("CalendarEvent/set")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("create") { put(EVENT_CREATE_ID, event) }
+                    }
+                    add("cx0")
+                }
+            }
+        }
+        val args = methodResponseArgs(postJmap(session, auth, payload), "CalendarEvent/set")
+        // Safe casts, not .jsonObject: a refusing server sends an explicit null `created`.
+        (args["created"] as? JsonObject)?.get(EVENT_CREATE_ID)?.jsonObject
+            ?.get("id")?.jsonPrimitive?.contentOrNull
+            ?: throw JmapException(
+                "Couldn't save the event" +
+                    (setErrorDetail(args, "notCreated", EVENT_CREATE_ID)?.let { " ($it)" } ?: ""),
+            )
+    }
+
+    /**
+     * Patch one event by property pointer (RFC 8620 §5.3).
+     *
+     * ## 🔴 A patch, never a whole object
+     * Keys are JSON pointers relative to the event, so `title` replaces the title and
+     * `recurrenceOverrides/2026-06-15T09:00:00/title` renames one instance of a series. Everything
+     * not named is left exactly as the server holds it, which is what keeps alarms, attendees and
+     * vendor properties this app never modelled alive through an edit. Sending a rebuilt whole
+     * event instead would delete every one of them, silently, on the first edit.
+     */
+    suspend fun updateCalendarEvent(
+        session: JmapSession,
+        accountId: String,
+        eventId: String,
+        patch: Map<String, JsonElement>,
+        auth: JmapAuth,
+    ) = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.CALENDARS_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("CalendarEvent/set")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("update") {
+                            putJsonObject(eventId) { patch.forEach { (k, v) -> put(k, v) } }
+                        }
+                    }
+                    add("cx1")
+                }
+            }
+        }
+        val args = methodResponseArgs(postJmap(session, auth, payload), "CalendarEvent/set")
+        // 🔴 `updated` naming the id is the only proof. A `CalendarEvent/set` that refuses one
+        // change still answers 200 with an empty `updated` and the reason under `notUpdated`, so a
+        // caller checking only the HTTP status would tell the user their edit was saved.
+        if ((args["updated"] as? JsonObject)?.containsKey(eventId) != true) {
+            throw JmapException(
+                "Couldn't save the event" +
+                    (setErrorDetail(args, "notUpdated", eventId)?.let { " ($it)" } ?: ""),
+            )
+        }
+    }
+
+    /**
+     * The account's current CalendarEvent state string, or null when the server did not give one.
+     *
+     * ## 🔴 This, and not a `queryState`, is what seeds an incremental sync
+     * RFC 8620 §5.2 takes `sinceState` from a `Foo/get`, while §5.5's `queryState` belongs to
+     * `Foo/queryChanges`. They are different sequences on the same account and passing one where
+     * the other belongs is not a type error anywhere: the server answers `cannotCalculateChanges`
+     * at best, and at worst reports a plausible-looking set of changes against the wrong baseline.
+     *
+     * Asked with an empty `ids` list, so the answer is the state alone and no event bodies travel.
+     * Callers take it BEFORE listing, so an edit made mid-sync is re-reported next time rather than
+     * falling into the gap between the listing and the state.
+     */
+    suspend fun calendarEventState(
+        session: JmapSession,
+        accountId: String,
+        auth: JmapAuth,
+    ): String? = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.CALENDARS_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("CalendarEvent/get")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonArray("ids") { }
+                    }
+                    add("cs0")
+                }
+            }
+        }
+        methodResponseArgsOrNull(postJmap(session, auth, payload), "CalendarEvent/get")
+            ?.get("state")?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
     }
 
     /**
@@ -2507,6 +2635,9 @@ class JmapClient internal constructor(
          * into `notFound`, and the penalty for guessing low is one extra round trip.
          */
         private const val MAX_EVENTS_PER_GET = 100
+
+        /** The creation id a single-event `CalendarEvent/set` uses to name its one new event. */
+        private const val EVENT_CREATE_ID = "new"
 
         /**
          * Defensively upgrade the session-advertised URLs from http:// to https:// when the

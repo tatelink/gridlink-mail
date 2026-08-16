@@ -10,6 +10,7 @@ import app.gridlink.core.data.db.DavCollectionEntity
 import app.gridlink.core.dav.DavCollection
 import app.gridlink.core.dav.DavItem
 import app.gridlink.core.dav.DavKind
+import app.gridlink.core.jmap.model.JmapCalendar
 import app.gridlink.core.jmap.model.JmapCalendarEvent
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -93,6 +94,24 @@ internal object DavMappers {
             )
         }
     }
+
+    /**
+     * A JMAP Calendar as the collection row the Calendar tab already lists.
+     *
+     * `isSubscribed` is deliberately NOT a filter. Stalwart leaves secondary calendars unsubscribed
+     * by default and the CalDAV path lists them all, so hiding them on the JMAP path alone would
+     * make the same account contain different calendars depending on which protocol answered.
+     */
+    fun jmapCollection(accountId: String, calendar: JmapCalendar, order: Int) = DavCollectionEntity(
+        accountId = accountId,
+        url = jmapCollectionUrl(calendar.id),
+        kind = DavCollectionEntity.KIND_CALENDAR,
+        displayName = calendar.name.takeIf { it.isNotBlank() },
+        color = calendar.color,
+        // Same rule as discovery: only the sync itself may write a token. See DavCollectionDao.
+        syncToken = null,
+        sortOrder = order,
+    )
 
     /**
      * Every row one JMAP CalendarEvent produces: the master, plus one per detached override.
@@ -275,7 +294,7 @@ internal object DavMappers {
      * and trying the older of the two readers costs a failed parse the column fallback already
      * handles. Refusing outright would blank the calendar instead.
      */
-    private fun reparse(row: CalendarEventEntity, fallbackZone: ZoneId): List<ParsedCalendarEvent> =
+    fun reparse(row: CalendarEventEntity, fallbackZone: ZoneId): List<ParsedCalendarEvent> =
         when (row.payloadFormat) {
             CalendarEventEntity.FORMAT_JSCALENDAR -> JsCalendar.parse(row.raw, fallbackZone)
             else -> ICalendarStream.parse(row.raw, fallbackZone)

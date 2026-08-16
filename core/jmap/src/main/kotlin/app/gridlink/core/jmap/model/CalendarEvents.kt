@@ -1,7 +1,9 @@
 package app.gridlink.core.jmap.model
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
+import java.time.Duration
 
 /** A JMAP Calendar (draft-ietf-jmap-calendars §2): a named collection CalendarEvents live in. */
 @Serializable
@@ -109,6 +111,10 @@ data class JmapCalendarEvent(
     val links: Map<String, JmapCalendarLink> = emptyMap(),
     /** How to reply to an invitation, e.g. `{"imip": "mailto:organiser@example.com"}`. */
     val replyTo: Map<String, String> = emptyMap(),
+    /** Free-form tags as `{ tag: true }`; JSCalendar's answer to iCalendar's `CATEGORIES`. */
+    val keywords: Map<String, Boolean> = emptyMap(),
+    /** Reminders, keyed by an id of the client's choosing (RFC 8984 §4.5.2). */
+    val alerts: Map<String, JmapAlert> = emptyMap(),
     val isDraft: Boolean = false,
 ) {
     /** The first calendar id this event belongs to, or null when the server named none. */
@@ -124,7 +130,60 @@ data class JmapCalendarEvent(
     /** The first named location, which is what a one-line summary shows; null when there is none. */
     fun locationName(): String? =
         locations.values.firstOrNull { !it.name.isNullOrBlank() }?.name?.trim()
+
+    /** The first keyword, which is the single category the calendar UI has room for. */
+    fun firstKeyword(): String? =
+        keywords.entries.firstOrNull { it.value }?.key?.trim()?.takeIf { it.isNotEmpty() }
+
+    /**
+     * Reminder offsets in whole minutes BEFORE the start, ascending.
+     *
+     * Only offset triggers relative to the start are converted, because that is the only kind the
+     * app can show or write. An absolute trigger, or one hung off the end, is left in the payload
+     * rather than rounded into something it is not.
+     */
+    fun reminderMinutes(): List<Int> =
+        alerts.values.mapNotNull { it.minutesBeforeStart() }.distinct().sorted()
 }
+
+/** A reminder on an event (RFC 8984 §4.5.2). */
+@Serializable
+data class JmapAlert(
+    val trigger: JmapAlertTrigger? = null,
+    /** `display` or `email`; absent means the server did not say. */
+    val action: String? = null,
+) {
+    /**
+     * How many whole minutes before the START this alert fires, or null when it is not that kind.
+     *
+     * Null covers an absolute trigger, one measured from the end, and one that fires AFTER the
+     * start: the calendar UI can only express "N minutes before", and rounding the others into it
+     * would move a reminder rather than decline to show it.
+     */
+    fun minutesBeforeStart(): Int? {
+        val trigger = trigger ?: return null
+        // An absent relativeTo means start (RFC 8984 §4.5.2), so only an explicit "end" disqualifies.
+        if (trigger.relativeTo?.equals("start", ignoreCase = true) == false) return null
+        val minutes = trigger.offset?.trim()?.takeIf { it.isNotEmpty() }
+            ?.let { runCatching { Duration.parse(it) }.getOrNull() }
+            ?.takeIf { it.isNegative }
+            ?.let { -it.toMinutes() }
+        return minutes?.takeIf { it in 1..Int.MAX_VALUE.toLong() }?.toInt()
+    }
+}
+
+/** When an alert fires (RFC 8984 §4.5.2). */
+@Serializable
+data class JmapAlertTrigger(
+    /** `OffsetTrigger` or `AbsoluteTrigger`, in the JSCalendar `@type` slot. */
+    @SerialName("@type") val type: String? = null,
+    /** A signed ISO-8601 duration, e.g. `-PT30M` for half an hour before. */
+    val offset: String? = null,
+    /** `start` or `end`; absent means start (RFC 8984 §4.5.2). */
+    val relativeTo: String? = null,
+    /** UTC timestamp, for an absolute trigger. `when` is a Kotlin keyword, hence the rename. */
+    @SerialName("when") val firesAt: String? = null,
+)
 
 /**
  * A JSCalendar RecurrenceRule (RFC 8984 §4.3.3).
@@ -224,7 +283,11 @@ data class JmapCalendarParticipant(
  */
 data class CalendarEventIdPage(
     val ids: List<String>,
-    /** 🔴 The ONLY legitimate seed for an incremental sync. See `calendarEventChanges`. */
+    /**
+     * ⚠️ The query's own state, which is NOT what seeds `CalendarEvent/changes`: that takes the
+     * state from a `CalendarEvent/get` (`calendarEventState`). Confusing the two reports changes
+     * against the wrong baseline, silently.
+     */
     val queryState: String?,
     val total: Int? = null,
 )

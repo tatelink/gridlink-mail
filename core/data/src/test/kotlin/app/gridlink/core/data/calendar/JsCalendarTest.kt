@@ -52,6 +52,34 @@ class JsCalendarTest {
         assertNull(event.rrule)
     }
 
+    @Test fun keywordsBecomeTheCategoryAndAlertsBecomeReminderMinutes() {
+        val parsed = JsCalendar.parse(
+            """
+            {
+              "id": "e9", "uid": "u9", "start": "2026-06-10T09:00:00", "duration": "PT30M",
+              "keywords": { "Work": true },
+              "alerts": {
+                "a1": { "@type": "Alert", "trigger":
+                  { "@type": "OffsetTrigger", "offset": "-PT15M", "relativeTo": "start" } },
+                "a2": { "@type": "Alert", "trigger":
+                  { "@type": "OffsetTrigger", "offset": "-PT1H" } },
+                "a3": { "@type": "Alert", "trigger":
+                  { "@type": "OffsetTrigger", "offset": "-PT5M", "relativeTo": "end" } },
+                "a4": { "@type": "Alert", "trigger":
+                  { "@type": "AbsoluteTrigger", "when": "2026-06-10T12:00:00Z" } }
+              }
+            }
+            """.trimIndent(),
+            eastern,
+        ).single()
+
+        assertEquals("Work", parsed.category)
+        // Only offsets before the START convert. An end-relative or absolute trigger stays in the
+        // payload rather than being rounded into a "minutes before" it is not: showing "5 minutes
+        // before" for an alarm that fires after the meeting would be a lie the user acts on.
+        assertEquals(listOf(15, 60), parsed.reminders)
+    }
+
     @Test fun aFloatingTimeIsReadInTheViewersZoneNotUtc() {
         val parsed = JsCalendar.parse(
             """{ "id": "e2", "uid": "u2", "start": "2026-06-10T09:00:00", "duration": "PT30M" }""",
