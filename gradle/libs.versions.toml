@@ -39,7 +39,7 @@ unifiedpush = "3.3.3"
 # bcprov's X509LDAPCertStore and a risky algorithm in bcpkix). Neither is on a path this app
 # walks — it opens no LDAP store and holds no private key — but taking the fix is free, and an
 # advisory left standing on the default branch trains everyone to ignore the next one.
-bouncycastle = "1.84"
+bouncycastle = "1.85"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
