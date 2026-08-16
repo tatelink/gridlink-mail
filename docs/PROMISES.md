@@ -1,7 +1,7 @@
 # What Gridlink Mail promises
 
-These are not aims. Each one is something the app already does, and every one of them can be checked
-in this repository. The same text is in the app, under **Settings → About → What this app promises**,
+These are not aims. Each one is something the app already does, and something you can check on the
+phone in front of you. The same text is in the app, under **Settings → About → What this app promises**,
 because a promise you have to visit a repo to read is not a promise made to the person holding the
 phone. The two copies are meant to say the same thing and are changed together.
 
@@ -14,13 +14,13 @@ Swipe actions, thread actions and the message-list layout are all settings, and 
 a different default does not get to reach into the ones you have set. Where a gesture genuinely has
 to change, it changes with a note saying so, not overnight.
 
-## Problems are handled in the open
+## Problems get a straight answer
 
-Bugs and requests go to a public tracker, and the answers are public too. Nothing is fixed quietly
-and nothing is refused quietly.
+Bugs and requests go to the feedback address in About, and every one gets an answer from a person.
+Nothing is fixed quietly and nothing is refused quietly.
 
 "No" is a legitimate answer and several things have had it. What is not legitimate is a request
-disappearing, so a refusal is written down with its reason where the person who asked can read it.
+disappearing, so a refusal comes back to the person who asked, with its reason.
 
 ## Nothing on this phone is behind a payment
 
@@ -29,7 +29,8 @@ advertising.
 
 This one has teeth: it rules out the usual route where a client ships free, grows an audience, and
 then puts a lock on the feature that audience came for. Anything that runs locally is yours. There
-is no donate button in the app either.
+is a support link in About, but it is only a link: nothing prompts you toward it, and nothing in the
+app behaves differently whether you use it or not.
 
 ## Nothing is collected about you
 
@@ -50,7 +51,8 @@ automatically would be a setting somebody else holding your phone could flip, so
 ## You can check all of this
 
 The whole app is under the GPL, and you can read the full licence text in About without leaving the
-app. Every promise here is one you can read the code for rather than take on trust.
+app. Every promise here is about something the app does on this phone, where you can watch it happen.
 
-That is the point of the list. A promise nobody can verify is marketing; these are written so that
-if the app ever breaks one, the break is visible in a diff.
+That is the point of the list. Each one is written so it can fail visibly: a gesture that moved, a
+receipt that went out on its own, a feature that grew a price. None of them need you to take a
+maintainer's word for it.

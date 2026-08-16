@@ -862,11 +862,11 @@
     <string name="read_receipt_body">Twoja wiadomość została wyświetlona na urządzeniu odbiorcy. Nie gwarantuje to, że została przeczytana ani zrozumiana.</string>
     <string name="promises_title">Co obiecuje ta aplikacja</string>
     <string name="promises_summary">Co robi, a czego nie robi z twoją pocztą</string>
-    <string name="promises_intro">To nie są zamiary. Każdy punkt aplikacja już spełnia i każdy da się sprawdzić w kodzie źródłowym.</string>
+    <string name="promises_intro">To nie są zamiary. Każdy punkt aplikacja już spełnia i każdy da się sprawdzić na telefonie, który trzymasz w ręku.</string>
     <string name="promises_gestures_title">Twoje gesty zostają tam, gdzie są</string>
     <string name="promises_gestures_body">Przesunięcia, dotknięcia i skróty, których się nauczyłeś, zostają na miejscu. Przeprojektowanie nie może ich przesunąć spod twojego kciuka, a nic nie zostanie zmienione, jeśli sam tego nie wybierzesz.</string>
-    <string name="promises_open_title">Problemy załatwiamy jawnie</string>
-    <string name="promises_open_body">Błędy i prośby trafiają do publicznego rejestru, a odpowiedzi też są publiczne. Nic nie jest poprawiane po cichu ani po cichu odrzucane.</string>
+    <string name="promises_open_title">Problemy dostają jasną odpowiedź</string>
+    <string name="promises_open_body">Błędy i prośby trafiają na adres kontaktowy podany w sekcji O aplikacji, a każde zgłoszenie dostaje odpowiedź od człowieka. Nic nie jest poprawiane po cichu ani po cichu odrzucane.</string>
     <string name="promises_free_title">Nic w tym telefonie nie jest płatne</string>
     <string name="promises_free_body">Każda funkcja działająca na twoim urządzeniu jest darmowa, teraz i później. Żadnej wersji płatnej, żadnych odblokowań, żadnych reklam.</string>
     <string name="promises_private_title">Nic o tobie nie jest zbierane</string>
@@ -874,5 +874,5 @@
     <string name="promises_consent_title">Nic nie wychodzi w twoim imieniu bez pytania</string>
     <string name="promises_consent_body">Aplikacja nie odpowiada na pocztę za ciebie. Gdy nadawca prosi o informację, że przeczytałeś jego wiadomość, nic nie wraca, dopóki nie dotkniesz Wyślij potwierdzenie.</string>
     <string name="promises_source_title">Wszystko to możesz sprawdzić</string>
-    <string name="promises_source_body">Cała aplikacja jest na licencji GPL, a pełny tekst licencji przeczytasz w sekcji O aplikacji, bez wychodzenia z aplikacji. Każdą obietnicę z tej listy możesz sprawdzić w kodzie, zamiast przyjmować na wiarę.</string>
+    <string name="promises_source_body">Cała aplikacja jest na licencji GPL, a pełny tekst licencji przeczytasz w sekcji O aplikacji, bez wychodzenia z aplikacji. Każda obietnica z tej listy dotyczy tego, co aplikacja robi na tym telefonie, gdzie możesz to sam zobaczyć.</string>
 </resources>
