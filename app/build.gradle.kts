@@ -97,7 +97,16 @@ android {
     val keystoreProps = Properties().apply {
         if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { load(it) }
     }
-    val hasReleaseKey = keystoreProps.getProperty("storeFile") != null
+    // 🔴 -PphoneKey signs the release build with the DEBUG key on purpose, and it exists so a
+    // minified build can be TESTED on Tate's phone. His install has been debug-key signed since
+    // the beginning; Android refuses to replace an app with one signed differently, so a real-key
+    // release APK cannot `install -r` over it, and moving him across would mean an uninstall, which
+    // costs him the account configuration on the app. Without this flag the only way to test R8 on
+    // his device is to delete keystore.properties and remember to put it back, which is exactly the
+    // sort of thing that ends with an unsigned release or a lost key.
+    // ⚠️ Never publish a -PphoneKey build. It is signed with a keystore every Android install has.
+    val phoneKey = providers.gradleProperty("phoneKey").isPresent
+    val hasReleaseKey = keystoreProps.getProperty("storeFile") != null && !phoneKey
     val debugKeystore = file(System.getProperty("user.home") + "/.android/debug.keystore")
     signingConfigs {
         if (hasReleaseKey) {
