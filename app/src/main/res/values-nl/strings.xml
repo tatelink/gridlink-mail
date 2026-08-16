@@ -861,17 +861,17 @@
     <string name="read_receipt_body">Je bericht is weergegeven op het apparaat van de ontvanger. Dat is geen garantie dat het gelezen of begrepen is.</string>
     <string name="promises_title">Wat deze app belooft</string>
     <string name="promises_summary">Wat hij wel en niet met je post doet</string>
-    <string name="promises_intro">Dit zijn geen voornemens. Elk punt doet de app al, en elk punt kun je nakijken op de telefoon die je vasthoudt.</string>
+    <string name="promises_intro">Dit zijn geen voornemens. Elk punt doet de app vandaag al, het is niets wat nog moet komen.</string>
     <string name="promises_gestures_title">Je gebaren blijven waar ze zijn</string>
     <string name="promises_gestures_body">Vegen, tikken en snelkoppelingen die je hebt geleerd blijven staan. Een nieuw ontwerp mag ze niet onder je duim vandaan schuiven, en niets wordt opnieuw toegewezen tenzij je dat zelf kiest.</string>
     <string name="promises_open_title">Problemen krijgen een duidelijk antwoord</string>
-    <string name="promises_open_body">Fouten en verzoeken gaan naar het contactadres bij Over, en elk daarvan krijgt antwoord van een mens. Niets wordt stilletjes opgelost en niets wordt stilletjes geweigerd.</string>
+    <string name="promises_open_body">Fouten en verzoeken gaan naar het contactadres bij Over, en ze komen bij een mens terecht, niet bij een formulier of een wachtrij.</string>
     <string name="promises_free_title">Niets op deze telefoon zit achter een betaling</string>
     <string name="promises_free_body">Elke functie die op je toestel draait is gratis, nu en later. Geen betaalde versie, geen ontgrendeling, geen advertenties.</string>
     <string name="promises_private_title">Er wordt niets over je verzameld</string>
     <string name="promises_private_body">Geen statistieken, geen crashrapporten, geen kenmerken. Niets over hoe je deze app gebruikt verlaat je telefoon. Het reactieadres bij Over is de enige weg naar iemand, en alleen als jij schrijft.</string>
     <string name="promises_consent_title">Er wordt niets in jouw naam verstuurd zonder te vragen</string>
     <string name="promises_consent_body">De app beantwoordt je post niet voor je. Als een afzender wil weten dat je zijn bericht hebt gelezen, gaat er niets terug tenzij je op Bevestiging sturen tikt.</string>
-    <string name="promises_source_title">Je kunt dit allemaal nakijken</string>
-    <string name="promises_source_body">De hele app valt onder de GPL en je kunt de volledige licentietekst lezen bij Over, zonder de app te verlaten. Elke belofte hier gaat over iets dat de app op deze telefoon doet, waar je het zelf kunt zien.</string>
+    <string name="promises_source_title">De licentie reist mee met de app</string>
+    <string name="promises_source_body">De hele app valt onder de GPL en je kunt de volledige licentietekst lezen bij Over, zonder de app te verlaten. Elke belofte hier gaat over hoe deze app zich op jouw telefoon gedraagt, niet over iets dat ergens anders gebeurt.</string>
 </resources>

@@ -858,17 +858,17 @@
     <string name="read_receipt_body">Ihre Nachricht wurde auf dem Gerät des Empfängers angezeigt. Das ist keine Garantie dafür, dass sie gelesen oder verstanden wurde.</string>
     <string name="promises_title">Was diese App verspricht</string>
     <string name="promises_summary">Was sie mit Ihrer Post tut und was nicht</string>
-    <string name="promises_intro">Das sind keine Ziele. Jeder Punkt ist etwas, das die App bereits tut, und etwas, das Sie auf dem Telefon vor sich nachprüfen können.</string>
+    <string name="promises_intro">Das sind keine Ziele. Jeder Punkt ist etwas, das die App heute bereits tut, nichts Geplantes.</string>
     <string name="promises_gestures_title">Ihre Gesten bleiben, wo sie sind</string>
     <string name="promises_gestures_body">Wischgesten, Tippen und Verknüpfungen, die Sie gelernt haben, bleiben bestehen. Eine Neugestaltung darf sie Ihnen nicht unter dem Daumen wegziehen, und nichts wird neu belegt, wenn Sie es nicht selbst wählen.</string>
     <string name="promises_open_title">Probleme bekommen eine klare Antwort</string>
-    <string name="promises_open_body">Fehler und Wünsche gehen an die Feedback-Adresse unter „Über“, und jede Meldung bekommt eine Antwort von einem Menschen. Nichts wird still behoben und nichts still abgelehnt.</string>
+    <string name="promises_open_body">Fehler und Wünsche gehen an die Feedback-Adresse unter „Über“, und sie erreichen einen Menschen, kein Formular und keine Warteschlange.</string>
     <string name="promises_free_title">Nichts auf diesem Telefon kostet Geld</string>
     <string name="promises_free_body">Jede Funktion, die auf Ihrem Gerät läuft, ist kostenlos, jetzt und später. Keine Bezahlstufe, keine Freischaltung, keine Werbung.</string>
     <string name="promises_private_title">Es wird nichts über Sie gesammelt</string>
     <string name="promises_private_body">Keine Analyse, keine Absturzberichte, keine Kennungen. Nichts darüber, wie Sie diese App nutzen, verlässt Ihr Telefon. Die Feedback-Adresse unter Info ist der einzige Weg zu jemandem, und nur wenn Sie ihn nutzen.</string>
     <string name="promises_consent_title">In Ihrem Namen wird nichts ungefragt gesendet</string>
     <string name="promises_consent_body">Die App beantwortet Ihre Post nicht für Sie. Wenn ein Absender erfahren möchte, dass Sie seine Nachricht gelesen haben, geht nichts zurück, solange Sie nicht auf Empfangsbestätigung senden tippen.</string>
-    <string name="promises_source_title">Sie können all das nachprüfen</string>
-    <string name="promises_source_body">Die gesamte App steht unter der GPL, und den vollständigen Lizenztext können Sie unter „Über“ lesen, ohne die App zu verlassen. Jedes Versprechen hier betrifft etwas, das die App auf diesem Telefon tut, wo Sie es selbst sehen können.</string>
+    <string name="promises_source_title">Die Lizenz reist mit der App</string>
+    <string name="promises_source_body">Die gesamte App steht unter der GPL, und den vollständigen Lizenztext können Sie unter „Über“ lesen, ohne die App zu verlassen. Jedes Versprechen hier betrifft das Verhalten dieser App auf Ihrem Telefon, nicht etwas, das anderswo geschieht.</string>
 </resources>

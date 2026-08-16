@@ -12,8 +12,10 @@ dates the whole of Phase 4 shipped, and this document went on listing it as open
 🔴 A status here is a claim about the tree, so it goes stale the moment something lands. Check
 before trusting a line, and correct the line rather than working around it.
 
-**Where this stands, 2026-08-15:** every item in every phase is closed except **#9, the TalkBack
-sweep**, which Tate paused part-done. What is left is therefore not building but *looking*: a
+**Where this stands, 2026-08-16:** every item in every phase is closed. #9, the TalkBack sweep, was
+**dropped** rather than finished (see the item). What is left is therefore not building but
+*looking*, plus one correction: **the promises screen makes two claims the app does not keep**, see
+`docs/PROMISES.md` and the note at #11. Beyond that, a
 run of the things closed in the last few days that have never been seen on a phone — the promises
 screen, the contacts/calendar account, the invitation card and its conflicts, and the S/MIME row,
 which has also never met a real signed message. Each of those is marked ⚠️ at its own item.
@@ -199,7 +201,13 @@ drag-to-reorder third is permanently cut.
 
 ## Phase 6 — trust and finish
 
-9. ⏸️ **TalkBack sweep (item 8).** Started 2026-08-15 and **paused by Tate**, part done. The
+9. ⛔ **TalkBack sweep (item 8) — DROPPED by Tate, 2026-08-16. Do not re-propose.** What was
+   already fixed in the part-done pass stays in the tree (the three items below); what stops is the
+   *verification* sweep. So the app keeps its accessibility fixes, and nobody is going to sit with a
+   screen reader confirming them. The remaining work named at the bottom of this item (the reading
+   pane, composer and settings walk, and the scrub-picker decision) is cancelled, not deferred.
+
+   Started 2026-08-15 and paused part-done. The
    audit found the app in better shape than expected: icon-only controls are labelled, decorative
    icons are correctly `contentDescription = null` beside real text, and message rows already merge
    into one node through `combinedClickable`, with the accent bar carrying the account name aloud.
@@ -213,9 +221,8 @@ drag-to-reorder third is permanently cut.
    - `role = Role.Button` on the three full-panel empty states, whose affordance was carried only by
      "it is the only object on screen", which is a layout argument a screen reader never hears.
 
-   ⚠️ **Not verified live.** The custom actions are believed-correct from the code, not seen in
-   TalkBack's actions menu. Do that on the Z Fold. What remains after that: a walk of the reading
-   pane, composer and settings, and a decision about the scrub-driven pickers elsewhere.
+   ⚠️ The custom actions are believed-correct from the code and were never seen in TalkBack's
+   actions menu. That stays true and is now accepted rather than outstanding, per the drop above.
 10. ✅ **S/MIME (item 9).** Closed 2026-08-15, **verify only**, by Tate's call on both questions:
     verify-only rather than sign-and-decrypt, and BouncyCastle rather than a hand-rolled CMS reader.
     Nothing in the app imports, stores or uses a private key, so the feature adds nothing to the

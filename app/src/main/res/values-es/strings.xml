@@ -860,17 +860,17 @@
     <string name="read_receipt_body">Tu mensaje se mostró en el dispositivo del destinatario. Esto no garantiza que se haya leído ni comprendido.</string>
     <string name="promises_title">Lo que esta app promete</string>
     <string name="promises_summary">Lo que hace y lo que no hace con tu correo</string>
-    <string name="promises_intro">No son intenciones. Cada punto es algo que la app ya hace, y algo que puedes comprobar en el teléfono que tienes delante.</string>
+    <string name="promises_intro">No son intenciones. Cada punto es algo que la app ya hace hoy, no algo previsto.</string>
     <string name="promises_gestures_title">Tus gestos se quedan donde están</string>
     <string name="promises_gestures_body">Los deslizamientos, toques y atajos que has aprendido no se mueven. Un rediseño no puede cambiarlos bajo tu dedo, y nada se reasigna si tú no lo eliges.</string>
     <string name="promises_open_title">Los problemas reciben una respuesta clara</string>
-    <string name="promises_open_body">Los fallos y las peticiones van a la dirección de contacto que aparece en Acerca de, y todos reciben respuesta de una persona. Nada se arregla en silencio ni se rechaza en silencio.</string>
+    <string name="promises_open_body">Los fallos y las peticiones van a la dirección de contacto que aparece en Acerca de, y llegan a una persona, no a un formulario ni a una cola.</string>
     <string name="promises_free_title">Nada en este teléfono está detrás de un pago</string>
     <string name="promises_free_body">Todas las funciones que se ejecutan en tu dispositivo son gratuitas, ahora y después. Sin planes de pago, sin desbloqueos, sin publicidad.</string>
     <string name="promises_private_title">No se recoge nada sobre ti</string>
     <string name="promises_private_body">Sin analíticas, sin informes de fallos, sin identificadores. Nada sobre cómo usas esta app sale de tu teléfono. La dirección de contacto en Acerca de es la única vía hacia alguien, y solo si tú escribes.</string>
     <string name="promises_consent_title">No se envía nada en tu nombre sin preguntar</string>
     <string name="promises_consent_body">La app no responde el correo por ti. Cuando alguien pide que se le avise de que has leído su mensaje, no se envía nada a menos que toques Enviar confirmación.</string>
-    <string name="promises_source_title">Puedes comprobarlo todo</string>
-    <string name="promises_source_body">Toda la aplicación está bajo la GPL, y puedes leer el texto completo de la licencia en Acerca de sin salir de la aplicación. Cada promesa de esta lista trata de algo que la app hace en este teléfono, donde puedes verlo por ti mismo.</string>
+    <string name="promises_source_title">La licencia viaja con la aplicación</string>
+    <string name="promises_source_body">Toda la aplicación está bajo la GPL, y puedes leer el texto completo de la licencia en Acerca de sin salir de la aplicación. Cada promesa de esta lista trata de cómo se comporta la app en tu teléfono, no de algo que ocurra en otro sitio.</string>
 </resources>
