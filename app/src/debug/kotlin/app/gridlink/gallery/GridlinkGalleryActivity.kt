@@ -727,6 +727,6 @@ private val SAMPLE_INVITE = GridlinkInvite(
     location = "Store 51, back office",
     organizer = "Dara Ridley",
     guests = 6,
-    repeats = true,
+    repeats = "Every 3 months on the third Tuesday",
     canRsvp = true,
 )

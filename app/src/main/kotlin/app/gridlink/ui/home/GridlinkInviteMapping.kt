@@ -2,9 +2,11 @@ package app.gridlink.ui.home
 
 import app.gridlink.core.data.calendar.CalendarOccurrence
 import app.gridlink.core.data.calendar.ParsedEvent
+import app.gridlink.core.data.calendar.RecurrenceText
 import app.gridlink.ui.gridlink.GridlinkInvite
 import app.gridlink.ui.gridlink.GridlinkInviteResponse
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -32,11 +34,24 @@ internal fun gridlinkInviteOf(
     location = event.location?.takeIf { it.isNotBlank() },
     organizer = event.organizer?.takeIf { it.isNotBlank() },
     guests = event.attendeeCount,
-    repeats = event.recurs,
+    // The rule said out loud, falling back to the old bare word only when the rule is one
+    // [RecurrenceText] cannot phrase: [ParsedEvent.recurs] is still the truth about WHETHER it
+    // repeats, and losing that line entirely would be a worse card than a vague one.
+    repeats = RecurrenceText.describe(event.rrule, event.startDate(zone), locale)
+        ?: "Repeats".takeIf { event.recurs },
     cancelled = event.cancelled,
     canRsvp = gridlinkInviteCanRsvp(event),
     response = response,
 )
+
+/**
+ * The day the series starts on, in the reader's zone.
+ *
+ * What a rule leaves out is filled in from this, the same way [app.gridlink.core.data.calendar.Recurrence]
+ * fills it in when expanding: `FREQ=MONTHLY` with no BYMONTHDAY means "the day this one falls on".
+ */
+private fun ParsedEvent.startDate(zone: ZoneId): LocalDate =
+    Instant.ofEpochMilli(startMillis).atZone(zone).toLocalDate()
 
 /**
  * Whether this invitation is one a reply can be sent for.

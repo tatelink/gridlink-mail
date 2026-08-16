@@ -59,8 +59,15 @@ data class GridlinkInvite(
     val organizer: String? = null,
     /** How many people were invited. Zero draws nothing: "0 guests" is not a fact worth a line. */
     val guests: Int = 0,
-    /** There is an RRULE, so this is one of many. The card says so without trying to describe it. */
-    val repeats: Boolean = false,
+    /**
+     * The RRULE in words ("Every 2 weeks on Tuesday, 4 times"), or null when it does not repeat.
+     *
+     * A finished sentence, like everything else on this card, built by
+     * [app.gridlink.core.data.calendar.RecurrenceText]. It used to be a boolean drawn as the bare
+     * word "Repeats", which said the one thing the reader could already guess: a daily stand-up and
+     * a yearly review read identically, and so did a series of four and a series with no end.
+     */
+    val repeats: String? = null,
     /** METHOD:CANCEL or STATUS:CANCELLED. Said loudly, and it takes the RSVP row away. */
     val cancelled: Boolean = false,
     /**
@@ -200,7 +207,7 @@ fun GridlinkInviteCard(
                         if (invite.guests == 1) "1 guest" else "${invite.guests} guests",
                     )
                 }
-                if (invite.repeats) GridlinkInviteLine("Repeats")
+                invite.repeats?.let { GridlinkInviteLine(it) }
 
                 // 🔴 Above the RSVP row, not below it: this is the thing that should change the
                 // answer, so it has to be read before the thumb reaches Accept. In caution amber

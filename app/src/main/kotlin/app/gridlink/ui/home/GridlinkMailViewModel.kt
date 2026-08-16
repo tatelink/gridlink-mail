@@ -2826,9 +2826,15 @@ private fun draftText(email: Email): String {
  *
  * Parts with a Content-ID are skipped: those are the images the body references inline, and listing
  * a tracking pixel as an attachment is how a message with nothing attached grows a paperclip.
+ *
+ * 🔴 [Email.fileAttachmentParts] and not a filter written here. This used to keep everything without
+ * a `cid:`, which drew a chip for the invitation's own `text/calendar` part: the reader got a card
+ * showing the meeting AND, under it, an offer to download the file the card was built from. Same for
+ * the PGP version blob and detached signature, which are protocol plumbing the crypto badge already
+ * speaks for. The model knows which parts are files, and asking it is what keeps this answer and the
+ * card's answer from drifting apart.
  */
-private fun attachmentPartsOf(email: Email): List<EmailBodyPart> =
-    email.attachments.filter { it.cid.isNullOrBlank() }
+private fun attachmentPartsOf(email: Email): List<EmailBodyPart> = email.fileAttachmentParts()
 
 /**
  * [parts] as their chips. The id is the part's INDEX in the list it came from, which is why both
