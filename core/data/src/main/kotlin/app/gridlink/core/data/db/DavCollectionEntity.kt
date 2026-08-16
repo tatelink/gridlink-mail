@@ -30,6 +30,16 @@ data class DavCollectionEntity(
     val syncToken: String?,
     /** Discovery order, so the collection list does not reshuffle between syncs. */
     val sortOrder: Int,
+    /**
+     * The server's own id for this collection, when it came over JMAP. Null on a DAV row.
+     *
+     * 🔴 [url] is this row's local identity and the system-calendar mirror derives the provider's
+     * `_SYNC_ID` from it, so a collection that was synced over CalDAV and is now being synced over
+     * JMAP keeps the url it already had (see `DavMappers.adoptCollectionUrls`). That is what makes
+     * this column necessary: the JMAP calendar id is then nowhere to be found in the url, and
+     * filing an incoming event under its calendar has to go through here.
+     */
+    val remoteId: String? = null,
 ) {
     companion object {
         const val KIND_CALENDAR = "calendar"

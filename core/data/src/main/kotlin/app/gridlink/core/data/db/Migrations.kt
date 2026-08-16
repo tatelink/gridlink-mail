@@ -615,3 +615,47 @@ val MIGRATION_25_26 = object : Migration(25, 26) {
 /** The column [MIGRATION_25_26] adds; shared with the JVM test so it replays the real one. */
 const val CONTACT_PAYLOAD_FORMAT_SQL: String =
     "ALTER TABLE `address_book_contacts` ADD COLUMN `payloadFormat` TEXT NOT NULL DEFAULT 'vcard'"
+
+/**
+ * Additive 26→27: the server's own id for a row that came over JMAP.
+ *
+ * ## 🔴 What this exists to prevent
+ * Both caches key a row by [CalendarEventEntity.href] / [AddressBookContactEntity.href], and both
+ * system mirrors derive the Android provider's `_SYNC_ID` / `SOURCE_ID` from that key. Until this
+ * column, a JMAP row's key WAS its server id (`jmap:card/<id>`), so the first sync after an account
+ * met a JMAP-speaking server re-keyed every row it already had. The mirrors read that as every
+ * calendar, event and contact being deleted and a stranger appearing in its place: the data
+ * survives, but the phone's own attachments to those rows (per-calendar colour and visibility,
+ * event notification state, contact favourites and ringtones, links to other accounts' contacts) do
+ * not.
+ *
+ * With the id in a column of its own, a row that already exists keeps the key it has and simply
+ * gains the id, so the mirrors see an ordinary update and the switch costs nothing.
+ *
+ * Nullable with no default, and no backfill: null is the honest answer for every row that exists
+ * when this runs, because all of them came over DAV. The sync fills it in as it re-reads each row.
+ */
+val MIGRATION_26_27 = object : Migration(26, 27) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(EVENT_REMOTE_ID_SQL)
+        db.execSQL(CONTACT_REMOTE_ID_SQL)
+        db.execSQL(COLLECTION_REMOTE_ID_SQL)
+    }
+}
+
+/** The event column [MIGRATION_26_27] adds; shared with the JVM test so it replays the real one. */
+const val EVENT_REMOTE_ID_SQL: String =
+    "ALTER TABLE `calendar_events` ADD COLUMN `remoteId` TEXT"
+
+/** The contact column [MIGRATION_26_27] adds; shared with the JVM test so it replays the real one. */
+const val CONTACT_REMOTE_ID_SQL: String =
+    "ALTER TABLE `address_book_contacts` ADD COLUMN `remoteId` TEXT"
+
+/**
+ * The collection column [MIGRATION_26_27] adds; shared with the JVM test so it replays the real one.
+ *
+ * A calendar keeping its url means the JMAP calendar id is no longer readable out of that url, so
+ * filing an incoming event under its calendar needs the id stored here. See [DavCollectionEntity].
+ */
+const val COLLECTION_REMOTE_ID_SQL: String =
+    "ALTER TABLE `dav_collections` ADD COLUMN `remoteId` TEXT"

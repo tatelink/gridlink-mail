@@ -38,10 +38,13 @@ class DavMappersJmapContactsTest {
     )
 
     @Test fun buildsARowWithASyntheticKeyThatCannotCollideWithADavHref() {
-        val row = DavMappers.jmapContact("acct", "b", ada)
+        val row = DavMappers.jmapContact("acct", "jmap:addressbook/b", ada)
 
         assertEquals("jmap:card/C1", row.href)
         assertEquals("jmap:addressbook/b", row.collectionUrl)
+        // ⚠️ The href is a key this row would only be given if the cache had never seen the card.
+        // What makes it JMAP-backed is the column, which is true whichever key it ends up under.
+        assertEquals("C1", row.remoteId)
         // A DAV href is a decoded path and always starts with '/', so the two spaces never meet.
         assertTrue(!row.href.startsWith("/"))
         assertEquals(AddressBookContactEntity.FORMAT_JSCONTACT, row.payloadFormat)
@@ -53,31 +56,31 @@ class DavMappersJmapContactsTest {
     }
 
     @Test fun theEtagStandsInForSomethingJmapDoesNotHave() {
-        val row = DavMappers.jmapContact("acct", "b", ada)
+        val row = DavMappers.jmapContact("acct", "jmap:addressbook/b", ada)
         assertEquals("2026-08-16T11:02:00Z", row.etag)
 
-        val edited = DavMappers.jmapContact("acct", "b", ada.copy(updated = "2026-08-17T09:00:00Z"))
+        val edited = DavMappers.jmapContact("acct", "jmap:addressbook/b", ada.copy(updated = "2026-08-17T09:00:00Z"))
 
         // 🔴 The system-contacts mirror decides what changed by fingerprinting this. A constant
         // would hide every edit from it; a value that moved on its own would rewrite the phone's
         // address book on every sync.
         assertTrue(row.etag != edited.etag)
-        assertEquals(row.etag, DavMappers.jmapContact("acct", "b", ada).etag)
+        assertEquals(row.etag, DavMappers.jmapContact("acct", "jmap:addressbook/b", ada).etag)
 
         // A card the server dated not at all still needs a stable stand-in, and the id is one.
-        assertEquals("C1", DavMappers.jmapContact("acct", "b", ada.copy(updated = null)).etag)
+        assertEquals("C1", DavMappers.jmapContact("acct", "jmap:addressbook/b", ada.copy(updated = null)).etag)
     }
 
     @Test fun aCardWithNoUidFallsBackToItsOwnKeyRatherThanBlank() {
         // The uid column is not the sync identity (the href is), but it is what the write path
         // hands back to the server as the card's UID, so an empty one must never be stored.
-        val row = DavMappers.jmapContact("acct", "b", ada.copy(uid = ""))
+        val row = DavMappers.jmapContact("acct", "jmap:addressbook/b", ada.copy(uid = ""))
 
         assertEquals("jmap:card/C1", row.uid)
     }
 
     @Test fun readingBackPicksTheParserTheRowNames() {
-        val row = DavMappers.jmapContact("acct", "b", ada)
+        val row = DavMappers.jmapContact("acct", "jmap:addressbook/b", ada)
 
         val parsed = ContactPayload.parse(row)
 
@@ -87,7 +90,7 @@ class DavMappersJmapContactsTest {
     }
 
     @Test fun aJscontactRowReadAsVcardWouldBeTheBugTheDiscriminatorPrevents() {
-        val row = DavMappers.jmapContact("acct", "b", ada)
+        val row = DavMappers.jmapContact("acct", "jmap:addressbook/b", ada)
 
         // Mislabelled, the JSON goes through the vCard reader, which finds no BEGIN:VCARD. The
         // contact still appears, because the columns are the fallback, but the edit form seeds
@@ -98,17 +101,24 @@ class DavMappersJmapContactsTest {
 
     @Test fun anUnknownFormatFallsBackRatherThanRefusing() {
         val vcard = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Ada Lovelace\r\nEND:VCARD\r\n"
-        val row = DavMappers.jmapContact("acct", "b", ada)
+        val row = DavMappers.jmapContact("acct", "jmap:addressbook/b", ada)
             .copy(raw = vcard, payloadFormat = "some-format-from-a-newer-build")
 
         assertEquals("Ada Lovelace", ContactPayload.parse(row)?.formattedName)
     }
 
     @Test fun theBookRowNeverCarriesASyncTokenOfItsOwn() {
-        val book = DavMappers.jmapBook("acct", JmapAddressBook(id = "b", name = "Contacts"), order = 0)
+        val book = DavMappers.jmapBook(
+            accountId = "acct",
+            url = DavMappers.jmapBookUrl("b"),
+            book = JmapAddressBook(id = "b", name = "Contacts"),
+            order = 0,
+        )
 
         assertEquals("jmap:addressbook/b", book.url)
         assertEquals("Contacts", book.displayName)
+        // The id the url no longer has to carry, so an adopted book can keep a CardDAV url.
+        assertEquals("b", book.remoteId)
         // Only the sync itself may write a token, exactly as on the discovery path: a token carried
         // over from a listing would claim a delta this app never actually took.
         assertNull(book.syncToken)

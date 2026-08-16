@@ -533,10 +533,12 @@ class DavRepository(
             null
         }
 
-        // 🔴 Same rule as createEvent: a `jmap:event/...` href is this app's key, not a URL, and
-        // PUTting to it would fail. The protocol that cached the row writes it back.
-        if (row.href.startsWith(DavMappers.JMAP_HREF_PREFIX)) {
-            val eventId = row.href.removePrefix(DavMappers.JMAP_HREF_PREFIX).substringBefore('#')
+        // 🔴 Same rule as createEvent: a JMAP-backed row has no URL to PUT to, so the protocol that
+        // cached the row is the one that writes it back. `remoteId` is what says which that was: an
+        // account that switched from CalDAV to JMAP keeps its old href (see
+        // `CalendarEventEntity.remoteId`), so reading the id back out of the href would miss it.
+        val remoteId = row.remoteId
+        if (remoteId != null) {
             val patch = JsCalendarWrite.patch(
                 touched = touched,
                 title = title,
@@ -552,8 +554,8 @@ class DavRepository(
             )
             if (patch.isEmpty()) return DavWriteOutcome(href = href)
             return writeOverJmap(accountId, server, dav) { client, session, jmapAccountId, auth ->
-                client.updateCalendarEvent(session, jmapAccountId, eventId, patch, auth)
-                eventId
+                client.updateCalendarEvent(session, jmapAccountId, remoteId, patch, auth)
+                remoteId
             }
         }
 
@@ -705,12 +707,13 @@ class DavRepository(
         val touched = edit.touchedSince(ContactEdit.from(parsed))
         if (touched.isEmpty()) return DavWriteOutcome(href = href)
 
-        // 🔴 A JMAP-keyed row cannot be written over CardDAV: `jmap:card/<id>` is this app's own
-        // key, not a path, and a PUT against it would 404 or hit something else entirely. It also
-        // needs no UID lookup, because the card id IS the key. The protocol that filled the cache
-        // is the protocol that writes back to it.
-        if (row.href.startsWith(DavMappers.JMAP_CARD_PREFIX)) {
-            val cardId = row.href.removePrefix(DavMappers.JMAP_CARD_PREFIX)
+        // 🔴 A JMAP-backed row cannot be written over CardDAV, and it needs no UID lookup either,
+        // because `remoteId` IS the card id. The protocol that filled the cache is the protocol that
+        // writes back to it. The test is the column and not the href: a card this account synced
+        // over CardDAV before the server started advertising JMAP keeps the href it already had,
+        // deliberately, so the id is not in there to read out. See `AddressBookContactEntity`.
+        val cardId = row.remoteId
+        if (cardId != null) {
             val cardUid = parsed.uid ?: row.uid
             return writeCardOverJmap(accountId, server, dav) { client, session, jmapAccountId, auth ->
                 client.updateContactCard(
@@ -726,22 +729,23 @@ class DavRepository(
         if (uid != null) {
             jmapContacts(server, dav)?.let { (session, jmapAccountId) ->
                 val auth = BasicAuth(dav.username, dav.password)
-                val cardId = try {
+                val foundId = try {
                     jmap!!.queryContactCardId(session, jmapAccountId, uid, auth)
                 } catch (e: JmapException) {
                     return DavWriteOutcome(error = e.message ?: "The server refused the change")
                 }
-                if (cardId != null) {
+                if (foundId != null) {
                     try {
                         jmap.updateContactCard(
-                            session, jmapAccountId, cardId, edit.toCardWrite(uid), touched, auth,
+                            session, jmapAccountId, foundId, edit.toCardWrite(uid), touched, auth,
                         )
                     } catch (e: JmapException) {
                         return DavWriteOutcome(error = e.message ?: "The server refused the change")
                     }
-                    // The write went through. Resync and hand back the row's CURRENT key: on a
-                    // server that speaks JMAP the sync re-keys this card to a `jmap:card/` href,
-                    // so returning the DAV href it was edited under would name a row that is gone.
+                    // The write went through. Resync and look the row up by UID rather than reusing
+                    // `href`: the JMAP sync adopts this row rather than re-keying it, so the href
+                    // usually still stands, but a card the sync had never seen under this key would
+                    // land on the synthetic one instead.
                     return cacheAfterJmapWrite(accountId, uid)
                 }
             }
@@ -842,17 +846,29 @@ class DavRepository(
         } catch (e: Exception) {
             return DavSyncOutcome(0, 0, 0, error = describeJmap(e))
         }
-        val urls = calendars.map { DavMappers.jmapCollectionUrl(it.id) }
-        val resumeFrom = collectionDao.forKind(accountId, DavCollectionEntity.KIND_CALENDAR)
-            .firstNotNullOfOrNull { it.syncToken }
+        val existing = collectionDao.forKind(accountId, DavCollectionEntity.KIND_CALENDAR)
+        // 🔴 Before anything else, and before the events: a calendar this account already synced
+        // over CalDAV keeps its row rather than being deleted and recreated under a `jmap:` url.
+        // See DavMappers.adoptCollectionUrls for what that costs the user otherwise. It has to
+        // happen first because the events are filed under these urls and `deleteNotInCollections`
+        // below would drop every event of an adopted calendar if it ran against the synthetic list.
+        val adopted = DavMappers.adoptCollectionUrls(
+            existing = existing,
+            collections = calendars.map { it.id to it.name },
+            syntheticUrl = DavMappers::jmapCollectionUrl,
+        )
+        val urls = calendars.mapNotNull { adopted[it.id] }
+        val resumeFrom = existing.firstNotNullOfOrNull { it.syncToken }
         collectionDao.replaceDiscovered(
             accountId = accountId,
             kind = DavCollectionEntity.KIND_CALENDAR,
-            discovered = calendars.mapIndexed { i, c -> DavMappers.jmapCollection(accountId, c, i) },
+            discovered = calendars.mapIndexed { i, c ->
+                DavMappers.jmapCollection(accountId, adopted.getValue(c.id), c, i)
+            },
         )
         // A calendar the server no longer lists takes its events with it. This also clears rows a
-        // previous CalDAV sync of the same account left behind, since their collection urls are
-        // paths and cannot appear among the JMAP ones.
+        // previous CalDAV sync of the same account left behind whose calendar was NOT adopted, since
+        // an unadopted DAV url cannot appear among these.
         if (urls.isEmpty()) {
             clearItems(accountId, DavCollectionEntity.KIND_CALENDAR)
             return DavSyncOutcome(collections = 0, itemsChanged = 0, itemsRemoved = 0)
@@ -929,7 +945,7 @@ class DavRepository(
         delta: JmapDelta,
     ): DavSyncOutcome {
         val events = jmapClient.getCalendarEvents(session, jmapAccountId, delta.changed, auth)
-        val changed = cacheJmapEvents(accountId, events)
+        val changed = cacheJmapEvents(accountId, events).size
         // 🔴 Ids the server reported as changed but did not return are deleted, not skipped. An id
         // that vanishes between the two calls has been removed in the meantime, and leaving its row
         // in place would keep a deleted appointment on the phone until the next full list.
@@ -971,16 +987,16 @@ class DavRepository(
             page++
         }
         val events = jmapClient.getCalendarEvents(session, jmapAccountId, ids.toList(), auth)
-        val changed = cacheJmapEvents(accountId, events)
+        val changed = cacheJmapEvents(accountId, events).size
 
-        // Anything JMAP-keyed the listing did not name is gone from the server. DAV-keyed rows are
-        // not touched here: they were already cleared by collection, and a `jmap:` prefix is the
-        // only thing that makes a row this listing's business.
-        val keep = events.mapTo(HashSet()) { DavMappers.jmapHref(it.id) }
+        // Anything JMAP-backed the listing did not name is gone from the server. Rows with no
+        // remoteId are not touched here: they were already cleared by collection, and having come
+        // over JMAP is the only thing that makes a row this listing's business. The test is the
+        // column rather than the href prefix because an adopted row kept its CalDAV href.
+        val keep = events.mapTo(HashSet()) { it.id }
         val stale = eventDao.allForAccount(accountId)
-            .map { it.href }
-            .filter { it.startsWith(DavMappers.JMAP_HREF_PREFIX) && it.substringBeforeLast('#') !in keep }
-        stale.chunked(DELETE_CHUNK).forEach { eventDao.deleteByHrefs(accountId, it) }
+            .filter { it.remoteId != null && it.remoteId !in keep }
+        stale.map { it.href }.chunked(DELETE_CHUNK).forEach { eventDao.deleteByHrefs(accountId, it) }
         return DavSyncOutcome(0, changed, stale.size)
     }
 
@@ -990,27 +1006,63 @@ class DavRepository(
      * The delete-then-insert is not belt and braces: a repeating event can LOSE a row on an edit (a
      * rescheduled instance put back where it belonged), and an upsert alone would leave the stale
      * override on the phone forever. Same reason the `.ics` path clears a file's rows first.
+     *
+     * Returns the hrefs written, not a count, because the caller of a write needs the key the row
+     * ended up under and that is no longer derivable from the event id. See [cacheWrittenEvent].
      */
-    private suspend fun cacheJmapEvents(accountId: String, events: List<JmapCalendarEvent>): Int {
-        var changed = 0
+    private suspend fun cacheJmapEvents(accountId: String, events: List<JmapCalendarEvent>): List<String> {
+        // Written by the collection pass that always precedes this one: the calendar's LOCAL url,
+        // which is the CalDAV one it kept when this account changed protocol. The JMAP calendar id
+        // is not derivable from it any more, which is exactly why it is stored.
+        val urlOf = collectionDao.forKind(accountId, DavCollectionEntity.KIND_CALENDAR)
+            .mapNotNull { row -> row.remoteId?.let { it to row.url } }
+            .toMap()
+        val written = mutableListOf<String>()
         for (event in events) {
             // An event in no calendar has no collection to be filed under, and a row whose
             // collectionUrl named nothing would survive every "this calendar is gone" cleanup.
             val rows = event.primaryCalendarId()
+                ?.let { urlOf[it] }
                 ?.let { DavMappers.jmapEvents(accountId, it, event, zone()) }
                 .orEmpty()
             if (rows.isEmpty()) continue
+            // 🔴 Each row keeps the key it already had, when it already had one. The system calendar
+            // mirror derives the provider's `_SYNC_ID` from the href, so writing the synthetic key
+            // over an event this account synced as a `.ics` would delete the phone's copy and insert
+            // a stranger, losing its notification state. Matched on uid AND recurrence-id together,
+            // because a repeating event's master and its overrides share a uid.
+            //
+            // ⚠️ Read BEFORE the delete below, not after. An event adopted on an earlier sync has
+            // both a DAV href and a remoteId, so the delete would take it away and the lookup would
+            // then find nothing, re-keying it to the synthetic href on every single sync.
+            val adopted = rows.map { row ->
+                val prior = eventDao.byUid(accountId, row.uid, row.recurrenceId)
+                if (prior == null) row else row.copy(href = prior.href)
+            }
             forgetJmapEvent(accountId, event.id)
-            eventDao.upsertAll(rows)
-            changed += rows.size
+            // The other half of the same clear-out, and only load-bearing on the sync that adopts:
+            // the rows this event had as a `.ics` carry no remoteId for the delete above to find, so
+            // an override the server has since put back where it belonged would otherwise be left on
+            // the phone with nothing that ever removes it.
+            adopted.firstOrNull { it.recurrenceId == null }?.href?.let {
+                eventDao.deleteForFile(accountId, it, DavMappers.hrefPrefix(it))
+            }
+            eventDao.upsertAll(adopted)
+            // The master first, so a caller taking the first href gets the event rather than one of
+            // its rescheduled instances.
+            written += adopted.sortedBy { it.recurrenceId != null }.map { it.href }
         }
-        return changed
+        return written
     }
 
-    /** Drop every row one JMAP event id produced, master and detached instances alike. */
+    /**
+     * Drop every row one JMAP event id produced, master and detached instances alike.
+     *
+     * By remoteId, not by href prefix: an adopted row's href is the CalDAV path it came in under and
+     * has the event id nowhere in it. See [CalendarEventEntity.remoteId].
+     */
     private suspend fun forgetJmapEvent(accountId: String, eventId: String) {
-        val href = DavMappers.jmapHref(eventId)
-        eventDao.deleteForFile(accountId, href, DavMappers.hrefPrefix(href))
+        eventDao.deleteByRemoteId(accountId, eventId)
     }
 
     /**
@@ -1051,14 +1103,15 @@ class DavRepository(
         } catch (c: CancellationException) {
             throw c
         } catch (_: Exception) {
-            0
+            emptyList()
         }
-        if (cached == 0) {
-            return DavWriteOutcome(
+        // 🔴 The key the row was actually written under, not the synthetic one built from the event
+        // id: an event this account already held over CalDAV keeps its old href. See cacheJmapEvents.
+        val href = cached.firstOrNull()
+            ?: return DavWriteOutcome(
                 error = "Saved to the server, but this device could not read it back. Sync to see it.",
             )
-        }
-        return DavWriteOutcome(href = DavMappers.jmapHref(eventId))
+        return DavWriteOutcome(href = href)
     }
 
     /** What one `Foo/changes` run came back with, flattened. Shared by both collections. */
@@ -1086,17 +1139,26 @@ class DavRepository(
         } catch (e: Exception) {
             return DavSyncOutcome(0, 0, 0, error = describeJmap(e))
         }
-        val urls = books.map { DavMappers.jmapBookUrl(it.id) }
-        val resumeFrom = collectionDao.forKind(accountId, DavCollectionEntity.KIND_CONTACTS)
-            .firstNotNullOfOrNull { it.syncToken }
+        val existing = collectionDao.forKind(accountId, DavCollectionEntity.KIND_CONTACTS)
+        // The calendar pass's adoption, for the same reason and in the same order. See
+        // syncCalendarsOverJmap.
+        val adopted = DavMappers.adoptCollectionUrls(
+            existing = existing,
+            collections = books.map { it.id to it.name },
+            syntheticUrl = DavMappers::jmapBookUrl,
+        )
+        val urls = books.mapNotNull { adopted[it.id] }
+        val resumeFrom = existing.firstNotNullOfOrNull { it.syncToken }
         collectionDao.replaceDiscovered(
             accountId = accountId,
             kind = DavCollectionEntity.KIND_CONTACTS,
-            discovered = books.mapIndexed { i, b -> DavMappers.jmapBook(accountId, b, i) },
+            discovered = books.mapIndexed { i, b ->
+                DavMappers.jmapBook(accountId, adopted.getValue(b.id), b, i)
+            },
         )
         // A book the server no longer lists takes its cards with it. This also clears rows a
-        // previous CardDAV sync of the same account left behind, since their collection urls are
-        // paths and cannot appear among the JMAP ones.
+        // previous CardDAV sync of the same account left behind whose book was NOT adopted, since an
+        // unadopted DAV url cannot appear among these.
         if (urls.isEmpty()) {
             clearItems(accountId, DavCollectionEntity.KIND_CONTACTS)
             return DavSyncOutcome(collections = 0, itemsChanged = 0, itemsRemoved = 0)
@@ -1159,7 +1221,7 @@ class DavRepository(
         delta: JmapDelta,
     ): DavSyncOutcome {
         val cards = jmapClient.getContactCards(session, jmapAccountId, delta.changed, auth)
-        val changed = cacheJmapCards(accountId, cards)
+        val changed = cacheJmapCards(accountId, cards).size
         // 🔴 Ids reported as changed but not returned are deleted, not skipped; see the calendar's.
         val returned = cards.mapTo(HashSet()) { it.id }
         val missing = delta.changed.filterNot { it in returned }
@@ -1193,33 +1255,57 @@ class DavRepository(
             page++
         }
         val cards = jmapClient.getContactCards(session, jmapAccountId, ids.toList(), auth)
-        val changed = cacheJmapCards(accountId, cards)
+        val changed = cacheJmapCards(accountId, cards).size
 
-        val keep = cards.mapTo(HashSet()) { DavMappers.jmapCardHref(it.id) }
+        // By remoteId rather than by the href prefix; see fullCalendarSync for why an adopted row
+        // makes the prefix the wrong test.
+        val keep = cards.mapTo(HashSet()) { it.id }
         val stale = contactDao.allForAccount(accountId)
+            .filter { it.remoteId != null && it.remoteId !in keep }
             .map { it.href }
-            .filter { it.startsWith(DavMappers.JMAP_CARD_PREFIX) && it !in keep }
         stale.chunked(DELETE_CHUNK).forEach { contactDao.deleteByHrefs(accountId, it) }
         return DavSyncOutcome(0, changed, stale.size)
     }
 
-    /** Write one server card's row, replacing whatever that card had cached before. */
-    private suspend fun cacheJmapCards(accountId: String, cards: List<JmapContactCard>): Int {
-        var changed = 0
+    /**
+     * Write one server card's row, replacing whatever that card had cached before.
+     *
+     * Returns the hrefs written, not a count, because the caller of a write needs the key the row
+     * ended up under and that is no longer derivable from the card id. See [cacheWrittenCard].
+     */
+    private suspend fun cacheJmapCards(accountId: String, cards: List<JmapContactCard>): List<String> {
+        // The book's LOCAL url, which is the CardDAV one it kept if this account changed protocol.
+        // Written by the collection pass that always precedes this one; see cacheJmapEvents.
+        val urlOf = collectionDao.forKind(accountId, DavCollectionEntity.KIND_CONTACTS)
+            .mapNotNull { row -> row.remoteId?.let { it to row.url } }
+            .toMap()
+        val written = mutableListOf<String>()
         for (card in cards) {
             // A card in no address book has no collection to be filed under, and a row whose
             // collectionUrl named nothing would survive every "this book is gone" cleanup.
-            val bookId = card.primaryAddressBookId() ?: continue
-            contactDao.upsertAll(listOf(DavMappers.jmapContact(accountId, bookId, card)))
-            changed++
+            val url = card.primaryAddressBookId()?.let { urlOf[it] } ?: continue
+            val row = DavMappers.jmapContact(accountId, url, card)
+            // 🔴 The card keeps the key it already had, when it already had one: the system-contacts
+            // mirror derives `SOURCE_ID` from the href, so re-keying is a delete and an insert as far
+            // as the phone is concerned, taking the favourite, the ringtone and any link to another
+            // account's contact with it. Matched by UID, which is the only handle both protocols
+            // agree on.
+            val prior = contactDao.byUid(accountId, row.uid)
+            val adopted = if (prior == null) row else row.copy(href = prior.href)
+            contactDao.upsertAll(listOf(adopted))
+            written += adopted.href
         }
-        return changed
+        return written
     }
 
-    /** Drop the row a JMAP card id produced. */
+    /**
+     * Drop the row a JMAP card id produced.
+     *
+     * By remoteId, not by href prefix: an adopted row's href is the CardDAV path it came in under
+     * and has the card id nowhere in it. See [AddressBookContactEntity.remoteId].
+     */
     private suspend fun forgetJmapCard(accountId: String, cardId: String) {
-        val href = DavMappers.jmapCardHref(cardId)
-        contactDao.deleteForFile(accountId, href, DavMappers.hrefPrefix(href))
+        contactDao.deleteByRemoteId(accountId, cardId)
     }
 
     /**
@@ -1266,14 +1352,16 @@ class DavRepository(
         } catch (c: CancellationException) {
             throw c
         } catch (_: Exception) {
-            0
+            emptyList()
         }
-        if (cached == 0) {
-            return DavWriteOutcome(
+        // 🔴 The key the row was actually written under, not the synthetic one built from the card
+        // id. A card this account already held over CardDAV keeps its old href, and the screen this
+        // outcome returns to looks the row up by exactly this string.
+        val href = cached.firstOrNull()
+            ?: return DavWriteOutcome(
                 error = "Saved to the server, but this device could not read it back. Sync to see it.",
             )
-        }
-        return DavWriteOutcome(href = DavMappers.jmapCardHref(cardId))
+        return DavWriteOutcome(href = href)
     }
 
     /**

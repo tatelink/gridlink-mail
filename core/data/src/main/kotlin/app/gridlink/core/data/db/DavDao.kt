@@ -82,11 +82,34 @@ interface CalendarEventDao {
     @Query("SELECT * FROM calendar_events WHERE accountId = :accountId")
     suspend fun allForAccount(accountId: String): List<CalendarEventEntity>
 
+    /**
+     * The row a server event would land on if this account already had it under another protocol.
+     *
+     * 🔴 The uid is matched together with the recurrence-id, never alone. A repeating event and its
+     * rescheduled instances share one uid across several rows, so a uid-only match would hand the
+     * master's key to an override and merge the two.
+     */
+    @Query(
+        "SELECT * FROM calendar_events WHERE accountId = :accountId " +
+            "AND uid = :uid AND recurrenceId IS :recurrenceId LIMIT 1",
+    )
+    suspend fun byUid(accountId: String, uid: String, recurrenceId: String?): CalendarEventEntity?
+
     @Query("SELECT COUNT(*) FROM calendar_events WHERE accountId = :accountId")
     fun observeCount(accountId: String): Flow<Int>
 
     @Upsert
     suspend fun upsertAll(events: List<CalendarEventEntity>)
+
+    /**
+     * Every row one JMAP event produced, master and detached instances alike.
+     *
+     * The JMAP counterpart of [deleteForFile]. It cannot be an href-prefix delete, because a row
+     * that kept a CalDAV href from before the account changed protocol has a key this id does not
+     * appear in; see [CalendarEventEntity.remoteId].
+     */
+    @Query("DELETE FROM calendar_events WHERE accountId = :accountId AND remoteId = :remoteId")
+    suspend fun deleteByRemoteId(accountId: String, remoteId: String)
 
     @Query("DELETE FROM calendar_events WHERE accountId = :accountId AND href IN (:hrefs)")
     suspend fun deleteByHrefs(accountId: String, hrefs: List<String>)
@@ -154,6 +177,10 @@ interface AddressBookContactDao {
 
     @Query("DELETE FROM address_book_contacts WHERE accountId = :accountId AND href IN (:hrefs)")
     suspend fun deleteByHrefs(accountId: String, hrefs: List<String>)
+
+    /** The row one JMAP card produced. See [CalendarEventDao.deleteByRemoteId]. */
+    @Query("DELETE FROM address_book_contacts WHERE accountId = :accountId AND remoteId = :remoteId")
+    suspend fun deleteByRemoteId(accountId: String, remoteId: String)
 
     /** Every row one `.vcf` produced. See [CalendarEventDao.deleteForFile]. */
     @Query(

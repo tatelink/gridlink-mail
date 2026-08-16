@@ -37,10 +37,13 @@ class DavMappersJmapTest {
     )
 
     @Test fun buildsARowWithASyntheticKeyThatCannotCollideWithADavHref() {
-        val row = DavMappers.jmapEvents("acct", "cal-1", meeting, eastern).single()
+        val row = DavMappers.jmapEvents("acct", "jmap:calendar/cal-1", meeting, eastern).single()
 
         assertEquals("jmap:event/E1", row.href)
         assertEquals("jmap:calendar/cal-1", row.collectionUrl)
+        // ⚠️ That href is only what a first-sight event gets. What makes the row JMAP-backed is the
+        // column, which holds whatever key the repository ends up filing it under.
+        assertEquals("E1", row.remoteId)
         // A DAV href is a decoded path and always starts with '/', so the two spaces never meet.
         assertTrue(!row.href.startsWith("/"))
         assertEquals(CalendarEventEntity.FORMAT_JSCALENDAR, row.payloadFormat)
@@ -54,12 +57,12 @@ class DavMappersJmapTest {
     }
 
     @Test fun theEtagStandsInForSomethingJmapDoesNotHave() {
-        val row = DavMappers.jmapEvents("acct", "cal-1", meeting, eastern).single()
+        val row = DavMappers.jmapEvents("acct", "jmap:calendar/cal-1", meeting, eastern).single()
         assertEquals("3:2026-06-20T01:29:17Z", row.etag)
 
         val edited = DavMappers.jmapEvents(
             "acct",
-            "cal-1",
+            "jmap:calendar/cal-1",
             meeting.copy(sequence = 4, updated = "2026-06-21T08:00:00Z"),
             eastern,
         ).single()
@@ -68,7 +71,7 @@ class DavMappersJmapTest {
         // would hide every edit from it; a value that moved on its own would rewrite the phone's
         // calendar on every sync.
         assertTrue(row.etag != edited.etag)
-        assertEquals(row.etag, DavMappers.jmapEvents("acct", "cal-1", meeting, eastern).single().etag)
+        assertEquals(row.etag, DavMappers.jmapEvents("acct", "jmap:calendar/cal-1", meeting, eastern).single().etag)
     }
 
     @Test fun aMovedInstanceGetsItsOwnRowKeyedTheSameWayAMultiVeventFileWouldBe() {
@@ -84,7 +87,7 @@ class DavMappersJmapTest {
             ),
         )
 
-        val rows = DavMappers.jmapEvents("acct", "cal-1", series, eastern)
+        val rows = DavMappers.jmapEvents("acct", "jmap:calendar/cal-1", series, eastern)
 
         assertEquals(2, rows.size)
         assertEquals("jmap:event/E1", rows[0].href)
@@ -100,7 +103,7 @@ class DavMappersJmapTest {
     }
 
     @Test fun readingBackPicksTheParserTheRowNames() {
-        val row = DavMappers.jmapEvents("acct", "cal-1", meeting, eastern).single()
+        val row = DavMappers.jmapEvents("acct", "jmap:calendar/cal-1", meeting, eastern).single()
 
         val parsed = DavMappers.toParsed(row, eastern)
 
@@ -112,7 +115,7 @@ class DavMappersJmapTest {
     }
 
     @Test fun aJscalendarRowReadAsIcalendarWouldBeTheBugTheDiscriminatorPrevents() {
-        val row = DavMappers.jmapEvents("acct", "cal-1", meeting, eastern).single()
+        val row = DavMappers.jmapEvents("acct", "jmap:calendar/cal-1", meeting, eastern).single()
 
         // Mislabel it and the JSON goes through the iCalendar reader, which finds no VEVENT. The
         // row still places an event, because the columns are the fallback, but the description and
@@ -129,7 +132,7 @@ class DavMappersJmapTest {
     }
 
     @Test fun anUnknownFormatFallsBackRatherThanBlankingTheCalendar() {
-        val row = DavMappers.jmapEvents("acct", "cal-1", meeting, eastern)
+        val row = DavMappers.jmapEvents("acct", "jmap:calendar/cal-1", meeting, eastern)
             .single()
             .copy(payloadFormat = "some-format-from-a-newer-build")
 

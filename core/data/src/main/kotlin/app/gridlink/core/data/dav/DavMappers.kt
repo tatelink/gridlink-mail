@@ -51,6 +51,50 @@ internal object DavMappers {
     /** See [JMAP_HREF_PREFIX]. */
     const val JMAP_BOOK_PREFIX = "jmap:addressbook/"
 
+    /** What every synthetic key above begins with, so "is this key DAV's or ours" is one test. */
+    private const val JMAP_KEY_SCHEME = "jmap:"
+
+    /**
+     * The local url each JMAP collection should be filed under: its existing one, or a new one.
+     *
+     * ## 🔴 Why a collection is not simply re-keyed
+     * A collection row's url is its identity, and the system-calendar mirror derives the Android
+     * provider's `_SYNC_ID` from it. Handing an account's existing calendar a new url therefore does
+     * not rename it, it deletes it and creates a stranger with the same name, taking the colour and
+     * visibility the user chose in their calendar app (and every event filed under it) along the
+     * way. An account that has been syncing over CalDAV and now meets a server advertising JMAP
+     * would hit that on its very first sync.
+     *
+     * So a JMAP collection adopts the url of the DAV-keyed collection that carries its name, and
+     * only a collection with nothing to adopt gets a fresh [syntheticUrl]. Each existing url can be
+     * claimed once, so two calendars sharing a name cannot both land on the same row.
+     *
+     * ⚠️ The name is the only handle there is. JMAP ids and DAV paths are separate namespaces with
+     * no documented relationship, so a calendar RENAMED on the server between the last DAV sync and
+     * the first JMAP one has no match and is treated as new. That costs the one-off churn this
+     * function exists to avoid, for that one calendar, once. A wrong match would be worse: it would
+     * file one calendar's events under another.
+     */
+    fun adoptCollectionUrls(
+        existing: List<DavCollectionEntity>,
+        collections: List<Pair<String, String>>,
+        syntheticUrl: (String) -> String,
+    ): Map<String, String> {
+        val claimed = HashSet<String>()
+        val byName = existing.filterNot { it.url.startsWith(JMAP_KEY_SCHEME) }
+            .groupBy { it.displayName?.trim()?.lowercase().orEmpty() }
+        return collections.associate { (id, name) ->
+            val key = name.trim().lowercase()
+            // A nameless collection matches nothing. Two of them would otherwise match each other,
+            // which is a coin flip dressed up as a migration.
+            val match = key.takeIf { it.isNotEmpty() }
+                ?.let { byName[it] }
+                ?.firstOrNull { it.url !in claimed }
+            if (match != null) claimed += match.url
+            id to (match?.url ?: syntheticUrl(id))
+        }
+    }
+
     fun collection(accountId: String, collection: DavCollection, order: Int) = DavCollectionEntity(
         accountId = accountId,
         url = collection.url,
@@ -116,15 +160,16 @@ internal object DavMappers {
      * by default and the CalDAV path lists them all, so hiding them on the JMAP path alone would
      * make the same account contain different calendars depending on which protocol answered.
      */
-    fun jmapCollection(accountId: String, calendar: JmapCalendar, order: Int) = DavCollectionEntity(
+    fun jmapCollection(accountId: String, url: String, calendar: JmapCalendar, order: Int) = DavCollectionEntity(
         accountId = accountId,
-        url = jmapCollectionUrl(calendar.id),
+        url = url,
         kind = DavCollectionEntity.KIND_CALENDAR,
         displayName = calendar.name.takeIf { it.isNotBlank() },
         color = calendar.color,
         // Same rule as discovery: only the sync itself may write a token. See DavCollectionDao.
         syncToken = null,
         sortOrder = order,
+        remoteId = calendar.id,
     )
 
     /**
@@ -136,16 +181,20 @@ internal object DavMappers {
      *
      * - **href.** JMAP has no paths, so the key is [jmapHref] over the event id. It only has to be
      *   stable and unique within the account, which an id is; the `#recurrenceId` suffix works the
-     *   same way it does for a multi-VEVENT file.
-     * - **collectionUrl.** [jmapCollectionUrl] over the calendar id, so "clear one calendar" stays
-     *   one delete, the same as for a DAV collection.
+     *   same way it does for a multi-VEVENT file. ⚠️ This is the key for an event this cache has
+     *   never seen before. An account that already held the same event under a CalDAV href keeps
+     *   that href instead, and the id lives in [CalendarEventEntity.remoteId]; the adoption is the
+     *   repository's, since only it can look the existing row up.
+     * - **collectionUrl.** Passed in rather than derived, for the same reason: it is
+     *   [jmapCollectionUrl] over the calendar id for a calendar this cache is meeting for the first
+     *   time, and the calendar's existing url when it is not.
      * - **etag.** 🔴 JMAP does not have one. `sequence:updated` stands in, and it has to: the system
      *   calendar mirror decides what changed by fingerprinting the etag, so a constant here would
      *   make every edit invisible to it and a random one would rewrite every event on every sync.
      */
     fun jmapEvents(
         accountId: String,
-        calendarId: String,
+        collectionUrl: String,
         event: JmapCalendarEvent,
         fallbackZone: ZoneId,
     ): List<CalendarEventEntity> {
@@ -156,7 +205,7 @@ internal object DavMappers {
             CalendarEventEntity(
                 accountId = accountId,
                 href = if (parsed.recurrenceId == null) baseHref else "$baseHref#${parsed.recurrenceId}",
-                collectionUrl = jmapCollectionUrl(calendarId),
+                collectionUrl = collectionUrl,
                 etag = "${event.sequence}:${event.updated.orEmpty()}",
                 uid = parsed.uid,
                 summary = parsed.summary,
@@ -177,6 +226,7 @@ internal object DavMappers {
                 // nothing without it. The columns are what tell the rows apart.
                 raw = JsCalendar.encode(event),
                 payloadFormat = CalendarEventEntity.FORMAT_JSCALENDAR,
+                remoteId = event.id,
             )
         }
     }
@@ -229,15 +279,16 @@ internal object DavMappers {
      * [jmapCollection]'s rule for calendars, and the same one: the CardDAV path lists every book
      * the server exposes, so nothing is filtered out here either.
      */
-    fun jmapBook(accountId: String, book: JmapAddressBook, order: Int) = DavCollectionEntity(
+    fun jmapBook(accountId: String, url: String, book: JmapAddressBook, order: Int) = DavCollectionEntity(
         accountId = accountId,
-        url = jmapBookUrl(book.id),
+        url = url,
         kind = DavCollectionEntity.KIND_CONTACTS,
         displayName = book.name.takeIf { it.isNotBlank() },
         color = null,
         // Same rule as discovery: only the sync itself may write a token. See DavCollectionDao.
         syncToken = null,
         sortOrder = order,
+        remoteId = book.id,
     )
 
     /**
@@ -247,9 +298,11 @@ internal object DavMappers {
      * cannot tell which protocol filled the cache. Three columns have no JMAP original:
      *
      * - **href.** [jmapCardHref] over the card id. A card is one object, so unlike a `.vcf` there is
-     *   never an index suffix to add.
-     * - **collectionUrl.** [jmapBookUrl] over the address book id, so "this book is gone" stays one
-     *   delete.
+     *   never an index suffix to add. ⚠️ Only for a card this cache has never seen: one it already
+     *   held under a CardDAV href keeps that href, and the id lives in
+     *   [AddressBookContactEntity.remoteId]. See [jmapEvents] for why, and the repository for where.
+     * - **collectionUrl.** Passed in, for the same reason: [jmapBookUrl] over the address book id
+     *   for a book this cache is meeting for the first time, its existing url otherwise.
      * - **etag.** 🔴 JMAP does not have one. `updated` stands in, and it has to: the system-contacts
      *   mirror decides what changed by fingerprinting the etag, so a constant here would make every
      *   edit invisible to it and a random one would rewrite every contact on every sync. A card with
@@ -258,14 +311,14 @@ internal object DavMappers {
      */
     fun jmapContact(
         accountId: String,
-        bookId: String,
+        collectionUrl: String,
         card: JmapContactCard,
     ): AddressBookContactEntity {
         val parsed = JsContact.parse(card)
         return AddressBookContactEntity(
             accountId = accountId,
             href = jmapCardHref(card.id),
-            collectionUrl = jmapBookUrl(bookId),
+            collectionUrl = collectionUrl,
             etag = card.updated ?: card.id,
             uid = card.uid.takeIf { it.isNotBlank() } ?: jmapCardHref(card.id),
             displayName = parsed.formattedName?.takeIf { it.isNotBlank() }
@@ -281,6 +334,7 @@ internal object DavMappers {
             emails = parsed.emails.joinToString(","),
             raw = JsContact.encode(card),
             payloadFormat = AddressBookContactEntity.FORMAT_JSCONTACT,
+            remoteId = card.id,
         )
     }
 

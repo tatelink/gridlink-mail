@@ -12,7 +12,7 @@ import androidx.room.RoomDatabase
         PurgeSnapshotEntity::class, MailboxUidValidityEntity::class,
         DavCollectionEntity::class, CalendarEventEntity::class, AddressBookContactEntity::class,
     ],
-    version = 26,
+    version = 27,
     exportSchema = false,
 )
 abstract class GridlinkDatabase : RoomDatabase() {
@@ -58,6 +58,7 @@ abstract class GridlinkDatabase : RoomDatabase() {
                     MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
                     MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25,
                     MIGRATION_25_26,
+                    MIGRATION_26_27,
                 )
                 // The rest of the DB is a disposable mirror of the server: if some other schema
                 // change has no migration, rebuilding the cache is an acceptable fallback.

@@ -89,6 +89,21 @@ data class CalendarEventEntity(
      * the CalDAV path writes, means what it always meant.
      */
     val payloadFormat: String = FORMAT_ICALENDAR,
+    /**
+     * The server's own id for the event this row came from, when it came over JMAP. Null on a
+     * CalDAV row.
+     *
+     * [AddressBookContactEntity.remoteId]'s reasoning exactly, and the stakes are the same: the
+     * system-calendar mirror keys the provider's `_SYNC_ID` off [href], so an account that changes
+     * protocol has to keep the href it already had or the phone drops and recreates every event,
+     * losing notification state along the way.
+     *
+     * ⚠️ NOT unique across rows. One JMAP event with rescheduled instances is one server id and
+     * several rows, exactly as one `.ics` with several VEVENTs is; [href] is what separates them,
+     * with the recurrence day appended. Deleting "everything that event produced" is therefore
+     * still an href-prefix delete, not a delete by this column.
+     */
+    val remoteId: String? = null,
 ) {
     companion object {
         /** [raw] is an iCalendar VCALENDAR (RFC 5545), from CalDAV or a message part. */

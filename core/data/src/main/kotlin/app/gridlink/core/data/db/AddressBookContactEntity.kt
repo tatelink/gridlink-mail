@@ -76,6 +76,24 @@ data class AddressBookContactEntity(
      * CardDAV path writes, means what it always meant.
      */
     val payloadFormat: String = FORMAT_VCARD,
+    /**
+     * The server's own id for this card, when it came over JMAP. Null on a CardDAV row.
+     *
+     * ## 🔴 Why this is a column rather than something read out of [href]
+     * [href] is this row's LOCAL identity and nothing else's. The system-contacts mirror derives
+     * the Android provider's `SOURCE_ID` from it, so changing it deletes the phone's copy of the
+     * contact and inserts a fresh one, taking any favourite, ringtone or link to another account's
+     * contact with it. An account that was syncing over CardDAV and then meets a server advertising
+     * JMAP must therefore KEEP the href it already had, which means the JMAP object id has nowhere
+     * to live inside it.
+     *
+     * So this column, not the href, is what says "this row is JMAP-backed": it is what the write
+     * path addresses `ContactCard/set` with, and what the sync matches the server's listing
+     * against. A row created by a JMAP-only account still gets a `jmap:card/<id>` href, because it
+     * needs some local key and there is no earlier one to keep, but nothing reads the id back out
+     * of it.
+     */
+    val remoteId: String? = null,
 ) {
     companion object {
         /** [raw] is vCard text (RFC 6350, or the 3.0 before it), from CardDAV. */
