@@ -64,18 +64,26 @@ import java.util.Locale
  * list rather than Material's defaults.
  */
 
-/** Hub row: icon · title · value-summary · chevron. Navigates to a detail screen. */
+/**
+ * Hub row: icon · title · value-summary · chevron. Navigates to a detail screen.
+ *
+ * 🔴 A null [onClick] makes the row INERT: no ripple, no chevron, no click target. That is the
+ * point, not a degraded mode. About has rows that only state a fact (the build number, where the
+ * source lives), and the chevron is a promise that something happens when you tap. Drawing it on a
+ * row that goes nowhere is how About ended up looking broken: the rows still pointed at a private
+ * repo, so every tap landed on a 404 and the app looked like the thing at fault.
+ */
 @Composable
 fun SettingsCategoryRow(
     icon: ImageVector,
     title: String,
     summary: String,
-    onClick: () -> Unit,
+    onClick: (() -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(
                 horizontal = GridlinkSpacing.rowHorizontal,
                 vertical = GridlinkSpacing.rowVertical,
@@ -96,12 +104,14 @@ fun SettingsCategoryRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Spacer(Modifier.width(GridlinkSpacing.s16))
-        Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (onClick != null) {
+            Spacer(Modifier.width(GridlinkSpacing.s16))
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
     // The list grammar, not Material's: rows are separated by a hairline and nothing else — no
     // cards, no gaps. A hub of tappable rows that runs edge to edge inside the panel needs the same

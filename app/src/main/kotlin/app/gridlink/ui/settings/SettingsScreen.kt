@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Feedback
 import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.Handshake
@@ -263,6 +264,7 @@ fun SettingsScreen(
                 onOpenStorage = { entry.navigateOnce { nav.navigate("storage") } },
                 onOpenBackup = { entry.navigateOnce { nav.navigate("backup") } },
                 onOpenPromises = { entry.navigateOnce { nav.navigate("promises") } },
+                onOpenLicense = { entry.navigateOnce { nav.navigate("license") } },
                 onOpenUrl = { url -> leaveOnce { openUrl(context, url) } },
                 currentAccountLabel = currentLabel,
             )
@@ -347,6 +349,9 @@ fun SettingsScreen(
         composable("promises") { entry ->
             PromisesScreen(onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
+        composable("license") { entry ->
+            LicenseScreen(onBack = { entry.navigateOnce { nav.popBackStack() } })
+        }
         composable("backup") { entry ->
             BackupScreen(
                 viewModel = viewModel,
@@ -372,6 +377,7 @@ private fun SettingsHub(
     onOpenStorage: () -> Unit,
     onOpenBackup: () -> Unit,
     onOpenPromises: () -> Unit,
+    onOpenLicense: () -> Unit,
     onOpenUrl: (String) -> Unit,
     currentAccountLabel: String,
 ) {
@@ -410,9 +416,10 @@ private fun SettingsHub(
                 SettingsCategoryRow(Icons.Filled.BeachAccess, stringResource(R.string.settings_vacation_title), stringResource(R.string.settings_vacation_summary), onOpenVacation)
                 SettingsCategoryRow(Icons.Filled.FilterAlt, stringResource(R.string.settings_filters_title), stringResource(R.string.settings_filters_summary), onOpenFilters)
             }
-            // These four rows hand a URL to a browser instead of navigating; [onOpenUrl] carries
+            // Some of these rows hand a URL to a browser instead of navigating; [onOpenUrl] carries
             // the guard that keeps a double tap from opening it twice. No Context is taken here on
             // purpose, so a row added later cannot fire an intent of its own without saying so.
+            // 🔴 And some of them deliberately do NOTHING. See the Version and Source code rows.
             SettingsSection(stringResource(R.string.settings_about_section)) {
                 // 🔴 First in About, and the only row in the section that does NOT leave the app: a
                 // promise a user has to visit a repo to read is not a promise made to the user.
@@ -422,21 +429,32 @@ private fun SettingsHub(
                     stringResource(R.string.promises_summary),
                     onOpenPromises,
                 )
+                // 🔴 Inert, both of them: no chevron, no tap. They used to open the releases page
+                // and the repo, and both 404 because the repo is private — GitHub gives an
+                // anonymous visitor a flat "not found", not a sign-in prompt. Brandon, 2026-08-15:
+                // *"the settings app has dead links… version, source code, license, based on all
+                // point at dead links."* The fix he chose was to stop linking rather than to
+                // publish the tree, because the sample data in it is his real work inbox. A row
+                // that states a fact needs no destination; it was the chevron promising one that
+                // made these look broken.
                 SettingsCategoryRow(
                     Icons.Filled.Info,
                     stringResource(R.string.settings_about_version),
                     "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) · ${BuildConfig.VERSION_DATE}",
-                ) { onOpenUrl("$REPO_URL/releases") }
+                )
                 SettingsCategoryRow(
                     Icons.Filled.Code,
                     stringResource(R.string.settings_about_source),
-                    REPO_URL.removePrefix("https://"),
-                ) { onOpenUrl(REPO_URL) }
+                    stringResource(R.string.settings_about_source_private),
+                )
+                // The GPL requires its text to travel with the binary, so it does: read from the
+                // APK's own assets, offline, unable to 404. See [LicenseScreen].
                 SettingsCategoryRow(
                     Icons.Filled.Description,
                     stringResource(R.string.settings_about_license),
                     "GPL-3.0-or-later",
-                ) { onOpenUrl(LICENSE_URL) }
+                    onOpenLicense,
+                )
                 // 🔴 "Based on", not "Author". It used to credit emon as this app's author with a
                 // link to their Codeberg page, which was upstream's row surviving the fork: emon
                 // wrote Sterna and has never seen a line of the Gridlink layer, so the row was both
@@ -462,36 +480,36 @@ private fun SettingsHub(
                             Uri.encode("Gridlink feedback (${BuildConfig.VERSION_NAME})"),
                     )
                 }
-                // ⛔ There is NO support/donate row here and there must not be one. Brandon, using
-                // the app: "Remove any kofi or donation to emon content." The row that was here
-                // linked to a Ko-fi page and its subtitle — the bare URL — was being truncated on
-                // his device, so what he actually saw was a clipped begging line in his own mail
-                // app. An app with exactly one user has nobody to ask for money.
+                // 🔴 A support row, and 🔴 it is BRANDON'S, not upstream's. Read the history before
+                // touching it, because the obvious edit here is the wrong one twice over:
+                //  - 2026-08-10 he had the original row REMOVED — *"Remove any kofi or donation to
+                //    emon content."* That row asked his users to pay emon, who wrote Sterna but not
+                //    this layer, and its subtitle was the bare URL, which his device truncated into
+                //    something that read as a clipped beg inside his own mail app.
+                //  - 2026-08-15 he asked for one back, in his own name: *"where is the PROMINENT
+                //    kofi button?"*, and gave [KOFI_URL].
+                // So: never emon's page, and never a bare URL as the subtitle. The subtitle is a
+                // translated sentence that survives being cut off mid-way.
+                SettingsCategoryRow(
+                    Icons.Filled.Favorite,
+                    stringResource(R.string.settings_about_support),
+                    stringResource(R.string.settings_about_support_summary),
+                ) { onOpenUrl(KOFI_URL) }
             }
         }
     }
 }
 
-/**
- * This fork's own repo, which the About section links to for source, releases and licence.
- *
- * 🔴 It used to point at codeberg.org/emon/sterna-mail, on the grounds that Gridlink had no repo of
- * its own and the GPL's point is that whoever holds the binary can reach the source it was built
- * from. That reasoning expired the day this tree got pushed: upstream's repo does not serve THIS
- * source, and "Source code → someone else's tree" is the fork telling the user a version of events
- * that stopped being true. Private, and that is fine for what the GPL asks — it binds distribution,
- * and the only person this binary is distributed to is the person holding the repo.
- *
- * [UPSTREAM_URL] is where the credit goes, and it is a separate constant so that neither link can
- * quietly become the other again.
- */
-private const val REPO_URL = "https://github.com/tatelink/gridlink-mail"
-
-/** Where the licence text is served from. 🔴 GitHub's path shape, not Codeberg's `/src/branch/`. */
-private const val LICENSE_URL = "$REPO_URL/blob/main/LICENSE"
-
-/** What Gridlink is a fork of, credited in About. */
+/** What Gridlink is a fork of, credited in About. 🔴 The one About link that is not a dead end. */
 private const val UPSTREAM_URL = "https://codeberg.org/emon/sterna-mail"
+
+/**
+ * Brandon's Ko-fi, behind the support row.
+ *
+ * 🔴 His, not upstream's — see the row's comment for why that distinction has already been got
+ * wrong once. If a support link ever needs changing, it changes here and nowhere else.
+ */
+private const val KOFI_URL = "https://ko-fi.com/tatelink"
 
 /**
  * Where the About section's feedback row writes to.

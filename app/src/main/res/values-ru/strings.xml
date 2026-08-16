@@ -792,6 +792,9 @@
     <string name="settings_about_section">О приложении</string>
     <string name="settings_about_version">Версия</string>
     <string name="settings_about_source">Исходный код</string>
+    <string name="settings_about_source_private">Закрытый репозиторий, принадлежит владельцу приложения</string>
+    <string name="settings_about_support">Поддержать Gridlink</string>
+    <string name="settings_about_support_summary">Купите мне кофе на Ko-fi</string>
     <string name="settings_about_license">Лицензия</string>
     <string name="settings_about_feedback">Send feedback</string>
     <string name="settings_about_upstream">Основано на</string>
@@ -874,5 +877,5 @@
     <string name="promises_consent_title">Ничего не отправляется от вашего имени без спроса</string>
     <string name="promises_consent_body">Приложение не отвечает на почту за вас. Если отправитель просит сообщить, что вы прочитали письмо, обратно ничего не уйдёт, пока вы не нажмёте Отправить уведомление.</string>
     <string name="promises_source_title">Всё это можно проверить</string>
-    <string name="promises_source_body">Приложение целиком опубликовано под GPL, ссылка на репозиторий ниже. Каждое обещание отсюда можно прочитать в коде, а не принимать на веру.</string>
+    <string name="promises_source_body">Всё приложение распространяется по GPL, а полный текст лицензии можно прочитать в разделе «О приложении», не выходя из него. Каждое обещание здесь можно проверить по коду, а не принимать на веру.</string>
 </resources>

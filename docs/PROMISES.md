@@ -49,8 +49,8 @@ automatically would be a setting somebody else holding your phone could flip, so
 
 ## You can check all of this
 
-The whole app is published under the GPL and the repository is linked in About. Every promise here
-is one you can read the code for rather than take on trust.
+The whole app is under the GPL, and you can read the full licence text in About without leaving the
+app. Every promise here is one you can read the code for rather than take on trust.
 
 That is the point of the list. A promise nobody can verify is marketing; these are written so that
 if the app ever breaks one, the break is visible in a diff.
