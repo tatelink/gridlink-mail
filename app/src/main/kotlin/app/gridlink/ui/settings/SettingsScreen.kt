@@ -562,7 +562,11 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
             SettingsSection(stringResource(R.string.settings_app_icon_section)) {
                 SettingChoiceRow(
                     title = stringResource(R.string.settings_app_icon_title),
-                    options = listOf(AppIcon.AUTO, AppIcon.LIGHT, AppIcon.DARK, AppIcon.OLED),
+                    // Light first because Light is the default now (APP_ICON_DEFAULT), and a list
+                    // whose first row is not the one a fresh install is wearing makes the user hunt
+                    // for where they already are. Dark second, as the answer to the only question
+                    // anyone asks of this row; Auto and OLED after, being the specialist cases.
+                    options = listOf(AppIcon.LIGHT, AppIcon.DARK, AppIcon.AUTO, AppIcon.OLED),
                     selected = appIcon,
                     optionLabel = { appIconLabel(context, it) },
                     // Subtitles on two of the four, and only where the label is genuinely not

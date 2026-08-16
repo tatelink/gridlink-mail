@@ -37,13 +37,28 @@ enum class GridlinkPalette { AUTO, DAY, NIGHT, OLED }
  * app in OLED mode on a phone in light mode is an ordinary combination, and reading one off the
  * other would put a black tile on a white home screen without being asked.
  *
- * [AUTO] is the default and covers most people, because the auto icon already carries both variants
- * and the launcher swaps them with the system's dark mode. The other three exist for the case auto
- * cannot serve: a home screen whose wallpaper disagrees with the system setting.
+ * 🔴 [LIGHT] is the default, on Tate's call after living with AUTO: *"change the icon to the
+ * light version by default"*. AUTO held the slot on the theory that following the system is the
+ * polite answer, and the theory is wrong in the one way that matters — an icon that changes when
+ * the phone flips to dark mode is an icon you cannot learn the shape of, and a home screen is a
+ * place people navigate by shape at a glance. A fixed icon is a landmark; a reactive one is not.
+ * AUTO stays on offer for anyone who wants it, and the other two for the case it cannot serve: a
+ * home screen whose wallpaper disagrees with the system setting.
  *
- * Persisted BY NAME, so an unknown value from a newer build reads back as AUTO.
+ * Persisted BY NAME, so an unknown value from a newer build reads back as the default.
  */
 enum class AppIcon { AUTO, LIGHT, DARK, OLED }
+
+/**
+ * The icon a phone with no stored choice wears.
+ *
+ * 🔴 Named rather than repeated, because it is one fact held in three places that must agree: this
+ * flow's fallback, the ViewModel's initial value before the store has read, and `android:enabled`
+ * on the manifest's activity-aliases, which is the factory state a fresh install actually boots
+ * with. A constant cannot keep the manifest honest, but it does mean the two Kotlin halves cannot
+ * drift, and it gives the manifest something to name in its comment.
+ */
+val APP_ICON_DEFAULT = AppIcon.LIGHT
 
 /** Vertical density of message-list rows. */
 enum class ListDensity { COMPACT, NORMAL, SPACED }
@@ -192,7 +207,7 @@ class SettingsRepository(context: Context) {
      * legitimately drift: a "clear app data" wipes this store and leaves the alias where it was.
      */
     val appIcon: Flow<AppIcon> = dataStore.data.map { prefs ->
-        prefs[KEY_APP_ICON]?.let { runCatching { AppIcon.valueOf(it) }.getOrNull() } ?: AppIcon.AUTO
+        prefs[KEY_APP_ICON]?.let { runCatching { AppIcon.valueOf(it) }.getOrNull() } ?: APP_ICON_DEFAULT
     }
 
     suspend fun setAppIcon(icon: AppIcon) {

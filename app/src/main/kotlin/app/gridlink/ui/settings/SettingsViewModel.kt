@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.gridlink.container
 import app.gridlink.core.data.account.K9SettingsImporter
+import app.gridlink.core.data.settings.APP_ICON_DEFAULT
 import app.gridlink.core.data.settings.AppIcon
 import app.gridlink.core.data.settings.DeliveryMode
 import app.gridlink.core.data.settings.ListDensity
@@ -79,7 +80,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val appIcon = settings.appIcon.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = AppIcon.AUTO,
+        initialValue = APP_ICON_DEFAULT,
     )
 
     /**

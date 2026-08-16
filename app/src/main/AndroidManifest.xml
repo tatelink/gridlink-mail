@@ -109,6 +109,12 @@
           a mail client on someone's phone is indistinguishable from having been uninstalled. That
           invariant is enforced in code (enable the new one BEFORE disabling the rest), not here.
 
+          🔴 The LIGHT alias is the enabled one, and it is the only place the app's default icon
+          is stated in a form a fresh install obeys. Tate: *"change the icon to the light version
+          by default"*. Keep it in step with `APP_ICON_DEFAULT` in SettingsRepository.kt, which is
+          the same fact on the Kotlin side; a mismatch means the phone boots wearing one icon and
+          Settings shows another selected, until the startup reconcile corrects it a beat later.
+
           ⚠️ `android:enabled` below is only the FACTORY state, which is what a fresh install and a
           "clear app data" both get. After that the system's own component state wins, it survives
           app updates, and it is not readable from any resource. The stored [AppIcon] and these
@@ -121,7 +127,7 @@
         <activity-alias
             android:name="app.gridlink.icon.Auto"
             android:targetActivity=".MainActivity"
-            android:enabled="true"
+            android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
             android:roundIcon="@mipmap/ic_launcher_round"
@@ -135,7 +141,7 @@
         <activity-alias
             android:name="app.gridlink.icon.Light"
             android:targetActivity=".MainActivity"
-            android:enabled="false"
+            android:enabled="true"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_light"
             android:roundIcon="@mipmap/ic_launcher_light_round"
