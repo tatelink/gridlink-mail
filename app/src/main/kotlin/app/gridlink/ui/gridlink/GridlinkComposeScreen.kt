@@ -1129,7 +1129,21 @@ enum class GridlinkComposeField { NONE, TO, SUBJECT, BODY }
  * and a size and no bytes anywhere, so its chip stays a label.
  */
 @Immutable
-data class GridlinkAttachment(val name: String, val size: String, val id: String = "")
+/**
+ * One file, as the chips draw it: a name, a size, and the ticket whoever minted it can act on.
+ *
+ * 🔴 [removable] is a fact about the SERVER, not about the screen. It is true only for a calendar
+ * file the server is managing under RFC 8607, which is the only kind that can be taken off an event
+ * by asking the server to take it off. An `ATTACH` somebody typed into an invitation is a URL we do
+ * not own, and a mail attachment is part of a message that has already been delivered; offering a
+ * remove on either would be a button whose only possible outcome is a refusal.
+ */
+data class GridlinkAttachment(
+    val name: String,
+    val size: String,
+    val id: String = "",
+    val removable: Boolean = false,
+)
 
 /**
  * One request to open the composer: what to load, and what state to open it in.

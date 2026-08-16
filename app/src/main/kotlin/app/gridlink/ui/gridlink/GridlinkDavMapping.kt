@@ -57,7 +57,18 @@ object GridlinkDavMapping {
                 // 🔴 The ticket the tap comes back with, prefixed like every other id here so
                 // nothing downstream can mistake it for one of the mail chips', whose id is an
                 // index into an open message's parts and would open the wrong file entirely.
-                id = PREFIX + (it.blobId?.let { blob -> BLOB_MARK + blob } ?: it.href),
+                //
+                // 🔴 The managed id rides IN the ticket rather than being recovered from the href
+                // later. `CalendarAttachment.managedId` has two sources (an iCalendar `MANAGED-ID`
+                // parameter, and our own URL convention for when JMAP threw that parameter away),
+                // and only the first is authoritative. A remove path that re-derived it from the
+                // URL would work on this server and quietly refuse on any other one that names its
+                // files differently, which is the failure that looks like a broken button.
+                id = PREFIX + it.managedId?.let { mid -> MID_MARK + mid + MID_END }.orEmpty() +
+                    (it.blobId?.let { blob -> BLOB_MARK + blob } ?: it.href),
+                // The server manages this file, so the server can be asked to take it back. See
+                // [GridlinkAttachment.removable].
+                removable = it.managedId != null,
             )
         },
         category = occurrence.category?.takeIf { it.isNotBlank() },
@@ -82,6 +93,19 @@ object GridlinkDavMapping {
     /** Marks an attachment ticket as naming a JMAP blob rather than a URL. See [attachmentSource]. */
     private const val BLOB_MARK = "blob|"
 
+    /** Opens the managed id at the front of an attachment ticket. See [attachmentManagedId]. */
+    private const val MID_MARK = "mid|"
+
+    /**
+     * Closes it.
+     *
+     * Two characters rather than one because an RFC 8607 managed id is an opaque server token and
+     * nothing forbids a bare `|` inside it. `|>` is not a sequence any server here has ever minted,
+     * and a ticket is read only by the same process that wrote it, so this never has to survive a
+     * format change on the wire.
+     */
+    private const val MID_END = "|>"
+
     /**
      * A calendar [GridlinkAttachment.id] taken back apart, for the downloader that issued it.
      *
@@ -90,13 +114,38 @@ object GridlinkDavMapping {
      */
     fun attachmentSource(id: String): CalendarAttachmentSource? {
         if (!id.startsWith(PREFIX)) return null
-        val bare = id.removePrefix(PREFIX)
+        val bare = withoutManagedId(id.removePrefix(PREFIX))
         return when {
             bare.startsWith(BLOB_MARK) -> bare.removePrefix(BLOB_MARK).takeIf { it.isNotBlank() }
                 ?.let(CalendarAttachmentSource::Blob)
             bare.isNotBlank() -> CalendarAttachmentSource.Url(bare)
             else -> null
         }
+    }
+
+    /**
+     * The server's own name for the file inside an attachment ticket, or null when the server never
+     * gave one and so cannot be asked to remove it.
+     *
+     * Null is the ordinary answer, not an error: only a calendar file the server is managing under
+     * RFC 8607 carries a managed id at all. See [event] for why it is carried rather than derived.
+     */
+    fun attachmentManagedId(id: String): String? {
+        if (!id.startsWith(PREFIX)) return null
+        val bare = id.removePrefix(PREFIX)
+        if (!bare.startsWith(MID_MARK)) return null
+        val end = bare.indexOf(MID_END, MID_MARK.length)
+        if (end < 0) return null
+        return bare.substring(MID_MARK.length, end).takeIf { it.isNotBlank() }
+    }
+
+    /** The href or blob half of a ticket, with any managed id prefix stripped back off. */
+    private fun withoutManagedId(bare: String): String {
+        if (!bare.startsWith(MID_MARK)) return bare
+        val end = bare.indexOf(MID_END, MID_MARK.length)
+        // A ticket that opened a managed id and never closed it is malformed rather than
+        // href-shaped, and treating the remains as a URL would fetch from nowhere.
+        return if (end < 0) "" else bare.substring(end + MID_END.length)
     }
 
     /**

@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.AttachFile
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CloseFullscreen
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DriveFileMove
@@ -813,9 +814,14 @@ internal fun GridlinkAttachmentChip(
     modifier: Modifier = Modifier,
     onOpen: (() -> Unit)? = null,
     onSave: (() -> Unit)? = null,
+    onRemove: (() -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
     val shape = RoundedCornerShape(GridlinkRadii.pill)
+    // Either trailing button costs the chip the same height, so the padding is decided once. Both at
+    // once never happens and is not designed for: saving is a reader's verb over a message, removing
+    // is a writer's verb over an appointment, and no chip is ever both.
+    val trailing = onSave != null || onRemove != null
     Row(
         modifier = modifier
             .clip(shape)
@@ -828,9 +834,9 @@ internal fun GridlinkAttachmentChip(
             // for one icon, in the one place a message with four files can least afford it.
             .padding(
                 start = GridlinkSpacing.s16,
-                end = if (onSave != null) GridlinkSpacing.s4 else GridlinkSpacing.s16,
-                top = if (onSave != null) GridlinkSpacing.s4 else GridlinkSpacing.s12,
-                bottom = if (onSave != null) GridlinkSpacing.s4 else GridlinkSpacing.s12,
+                end = if (trailing) GridlinkSpacing.s4 else GridlinkSpacing.s16,
+                top = if (trailing) GridlinkSpacing.s4 else GridlinkSpacing.s12,
+                bottom = if (trailing) GridlinkSpacing.s4 else GridlinkSpacing.s12,
             ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -873,6 +879,28 @@ internal fun GridlinkAttachmentChip(
                     // tap already did when it opened the file, and the difference the user cares
                     // about is that this one is still there tomorrow.
                     contentDescription = "Save ${attachment.name} to the phone",
+                    tint = colors.textSecondary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+        if (onRemove != null) {
+            Box(
+                modifier = Modifier
+                    .padding(start = GridlinkSpacing.s8)
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    // Inside the chip's own clickable, for the save button's reason: the innermost
+                    // handler takes the tap, so removing a file cannot also download it first.
+                    .clickable(onClick = onRemove),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Close,
+                    // Named for what it does to the appointment, not to the chip. The file leaves
+                    // the server, so "remove from this event" is the honest label and "clear" or
+                    // "dismiss" would both suggest the chip is what is going away.
+                    contentDescription = "Remove ${attachment.name} from this event",
                     tint = colors.textSecondary,
                     modifier = Modifier.size(20.dp),
                 )

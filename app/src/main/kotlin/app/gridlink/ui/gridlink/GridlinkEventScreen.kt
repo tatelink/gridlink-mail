@@ -20,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Label
+import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Domain
 import androidx.compose.material.icons.outlined.Edit
@@ -30,8 +31,10 @@ import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -71,6 +74,21 @@ import java.util.Locale
  * the mail list below still name them. Writing to them is one tap further away, from the contact
  * card, which is where every other "write to this person" in the app already lives.
  *
+ * ## 🔴 Attaching lives on the card, not in the edit form
+ * Every other field of an appointment is edited in [GridlinkEventFormScreen], which buffers what is
+ * typed and writes once on Save, so Cancel really does undo it. A managed attachment cannot work
+ * that way: RFC 8607 add and remove are POSTs against the event's own URL that the server has
+ * already honoured by the time the sheet closes, so a Cancel would be a lie, and an event being
+ * created for the first time has no URL to POST to at all. Putting the affordance on the card keeps
+ * the promise the form makes rather than quietly breaking it for one section.
+ *
+ * The whole affordance is gated on [attachmentsSupported], which is a question about THIS event on
+ * THIS server (not a capability flag on the account): an event whose row carries a synthetic JMAP
+ * key rather than a CalDAV href has nothing to POST to, and the row simply has no attach control.
+ * The answer is awaited rather than assumed, so the control appears a moment after the card does.
+ * That is the right way round: an attach button that appears and then refuses is worse than one
+ * that arrives late.
+ *
  * ## What the counterparty is, and why an internal event has none
  * [GridlinkEvent.domain] is the event's only statement about who it is with, and it is not
  * decoration: it runs through the same [gridlinkSenderBarColor] hash the message rows use, so an
@@ -99,6 +117,15 @@ fun GridlinkEventScreen(
     onEdit: ((GridlinkEvent) -> Unit)? = null,
     /** Fetch and open a tapped file, or null when nothing behind this screen can (see the chips). */
     onOpenAttachment: ((GridlinkAttachment) -> Unit)? = null,
+    /**
+     * Ask the server whether it will manage files for this event, or null when nothing behind this
+     * screen can ask. See the Attach a file row for why the answer has to be awaited.
+     */
+    attachmentsSupported: (suspend (GridlinkEvent) -> Boolean)? = null,
+    /** Pick a file and hand it to the server, or null when no writer can honour that. */
+    onAttachFile: ((GridlinkEvent) -> Unit)? = null,
+    /** Ask the server to take a file back off this event, or null as above. */
+    onRemoveAttachment: ((GridlinkEvent, GridlinkAttachment) -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
@@ -132,6 +159,40 @@ fun GridlinkEventScreen(
     // that day" is the question you open a calendar entry with.
     val sameDay = remember(event.id, book) {
         book.eventsOn(event.date).filter { it.id != event.id }
+    }
+
+    // 🔴 Starts false and is only ever raised by an answer. Defaulting to true would draw the
+    // control on every event for as long as the probe took and then take it away again, which on a
+    // list of appointments most of which cannot take files is a flicker on nearly every card.
+    var serverManagesFiles by remember(event.id) { mutableStateOf(false) }
+    LaunchedEffect(event.id, attachmentsSupported) {
+        serverManagesFiles = attachmentsSupported?.invoke(event) ?: false
+    }
+    val canAttach = serverManagesFiles && onAttachFile != null
+    // The chip whose removal is waiting on a yes. Null the rest of the time, which is the dialog's
+    // own absence: a removal is a server-side delete of a file that may exist nowhere else.
+    var pendingRemove by remember(event.id) { mutableStateOf<GridlinkAttachment?>(null) }
+
+    pendingRemove?.let { doomed ->
+        GridlinkDialog(
+            title = "Remove this file?",
+            confirmLabel = "Remove",
+            destructive = true,
+            onConfirm = {
+                pendingRemove = null
+                onRemoveAttachment?.invoke(event, doomed)
+            },
+            onDismiss = { pendingRemove = null },
+        ) {
+            Text(
+                // Named, not "this attachment": an event can carry several, and the dialog covers
+                // the chip that opened it rather than whichever one the thumb was nearest.
+                text = "${doomed.name} will be deleted from ${event.title} for everyone it is " +
+                    "shared with. This cannot be undone.",
+                style = GridlinkType.body,
+                color = colors.textSecondary,
+            )
+        }
     }
 
     GridlinkDetailFrame(
@@ -234,7 +295,7 @@ fun GridlinkEventScreen(
             // appointment that is a time and a title, and it should look deliberate.
             val hasFacts = event.location != null || event.notes != null ||
                 event.category != null || event.reminders.isNotEmpty() ||
-                event.attachments.isNotEmpty()
+                event.attachments.isNotEmpty() || canAttach
             if (hasFacts || sameDay.isNotEmpty() || !internal) {
                 Box(
                     modifier = Modifier
@@ -285,7 +346,7 @@ fun GridlinkEventScreen(
 
             // ⚠️ After the notes and before the category, because an agenda usually refers to the
             // documents by name and the chips are then in the reader's eye when they get there.
-            if (event.attachments.isNotEmpty()) {
+            if (event.attachments.isNotEmpty() || canAttach) {
                 GridlinkSectionLabel(text = if (event.attachments.size == 1) "Attachment" else "Attachments")
                 event.attachments.forEach { attachment ->
                     GridlinkAttachmentChip(
@@ -300,9 +361,27 @@ fun GridlinkEventScreen(
                         // chip that highlights under the thumb and then does nothing is the shape
                         // of a broken app. Same rule the mail chips already follow.
                         onOpen = onOpenAttachment?.let { open -> { open(attachment) } },
+                        // 🔴 Three conditions, all of them necessary. The server has to manage this
+                        // event's files, something has to be listening for the removal, and the
+                        // FILE itself has to be one the server named: an event can carry a plain
+                        // `ATTACH` URL pointing at somebody else's web server, and offering to
+                        // delete that would be offering something no CalDAV server can do.
+                        onRemove = onRemoveAttachment
+                            ?.takeIf { serverManagesFiles && attachment.removable }
+                            ?.let { { pendingRemove = attachment } },
                     )
                 }
-                Spacer(Modifier.height(GridlinkSpacing.s8))
+                if (canAttach) {
+                    // A labelled row rather than a ghost chip: a chip is a file, and an empty one
+                    // offering to become a file reads as a file that failed to load.
+                    GridlinkEventFact(
+                        text = "Attach a file",
+                        icon = Icons.Outlined.AttachFile,
+                        onClick = { onAttachFile(event) },
+                    )
+                } else {
+                    Spacer(Modifier.height(GridlinkSpacing.s8))
+                }
             }
 
             event.category?.let { category ->

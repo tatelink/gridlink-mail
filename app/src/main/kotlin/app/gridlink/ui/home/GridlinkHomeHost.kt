@@ -29,17 +29,18 @@ import app.gridlink.push.PushController
 import app.gridlink.ui.gridlink.GridlinkApp
 import app.gridlink.ui.gridlink.GridlinkAttachment
 import app.gridlink.ui.gridlink.GridlinkChromeConfig
-import app.gridlink.ui.gridlink.GridlinkFileAttacher
 import app.gridlink.ui.gridlink.GridlinkComposeDraft
-import app.gridlink.ui.gridlink.GridlinkMenuItem
 import app.gridlink.ui.gridlink.GridlinkDestination
+import app.gridlink.ui.gridlink.GridlinkEvent
+import app.gridlink.ui.gridlink.GridlinkFileAttacher
+import app.gridlink.ui.gridlink.GridlinkMenuItem
 import app.gridlink.ui.gridlink.GridlinkOpenRequest
 import app.gridlink.ui.gridlink.GridlinkOutboxSender
 import app.gridlink.ui.gridlink.GridlinkRoot
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
-import app.gridlink.ui.gridlink.GridlinkUnifiedInbox
 import app.gridlink.ui.gridlink.GridlinkSyncAction
 import app.gridlink.ui.gridlink.GridlinkSyncState
+import app.gridlink.ui.gridlink.GridlinkUnifiedInbox
 import app.gridlink.ui.gridlink.LocalGridlinkChrome
 import app.gridlink.ui.gridlink.gridlinkTypedRecipient
 import app.gridlink.ui.gridlink.toGridlinkPalette
@@ -382,6 +383,23 @@ fun GridlinkHomeHost(
         if (destination != null && attachment != null) viewModel.saveAttachment(attachment, destination)
     }
 
+    // The appointment whose attach is waiting on the document picker, parked here for [pendingSave]'s
+    // reason: the contract carries a uri back and nothing else, so the event has to survive the trip.
+    //
+    // ⚠️ This picker IS shown on every release, unlike the save one above. Reading a file the user
+    // has not chosen yet is not something an app gets to do quietly, and there is no equivalent of
+    // "straight to Downloads" for an inbound file.
+    var pendingAttach by remember { mutableStateOf<GridlinkEvent?>(null) }
+    val attachLauncher = rememberLauncherForActivityResult(
+        // OpenDocument rather than GetContent: it returns a uri that survives the trip through the
+        // view model's IO dispatcher, which GetContent's does not promise to.
+        ActivityResultContracts.OpenDocument(),
+    ) { picked ->
+        val event = pendingAttach
+        pendingAttach = null
+        if (picked != null && event != null) davViewModel.attachFile(event, picked)
+    }
+
     GridlinkApp(
         initialModeOverride = palette.toModeOverride(),
         // 🔴 Starts SYNCING, not SYNCED. The launch sync below is already running by the time the
@@ -442,6 +460,14 @@ fun GridlinkHomeHost(
             calendarWriter = davViewModel.calendarWriter,
             contactWriter = davViewModel.contactWriter,
             onOpenEventAttachment = davViewModel::openAttachment,
+            eventAttachmentsSupported = davViewModel::attachmentsSupported,
+            onAttachEventFile = { event ->
+                pendingAttach = event
+                // Everything, because a calendar attachment is whatever the organiser needs it to
+                // be: a floor plan, a spreadsheet, a photo of a delivery note.
+                attachLauncher.launch(arrayOf("*/*"))
+            },
+            onRemoveEventAttachment = davViewModel::removeAttachment,
             scheduled = scheduled,
             onCancelScheduled = viewModel::cancelScheduled,
             snoozed = snoozed,

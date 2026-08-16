@@ -734,6 +734,19 @@ fun GridlinkRoot(
      */
     onOpenEventAttachment: ((GridlinkAttachment) -> Unit)? = null,
     /**
+     * Ask whether the server will manage files for one appointment, or null when nothing can ask.
+     *
+     * Three separate parameters rather than one writer object, because they are three different
+     * refusals: a build with no server can answer none of them, and a build with a server can still
+     * find an event the server has no URL for. Null on all three is the sample's case and the
+     * default, and [GridlinkEventScreen] then draws no attach control at all.
+     */
+    eventAttachmentsSupported: (suspend (GridlinkEvent) -> Boolean)? = null,
+    /** Pick a file and hand it to the server for one appointment. See [eventAttachmentsSupported]. */
+    onAttachEventFile: ((GridlinkEvent) -> Unit)? = null,
+    /** Ask the server to take a file back off one appointment. See [eventAttachmentsSupported]. */
+    onRemoveEventAttachment: ((GridlinkEvent, GridlinkAttachment) -> Unit)? = null,
+    /**
      * The account's mail, or null to draw [GridlinkSample]'s. See [GridlinkMailContent], including
      * the 🔴 on why null is not the same as an empty inbox.
      */
@@ -2251,6 +2264,9 @@ fun GridlinkRoot(
                             null
                         },
                         onOpenAttachment = onOpenEventAttachment,
+                        attachmentsSupported = eventAttachmentsSupported,
+                        onAttachFile = onAttachEventFile,
+                        onRemoveAttachment = onRemoveEventAttachment,
                         embedded = embedded,
                     )
                 }
