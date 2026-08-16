@@ -32,6 +32,7 @@ class ICalendarWriteTest {
         end: LocalTime? = LocalTime.of(10, 0),
         location: String? = null,
         description: String? = null,
+        rrule: String? = null,
     ): String = ICalendar.buildEvent(
         uid = "test-uid",
         summary = summary,
@@ -42,6 +43,7 @@ class ICalendarWriteTest {
         location = location,
         description = description,
         nowMillis = stamp,
+        rrule = rrule,
     )
 
     private fun readBack(ics: String): ParsedCalendarEvent =
@@ -462,6 +464,41 @@ class ICalendarWriteTest {
         assertTrue(out, "SUMMARY:New title" in out)
         // The continuation must not survive as an orphan glued to whatever line came before it.
         assertFalse(out, "folded onto a second line" in out)
+    }
+
+    // ---- RRULE pass-through ----------------------------------------------------------------
+    // Saving an invitation has to keep the rule, or a weekly meeting is filed as one afternoon.
+
+    @Test fun anRruleSurvivesTheRoundTrip() {
+        val event = readBack(build(rrule = "FREQ=WEEKLY;BYDAY=TU"))
+        assertEquals("FREQ=WEEKLY;BYDAY=TU", event.rrule)
+    }
+
+    @Test fun noRruleWritesNoRruleLine() {
+        assertFalse(build(), "RRULE" in build())
+    }
+
+    /**
+     * 🔴 The value came off a stranger's message and is uploaded to the user's own server, so a rule
+     * this app does not recognise is REFUSED rather than repaired. Half-fixing somebody else's text
+     * and then putting it on the server is how a calendar ends up holding something nobody wrote.
+     */
+    @Test fun aRuleThatIsNotOneIsDropped() {
+        assertFalse(build(rrule = "DTSTART:19700101T000000Z"), "RRULE" in build(rrule = "DTSTART:19700101T000000Z"))
+        assertFalse(build(rrule = "   "), "RRULE" in build(rrule = "   "))
+    }
+
+    /** A newline in the value would end the RRULE line early and inject whatever follows it. */
+    @Test fun aRuleCarryingALineBreakIsDropped() {
+        val out = build(rrule = "FREQ=WEEKLY\r\nSUMMARY:Injected")
+        assertFalse(out, "Injected" in out)
+        assertFalse(out, "RRULE" in out)
+    }
+
+    /** An all-day event takes the date branch, which carries no rule to write. */
+    @Test fun anAllDayEventDropsTheRule() {
+        val out = build(start = null, end = null, rrule = "FREQ=WEEKLY")
+        assertFalse(out, "RRULE" in out)
     }
 
     @Test fun nothingTouchedReturnsTheTextUnchanged() {

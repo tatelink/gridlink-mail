@@ -113,6 +113,17 @@ class ICalendarTest {
         assertEquals("Quarterly planning with the extended leadership team", event.title)
         assertEquals(3, event.attendeeCount)
         assertTrue(event.recurs)
+        // Kept verbatim, not re-derived: saving this invitation has to file four meetings, and the
+        // only description of "four" is the organiser's own line.
+        assertEquals("FREQ=WEEKLY;COUNT=4", event.rrule)
+    }
+
+    @Test fun noRruleMeansNoRule() {
+        val event = ICalendar.parse(
+            ics("BEGIN:VEVENT", "SUMMARY:One off", "DTSTART:20260703T140000Z", "END:VEVENT"),
+        )!!
+        assertFalse(event.recurs)
+        assertNull(event.rrule)
     }
 
     @Test fun escapedText() {

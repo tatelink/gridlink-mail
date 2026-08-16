@@ -90,6 +90,10 @@ data class DavWriteOutcome(
  * the form asks "this event or all events" first and passes the answer down as
  * [EventEditScope]: guessing that question is how a calendar loses an appointment quietly.
  */
+// Two collection kinds, each with an observe, a one-shot read, a sync and a write, is what puts this
+// on the function counter. Splitting it by kind would duplicate the whole access, sync and error
+// story twice over, which is the thing the counter is supposed to prevent, not cause.
+@Suppress("TooManyFunctions")
 class DavRepository(
     private val client: DavClient,
     private val accountStore: AccountStore,
@@ -167,6 +171,23 @@ class DavRepository(
     suspend fun calendars(accountId: String): List<DavCollectionEntity> =
         collectionDao.forKind(accountId, DavCollectionEntity.KIND_CALENDAR)
 
+    /**
+     * The calendar [createEvent] would write to with no `collectionUrl`, or null when there is none.
+     *
+     * 🔴 This exists so a caller can decide BEFORE it acts, rather than firing a write and reading
+     * the refusal text back out. [createEvent] declines for two different reasons (sync is off, or
+     * nothing has been discovered yet) and both come back as prose; a caller that branched on those
+     * strings would silently change behaviour the day somebody rewords an error message. The two
+     * checks here are the same two checks, in the same order, against the same sources.
+     *
+     * Deliberately NOT a "can I write" boolean: the callers that need this also want to name the
+     * calendar in what they tell the user, and a boolean would send them straight back to the DAO.
+     */
+    suspend fun defaultCalendar(accountId: String): DavCollectionEntity? {
+        if (accountStore.account(accountId)?.syncSelection?.calendar != true) return null
+        return collectionDao.forKind(accountId, DavCollectionEntity.KIND_CALENDAR).firstOrNull()
+    }
+
     // ---- Sync --------------------------------------------------------------------------------
 
     /** Bring the account's calendars up to date, if the user asked for calendars at all. */
@@ -204,6 +225,10 @@ class DavRepository(
      *
      * @param collectionUrl which calendar, or null for the account's first one.
      */
+    // Every early exit here is a refusal carrying its own reason, and the reason is the point: they
+    // are what the card or the form shows instead of a save. One exit would mean assembling that
+    // sentence into a variable and falling through past checks that no longer apply.
+    @Suppress("ReturnCount")
     suspend fun createEvent(
         accountId: String,
         title: String,
@@ -217,6 +242,27 @@ class DavRepository(
         reminders: List<Int> = emptyList(),
         collectionUrl: String? = null,
         nowMillis: Long = System.currentTimeMillis(),
+        /**
+         * The event's identity, or null to mint one.
+         *
+         * 🔴 Pass the organiser's own UID when saving an invitation, and only then. A meeting filed
+         * under a fresh UUID is not the organiser's meeting any more: when they move it and send the
+         * update, nothing on the server matches, and the user ends up holding both the old time and
+         * the new one with no way to tell which is live. A UID is the only thing that makes the
+         * second message an update rather than a second meeting.
+         */
+        uid: String? = null,
+        /** An RRULE to carry through verbatim; see [ICalendar.buildEvent]. */
+        rrule: String? = null,
+        /**
+         * The day [end] falls on, when the caller already knows it.
+         *
+         * For callers copying an event that exists elsewhere, such as an invitation off a message.
+         * The new-event form has no such field and passes null, which keeps the inference below:
+         * from a form, an end earlier in the day than the start means "ends tomorrow". That
+         * inference cannot express a meeting running three days, and an invitation can.
+         */
+        endDate: LocalDate? = null,
     ): DavWriteOutcome {
         if (accountStore.account(accountId)?.syncSelection?.calendar != true) {
             return DavWriteOutcome(error = "Turn on calendar sync for this account to save events")
@@ -235,16 +281,16 @@ class DavRepository(
 
         val displayZone = zone()
         val allDay = start == null
-        val uid = UUID.randomUUID().toString()
+        val eventUid = fileSafeUid(uid)
         val ics = ICalendar.buildEvent(
-            uid = uid,
+            uid = eventUid,
             summary = title,
             start = LocalDateTime.of(date, start ?: LocalTime.MIDNIGHT),
             // An end time earlier in the day than the start is the form's way of spelling "ends
             // tomorrow", which is what someone means by 22:00 to 01:00. Rolling the date forward
             // here keeps buildEvent honest about only ever receiving an end after its start.
             end = end?.let {
-                val day = if (start != null && it <= start) date.plusDays(1) else date
+                val day = endDate ?: if (start != null && it <= start) date.plusDays(1) else date
                 LocalDateTime.of(day, it)
             },
             allDay = allDay,
@@ -254,10 +300,11 @@ class DavRepository(
             nowMillis = nowMillis,
             category = category,
             reminders = reminders,
+            rrule = rrule,
         )
 
         val written = try {
-            client.create(target, "$uid.ics", dav, DavKind.CALENDAR, ics)
+            client.create(target, "$eventUid.ics", dav, DavKind.CALENDAR, ics)
         } catch (e: DavException) {
             return DavWriteOutcome(error = describe(e))
         }
@@ -801,4 +848,28 @@ class DavRepository(
         404 -> "The server has no calendar or address book at that address."
         else -> e.message ?: "Sync failed"
     }
+}
+
+/** No longer than a filename can sensibly be; the UID becomes `"$uid.ics"` on the server. */
+private const val MAX_UID_LENGTH = 255
+
+/**
+ * A caller's UID if it can safely name a file, else a fresh one.
+ *
+ * 🔴 The value ends up as `"$uid.ics"` in a PUT against the user's own server, so a UID carrying a
+ * slash, a backslash, a control character or a traversal segment would address a path of somebody
+ * else's choosing. It arrives off a stranger's invitation, so it is checked rather than trusted.
+ *
+ * Refused by MINTING one rather than by failing the save: the meeting is still worth having even
+ * when the identity it came with is not usable, and the caller that passed a UID did so to make a
+ * later reschedule match, not to make the save conditional on it.
+ */
+private fun fileSafeUid(uid: String?): String {
+    val trimmed = uid?.trim() ?: return UUID.randomUUID().toString()
+    val usable = trimmed.isNotEmpty() &&
+        trimmed.length <= MAX_UID_LENGTH &&
+        trimmed != "." &&
+        trimmed != ".." &&
+        trimmed.none { it == '/' || it == '\\' || it.isISOControl() }
+    return if (usable) trimmed else UUID.randomUUID().toString()
 }

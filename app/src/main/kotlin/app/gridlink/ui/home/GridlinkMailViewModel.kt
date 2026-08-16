@@ -184,6 +184,15 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     private var openingAttachment = false
 
     /**
+     * One calendar save in flight.
+     *
+     * 🔴 Guards the WRITE, not the tap. The event goes to the server under the organiser's UID, so a
+     * second save while the first is going is a PUT racing itself over one filename. The card's own
+     * leave guard cannot cover this: it releases on resume, and a local save never leaves the app.
+     */
+    private var savingInvite = false
+
+    /**
      * The open message's meeting invitation, in the form the CARD cannot hold.
      *
      * [GridlinkOpenMessage.invite] is display-ready strings, on purpose — the UI package is not
@@ -1754,22 +1763,117 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     }
 
     /**
-     * Hand the open invitation's event to whatever calendar app the phone has.
+     * Save the open invitation's event, preferring this account's own calendar.
      *
-     * An `ACTION_INSERT`, which needs no permission and writes nothing itself: the calendar's own
-     * editor comes up prefilled and the user is the one who saves it. 🔴 That also means this app
-     * never has to hold a calendar permission to be useful with invitations, which is the whole
-     * reason it is done this way rather than through the provider.
+     * ## 🔴 Our calendar first, another app's second
+     * When the account has calendar sync on and a calendar already discovered, the event is written
+     * straight to it over CalDAV and shows up in this app's own Calendar tab. The `ACTION_INSERT`
+     * chooser is the fallback for a phone where we have nowhere of our own to put it. Handing a
+     * meeting to Samsung Calendar or Outlook when Gridlink has a perfectly good calendar of its own
+     * is the surprise this ordering exists to prevent.
      *
-     * 🔴 Returns whether the phone actually left, because the card's button holds a leave guard and
-     * the guard latches on a true. Adding to a calendar CREATES something and the editor takes a
-     * moment to appear, so an ungated second tap files the same meeting twice and the duplicate
-     * outlives the mail. A phone with no calendar app leaves nothing to double, and says false so the
-     * button stays live.
+     * ## 🔴 A server failure does NOT fall through to the chooser
+     * The fallback is for "no calendar of ours", never for "our server said no" or "the network was
+     * down". Exporting somebody's meeting into a third-party app because a PUT timed out is exactly
+     * the silent surprise the ordering above is meant to avoid, so a failure stays a failure and says
+     * so on the card. The next tap is a retry.
+     *
+     * ## The UID and the RRULE ride along
+     * [ParsedEvent.uid] so a later reschedule from the organiser can match this event rather than
+     * landing beside it, and [ParsedEvent.rrule] so a weekly meeting is saved as a weekly meeting.
+     *
+     * 🔴 Returns whether the phone actually LEFT, which only the chooser branch does. The card's
+     * button holds a leave guard whose latch releases on resume, so a local save that returned true
+     * would dead-button the control for good. Double taps on the local path are held off by
+     * [savingInvite] instead, the same way [respondToInvite] holds off a second reply.
      */
+    // Five ways out, and each one is a different answer to "did the phone leave": no message, no
+    // invitation, no account so the chooser, a save already going, and the save itself. Folding them
+    // into one exit would mean a flag saying which of the five it was.
+    @Suppress("ReturnCount")
     fun addInviteToCalendar(): Boolean {
         val current = opened.value ?: return false
         val event = openInvite?.takeIf { it.ownerId == current.id }?.event ?: return false
+        val account = accountFor(current.id) ?: return handInviteToCalendarApp(current.id, event)
+        if (savingInvite) return false
+        savingInvite = true
+        setInvite(current.id) { it.copy(note = "Saving to your calendar…") }
+        viewModelScope.launch {
+            try {
+                val calendar = dav.defaultCalendar(account)
+                if (calendar == null) {
+                    // Nowhere of ours: sync is off for this account, or nothing has been discovered
+                    // yet. Both mean another app is the only place this can go.
+                    setInvite(current.id) { it.copy(note = null) }
+                    handInviteToCalendarApp(current.id, event)
+                } else {
+                    val note = saveInviteToOurCalendar(account, calendar.url, calendar.displayName, event)
+                    setInvite(current.id) { it.copy(note = note) }
+                }
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                Log.w(TAG, "invite save failed", t)
+                setInvite(current.id) { it.copy(note = "Couldn't save the event.") }
+            } finally {
+                savingInvite = false
+            }
+        }
+        return false
+    }
+
+    /**
+     * Write the invitation's event to one calendar, and say what to put on the card either way.
+     *
+     * The times come back from epoch millis in the phone's zone, which is the zone
+     * `DavRepository.createEvent` writes in, so the instant that lands on the server is the instant
+     * the organiser sent. `endDate` is passed explicitly because a meeting can run past midnight
+     * more than once and the form's "an earlier end means tomorrow" guess cannot say that.
+     *
+     * Takes the URL and the label rather than the collection row: this is the UI layer, and it has
+     * no business holding a database entity to read two fields off it.
+     */
+    private suspend fun saveInviteToOurCalendar(
+        account: String,
+        calendarUrl: String,
+        calendarName: String?,
+        event: ParsedEvent,
+    ): String {
+        val zone = ZoneId.systemDefault()
+        val startAt = Instant.ofEpochMilli(event.startMillis).atZone(zone)
+        val endAt = event.endMillis?.let { Instant.ofEpochMilli(it).atZone(zone) }
+        val outcome = dav.createEvent(
+            accountId = account,
+            title = event.title?.takeIf { it.isNotBlank() }
+                ?: getApplication<Application>().getString(R.string.calendar_event_untitled),
+            date = startAt.toLocalDate(),
+            // An all-day event has no clock time to carry, and a null start is how createEvent is
+            // told that.
+            start = if (event.allDay) null else startAt.toLocalTime(),
+            end = if (event.allDay) null else endAt?.toLocalTime(),
+            location = event.location,
+            description = event.description,
+            collectionUrl = calendarUrl,
+            uid = event.uid,
+            rrule = event.rrule,
+            endDate = if (event.allDay) null else endAt?.toLocalDate(),
+        )
+        return if (outcome.succeeded) {
+            "Saved to ${calendarName ?: "your calendar"}."
+        } else {
+            outcome.error ?: "Couldn't save the event."
+        }
+    }
+
+    /**
+     * The fallback: hand the event to whatever calendar app the phone has.
+     *
+     * An `ACTION_INSERT`, which needs no permission and writes nothing itself: the calendar's own
+     * editor comes up prefilled and the user is the one who saves it. 🔴 That also means this app
+     * never has to hold a calendar permission to be useful with invitations, which is why it is done
+     * this way rather than through the provider.
+     */
+    private fun handInviteToCalendarApp(messageId: String, event: ParsedEvent): Boolean {
         val app = getApplication<Application>()
         val intent = Intent(Intent.ACTION_INSERT)
             .setData(CalendarContract.Events.CONTENT_URI)
@@ -1782,13 +1886,13 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         event.description?.let { intent.putExtra(CalendarContract.Events.DESCRIPTION, it) }
         return try {
             app.startActivity(intent)
-            setInvite(current.id) { it.copy(note = null) }
+            setInvite(messageId) { it.copy(note = null) }
             true
         } catch (t: Throwable) {
             Log.w(TAG, "no calendar app", t)
             // Said on the card rather than in a toast: it is a fact about this invitation on this
             // phone, and the reader is already looking at the thing it is about.
-            setInvite(current.id) { it.copy(note = "No calendar app on this phone.") }
+            setInvite(messageId) { it.copy(note = "No calendar app on this phone.") }
             false
         }
     }
@@ -2284,6 +2388,15 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         val credentials = (keyAccount ?: accountId.value)?.let(store::credentials) ?: return null
         return credentials to emailId
     }
+
+    /**
+     * Which account a row belongs to: the one its key names, else whichever is bound.
+     *
+     * The same fallback [resolve] uses, minus the credential lookup, for callers that need the
+     * account ID itself rather than a way to talk to its mail server. DAV is keyed by account ID.
+     */
+    private fun accountFor(rowKey: String): String? =
+        GridlinkRowKey.decode(rowKey).first ?: accountId.value
 
     private fun routed(keys: Collection<String>): List<Pair<AccountCredentials, List<String>>> {
         val bound = accountId.value

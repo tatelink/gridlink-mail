@@ -321,6 +321,10 @@ object MimeParser {
      * The `x-` spellings are accepted alongside the registered ones: Outlook has emitted
      * `application/x-pkcs7-signature` for decades and those messages are real mail.
      */
+    // Eight ways a message turns out not to carry a signature this app can check, each recognised at
+    // a different depth of the MIME tree. They are all the same answer (null) and none of them is a
+    // failure, so there is nothing to accumulate on the way out.
+    @Suppress("ReturnCount")
     fun detectSmime(raw: String): SmimeEnvelope? {
         val (headerText, body) = splitHeaders(raw)
         val headers = parseHeaders(headerText)

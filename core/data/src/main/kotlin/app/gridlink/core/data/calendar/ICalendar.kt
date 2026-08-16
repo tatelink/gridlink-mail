@@ -25,6 +25,16 @@ data class ParsedEvent(
     val attendeeCount: Int,
     /** True when the event carries an RRULE (it repeats); we don't expand the rule. */
     val recurs: Boolean,
+    /**
+     * The RRULE's value, verbatim and unexpanded (`FREQ=MONTHLY;COUNT=4`), or null.
+     *
+     * 🔴 Kept beside [recurs] rather than replacing it: [recurs] answers "does this repeat", which is
+     * all the reading pane needs, and a caller that only wanted to draw a line should not have to
+     * care that the rule is a string. This field exists so saving an invitation can carry the rule
+     * to the server unchanged instead of filing one meeting where the organiser sent four.
+     * Only the FIRST RRULE, because an event with two is already outside what this app models.
+     */
+    val rrule: String? = null,
     val description: String?,
     /** VCALENDAR METHOD (REQUEST, CANCEL, …) in upper case, if present. */
     val method: String?,
@@ -137,6 +147,7 @@ object ICalendar {
                 organizer = organizerLine?.let(::organizerOf),
                 attendeeCount = attendees.size,
                 recurs = event.any { it.name == "RRULE" },
+                rrule = first("RRULE")?.value?.trim()?.takeIf { it.isNotBlank() },
                 description = first("DESCRIPTION")?.let { ContentLines.unescapeText(it.value) }?.takeIf { it.isNotBlank() },
                 method = method,
                 status = first("STATUS")?.value?.trim()?.uppercase()?.takeIf { it.isNotBlank() },
@@ -302,6 +313,10 @@ object ICalendar {
      * @param uid the event's stable identity; also what names the `.ics` on the server.
      * @param nowMillis supplies DTSTAMP, passed in so this stays pure and testable.
      */
+    // A VEVENT's fields are what they are: every parameter below is one iCalendar property, and
+    // bundling them into a holder would only move the same list somewhere else while putting a
+    // second shape between the form and the wire.
+    @Suppress("LongParameterList")
     fun buildEvent(
         uid: String,
         summary: String,
@@ -319,6 +334,18 @@ object ICalendar {
          * relative TRIGGER. 0 means "at the time of the event" (`TRIGGER:PT0S`).
          */
         reminders: List<Int> = emptyList(),
+        /**
+         * An RRULE value, verbatim, or null for a one-off. Passed through rather than re-derived:
+         * this app models no recurrence editor, so the only rules it ever writes are ones it was
+         * handed (see [ParsedEvent.rrule]), and re-generating one from a parsed shape could only
+         * ever say less than the organiser's own line did.
+         *
+         * 🔴 Only written for a TIMED event, and only when the value is one this app can read back.
+         * An RRULE against an all-day DTSTART is a different set of rules about what UNTIL means,
+         * and a rule that survives the write but not the read is an event whose repeats vanish on
+         * the next sync.
+         */
+        rrule: String? = null,
     ): String {
         val lines = ArrayList<String>()
         lines += "BEGIN:VCALENDAR"
@@ -346,6 +373,7 @@ object ICalendar {
             end?.takeIf { it.isAfter(start) }?.let {
                 lines += "DTEND:${UTC_DATE_TIME.format(it.atZone(zone))}"
             }
+            safeRrule(rrule)?.let { lines += "RRULE:$it" }
         }
         lines += "SUMMARY:${escapeText(summary)}"
         location?.takeIf { it.isNotBlank() }?.let { lines += "LOCATION:${escapeText(it)}" }
@@ -365,6 +393,27 @@ object ICalendar {
         lines += "END:VEVENT"
         lines += "END:VCALENDAR"
         return lines.joinToString("\r\n") { fold(it) } + "\r\n"
+    }
+
+    /**
+     * An RRULE value fit to write, or null to write none.
+     *
+     * 🔴 This value came off a stranger's e-mail and is about to be uploaded to the user's own
+     * calendar server, so it is **refused rather than repaired**. A CR or LF in it would let the
+     * sender of an invitation write properties of their choosing into a file on the server, which is
+     * the same fault the read-receipt path refuses for the same reason. A rule that does not start
+     * with FREQ= is not one RFC 5545 §3.3.10 describes, and a silently-dropped rule beats an
+     * invented one: the meeting still lands, it just lands once, which is visible.
+     *
+     * Deliberately NOT a full grammar check. Everything past FREQ= is the organiser's business and
+     * this app has no recurrence editor to have an opinion with; the job here is to stop the value
+     * doing something a value cannot do, not to referee it.
+     */
+    private fun safeRrule(rrule: String?): String? {
+        val value = rrule?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        if (value.any { it == '\r' || it == '\n' }) return null
+        if (!value.uppercase().startsWith("FREQ=")) return null
+        return value
     }
 
     // ---- Editing a stored event ---------------------------------------------------------------

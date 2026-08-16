@@ -273,7 +273,6 @@
     <ID>ReturnCount:ContentLine.kt$ContentLines$fun parse(line: String): ContentLine?</ID>
     <ID>ReturnCount:DavRepository.kt$DavRepository$private suspend fun jmapContacts(server: String, dav: DavCredentials): Pair&lt;JmapSession, String&gt;?</ID>
     <ID>ReturnCount:DavRepository.kt$DavRepository$suspend fun createContact(accountId: String, edit: ContactEdit): DavWriteOutcome</ID>
-    <ID>ReturnCount:DavRepository.kt$DavRepository$suspend fun createEvent( accountId: String, title: String, date: LocalDate, start: LocalTime?, end: LocalTime?, location: String? = null, description: String? = null, category: String? = null, /** Reminder offsets in minutes before the start; see [ICalendar.buildEvent]. */ reminders: List&lt;Int&gt; = emptyList(), collectionUrl: String? = null, nowMillis: Long = System.currentTimeMillis(), ): DavWriteOutcome</ID>
     <ID>ReturnCount:DavRepository.kt$DavRepository$suspend fun updateContact(accountId: String, href: String, edit: ContactEdit): DavWriteOutcome</ID>
     <ID>ReturnCount:DavRepository.kt$DavRepository$suspend fun updateEvent( accountId: String, href: String, touched: Set&lt;EventField&gt;, title: String, date: LocalDate, start: LocalTime?, end: LocalTime?, location: String? = null, description: String? = null, category: String? = null, reminders: List&lt;Int&gt; = emptyList(), recurrenceDay: LocalDate? = null, scope: EventEditScope = EventEditScope.WHOLE_SERIES, ): DavWriteOutcome</ID>
     <ID>ReturnCount:DnsSrvParser.kt$DnsSrvParser$private fun read(response: ByteArray): List&lt;SrvRecord&gt;</ID>
