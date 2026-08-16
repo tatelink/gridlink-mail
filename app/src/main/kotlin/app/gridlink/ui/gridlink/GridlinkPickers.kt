@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.Text
@@ -295,7 +296,14 @@ private val REMINDER_OPTIONS = listOf(0, 5, 10, 15, 30, 60, 120, 1440)
  * 🔴 Unlike the date and time sheets this one does NOT dismiss on tap, because a tap here is a
  * toggle in a multi-select, not an answer to a single question. Closing on the first choice would
  * make the second reminder cost a whole reopen, which is exactly the case this sheet exists for.
- * The way out is the scrim, same as every [GridlinkCenterSheet].
+ *
+ * 🔴 That is why the Done row at the bottom is not optional. Tate hit this on a real invitation:
+ * "when i tap 15 minutes, it doesnt accept and dissappear, it just says static on the page at a
+ * 15-minutes selection". The toggle had worked and the choice was already kept, but every other
+ * sheet in the app answers a tap by closing, so one that stays open reads as one that did not take
+ * the tap. The scrim was the only way out and a scrim is not an affordance: nothing on screen said
+ * the choice had landed or that tapping away would keep it. The row restates the current selection
+ * for the same reason, so the sheet can be left knowing what it is being left holding.
  */
 @Composable
 fun GridlinkReminderPickerSheet(
@@ -352,6 +360,16 @@ fun GridlinkReminderPickerSheet(
                 }
             }
         }
+        GridlinkSheetDivider()
+        GridlinkSheetAction(
+            label = "Done",
+            icon = Icons.Outlined.Check,
+            onClick = onDismiss,
+            // What the sheet is being left holding, in the same words the rows and the card use.
+            subline = selected.sorted().takeIf { it.isNotEmpty() }
+                ?.joinToString(", ", transform = ::gridlinkReminderLabel)
+                ?: "No reminders",
+        )
         GridlinkSheetFooterSpace()
     }
 }
