@@ -14,8 +14,8 @@ before trusting a line, and correct the line rather than working around it.
 
 **Where this stands, 2026-08-16:** every item in every phase is closed. #9, the TalkBack sweep, was
 **dropped** rather than finished (see the item). What is left is therefore not building but
-*looking*, plus one correction: **the promises screen makes two claims the app does not keep**, see
-`docs/PROMISES.md` and the note at #11. Beyond that, a
+*looking*. #11, the promises screen, was **withdrawn** on 2026-08-16 after an audit found three of
+its six claims untrue; see the item for the lesson. Beyond that, a
 run of the things closed in the last few days that have never been seen on a phone — the promises
 screen, the contacts/calendar account, the invitation card and its conflicts, and the S/MIME row,
 which has also never met a real signed message. Each of those is marked ⚠️ at its own item.
@@ -257,42 +257,35 @@ drag-to-reorder third is permanently cut.
     needs a real CA in the device's trust store, which is exactly the distinction `UNTRUSTED` draws.
     What is unproven: a genuine signed message from a public CA rendering as `VALID`, and that R8
     left the CMS path intact in a minified build.
-11. ✅ **Tier 3, which is policy rather than code.** Closed 2026-08-15. Written down in **both**
-    places, by Tate's call: `docs/PROMISES.md` for somebody who has not installed the app, and a
-    `PromisesScreen` under Settings → About for somebody holding the phone. A promise a user has to
-    visit a repo to read is not a promise made to the user, and a promise with no public copy is not
-    one an outsider can hold the app to, so neither half is optional and the two are changed
-    together.
-    Six promises: gestures stay put, problems are handled in a public tracker with public answers,
-    nothing on the phone is behind a payment, nothing is collected about you, nothing is sent in your
-    name without asking, and the source is there so all of it can be checked.
-    🔴 The rule for editing that screen: **only things the app already does**. A promise the code
-    does not keep is worse than none, because it is read as a statement of fact rather than an
-    intention. It is also deliberately a plain wall of text with nothing tappable on it: a promise
-    drawn next to a switch reads as a setting somebody could have turned off.
-    The two Tier 3 items that were already true got a sentence saying what keeping them costs (the
-    payment one rules out the ship-free-then-lock-it route; the no-telemetry one is *why* there is a
-    feedback address at all), and read receipts supplied the sixth.
-    🔴 **Audited 2026-08-16 and three of the six were failing their own rule** (`36a33c28`). The
-    screen had been written from what the project intended rather than from what the tree does.
-    - "Problems get a straight answer" promised that *every* report gets an answer and that nothing
-      is refused quietly. There is no tracker, the repo is private, and no report has ever been
-      made. It now promises only the part that exists: the feedback mailto reaches a person rather
-      than a form.
-    - "You can check all of this" is not true while the source is private, and About says the source
-      is private two rows above it. The no-telemetry promise in particular cannot be checked from
-      outside the APK. The heading is now "The licence travels with the app", which is a thing the
-      APK really does.
-    - The intro's "something you can check on the phone in front of you", same fault.
+11. ⛔ **Tier 3, policy rather than code. WITHDRAWN 2026-08-16 (Tate). Do not rebuild it.**
+    Shipped 2026-08-15 as `docs/PROMISES.md` plus a `PromisesScreen` under Settings → About, six
+    promises written where a user could read them. Both files, the About row, the route and all
+    fifteen `promises_*` strings across nine locales are now deleted. Restore point if it is ever
+    wanted again: `13e037a0`.
 
-    `docs/PROMISES.md` lost two more that only ever lived there ("several things have had it", and a
-    gesture change arriving "with a note saying so" that no changelog surface can deliver) and gained
-    a paragraph naming telemetry as the one promise that has to be taken on trust.
-    🔴 The lesson for anyone editing this again: **check each line against the tree, not against the
-    plan**. Every one of the three read as obviously true when written.
+    Why it went, in the order the problems arrived:
+    - **Half of it could not work while the repo is private.** The stated point of the Markdown copy
+      was to be readable by somebody who has NOT installed the app, so an outsider could hold the
+      app to it. There is no outsider. Nobody can read a file in a private repo.
+    - **Three of the six promises were false**, found on audit 2026-08-16 (`36a33c28`, since
+      reverted along with everything else here): "every one gets an answer from a person, nothing is
+      refused quietly" against a tracker with zero issues ever; "You can check all of this" while
+      the source is private and About says so two rows above; and the intro repeating the same
+      claim. Two more lived only in the Markdown ("several things have had it", and a gesture change
+      arriving "with a note saying so" that no changelog surface exists to deliver).
+    - **It promised things to a user base of one**, who is also the person making the promises.
 
-    Not yet seen on a device: it compiles and the string parity gate passes, but nobody has looked
-    at the screen.
+    🔴 The lesson worth keeping, and the reason to write it down rather than just delete the code:
+    **a claim about the project is a claim about the tree, and it rots exactly like a status line
+    does.** Every one of those three read as obviously true on the day it was written. If a promises
+    surface is ever rebuilt, each line needs a test or a code reference, or it does not go up.
+
+    Still true and worth remembering as facts about the app, they just no longer sit behind a
+    heading calling them promises: no analytics, crash reporting or telemetry of any kind is in the
+    build; nothing is paywalled and the Ko-fi row is a link nothing prompts you toward; swipe
+    actions, thread actions and list layout are all settings; and the MDN code never sends a receipt
+    without a tap, with no setting that could turn auto-send on.
+
 12. ✅ **The 49 Dependabot advisories.** Already closed, by `c0368fab` on 2026-08-09; recorded here
     2026-08-15 after re-checking the API, which now reports **0 open** and all 49 `fixed`.
     The triage answer was that not one of them was in the app. The dependency graph was being

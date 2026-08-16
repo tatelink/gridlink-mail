@@ -55,7 +55,6 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Feedback
 import androidx.compose.material.icons.filled.FilterAlt
-import androidx.compose.material.icons.filled.Handshake
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
@@ -263,7 +262,6 @@ fun SettingsScreen(
                 onOpenPrivacy = { entry.navigateOnce { nav.navigate("privacy") } },
                 onOpenStorage = { entry.navigateOnce { nav.navigate("storage") } },
                 onOpenBackup = { entry.navigateOnce { nav.navigate("backup") } },
-                onOpenPromises = { entry.navigateOnce { nav.navigate("promises") } },
                 onOpenLicense = { entry.navigateOnce { nav.navigate("license") } },
                 onOpenUrl = { url -> leaveOnce { openUrl(context, url) } },
                 currentAccountLabel = currentLabel,
@@ -346,9 +344,6 @@ fun SettingsScreen(
         composable("storage") { entry ->
             StorageScreen(onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
-        composable("promises") { entry ->
-            PromisesScreen(onBack = { entry.navigateOnce { nav.popBackStack() } })
-        }
         composable("license") { entry ->
             LicenseScreen(onBack = { entry.navigateOnce { nav.popBackStack() } })
         }
@@ -376,7 +371,6 @@ private fun SettingsHub(
     onOpenPrivacy: () -> Unit,
     onOpenStorage: () -> Unit,
     onOpenBackup: () -> Unit,
-    onOpenPromises: () -> Unit,
     onOpenLicense: () -> Unit,
     onOpenUrl: (String) -> Unit,
     currentAccountLabel: String,
@@ -421,14 +415,6 @@ private fun SettingsHub(
             // purpose, so a row added later cannot fire an intent of its own without saying so.
             // 🔴 And some of them deliberately do NOTHING. See the Version and Source code rows.
             SettingsSection(stringResource(R.string.settings_about_section)) {
-                // 🔴 First in About, and the only row in the section that does NOT leave the app: a
-                // promise a user has to visit a repo to read is not a promise made to the user.
-                SettingsCategoryRow(
-                    Icons.Filled.Handshake,
-                    stringResource(R.string.promises_title),
-                    stringResource(R.string.promises_summary),
-                    onOpenPromises,
-                )
                 // 🔴 Inert, both of them: no chevron, no tap. They used to open the releases page
                 // and the repo, and both 404 because the repo is private — GitHub gives an
                 // anonymous visitor a flat "not found", not a sign-in prompt. Tate, 2026-08-15:

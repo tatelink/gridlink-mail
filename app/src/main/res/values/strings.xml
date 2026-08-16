@@ -893,19 +893,4 @@
     <string name="settings_tags_unknown_section">Seen on your mail</string>
     <string name="settings_tags_unknown_note">Tags on mail here that this device has no name or colour for. Adopt one to give it both.</string>
     <string name="settings_tags_adopt">Adopt</string>
-    <string name="promises_title">What this app promises</string>
-    <string name="promises_summary">What it will and will not do with your mail</string>
-    <string name="promises_intro">These are not aims. Each one is something the app already does today, not something planned.</string>
-    <string name="promises_gestures_title">Your gestures stay where they are</string>
-    <string name="promises_gestures_body">Swipes, taps and shortcuts you have learned stay put. A redesign does not get to move them out from under your thumb, and nothing is reassigned unless you choose it.</string>
-    <string name="promises_open_title">Problems get a straight answer</string>
-    <string name="promises_open_body">Bugs and requests go to the feedback address in About, and they reach a person, not a form or a queue.</string>
-    <string name="promises_free_title">Nothing on this phone is behind a payment</string>
-    <string name="promises_free_body">Every feature that runs on your device is free, now and later. No paid tier, no unlock, no advertising.</string>
-    <string name="promises_private_title">Nothing is collected about you</string>
-    <string name="promises_private_body">No analytics, no crash reporting, no identifiers. Nothing about how you use this app leaves your phone. The feedback address in About is the only route to anyone, and only if you write to it.</string>
-    <string name="promises_consent_title">Nothing is sent in your name without asking</string>
-    <string name="promises_consent_body">The app does not answer mail for you. When a sender asks to be told you read their message, nothing goes back unless you tap Send receipt.</string>
-    <string name="promises_source_title">The licence travels with the app</string>
-    <string name="promises_source_body">The whole app is under the GPL, and you can read the full licence text in About without leaving the app. Every promise here is about how this app behaves on your phone, not about anything happening somewhere else.</string>
 </resources>

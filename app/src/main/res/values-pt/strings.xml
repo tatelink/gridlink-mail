@@ -862,19 +862,4 @@
     <string name="settings_tags_adopt">Adotar</string>
     <string name="read_receipt_subject">Lido: %1$s</string>
     <string name="read_receipt_body">A sua mensagem foi apresentada no dispositivo do destinatário. Isto não garante que tenha sido lida ou compreendida.</string>
-    <string name="promises_title">O que esta aplicação promete</string>
-    <string name="promises_summary">O que faz e o que não faz com o seu correio</string>
-    <string name="promises_intro">Não são intenções. Cada ponto é algo que a aplicação já faz hoje, não algo planeado.</string>
-    <string name="promises_gestures_title">Os seus gestos ficam onde estão</string>
-    <string name="promises_gestures_body">Os deslizes, toques e atalhos que aprendeu ficam no sítio. Uma remodelação não os pode mudar debaixo do seu polegar, e nada é reatribuído a não ser que seja o utilizador a escolher.</string>
-    <string name="promises_open_title">Os problemas recebem uma resposta clara</string>
-    <string name="promises_open_body">Os erros e os pedidos vão para o endereço de contacto indicado em Acerca, e chegam a uma pessoa, não a um formulário nem a uma fila.</string>
-    <string name="promises_free_title">Nada neste telemóvel está atrás de um pagamento</string>
-    <string name="promises_free_body">Todas as funcionalidades que correm no seu dispositivo são gratuitas, agora e depois. Sem versão paga, sem desbloqueios, sem publicidade.</string>
-    <string name="promises_private_title">Não é recolhido nada sobre si</string>
-    <string name="promises_private_body">Sem estatísticas, sem relatórios de falhas, sem identificadores. Nada sobre a forma como usa esta aplicação sai do seu telemóvel. O endereço de comentários em Acerca é o único caminho até alguém, e só se for o utilizador a escrever.</string>
-    <string name="promises_consent_title">Nada é enviado em seu nome sem perguntar</string>
-    <string name="promises_consent_body">A aplicação não responde ao correio por si. Quando um remetente pede para saber que leu a mensagem dele, não volta nada a não ser que toque em Enviar confirmação.</string>
-    <string name="promises_source_title">A licença viaja com a aplicação</string>
-    <string name="promises_source_body">Toda a aplicação está sob a GPL, e pode ler o texto completo da licença em Acerca sem sair da aplicação. Cada promessa aqui diz respeito ao comportamento desta aplicação no seu telemóvel, não a algo que aconteça noutro lugar.</string>
 </resources>
