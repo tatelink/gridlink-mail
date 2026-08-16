@@ -830,6 +830,9 @@
     <string name="settings_about_section">About</string>
     <string name="settings_about_version">Version</string>
     <string name="settings_about_source">Source code</string>
+    <string name="settings_about_source_private">Private repository, held by the app&#8217;s owner</string>
+    <string name="settings_about_support">Support Gridlink</string>
+    <string name="settings_about_support_summary">Buy me a coffee on Ko-fi</string>
     <string name="settings_about_license">License</string>
     <string name="settings_about_feedback">Send feedback</string>
     <string name="settings_about_upstream">Based on</string>
@@ -904,5 +907,5 @@
     <string name="promises_consent_title">Nothing is sent in your name without asking</string>
     <string name="promises_consent_body">The app does not answer mail for you. When a sender asks to be told you read their message, nothing goes back unless you tap Send receipt.</string>
     <string name="promises_source_title">You can check all of this</string>
-    <string name="promises_source_body">The whole app is published under the GPL and the repository is linked below. Every promise here is one you can read the code for rather than take on trust.</string>
+    <string name="promises_source_body">The whole app is under the GPL, and you can read the full licence text in About without leaving the app. Every promise here is one you can read the code for rather than take on trust.</string>
 </resources>

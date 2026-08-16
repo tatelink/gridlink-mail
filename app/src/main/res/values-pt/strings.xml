@@ -791,6 +791,9 @@
     <string name="settings_about_section">Sobre</string>
     <string name="settings_about_version">Versão</string>
     <string name="settings_about_source">Código-fonte</string>
+    <string name="settings_about_source_private">Repositório privado, nas mãos do dono da aplicação</string>
+    <string name="settings_about_support">Apoiar o Gridlink</string>
+    <string name="settings_about_support_summary">Pague-me um café no Ko-fi</string>
     <string name="settings_about_license">Licença</string>
     <string name="settings_about_feedback">Send feedback</string>
     <string name="settings_about_upstream">Baseado em</string>
@@ -873,5 +876,5 @@
     <string name="promises_consent_title">Nada é enviado em seu nome sem perguntar</string>
     <string name="promises_consent_body">A aplicação não responde ao correio por si. Quando um remetente pede para saber que leu a mensagem dele, não volta nada a não ser que toque em Enviar confirmação.</string>
     <string name="promises_source_title">Pode verificar tudo isto</string>
-    <string name="promises_source_body">A aplicação inteira é publicada sob a GPL e o repositório está ligado abaixo. Cada promessa aqui pode ser lida no código em vez de aceite por confiança.</string>
+    <string name="promises_source_body">Toda a aplicação está sob a GPL, e pode ler o texto completo da licença em Acerca sem sair da aplicação. Cada promessa aqui pode ser verificada no código em vez de aceite por confiança.</string>
 </resources>

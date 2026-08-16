@@ -788,6 +788,9 @@
     <string name="settings_about_section">Over</string>
     <string name="settings_about_version">Versie</string>
     <string name="settings_about_source">Broncode</string>
+    <string name="settings_about_source_private">Privérepository, in handen van de eigenaar van de app</string>
+    <string name="settings_about_support">Gridlink steunen</string>
+    <string name="settings_about_support_summary">Trakteer me op een koffie via Ko-fi</string>
     <string name="settings_about_license">Licentie</string>
     <string name="settings_about_feedback">Send feedback</string>
     <string name="settings_about_upstream">Gebaseerd op</string>
@@ -870,5 +873,5 @@
     <string name="promises_consent_title">Er wordt niets in jouw naam verstuurd zonder te vragen</string>
     <string name="promises_consent_body">De app beantwoordt je post niet voor je. Als een afzender wil weten dat je zijn bericht hebt gelezen, gaat er niets terug tenzij je op Bevestiging sturen tikt.</string>
     <string name="promises_source_title">Je kunt dit allemaal nakijken</string>
-    <string name="promises_source_body">De hele app is uitgebracht onder de GPL en de repository staat hieronder. Elke belofte hier kun je in de code nalezen in plaats van op ons woord aannemen.</string>
+    <string name="promises_source_body">De hele app valt onder de GPL en je kunt de volledige licentietekst lezen bij Over, zonder de app te verlaten. Elke belofte hier kun je in de code nalezen in plaats van op vertrouwen aannemen.</string>
 </resources>
