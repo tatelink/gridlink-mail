@@ -273,6 +273,24 @@ drag-to-reorder third is permanently cut.
     The two Tier 3 items that were already true got a sentence saying what keeping them costs (the
     payment one rules out the ship-free-then-lock-it route; the no-telemetry one is *why* there is a
     feedback address at all), and read receipts supplied the sixth.
+    🔴 **Audited 2026-08-16 and three of the six were failing their own rule** (`36a33c28`). The
+    screen had been written from what the project intended rather than from what the tree does.
+    - "Problems get a straight answer" promised that *every* report gets an answer and that nothing
+      is refused quietly. There is no tracker, the repo is private, and no report has ever been
+      made. It now promises only the part that exists: the feedback mailto reaches a person rather
+      than a form.
+    - "You can check all of this" is not true while the source is private, and About says the source
+      is private two rows above it. The no-telemetry promise in particular cannot be checked from
+      outside the APK. The heading is now "The licence travels with the app", which is a thing the
+      APK really does.
+    - The intro's "something you can check on the phone in front of you", same fault.
+
+    `docs/PROMISES.md` lost two more that only ever lived there ("several things have had it", and a
+    gesture change arriving "with a note saying so" that no changelog surface can deliver) and gained
+    a paragraph naming telemetry as the one promise that has to be taken on trust.
+    🔴 The lesson for anyone editing this again: **check each line against the tree, not against the
+    plan**. Every one of the three read as obviously true when written.
+
     Not yet seen on a device: it compiles and the string parity gate passes, but nobody has looked
     at the screen.
 12. ✅ **The 49 Dependabot advisories.** Already closed, by `c0368fab` on 2026-08-09; recorded here
