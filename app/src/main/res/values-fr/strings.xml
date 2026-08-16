@@ -862,11 +862,11 @@
     <string name="read_receipt_body">Votre message a été affiché sur l\'appareil du destinataire. Cela ne garantit pas qu\'il ait été lu ou compris.</string>
     <string name="promises_title">Ce que cette application promet</string>
     <string name="promises_summary">Ce qu\'elle fait et ne fait pas de votre courrier</string>
-    <string name="promises_intro">Ce ne sont pas des intentions. Chaque point est déjà en place, et chacun peut être vérifié dans le code source.</string>
+    <string name="promises_intro">Ce ne sont pas des intentions. Chaque point est déjà en place, et chacun peut être vérifié sur le téléphone que vous avez en main.</string>
     <string name="promises_gestures_title">Vos gestes restent où ils sont</string>
     <string name="promises_gestures_body">Les balayages, appuis et raccourcis que vous avez appris ne bougent pas. Une refonte n\'a pas le droit de les déplacer sous votre pouce, et rien n\'est réattribué sans votre choix.</string>
-    <string name="promises_open_title">Les problèmes sont traités au grand jour</string>
-    <string name="promises_open_body">Les bogues et les demandes vont dans un suivi public, et les réponses le sont aussi. Rien n\'est corrigé en silence ni refusé en silence.</string>
+    <string name="promises_open_title">Les problèmes reçoivent une vraie réponse</string>
+    <string name="promises_open_body">Les bogues et les demandes vont à l&#8217;adresse de contact indiquée dans À propos, et chacun reçoit une réponse d&#8217;une personne. Rien n\'est corrigé en silence ni refusé en silence.</string>
     <string name="promises_free_title">Rien sur ce téléphone n\'est payant</string>
     <string name="promises_free_body">Toutes les fonctions qui tournent sur votre appareil sont gratuites, maintenant et plus tard. Pas de version payante, pas de déblocage, pas de publicité.</string>
     <string name="promises_private_title">Rien n\'est collecté sur vous</string>
@@ -874,5 +874,5 @@
     <string name="promises_consent_title">Rien n\'est envoyé en votre nom sans demander</string>
     <string name="promises_consent_body">L\'application ne répond pas au courrier à votre place. Quand un expéditeur demande à savoir que vous avez lu son message, rien ne repart tant que vous n\'appuyez pas sur Envoyer l\'accusé.</string>
     <string name="promises_source_title">Vous pouvez tout vérifier</string>
-    <string name="promises_source_body">Toute l&#8217;application est sous licence GPL, et vous pouvez lire le texte complet de la licence dans À propos sans quitter l&#8217;application. Chaque promesse ici peut se vérifier dans le code plutôt que se croire sur parole.</string>
+    <string name="promises_source_body">Toute l&#8217;application est sous licence GPL, et vous pouvez lire le texte complet de la licence dans À propos sans quitter l&#8217;application. Chaque promesse ici porte sur ce que l&#8217;application fait sur ce téléphone, où vous pouvez le constater vous-même.</string>
 </resources>

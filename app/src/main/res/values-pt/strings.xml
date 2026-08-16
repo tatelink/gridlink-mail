@@ -864,11 +864,11 @@
     <string name="read_receipt_body">A sua mensagem foi apresentada no dispositivo do destinatário. Isto não garante que tenha sido lida ou compreendida.</string>
     <string name="promises_title">O que esta aplicação promete</string>
     <string name="promises_summary">O que faz e o que não faz com o seu correio</string>
-    <string name="promises_intro">Não são intenções. Cada ponto é algo que a aplicação já faz, e todos podem ser verificados no código.</string>
+    <string name="promises_intro">Não são intenções. Cada ponto é algo que a aplicação já faz, e algo que pode verificar no telemóvel que tem à sua frente.</string>
     <string name="promises_gestures_title">Os seus gestos ficam onde estão</string>
     <string name="promises_gestures_body">Os deslizes, toques e atalhos que aprendeu ficam no sítio. Uma remodelação não os pode mudar debaixo do seu polegar, e nada é reatribuído a não ser que seja o utilizador a escolher.</string>
-    <string name="promises_open_title">Os problemas são tratados à vista de todos</string>
-    <string name="promises_open_body">Os erros e os pedidos vão para um registo público, e as respostas também são públicas. Nada é corrigido em silêncio nem recusado em silêncio.</string>
+    <string name="promises_open_title">Os problemas recebem uma resposta clara</string>
+    <string name="promises_open_body">Os erros e os pedidos vão para o endereço de contacto indicado em Acerca, e todos recebem resposta de uma pessoa. Nada é corrigido em silêncio nem recusado em silêncio.</string>
     <string name="promises_free_title">Nada neste telemóvel está atrás de um pagamento</string>
     <string name="promises_free_body">Todas as funcionalidades que correm no seu dispositivo são gratuitas, agora e depois. Sem versão paga, sem desbloqueios, sem publicidade.</string>
     <string name="promises_private_title">Não é recolhido nada sobre si</string>
@@ -876,5 +876,5 @@
     <string name="promises_consent_title">Nada é enviado em seu nome sem perguntar</string>
     <string name="promises_consent_body">A aplicação não responde ao correio por si. Quando um remetente pede para saber que leu a mensagem dele, não volta nada a não ser que toque em Enviar confirmação.</string>
     <string name="promises_source_title">Pode verificar tudo isto</string>
-    <string name="promises_source_body">Toda a aplicação está sob a GPL, e pode ler o texto completo da licença em Acerca sem sair da aplicação. Cada promessa aqui pode ser verificada no código em vez de aceite por confiança.</string>
+    <string name="promises_source_body">Toda a aplicação está sob a GPL, e pode ler o texto completo da licença em Acerca sem sair da aplicação. Cada promessa aqui diz respeito a algo que a aplicação faz neste telemóvel, onde o pode ver por si.</string>
 </resources>
