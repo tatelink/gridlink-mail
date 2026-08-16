@@ -9,7 +9,7 @@ import app.gridlink.core.data.calendar.ICalendar
 import app.gridlink.core.data.calendar.ICalendarStream
 import app.gridlink.core.data.calendar.JsCalendarWrite
 import app.gridlink.core.data.contacts.ContactEdit
-import app.gridlink.core.data.contacts.VCard
+import app.gridlink.core.data.contacts.ContactPayload
 import app.gridlink.core.data.contacts.VCardWrite
 import app.gridlink.core.data.db.AddressBookContactDao
 import app.gridlink.core.data.db.AddressBookContactEntity
@@ -28,6 +28,7 @@ import app.gridlink.core.jmap.Jmap
 import app.gridlink.core.jmap.JmapClient
 import app.gridlink.core.jmap.JmapException
 import app.gridlink.core.jmap.model.JmapCalendarEvent
+import app.gridlink.core.jmap.model.JmapContactCard
 import app.gridlink.core.jmap.model.JmapSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -95,7 +96,12 @@ data class DavWriteOutcome(
 // Two collection kinds, each with an observe, a one-shot read, a sync and a write, is what puts this
 // on the function counter. Splitting it by kind would duplicate the whole access, sync and error
 // story twice over, which is the thing the counter is supposed to prevent, not cause.
-@Suppress("TooManyFunctions")
+//
+// LargeClass is a fair complaint and not one this comment dismisses: the JMAP sync halves (state,
+// changes, paging, caching, for calendars and now contacts alike) are the bulk of it, and they are
+// the natural thing to lift into a `JmapCollectionSync` collaborator. That is a refactor with its
+// own risk, so it is named here rather than done in the same change that added the second half.
+@Suppress("TooManyFunctions", "LargeClass")
 class DavRepository(
     private val client: DavClient,
     private val accountStore: AccountStore,
@@ -222,10 +228,33 @@ class DavRepository(
         return sync(accountId, DavKind.CALENDAR)
     }
 
-    /** Bring the account's address books up to date, if the user asked for contacts at all. */
+    /**
+     * Bring the account's address books up to date, if the user asked for contacts at all.
+     *
+     * JMAP-first on the same terms the calendar is: a server advertising RFC 9610 is read over
+     * JMAP, everything else over CardDAV, into the same tables. This closes a path that was half
+     * done — writes already went out as `ContactCard/set` while reads still came back as `.vcf`,
+     * so a photo or a label the JMAP write preserved was immediately re-read through a vCard
+     * conversion that had never seen it.
+     */
     suspend fun syncContacts(accountId: String): DavSyncOutcome {
         if (accountStore.account(accountId)?.syncSelection?.contacts != true) {
             return DavSyncOutcome.skipped()
+        }
+        val jmapClient = jmap
+        if (jmapClient != null) {
+            val access = access(accountId)
+            if (access is Access.Ready) {
+                jmapContacts(access.server, access.dav)?.let { (session, jmapAccountId) ->
+                    return syncContactsOverJmap(
+                        accountId = accountId,
+                        jmapClient = jmapClient,
+                        session = session,
+                        jmapAccountId = jmapAccountId,
+                        auth = BasicAuth(access.dav.username, access.dav.password),
+                    )
+                }
+            }
         }
         return sync(accountId, DavKind.ADDRESS_BOOK)
     }
@@ -628,12 +657,15 @@ class DavRepository(
             }
             // No address book over JMAP is a routing fact, not an error: fall through to DAV.
             if (book != null) {
-                try {
-                    jmap.createContactCard(session, jmapAccountId, book.id, edit.toCardWrite(uid), auth)
+                val cardId = try {
+                    jmap!!.createContactCard(session, jmapAccountId, book.id, edit.toCardWrite(uid), auth)
                 } catch (e: JmapException) {
                     return DavWriteOutcome(error = e.message ?: "The server refused the contact")
                 }
-                return cacheAfterJmapWrite(accountId, uid)
+                // Cached from the server's own copy of the card, not from what was sent: the
+                // session is already in hand here, so this costs one `ContactCard/get` rather than
+                // the full CardDAV resync this path used to need to find the new row.
+                return cacheWrittenCard(accountId, jmap, session, jmapAccountId, auth, cardId)
             }
         }
 
@@ -668,10 +700,25 @@ class DavRepository(
         }
         val row = contactDao.byHref(accountId, href)
             ?: return DavWriteOutcome(error = "This contact isn't synced to this device yet. Sync first.")
-        val parsed = VCard.parse(row.raw)
+        val parsed = ContactPayload.parse(row)
             ?: return DavWriteOutcome(error = "This contact's card could not be read. Sync first.")
         val touched = edit.touchedSince(ContactEdit.from(parsed))
         if (touched.isEmpty()) return DavWriteOutcome(href = href)
+
+        // 🔴 A JMAP-keyed row cannot be written over CardDAV: `jmap:card/<id>` is this app's own
+        // key, not a path, and a PUT against it would 404 or hit something else entirely. It also
+        // needs no UID lookup, because the card id IS the key. The protocol that filled the cache
+        // is the protocol that writes back to it.
+        if (row.href.startsWith(DavMappers.JMAP_CARD_PREFIX)) {
+            val cardId = row.href.removePrefix(DavMappers.JMAP_CARD_PREFIX)
+            val cardUid = parsed.uid ?: row.uid
+            return writeCardOverJmap(accountId, server, dav) { client, session, jmapAccountId, auth ->
+                client.updateContactCard(
+                    session, jmapAccountId, cardId, edit.toCardWrite(cardUid), touched, auth,
+                )
+                cardId
+            }
+        }
 
         // JMAP needs the card's UID to find it (the JMAP id is not the DAV href); a card without
         // one, or one JMAP cannot find, is DAV's to edit. Routing on data, not error suppression.
@@ -692,9 +739,10 @@ class DavRepository(
                     } catch (e: JmapException) {
                         return DavWriteOutcome(error = e.message ?: "The server refused the change")
                     }
-                    // The write went through; refresh the DAV mirror so the row shows the result.
-                    syncContacts(accountId)
-                    return DavWriteOutcome(href = href)
+                    // The write went through. Resync and hand back the row's CURRENT key: on a
+                    // server that speaks JMAP the sync re-keys this card to a `jmap:card/` href,
+                    // so returning the DAV href it was edited under would name a row that is gone.
+                    return cacheAfterJmapWrite(accountId, uid)
                 }
             }
         }
@@ -848,7 +896,7 @@ class DavRepository(
         jmapAccountId: String,
         auth: BasicAuth,
         resumeFrom: String?,
-    ): CalendarDelta? {
+    ): JmapDelta? {
         if (resumeFrom.isNullOrBlank()) return null
         val changed = LinkedHashSet<String>()
         val destroyed = LinkedHashSet<String>()
@@ -861,7 +909,7 @@ class DavRepository(
             changed += result.updated
             destroyed += result.destroyed
             rounds++
-            if (!result.hasMoreChanges) return CalendarDelta(changed.toList(), destroyed.toList())
+            if (!result.hasMoreChanges) return JmapDelta(changed.toList(), destroyed.toList())
             // A server that reports more changes but no new state would spin this loop forever on
             // the same page. Falling back to a full list is slower and always terminates.
             state = result.newState ?: return null
@@ -878,7 +926,7 @@ class DavRepository(
         session: JmapSession,
         jmapAccountId: String,
         auth: BasicAuth,
-        delta: CalendarDelta,
+        delta: JmapDelta,
     ): DavSyncOutcome {
         val events = jmapClient.getCalendarEvents(session, jmapAccountId, delta.changed, auth)
         val changed = cacheJmapEvents(accountId, events)
@@ -1013,8 +1061,220 @@ class DavRepository(
         return DavWriteOutcome(href = DavMappers.jmapHref(eventId))
     }
 
-    /** What one `CalendarEvent/changes` run came back with, flattened. */
-    private data class CalendarDelta(val changed: List<String>, val destroyed: List<String>)
+    /** What one `Foo/changes` run came back with, flattened. Shared by both collections. */
+    private data class JmapDelta(val changed: List<String>, val destroyed: List<String>)
+
+    /**
+     * One contacts sync over JMAP, into the same tables CardDAV fills.
+     *
+     * [syncCalendarsOverJmap]'s shape, and every note on it applies here: the state is read before
+     * the listing so an edit made mid-sync is re-reported rather than lost, and it is written to
+     * every book row afterwards because `ContactCard/changes` is scoped to the account rather than
+     * to one address book.
+     */
+    private suspend fun syncContactsOverJmap(
+        accountId: String,
+        jmapClient: JmapClient,
+        session: JmapSession,
+        jmapAccountId: String,
+        auth: BasicAuth,
+    ): DavSyncOutcome {
+        val books = try {
+            jmapClient.getAddressBooks(session, jmapAccountId, auth)
+        } catch (c: CancellationException) {
+            throw c
+        } catch (e: Exception) {
+            return DavSyncOutcome(0, 0, 0, error = describeJmap(e))
+        }
+        val urls = books.map { DavMappers.jmapBookUrl(it.id) }
+        val resumeFrom = collectionDao.forKind(accountId, DavCollectionEntity.KIND_CONTACTS)
+            .firstNotNullOfOrNull { it.syncToken }
+        collectionDao.replaceDiscovered(
+            accountId = accountId,
+            kind = DavCollectionEntity.KIND_CONTACTS,
+            discovered = books.mapIndexed { i, b -> DavMappers.jmapBook(accountId, b, i) },
+        )
+        // A book the server no longer lists takes its cards with it. This also clears rows a
+        // previous CardDAV sync of the same account left behind, since their collection urls are
+        // paths and cannot appear among the JMAP ones.
+        if (urls.isEmpty()) {
+            clearItems(accountId, DavCollectionEntity.KIND_CONTACTS)
+            return DavSyncOutcome(collections = 0, itemsChanged = 0, itemsRemoved = 0)
+        }
+        contactDao.deleteNotInCollections(accountId, urls)
+
+        return try {
+            val nextState = jmapClient.contactCardState(session, jmapAccountId, auth)
+            val delta = incrementalContactSync(jmapClient, session, jmapAccountId, auth, resumeFrom)
+            val outcome = if (delta != null) {
+                applyContactDelta(accountId, jmapClient, session, jmapAccountId, auth, delta)
+            } else {
+                fullContactSync(accountId, jmapClient, session, jmapAccountId, auth)
+            }
+            // Written last, and only after the rows it describes are stored; see the calendar's.
+            if (nextState != null) urls.forEach { collectionDao.setSyncToken(accountId, it, nextState) }
+            outcome.copy(collections = books.size)
+        } catch (c: CancellationException) {
+            throw c
+        } catch (e: Exception) {
+            DavSyncOutcome(books.size, 0, 0, error = describeJmap(e))
+        }
+    }
+
+    /** Every card change since [resumeFrom], or null when the server cannot say. */
+    // [incrementalCalendarSync]'s exits, one per way a delta can turn out untrustworthy.
+    @Suppress("ReturnCount")
+    private suspend fun incrementalContactSync(
+        jmapClient: JmapClient,
+        session: JmapSession,
+        jmapAccountId: String,
+        auth: BasicAuth,
+        resumeFrom: String?,
+    ): JmapDelta? {
+        if (resumeFrom.isNullOrBlank()) return null
+        val changed = LinkedHashSet<String>()
+        val destroyed = LinkedHashSet<String>()
+        var state: String? = resumeFrom
+        var rounds = 0
+        while (rounds < MAX_CHANGE_ROUNDS) {
+            val result = jmapClient.contactCardChanges(session, jmapAccountId, state, auth)
+            if (!result.calculated) return null
+            changed += result.created
+            changed += result.updated
+            destroyed += result.destroyed
+            rounds++
+            if (!result.hasMoreChanges) return JmapDelta(changed.toList(), destroyed.toList())
+            state = result.newState ?: return null
+        }
+        return null
+    }
+
+    /** Apply a card change set: fetch what changed, drop what was destroyed. */
+    private suspend fun applyContactDelta(
+        accountId: String,
+        jmapClient: JmapClient,
+        session: JmapSession,
+        jmapAccountId: String,
+        auth: BasicAuth,
+        delta: JmapDelta,
+    ): DavSyncOutcome {
+        val cards = jmapClient.getContactCards(session, jmapAccountId, delta.changed, auth)
+        val changed = cacheJmapCards(accountId, cards)
+        // 🔴 Ids reported as changed but not returned are deleted, not skipped; see the calendar's.
+        val returned = cards.mapTo(HashSet()) { it.id }
+        val missing = delta.changed.filterNot { it in returned }
+        (delta.destroyed + missing).forEach { forgetJmapCard(accountId, it) }
+        return DavSyncOutcome(0, changed, delta.destroyed.size + missing.size)
+    }
+
+    /** List every card in the account and make the cache match it. */
+    private suspend fun fullContactSync(
+        accountId: String,
+        jmapClient: JmapClient,
+        session: JmapSession,
+        jmapAccountId: String,
+        auth: BasicAuth,
+    ): DavSyncOutcome {
+        val ids = LinkedHashSet<String>()
+        var page = 0
+        var more = true
+        while (more && page < MAX_QUERY_PAGES) {
+            val result = jmapClient.queryContactCardIds(
+                session = session,
+                accountId = jmapAccountId,
+                auth = auth,
+                limit = QUERY_PAGE_SIZE,
+                position = ids.size,
+            )
+            val before = ids.size
+            ids += result.ids
+            // Stop on a short page and on a page that added nothing; see fullCalendarSync.
+            more = ids.size > before && result.ids.size >= QUERY_PAGE_SIZE
+            page++
+        }
+        val cards = jmapClient.getContactCards(session, jmapAccountId, ids.toList(), auth)
+        val changed = cacheJmapCards(accountId, cards)
+
+        val keep = cards.mapTo(HashSet()) { DavMappers.jmapCardHref(it.id) }
+        val stale = contactDao.allForAccount(accountId)
+            .map { it.href }
+            .filter { it.startsWith(DavMappers.JMAP_CARD_PREFIX) && it !in keep }
+        stale.chunked(DELETE_CHUNK).forEach { contactDao.deleteByHrefs(accountId, it) }
+        return DavSyncOutcome(0, changed, stale.size)
+    }
+
+    /** Write one server card's row, replacing whatever that card had cached before. */
+    private suspend fun cacheJmapCards(accountId: String, cards: List<JmapContactCard>): Int {
+        var changed = 0
+        for (card in cards) {
+            // A card in no address book has no collection to be filed under, and a row whose
+            // collectionUrl named nothing would survive every "this book is gone" cleanup.
+            val bookId = card.primaryAddressBookId() ?: continue
+            contactDao.upsertAll(listOf(DavMappers.jmapContact(accountId, bookId, card)))
+            changed++
+        }
+        return changed
+    }
+
+    /** Drop the row a JMAP card id produced. */
+    private suspend fun forgetJmapCard(accountId: String, cardId: String) {
+        val href = DavMappers.jmapCardHref(cardId)
+        contactDao.deleteForFile(accountId, href, DavMappers.hrefPrefix(href))
+    }
+
+    /**
+     * Run one contact write over JMAP, then re-cache the card the server ended up holding.
+     *
+     * [writeOverJmap]'s contract for the other collection: the row is rebuilt from a fresh
+     * `ContactCard/get` rather than from what was sent, and a write that succeeded but could not be
+     * read back is reported as saved-but-not-shown rather than as a failure.
+     */
+    // Each exit is a different refusal carrying its own sentence: unreachable, refused, or saved
+    // but unreadable. They are not interchangeable to the person reading them.
+    @Suppress("ReturnCount")
+    private suspend fun writeCardOverJmap(
+        accountId: String,
+        server: String,
+        dav: DavCredentials,
+        write: suspend (JmapClient, JmapSession, String, BasicAuth) -> String,
+    ): DavWriteOutcome {
+        val jmapClient = jmap ?: return DavWriteOutcome(error = "Contacts are not available right now.")
+        val (session, jmapAccountId) = jmapContacts(server, dav)
+            ?: return DavWriteOutcome(error = "Contacts are not available right now.")
+        val auth = BasicAuth(dav.username, dav.password)
+        val cardId = try {
+            write(jmapClient, session, jmapAccountId, auth)
+        } catch (c: CancellationException) {
+            throw c
+        } catch (e: Exception) {
+            return DavWriteOutcome(error = describeJmap(e))
+        }
+        return cacheWrittenCard(accountId, jmapClient, session, jmapAccountId, auth, cardId)
+    }
+
+    /** Re-read one card the server just accepted and cache it. See [writeCardOverJmap]. */
+    private suspend fun cacheWrittenCard(
+        accountId: String,
+        jmapClient: JmapClient,
+        session: JmapSession,
+        jmapAccountId: String,
+        auth: BasicAuth,
+        cardId: String,
+    ): DavWriteOutcome {
+        val cached = try {
+            cacheJmapCards(accountId, jmapClient.getContactCards(session, jmapAccountId, listOf(cardId), auth))
+        } catch (c: CancellationException) {
+            throw c
+        } catch (_: Exception) {
+            0
+        }
+        if (cached == 0) {
+            return DavWriteOutcome(
+                error = "Saved to the server, but this device could not read it back. Sync to see it.",
+            )
+        }
+        return DavWriteOutcome(href = DavMappers.jmapCardHref(cardId))
+    }
 
     /**
      * A JMAP failure in words worth showing. [describe]'s job for the other protocol.

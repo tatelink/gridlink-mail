@@ -3,7 +3,9 @@ package app.gridlink.core.jmap
 import app.gridlink.core.jmap.model.CalendarChangesResult
 import app.gridlink.core.jmap.model.CalendarEventIdPage
 import app.gridlink.core.jmap.model.ContactCardGroup
+import app.gridlink.core.jmap.model.ContactCardIdPage
 import app.gridlink.core.jmap.model.ContactCardWrite
+import app.gridlink.core.jmap.model.ContactChangesResult
 import app.gridlink.core.jmap.model.CrawlPage
 import app.gridlink.core.jmap.model.Email
 import app.gridlink.core.jmap.model.EmailAddress
@@ -17,6 +19,7 @@ import app.gridlink.core.jmap.model.Identity
 import app.gridlink.core.jmap.model.JmapAddressBook
 import app.gridlink.core.jmap.model.JmapCalendar
 import app.gridlink.core.jmap.model.JmapCalendarEvent
+import app.gridlink.core.jmap.model.JmapContactCard
 import app.gridlink.core.jmap.model.JmapSession
 import app.gridlink.core.jmap.model.Mailbox
 import app.gridlink.core.jmap.model.PushSubscription
@@ -1522,6 +1525,163 @@ class JmapClient internal constructor(
         }
     }
 
+    /**
+     * Ids of every ContactCard in the account, one page at a time.
+     *
+     * No filter. RFC 9610 defines `inAddressBook`, and the same rule the calendar query follows
+     * applies here: a caller wanting one book fetches the account and selects on
+     * [JmapContactCard.addressBookIds] itself, because an unsupported filter fails the method
+     * rather than degrading to "everything".
+     */
+    suspend fun queryContactCardIds(
+        session: JmapSession,
+        accountId: String,
+        auth: JmapAuth,
+        limit: Int? = null,
+        position: Int = 0,
+    ): ContactCardIdPage = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.CONTACTS_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("ContactCard/query")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        put("calculateTotal", true)
+                        limit?.let { put("limit", it) }
+                        if (position != 0) put("position", position)
+                    }
+                    add("cq1")
+                }
+            }
+        }
+        val args = methodResponseArgs(postJmap(session, auth, payload), "ContactCard/query")
+        ContactCardIdPage(
+            ids = args["ids"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty(),
+            // ⚠️ NOT the seed for an incremental sync; see `contactCardState`.
+            queryState = args["queryState"]?.jsonPrimitive?.contentOrNull,
+            total = args["total"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(),
+        )
+    }
+
+    /**
+     * Fetch full cards by id, in chunks the server will accept.
+     *
+     * Chunked for the reason [getCalendarEvents] is: the cap is a protocol fact, and a caller that
+     * exceeded it would not get an error, it would get the first N and the rest in `notFound`,
+     * which reads exactly like "those contacts were deleted".
+     */
+    suspend fun getContactCards(
+        session: JmapSession,
+        accountId: String,
+        ids: List<String>,
+        auth: JmapAuth,
+    ): List<JmapContactCard> = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext emptyList()
+        ids.chunked(MAX_CARDS_PER_GET).flatMap { chunk ->
+            val payload = buildJsonObject {
+                putJsonArray("using") {
+                    add(Jmap.CORE_CAPABILITY)
+                    add(Jmap.CONTACTS_CAPABILITY)
+                }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("ContactCard/get")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            putJsonArray("ids") { chunk.forEach { add(it) } }
+                        }
+                        add("cg1")
+                    }
+                }
+            }
+            decodeList(postJmap(session, auth, payload), "ContactCard/get", JmapContactCard.serializer())
+        }
+    }
+
+    /**
+     * The account's current ContactCard state string, or null when the server did not give one.
+     *
+     * 🔴 This, and not a `queryState`, is what seeds an incremental sync. The reasoning is spelled
+     * out on [calendarEventState] and holds identically here: they are different sequences on the
+     * same account, and passing one where the other belongs is a type error nowhere and a wrong
+     * baseline everywhere.
+     */
+    suspend fun contactCardState(
+        session: JmapSession,
+        accountId: String,
+        auth: JmapAuth,
+    ): String? = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.CONTACTS_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("ContactCard/get")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonArray("ids") { }
+                    }
+                    add("cs1")
+                }
+            }
+        }
+        methodResponseArgsOrNull(postJmap(session, auth, payload), "ContactCard/get")
+            ?.get("state")?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+    }
+
+    /**
+     * What changed since [sinceState] (RFC 8620 §5.2).
+     *
+     * A blank state returns `calculated = false` without touching the network, for the reason
+     * [calendarEventChanges] documents: an invented `sinceState` is rejected at the REQUEST level,
+     * killing the whole batch rather than the one method, so it is never worth sending.
+     */
+    suspend fun contactCardChanges(
+        session: JmapSession,
+        accountId: String,
+        sinceState: String?,
+        auth: JmapAuth,
+        maxChanges: Int? = null,
+    ): ContactChangesResult = withContext(Dispatchers.IO) {
+        if (sinceState.isNullOrBlank()) {
+            return@withContext ContactChangesResult(null, emptyList(), emptyList(), emptyList(), false, false)
+        }
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.CONTACTS_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("ContactCard/changes")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        put("sinceState", sinceState)
+                        maxChanges?.let { put("maxChanges", it) }
+                    }
+                    add("cc1")
+                }
+            }
+        }
+        // OrNull, not the throwing form: cannotCalculateChanges is an expected outcome here.
+        val args = methodResponseArgsOrNull(postJmap(session, auth, payload), "ContactCard/changes")
+            ?: return@withContext ContactChangesResult(null, emptyList(), emptyList(), emptyList(), false, false)
+        ContactChangesResult(
+            newState = args["newState"]?.jsonPrimitive?.contentOrNull,
+            created = args["created"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty(),
+            updated = args["updated"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty(),
+            destroyed = args["destroyed"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty(),
+            hasMoreChanges = args["hasMoreChanges"]?.jsonPrimitive?.contentOrNull?.toBoolean() ?: false,
+            calculated = true,
+        )
+    }
+
     /** A SetError's human line: description when the server wrote one, else its type. */
     private fun setErrorDetail(args: JsonObject, listKey: String, id: String): String? =
         (args[listKey] as? JsonObject)?.get(id)?.jsonObject?.let {
@@ -2635,6 +2795,9 @@ class JmapClient internal constructor(
          * into `notFound`, and the penalty for guessing low is one extra round trip.
          */
         private const val MAX_EVENTS_PER_GET = 100
+
+        /** Ids per `ContactCard/get`. [MAX_EVENTS_PER_GET]'s reasoning, and its number. */
+        private const val MAX_CARDS_PER_GET = 100
 
         /** The creation id a single-event `CalendarEvent/set` uses to name its one new event. */
         private const val EVENT_CREATE_ID = "new"

@@ -50,6 +50,38 @@ data class AddressBookContactEntity(
     val primaryEmail: String,
     /** Every address, joined by commas, in the order the card lists them. */
     val emails: String,
-    /** The original vCard text. */
+    /**
+     * The payload behind the columns, written in [payloadFormat].
+     *
+     * The CardDAV path stores the `.vcf` text byte for byte. The JMAP path stores Gridlink's own
+     * serialisation of the Card it modelled, which is not quite the same thing: see `JsContact`.
+     */
     val raw: String,
-)
+    /**
+     * Which language [raw] is written in: [FORMAT_VCARD] or [FORMAT_JSCONTACT].
+     *
+     * ## 🔴 Why the payload is stored in the protocol's own language, not converted
+     * [CalendarEventEntity.payloadFormat]'s reasoning, and the same conclusion. Rendering an
+     * incoming JSContact Card down to a vCard so this column could stay one format would be lossy
+     * in exactly the places the JMAP path was added for: `pref` rankings collapse, contexts and
+     * media kinds become parameters this app then has to re-guess, and the `vCardProps` escape
+     * hatch that carries everything the server could not model would have to be flattened into
+     * lines and re-parsed. Down-converting at sync time throws that away permanently, before
+     * anything has a chance to use it.
+     *
+     * The parsed columns above are the index either way, so only the re-parse needs to know which
+     * reader to use.
+     *
+     * Defaults to [FORMAT_VCARD] so every row written before this column existed, and every row the
+     * CardDAV path writes, means what it always meant.
+     */
+    val payloadFormat: String = FORMAT_VCARD,
+) {
+    companion object {
+        /** [raw] is vCard text (RFC 6350, or the 3.0 before it), from CardDAV. */
+        const val FORMAT_VCARD = "vcard"
+
+        /** [raw] is a single JSContact Card object (RFC 9553) as JSON, from JMAP. */
+        const val FORMAT_JSCONTACT = "jscontact"
+    }
+}

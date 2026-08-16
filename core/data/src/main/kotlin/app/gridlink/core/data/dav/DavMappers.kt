@@ -3,6 +3,7 @@ package app.gridlink.core.data.dav
 import app.gridlink.core.data.calendar.ICalendarStream
 import app.gridlink.core.data.calendar.JsCalendar
 import app.gridlink.core.data.calendar.ParsedCalendarEvent
+import app.gridlink.core.data.contacts.JsContact
 import app.gridlink.core.data.contacts.VCard
 import app.gridlink.core.data.db.AddressBookContactEntity
 import app.gridlink.core.data.db.CalendarEventEntity
@@ -10,8 +11,10 @@ import app.gridlink.core.data.db.DavCollectionEntity
 import app.gridlink.core.dav.DavCollection
 import app.gridlink.core.dav.DavItem
 import app.gridlink.core.dav.DavKind
+import app.gridlink.core.jmap.model.JmapAddressBook
 import app.gridlink.core.jmap.model.JmapCalendar
 import app.gridlink.core.jmap.model.JmapCalendarEvent
+import app.gridlink.core.jmap.model.JmapContactCard
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -22,7 +25,12 @@ import java.time.format.DateTimeParseException
  *
  * Kept apart from the repository so the awkward part (one `.ics` can legitimately contain several
  * VEVENTs, one `.vcf` several cards) is testable without a database or a network.
+ *
+ * Two protocols times two collection kinds, plus the read-back each pair needs, is what puts this
+ * over the function counter. Splitting it would separate the JMAP mapper from the DAV mapper that
+ * has to produce an identical row, and those two staying identical is the entire point of the file.
  */
+@Suppress("TooManyFunctions")
 internal object DavMappers {
 
     /**
@@ -36,6 +44,12 @@ internal object DavMappers {
 
     /** See [JMAP_HREF_PREFIX]. */
     const val JMAP_COLLECTION_PREFIX = "jmap:calendar/"
+
+    /** See [JMAP_HREF_PREFIX]. The contacts pair of the same scheme. */
+    const val JMAP_CARD_PREFIX = "jmap:card/"
+
+    /** See [JMAP_HREF_PREFIX]. */
+    const val JMAP_BOOK_PREFIX = "jmap:addressbook/"
 
     fun collection(accountId: String, collection: DavCollection, order: Int) = DavCollectionEntity(
         accountId = accountId,
@@ -208,6 +222,73 @@ internal object DavMappers {
             )
         }
     }
+
+    /**
+     * A JMAP AddressBook as the collection row a book's cards are filed under.
+     *
+     * [jmapCollection]'s rule for calendars, and the same one: the CardDAV path lists every book
+     * the server exposes, so nothing is filtered out here either.
+     */
+    fun jmapBook(accountId: String, book: JmapAddressBook, order: Int) = DavCollectionEntity(
+        accountId = accountId,
+        url = jmapBookUrl(book.id),
+        kind = DavCollectionEntity.KIND_CONTACTS,
+        displayName = book.name.takeIf { it.isNotBlank() },
+        color = null,
+        // Same rule as discovery: only the sync itself may write a token. See DavCollectionDao.
+        syncToken = null,
+        sortOrder = order,
+    )
+
+    /**
+     * One JMAP ContactCard as the row the address book renders.
+     *
+     * The same shape [contacts] builds from a `.vcf`, into the same table, so the contacts screens
+     * cannot tell which protocol filled the cache. Three columns have no JMAP original:
+     *
+     * - **href.** [jmapCardHref] over the card id. A card is one object, so unlike a `.vcf` there is
+     *   never an index suffix to add.
+     * - **collectionUrl.** [jmapBookUrl] over the address book id, so "this book is gone" stays one
+     *   delete.
+     * - **etag.** 🔴 JMAP does not have one. `updated` stands in, and it has to: the system-contacts
+     *   mirror decides what changed by fingerprinting the etag, so a constant here would make every
+     *   edit invisible to it and a random one would rewrite every contact on every sync. A card with
+     *   no `updated` falls back to the card id, which is stable, and the mirror's fingerprint also
+     *   covers the payload, so a change still shows up.
+     */
+    fun jmapContact(
+        accountId: String,
+        bookId: String,
+        card: JmapContactCard,
+    ): AddressBookContactEntity {
+        val parsed = JsContact.parse(card)
+        return AddressBookContactEntity(
+            accountId = accountId,
+            href = jmapCardHref(card.id),
+            collectionUrl = jmapBookUrl(bookId),
+            etag = card.updated ?: card.id,
+            uid = card.uid.takeIf { it.isNotBlank() } ?: jmapCardHref(card.id),
+            displayName = parsed.formattedName?.takeIf { it.isNotBlank() }
+                ?: listOf(parsed.given, parsed.family).filter { it.isNotBlank() }
+                    .joinToString(" ")
+                    .ifBlank { parsed.fileAsFamily },
+            fileAsFamily = parsed.fileAsFamily,
+            fileAsGiven = parsed.fileAsGiven,
+            organization = parsed.organization,
+            title = parsed.title,
+            isOrganization = parsed.isOrganization,
+            primaryEmail = parsed.primaryEmail,
+            emails = parsed.emails.joinToString(","),
+            raw = JsContact.encode(card),
+            payloadFormat = AddressBookContactEntity.FORMAT_JSCONTACT,
+        )
+    }
+
+    /** The synthetic row key for a JMAP card id. See [jmapContact]. */
+    fun jmapCardHref(cardId: String): String = "$JMAP_CARD_PREFIX$cardId"
+
+    /** The synthetic collection url for a JMAP address book id. See [jmapContact]. */
+    fun jmapBookUrl(bookId: String): String = "$JMAP_BOOK_PREFIX$bookId"
 
     /**
      * The LIKE prefix matching every row one file produced.

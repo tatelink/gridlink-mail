@@ -2,7 +2,7 @@ package app.gridlink.ui.gridlink
 
 import app.gridlink.core.data.calendar.CalendarOccurrence
 import app.gridlink.core.data.contacts.ContactEdit
-import app.gridlink.core.data.contacts.VCard
+import app.gridlink.core.data.contacts.ContactPayload
 import app.gridlink.core.data.db.AddressBookContactEntity
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 import java.time.LocalDate
@@ -107,11 +107,14 @@ object GridlinkDavMapping {
      * edit form must NOT seed from those: [GridlinkContact.edit] has to be the same derivation
      * [app.gridlink.core.data.dav.DavRepository.updateContact] diffs against, or opening a card and
      * saving it untouched would write a phantom name change for every card whose display name was
-     * promoted. One [VCard.parse] per row per emission over a phone-sized book is cheap; a second,
-     * slightly different reading of the same card is how no-op saves stop being no-ops.
+     * promoted. One [ContactPayload.parse] per row per emission over a phone-sized book is cheap;
+     * a second, slightly different reading of the same card is how no-op saves stop being no-ops.
+     * [ContactPayload] is also what makes that guarantee hold across protocols: it picks the reader
+     * the row's format calls for, so a JMAP-synced card is read here exactly as the save path
+     * reads it.
      */
     fun contact(row: AddressBookContactEntity): GridlinkContact {
-        val parsed = VCard.parse(row.raw)
+        val parsed = ContactPayload.parse(row)
         val family = when {
             row.isOrganization -> row.displayName
             else -> row.fileAsFamily

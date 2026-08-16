@@ -595,3 +595,23 @@ val MIGRATION_24_25 = object : Migration(24, 25) {
 /** The column [MIGRATION_24_25] adds; shared with the JVM test so it replays the real one. */
 const val CALENDAR_PAYLOAD_FORMAT_SQL: String =
     "ALTER TABLE `calendar_events` ADD COLUMN `payloadFormat` TEXT NOT NULL DEFAULT 'icalendar'"
+
+/**
+ * Additive 25→26: which language a cached contact payload is written in.
+ *
+ * [MIGRATION_24_25] for the calendar, now for the address book, and for the same reason: reads are
+ * moving to JMAP where the server speaks it, so one table has to hold both a `.vcf` and a JSContact
+ * Card and each row has to say which it is.
+ *
+ * One column with a default, because every row that already exists came from CardDAV and is
+ * therefore a vCard. The default is what makes this backfill-free.
+ */
+val MIGRATION_25_26 = object : Migration(25, 26) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(CONTACT_PAYLOAD_FORMAT_SQL)
+    }
+}
+
+/** The column [MIGRATION_25_26] adds; shared with the JVM test so it replays the real one. */
+const val CONTACT_PAYLOAD_FORMAT_SQL: String =
+    "ALTER TABLE `address_book_contacts` ADD COLUMN `payloadFormat` TEXT NOT NULL DEFAULT 'vcard'"

@@ -8,8 +8,8 @@ import android.net.Uri
 import android.provider.ContactsContract
 import android.util.Base64
 import android.util.Log
+import app.gridlink.core.data.contacts.ContactPayload
 import app.gridlink.core.data.contacts.ParsedContact
-import app.gridlink.core.data.contacts.VCard
 import app.gridlink.core.data.db.AddressBookContactEntity
 
 /**
@@ -25,8 +25,9 @@ import app.gridlink.core.data.db.AddressBookContactEntity
  * ## Where the fields come from
  * The parsed columns on [AddressBookContactEntity] are the address book's *list* view: a name, a
  * sort key, one email. The mirror needs the whole card, so it re-parses [AddressBookContactEntity.raw]
- * with [VCard]. That is the same parser the contact detail screen uses, so what lands in the system
- * is what Gridlink itself shows, field for field.
+ * through [ContactPayload], which picks the reader the row's own format calls for (a `.vcf` from
+ * CardDAV, a JSContact Card from JMAP). That is the same entry point the contact detail screen
+ * uses, so what lands in the system is what Gridlink itself shows, field for field.
  *
  * ## ⚠️ Phone numbers arrive untyped
  * [ParsedContact.phones] keeps the numbers and drops the vCard's `TYPE=` parameters, so every
@@ -58,7 +59,7 @@ class ContactsMirror(private val resolver: ContentResolver) {
             if (row != null) ops += ContentProviderOperation.newDelete(rawContactUri(account, row.id)).build()
             // A card that will not parse leaves nothing behind: the delete above still stands, so
             // the provider is not left showing the previous version of something the server changed.
-            VCard.parse(contact.raw)?.let { parsed ->
+            ContactPayload.parse(contact)?.let { parsed ->
                 appendInsert(ops, account, sourceId, fingerprint, parsed, contact)
                 written++
             }
