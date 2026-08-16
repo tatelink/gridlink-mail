@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- ⚠️ PLACEHOLDER, and it is the only file in this family that is not ported from the icon
+         pack. Brandon, 2026-08-15: *"i'll hafta design an oled version to give you - for now
+         placeholder."* When that artwork lands it replaces this file and its foreground twin, and
+         the alias in `mipmap-anydpi-v26/ic_launcher_oled.xml` needs no change.
+
+         What a placeholder can honestly be: the dark tile taken to true black. OLED means the tile
+         is unlit rather than dark-grey-lit, so #000000 is the one thing about the variant that is
+         certain without seeing his design. It reuses the DARK foreground unchanged, which is the
+         part that is a guess: the mark's near-black blocks (#12233C) do not disappear on true black,
+         but they lose most of the separation the #05070C tile was giving them, and the grid at 6%
+         is close to invisible. That is a real design question and it is his to answer, not mine to
+         invent, so nothing here tries to compensate for it.
+
+         Full bleed with no corner rounding: the launcher's mask does that. -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M0,0h108v108h-108z" />
+</vector>

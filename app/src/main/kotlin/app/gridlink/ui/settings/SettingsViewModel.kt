@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.gridlink.container
 import app.gridlink.core.data.account.K9SettingsImporter
+import app.gridlink.core.data.settings.AppIcon
 import app.gridlink.core.data.settings.DeliveryMode
 import app.gridlink.core.data.settings.ListDensity
 import app.gridlink.core.data.settings.MailTag
@@ -19,6 +20,7 @@ import app.gridlink.core.data.settings.SwipeAction
 import app.gridlink.core.data.settings.TagColor
 import app.gridlink.core.data.settings.ThemeMode
 import app.gridlink.core.data.settings.ThreadToolbarAction
+import app.gridlink.icon.AppIcons
 import app.gridlink.push.NewMailNotifier
 import app.gridlink.push.PushController
 import app.gridlink.security.canAuthenticate
@@ -73,6 +75,22 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = PreviewLines.NONE,
     )
+
+    val appIcon = settings.appIcon.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = AppIcon.AUTO,
+    )
+
+    /**
+     * 🔴 Writes the launcher's component state as well as the store, and in that order: the store is
+     * the record, [AppIcons] is the thing the user can actually see. A setter that only persisted
+     * would leave the row saying "Dark" over a home screen that never changed.
+     */
+    fun setAppIcon(icon: AppIcon) {
+        AppIcons.apply(getApplication(), icon)
+        viewModelScope.launch { settings.setAppIcon(icon) }
+    }
 
     // ⚠️ The initial values must match the repository's own defaults, or the rows show one answer
     // for a frame and then swap to another. They also changed on 2026-08-12 when these settings were

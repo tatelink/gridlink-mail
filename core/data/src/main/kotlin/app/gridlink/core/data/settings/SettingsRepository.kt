@@ -28,6 +28,23 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK }
  */
 enum class GridlinkPalette { AUTO, DAY, NIGHT, OLED }
 
+/**
+ * Which launcher icon the app wears.
+ *
+ * 🔴 NOT the same question as [GridlinkPalette], and the two must not be wired together. The palette
+ * is what the app looks like once it is open, and the app decides it. The icon sits on a home screen
+ * the app does not own and cannot see, drawn by the launcher out of the SYSTEM's configuration: an
+ * app in OLED mode on a phone in light mode is an ordinary combination, and reading one off the
+ * other would put a black tile on a white home screen without being asked.
+ *
+ * [AUTO] is the default and covers most people, because the auto icon already carries both variants
+ * and the launcher swaps them with the system's dark mode. The other three exist for the case auto
+ * cannot serve: a home screen whose wallpaper disagrees with the system setting.
+ *
+ * Persisted BY NAME, so an unknown value from a newer build reads back as AUTO.
+ */
+enum class AppIcon { AUTO, LIGHT, DARK, OLED }
+
 /** Vertical density of message-list rows. */
 enum class ListDensity { COMPACT, NORMAL, SPACED }
 
@@ -164,6 +181,22 @@ class SettingsRepository(context: Context) {
 
     suspend fun setGridlinkPalette(palette: GridlinkPalette) {
         dataStore.edit { it[KEY_GRIDLINK_PALETTE] = palette.name }
+    }
+
+    /**
+     * Which launcher icon is worn. See [AppIcon] for why this is not derived from [gridlinkPalette].
+     *
+     * ⚠️ This flow is the RECORD of the choice, not the mechanism. The icon itself is a set of
+     * activity-aliases in the manifest, enabled and disabled through PackageManager, and that state
+     * lives in the system rather than here. They are re-reconciled at startup because the two can
+     * legitimately drift: a "clear app data" wipes this store and leaves the alias where it was.
+     */
+    val appIcon: Flow<AppIcon> = dataStore.data.map { prefs ->
+        prefs[KEY_APP_ICON]?.let { runCatching { AppIcon.valueOf(it) }.getOrNull() } ?: AppIcon.AUTO
+    }
+
+    suspend fun setAppIcon(icon: AppIcon) {
+        dataStore.edit { it[KEY_APP_ICON] = icon.name }
     }
 
     /** Use Material You (wallpaper-derived) colours instead of Gridlink's brand palette. Off by default. */
@@ -702,6 +735,7 @@ class SettingsRepository(context: Context) {
 
         private val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
         private val KEY_GRIDLINK_PALETTE = stringPreferencesKey("gridlink_palette")
+        private val KEY_APP_ICON = stringPreferencesKey("app_icon")
         private val KEY_DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         private val KEY_LIST_DENSITY = stringPreferencesKey("list_density")
         private val KEY_PREVIEW_LINES = stringPreferencesKey("preview_lines")

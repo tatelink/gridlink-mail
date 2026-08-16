@@ -334,6 +334,14 @@
     <string name="settings_language_dutch">Nederlands</string>
     <string name="settings_language_russian">Русский</string>
     <string name="settings_language_polish">Polski</string>
+    <string name="settings_app_icon_section">App icon</string>
+    <string name="settings_app_icon_title">Icon</string>
+    <string name="settings_app_icon_auto">Auto</string>
+    <string name="settings_app_icon_light">Light</string>
+    <string name="settings_app_icon_dark">Dark</string>
+    <string name="settings_app_icon_oled">OLED</string>
+    <string name="settings_app_icon_auto_subtitle">Follows your phone’s dark mode, not the app’s palette</string>
+    <string name="settings_app_icon_oled_subtitle">Placeholder artwork for now</string>
     <string name="settings_message_list_section">Message list</string>
     <string name="settings_density_title">Density</string>
     <string name="settings_preview_title">Preview</string>
