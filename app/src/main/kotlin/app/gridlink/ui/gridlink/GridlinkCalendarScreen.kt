@@ -837,16 +837,31 @@ private fun GridlinkMonthDayList(
  * hide what a cell has plenty of space to say, and the day list beside them is no longer the only
  * place the answer could live.
  *
- * ## Tiles, from the mockup
- * In-month days sit on a rounded tile in the contained-field language — `fieldFill` under a hairline
- * `surfaceBorder`, the same surface the forms' text boxes use — per Tate's calendar mockup.
- * Adjacent months stay flat, so the month's shape is the block of tiles itself: where October ends
- * is visible before a single number is read.
+ * ## 🔴 No tiles, no pills. Reversed on Tate's instruction
+ * Every in-month day used to sit on its own rounded tile (`fieldFill` under a hairline
+ * `surfaceBorder`, the forms' text-box surface) and each event inside it wore a tinted capsule. Both
+ * came from his calendar mockup; both are gone because he looked at the built screen and called it
+ * "extremely hard on the eye" and "dated", asking for something "standardized like a regular app
+ * calendar". He is right about the cause: forty-two bordered boxes each holding a bordered bubble is
+ * six borders deep before any date is read, and no mainstream calendar draws a single one of them.
  *
- * The names are tinted pills rather than bar-and-text chips, again from the mockup ("tiles + pills,
- * no bars"). The tint is the same [gridlinkSenderBarColor] hash the message rows use for the sender
- * identity bar, so an event is still the same colour in the grid, in the day list and in the mail it
- * came from — the bar's identity job survives the bar.
+ * What replaces them is what those calendars actually do. The grid is flat. The month's shape is
+ * carried by the adjacent days' colour step, which was always doing that job anyway, so nothing was
+ * lost with the borders. A day's identity marker moved onto the NUMBER, where a calendar has always
+ * put it: a filled accent disc for today, a soft accent disc for the selected day.
+ *
+ * ⛔ The busyness heat wash went with them, and it was the last thing to go rather than the first. It
+ * was a real idea (which week is the heavy one, seen from across the room) and it survived the first
+ * pass. On the built screen it did not: with the tiles gone it was the only paint left on the grid,
+ * so a scattering of shaded days read as ten highlighted boxes among thirty-two empty ones, which is
+ * the exact complaint again in a lighter colour. The dots and the names already count a day's events,
+ * and no mainstream calendar shades its cells. ⚠️ Do not reintroduce it without also giving the
+ * unshaded days something, or the grid goes straight back to looking like a grid of boxes.
+ *
+ * Event names are a dot and a line of text. The dot is the same [gridlinkSenderBarColor] hash the
+ * message rows use for the sender identity bar, so an event is still the same colour in the grid, in
+ * the day list and in the mail it came from: the identity job survives, the capsule around it does
+ * not.
  */
 @Composable
 private fun GridlinkDayCell(
@@ -864,34 +879,11 @@ private fun GridlinkDayCell(
     Column(
         modifier = modifier
             .then(if (detailed) Modifier else Modifier.height(GridlinkDimens.calendarDayCell))
-            // Gap before clip, so neighbouring tiles keep a seam instead of fusing into a slab; clip
-            // before clickable, so the ripple is tile-shaped rather than a rectangle behind it.
+            // Gap before clip, so a busy day's wash keeps a seam from its neighbour's instead of the
+            // two fusing into one band; clip before clickable, so the ripple is cell-shaped rather
+            // than a rectangle behind it.
             .padding(DAY_TILE_GAP)
             .clip(DAY_TILE_SHAPE)
-            .then(
-                if (inMonth) {
-                    Modifier
-                        .background(colors.fieldFill)
-                        // Two washes of the same accent over one tile: how busy the day is, then
-                        // whether it is today. Order matters, today paints last so it wins.
-                        .background(colors.accent.copy(alpha = dayHeatAlpha(events.size)))
-                        .then(
-                            if (isToday) {
-                                Modifier
-                                    .background(colors.accent.copy(alpha = TODAY_TILE_TINT))
-                                    .border(GridlinkDimens.hairline, colors.accent, DAY_TILE_SHAPE)
-                            } else {
-                                Modifier.border(
-                                    GridlinkDimens.hairline,
-                                    colors.surfaceBorder,
-                                    DAY_TILE_SHAPE,
-                                )
-                            },
-                        )
-                } else {
-                    Modifier
-                },
-            )
             .clickable(onClick = onClick)
             .then(if (detailed) Modifier.padding(DETAILED_CELL_INSET) else Modifier),
         // 🔴 Centred when it is a number in a box, start-aligned when it is a number over a list.
@@ -900,15 +892,21 @@ private fun GridlinkDayCell(
         horizontalAlignment = if (detailed) Alignment.Start else Alignment.CenterHorizontally,
         verticalArrangement = if (detailed) Arrangement.Top else Arrangement.Center,
     ) {
+        // 🔴 Both markers now live on the NUMBER rather than on the cell, which is the single change
+        // that makes this read as a calendar instead of as a grid of controls. Today is the filled
+        // disc, because "today" is the one thing a calendar is always asked and it should be findable
+        // without reading a digit. The selection is the same disc at a wash, so a selected today
+        // stays plainly today with the selection sitting under it rather than covering it over.
         Box(
             modifier = Modifier
-                .size(26.dp)
+                .size(DAY_NUMBER_DISC)
                 .then(
                     when {
-                        // Selected fills the number's circle; today shades the whole tile instead
-                        // (see the tile's background above). One marker each, at different sizes,
-                        // so a selected today reads as both rather than as two rings competing.
-                        isSelected -> Modifier.background(colors.accent, CircleShape)
+                        isToday -> Modifier.background(colors.accent, CircleShape)
+                        isSelected -> Modifier.background(
+                            colors.accent.copy(alpha = SELECTED_DISC_TINT),
+                            CircleShape,
+                        )
                         else -> Modifier
                     },
                 ),
@@ -921,11 +919,11 @@ private fun GridlinkDayCell(
                     fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
                 ),
                 color = when {
-                    isSelected -> colors.onAccent
+                    isToday -> colors.onAccent
+                    isSelected -> colors.accent
                     // Adjacent months are a colour step, not an alpha fade, for the same reason
                     // read messages are: a faded number looks like a rendering fault.
                     !inMonth -> colors.textSecondary.copy(alpha = 0.45f)
-                    isToday -> colors.accent
                     else -> colors.textPrimary
                 },
             )
@@ -946,28 +944,27 @@ private fun GridlinkDayCell(
                         .height(DETAILED_CHIP_HEIGHT),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // The identity colour, at the one size a calendar ever paints it in a month
+                    // cell. The capsule this dot replaced carried exactly the same information in
+                    // twenty times the ink.
                     Box(
                         modifier = Modifier
+                            .size(GridlinkDimens.calendarEventDot)
+                            .background(gridlinkSenderBarColor(mode, event.domain), CircleShape),
+                    )
+                    Text(
+                        text = event.title,
+                        // Row weight rather than badge weight: this is a name being read, and Bold
+                        // 12sp across two lines of a small cell was the other half of what made the
+                        // grid shout.
+                        style = GridlinkType.badge.copy(fontWeight = FontWeight.Medium),
+                        color = if (inMonth) colors.textPrimary else colors.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
                             .weight(1f)
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(GridlinkRadii.pill))
-                            // Tinted, not painted: the full sender colour at pill size shouts, and
-                            // gridlinkAccentFill is an opaque gradient so it cannot whisper. An
-                            // alpha wash keeps the identity hue while the tile stays legible.
-                            .background(gridlinkSenderBarColor(mode, event.domain).copy(alpha = DAY_PILL_TINT)),
-                        contentAlignment = Alignment.CenterStart,
-                    ) {
-                        Text(
-                            text = event.title,
-                            style = GridlinkType.badge,
-                            color = if (inMonth) colors.textPrimary else colors.textSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            // Clear of the pill's end caps, or a title's first letter starts on
-                            // the curve.
-                            modifier = Modifier.padding(horizontal = 6.dp),
-                        )
-                    }
+                            .padding(start = 4.dp),
+                    )
                     val hidden = events.size - shown.size
                     if (hidden > 0 && index == shown.lastIndex) {
                         Text(
@@ -1001,61 +998,44 @@ private fun GridlinkDayCell(
     }
 }
 
-/** Keeps a detailed cell's pills clear of the tile's own rounded border. */
+/** Keeps a detailed cell's event lines off its own edge and off its neighbour's. */
 private val DETAILED_CELL_INSET = 3.dp
+
+/**
+ * The disc behind a day's number, for today and for the selection.
+ *
+ * 26dp, which is what it has always been. ⚠️ It is not free to grow: a compact cell is
+ * [GridlinkDimens.calendarDayCell] tall and has to hold this disc AND the dot row under it, and a
+ * detailed cell has to hold it and two event lines. Both were measured against 26.
+ */
+private val DAY_NUMBER_DISC = 26.dp
+
+/**
+ * The selected day's disc, as an accent alpha.
+ *
+ * 🔴 A wash and not a fill, because today is the fill. Making both solid would leave a selected today
+ * with two markers competing for one number, and the day you can already find would be shouting over
+ * the day you just picked.
+ */
+private const val SELECTED_DISC_TINT = 0.28f
 
 /** Names shown in a detailed cell before it gives up and counts. */
 private const val DETAILED_CELL_EVENTS = 2
 
-/** Tall enough for [GridlinkType.badge] and no taller: a pill is a label, not a row. */
+/** Tall enough for [GridlinkType.badge] and no taller: an event line is a label, not a row. */
 private val DETAILED_CHIP_HEIGHT = 14.dp
 
 /**
- * The in-month day tile. [GridlinkRadii.field] rather than a bespoke radius, because the tile IS the
- * contained-field surface (fill, hairline, rounding) wearing a date instead of a text box.
+ * The corner the tap ripple is cut to.
+ *
+ * ⚠️ Nothing is drawn ON this shape any more (no fill, no border, no wash), so it is only ever seen
+ * as the softened corner of the ripple under a thumb. Kept at [GridlinkRadii.field] so that ripple
+ * agrees with the rest of the app rather than inventing a radius nothing else uses.
  */
 private val DAY_TILE_SHAPE = RoundedCornerShape(GridlinkRadii.field)
 
-/** The seam between tiles. Per-cell, so it doubles between neighbours and halves at the grid edge. */
+/** The seam between cells. Per-cell, so it doubles between neighbours and halves at the grid edge. */
 private val DAY_TILE_GAP = 1.5.dp
-
-/** A wash of the domain colour, not the colour: strong enough to match an event to its sender bar,
- *  weak enough that [GridlinkType.badge] text stays readable on top of it in both palettes. */
-private const val DAY_PILL_TINT = 0.20f
-
-/**
- * How busy a day looks, as an accent alpha over the tile's own fill.
- *
- * ## Why a heat map at all
- * The dots already say "this day has events", but three dots is where they stop counting and a month
- * is scanned for shape rather than read cell by cell. Shading the tile answers "which week is the
- * heavy one" from across the room, before any number is read.
- *
- * ## Why deepening accent rather than green-to-red
- * A busy day is not a warning. Tate picked the accent ramp for that reason: it stays inside the
- * app's one colour and reads as "more of the same thing" instead of "something is wrong here".
- *
- * ## Why it plateaus at four
- * The steps are spaced so 0/1/2/3 are told apart at a glance, and past four the difference between
- * six events and nine stops being visible in a 50dp tile no matter how the alpha is spent. A day
- * that busy is a day you open, so the extra resolution would be spent on a question the tile is not
- * being asked. ⚠️ Keep the top step well under the [TODAY_TILE_TINT] + heat total, or the busiest
- * ordinary day starts looking like today.
- */
-private fun dayHeatAlpha(count: Int): Float =
-    DAY_HEAT_STEPS[count.coerceIn(0, DAY_HEAT_STEPS.lastIndex)]
-
-/** Index is the event count, value is the accent alpha. The last entry is the plateau. */
-private val DAY_HEAT_STEPS = listOf(0f, 0.06f, 0.12f, 0.18f, 0.24f)
-
-/**
- * Today's own wash, laid over whatever heat the day already has.
- *
- * 🔴 It is additive on purpose. Today is also a day with events, and painting it a flat colour would
- * throw away its place on the heat scale. Stacked, a busy today is visibly busier than a free one
- * while both stay obviously today, which the hairline accent border settles beyond doubt.
- */
-private const val TODAY_TILE_TINT = 0.22f
 
 /** First and last hour drawn in the time grids. Outside these the sample day is empty, and an
  *  always-scrolled-to-the-middle grid that starts at midnight wastes a third of the screen. */

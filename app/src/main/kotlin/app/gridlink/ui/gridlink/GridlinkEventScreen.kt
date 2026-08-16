@@ -45,7 +45,9 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.gridlink.ui.rememberLeaveOnce
 import app.gridlink.ui.theme.GridlinkDimens
@@ -309,8 +311,10 @@ fun GridlinkEventScreen(
             // screen that spends a labelled row on the absence of something is a screen that reads
             // as having failed to load.
             event.location?.let { where ->
-                GridlinkSectionLabel(text = "Where")
+                // No heading. The pin already says this is a place, and "WHERE" over it was the
+                // word said twice. See [GridlinkEventGroupLabel] for which sections kept theirs.
                 GridlinkEventFact(
+                    top = GridlinkSpacing.s20,
                     text = where,
                     icon = Icons.Outlined.Place,
                     // Handed to whichever map app is installed, which on this fleet is Google Maps.
@@ -327,7 +331,7 @@ fun GridlinkEventScreen(
             // reason too — the read path does not carry them off the server yet — and rendering
             // empty sections there would advertise the gap on every single appointment.
             event.notes?.let { notes ->
-                GridlinkSectionLabel(text = "Notes")
+                GridlinkEventGroupLabel(text = "Notes")
                 if (event.notesAreHtml) {
                     GridlinkEventHtmlNotes(notes = notes)
                 } else {
@@ -347,7 +351,9 @@ fun GridlinkEventScreen(
             // ⚠️ After the notes and before the category, because an agenda usually refers to the
             // documents by name and the chips are then in the reader's eye when they get there.
             if (event.attachments.isNotEmpty() || canAttach) {
-                GridlinkSectionLabel(text = if (event.attachments.size == 1) "Attachment" else "Attachments")
+                GridlinkEventGroupLabel(
+                    text = if (event.attachments.size == 1) "Attachment" else "Attachments",
+                )
                 event.attachments.forEach { attachment ->
                     GridlinkAttachmentChip(
                         attachment = attachment,
@@ -385,12 +391,16 @@ fun GridlinkEventScreen(
             }
 
             event.category?.let { category ->
-                GridlinkSectionLabel(text = "Category")
-                GridlinkEventFact(text = category, icon = Icons.AutoMirrored.Outlined.Label)
+                // Heading dropped for the same reason Where's was: the tag glyph is the word.
+                GridlinkEventFact(
+                    top = GridlinkSpacing.s20,
+                    text = category,
+                    icon = Icons.AutoMirrored.Outlined.Label,
+                )
             }
 
             if (event.reminders.isNotEmpty()) {
-                GridlinkSectionLabel(text = "Reminders")
+                GridlinkEventGroupLabel(text = "Reminders")
                 GridlinkEventFact(
                     // One fact, one glyph, a line per reminder: a repeated bell down the margin
                     // would give three reminders the visual weight of three appointments.
@@ -403,7 +413,7 @@ fun GridlinkEventScreen(
             // and the day's other appointments buried under it would be a scroll away from the one
             // thing every event on this screen has in common.
             if (sameDay.isNotEmpty()) {
-                GridlinkSectionLabel(text = "Also that day")
+                GridlinkEventGroupLabel(text = "Also that day")
                 sameDay.forEachIndexed { index, other ->
                     GridlinkEventDayRow(
                         event = other,
@@ -418,19 +428,27 @@ fun GridlinkEventScreen(
             }
 
             if (!internal) {
-                GridlinkSectionLabel(text = "With")
+                // No "WITH" heading either: the building glyph names it, and this row sits directly
+                // above the "Mail from …" heading that says who they are in full.
                 if (counterpart == null) {
                     // The domain is all this event says, so the domain is all this row claims.
-                    GridlinkEventFact(text = event.domain, icon = Icons.Outlined.Domain)
+                    GridlinkEventFact(
+                        top = GridlinkSpacing.s20,
+                        text = event.domain,
+                        icon = Icons.Outlined.Domain,
+                    )
                 } else {
                     GridlinkEventFact(
+                        top = GridlinkSpacing.s20,
                         text = counterpart.displayName,
                         secondary = counterpart.email,
                         icon = Icons.Outlined.Domain,
                     )
                 }
 
-                GridlinkSectionLabel(text = "Mail from ${counterpart?.displayName ?: event.domain}")
+                GridlinkEventGroupLabel(
+                    text = "Mail from ${counterpart?.displayName ?: event.domain}",
+                )
                 if (fromThem.isEmpty()) {
                     Text(
                         text = "Nothing from them yet.",
@@ -605,6 +623,46 @@ private fun GridlinkEvent.asPlainText(): String = buildString {
 }.trimEnd()
 
 /**
+ * A quiet heading over a GROUP of rows, and only over a group.
+ *
+ * ## 🔴 Deliberately not [GridlinkSectionLabel]
+ * That one uppercases its text and tracks it out to 0.78sp, which is right where it lives: the mail
+ * lists are flat runs of near-identical rows, and a shouted "TODAY" is the only structure they have.
+ * The event card is the opposite kind of screen. Every fact on it already carries a glyph that names
+ * what it is, so the caps were labelling things that had just been labelled, and eight tracked-out
+ * capital headings stacked down one short card is what Tate read as "extremely hard on the eye"
+ * and "dated". Sentence case at row weight puts the heading a step BELOW the thing it introduces,
+ * which is the order a heading is supposed to sit in.
+ *
+ * ⚠️ Reversing a call of his, on his instruction. The all-caps labels came from the mockup this
+ * screen was built to; he has since looked at the built thing and asked for the modern reading.
+ *
+ * ## When a section gets one and when it does not
+ * A heading earns its line only when what follows is a LIST and the list's rows do not each say what
+ * they are: Notes, Attachments, Reminders, Also that day, Mail from X. A single glyphed fact gets no
+ * heading at all, which is why Where, Category and With lost theirs and took a [GridlinkEventFact.top]
+ * instead. That is also how every mainstream calendar lays this card out.
+ */
+@Composable
+private fun GridlinkEventGroupLabel(text: String) {
+    Text(
+        text = text,
+        // Row weight, not label weight. A Medium 13sp heading over Normal 15sp body is a step down
+        // in size and a step up in weight, which separates the two without either one shouting.
+        style = GridlinkType.metadata.copy(fontWeight = FontWeight.Medium),
+        color = GridlinkTheme.colors.textSecondary,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                start = GridlinkSpacing.rowHorizontal,
+                end = GridlinkSpacing.rowHorizontal,
+                top = GridlinkSpacing.s20,
+                bottom = GridlinkSpacing.s8,
+            ),
+    )
+}
+
+/**
  * One labelled fact: a glyph, then the value, then an optional quieter second line.
  *
  * Inert unless given an [onClick]. The With row stays inert (a domain is not somewhere you can go);
@@ -621,6 +679,15 @@ private fun GridlinkEventFact(
     icon: ImageVector,
     modifier: Modifier = Modifier,
     secondary: String? = null,
+    /**
+     * Space above the row, for the sections that no longer carry a heading.
+     *
+     * 🔴 Zero by default, and that default is the common case: a row under a
+     * [GridlinkEventGroupLabel] gets its air from the label's own bottom padding, and adding more
+     * here would double it. This exists only so Where, Category and With keep the rhythm the
+     * headings used to give them after the headings were taken away.
+     */
+    top: Dp = 0.dp,
     onClick: (() -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
@@ -633,6 +700,7 @@ private fun GridlinkEventFact(
             .padding(
                 start = GridlinkSpacing.rowHorizontal,
                 end = GridlinkSpacing.rowHorizontal,
+                top = top,
                 bottom = GridlinkSpacing.s16,
             ),
         verticalAlignment = Alignment.Top,
