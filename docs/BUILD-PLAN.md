@@ -313,7 +313,11 @@ drag-to-reorder third is permanently cut.
 
 ## Notes that outlive this plan
 
-- Room schema is at **22**. Anything needing a migration goes 22 → 23.
+- Room schema is at **27**. Anything needing a migration goes 27 → 28.
+  🔴 Read the version off `GridlinkDatabase.kt`, not off this line. This note said 22 for five
+  schema bumps, because a migration is written next to the entity and nobody comes back here
+  afterwards. A stale number here is worse than no number: it invites a migration numbered into
+  a slot that is already occupied.
 - `TranslationParityTest` gates every new `<string>` across nine locales. `ui/gridlink` uses
   hardcoded English and is exempt.
 - detekt runs against a **baseline**. Regenerating one forgives whatever is currently broken;
