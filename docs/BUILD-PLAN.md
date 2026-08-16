@@ -320,6 +320,22 @@ drag-to-reorder third is permanently cut.
   a slot that is already occupied.
 - `TranslationParityTest` gates every new `<string>` across nine locales. `ui/gridlink` uses
   hardcoded English and is exempt.
+- **Release signing.** A real 4096-bit RSA key exists as of 2026-08-16, at
+  `C:/Users/brand/keys/gridlink-release.jks`, alias `gridlink`, referenced by the gitignored
+  `keystore.properties` at the repo root. Certificate SHA-256 is
+  `17fac1d9740cdcf9fdb1e6857831b2fa9873f0869a6432e30980aaad732dca96`. Neither the key nor its
+  password is in this repo, and neither should ever be: `.gitignore` already covers
+  `keystore.properties` and `*.keystore`.
+  🔴 **The phone is on a different key.** Every build Tate has installed is signed with the
+  Android debug key, because that is what `assembleRelease` fell back to before the real key
+  existed, and what `assembleDebug` uses regardless. Android refuses to replace an installed app
+  with one signed differently, so a real-key APK **cannot** `install -r` over his install. Moving
+  him across means an uninstall, and an uninstall of this app costs him the account
+  configuration on it. Keep installing debug builds to his phone; the real key is for handing the
+  APK to anyone who is not him.
+- **EAS is not happening.** Decided 2026-08-16. Outlook already works over IMAP, JMAP is the
+  first-class path, and ActiveSync is a large proprietary protocol whose payoff is push mail for a
+  single account. Do not re-propose it.
 - detekt runs against a **baseline**. Regenerating one forgives whatever is currently broken;
   never run `detektBaseline` to make a red build green.
 - CI before every commit: `:core:jmap:test :core:imap:test :core:dav:test
