@@ -14,6 +14,16 @@ object Jmap {
     /** JMAP for Contacts (RFC 9610): AddressBook and ContactCard over the same session. */
     const val CONTACTS_CAPABILITY = "urn:ietf:params:jmap:contacts"
 
+    /**
+     * JMAP for Calendars (draft-ietf-jmap-calendars): Calendar and CalendarEvent, carrying
+     * JSCalendar objects (RFC 8984) rather than the iCalendar text the CalDAV path parses.
+     *
+     * Still an IETF draft, which is why the client asks the session rather than assuming: a server
+     * that does not advertise it falls back to CalDAV. Verified live against Stalwart 0.16.15,
+     * which advertises it at both session and account level.
+     */
+    const val CALENDARS_CAPABILITY = "urn:ietf:params:jmap:calendars"
+
     /** VAPID for JMAP WebPush (RFC 9749); advertises the server's application key. */
     const val WEBPUSH_VAPID_CAPABILITY = "urn:ietf:params:jmap:webpush-vapid"
 

@@ -1,5 +1,7 @@
 package app.gridlink.core.jmap
 
+import app.gridlink.core.jmap.model.CalendarChangesResult
+import app.gridlink.core.jmap.model.CalendarEventIdPage
 import app.gridlink.core.jmap.model.ContactCardGroup
 import app.gridlink.core.jmap.model.ContactCardWrite
 import app.gridlink.core.jmap.model.CrawlPage
@@ -13,52 +15,54 @@ import app.gridlink.core.jmap.model.EmailQueryChangesResult
 import app.gridlink.core.jmap.model.EmailSetResult
 import app.gridlink.core.jmap.model.Identity
 import app.gridlink.core.jmap.model.JmapAddressBook
+import app.gridlink.core.jmap.model.JmapCalendar
+import app.gridlink.core.jmap.model.JmapCalendarEvent
 import app.gridlink.core.jmap.model.JmapSession
 import app.gridlink.core.jmap.model.Mailbox
 import app.gridlink.core.jmap.model.PushSubscription
-import app.gridlink.core.jmap.model.StateChange
 import app.gridlink.core.jmap.model.Quota
 import app.gridlink.core.jmap.model.SearchPage
 import app.gridlink.core.jmap.model.SearchQuery
 import app.gridlink.core.jmap.model.SieveScript
+import app.gridlink.core.jmap.model.StateChange
 import app.gridlink.core.jmap.model.UploadedBlob
 import app.gridlink.core.jmap.model.VacationResponse
-import okhttp3.Response
-import okhttp3.sse.EventSource
-import okhttp3.sse.EventSourceListener
-import okhttp3.sse.EventSources
-import java.io.Closeable
-import kotlinx.serialization.KSerializer
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonObjectBuilder
-import kotlinx.serialization.json.putJsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonArray
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import okhttp3.sse.EventSource
+import okhttp3.sse.EventSourceListener
+import okhttp3.sse.EventSources
+import java.io.Closeable
 import java.util.concurrent.TimeUnit
 
 /**
@@ -1525,6 +1529,218 @@ class JmapClient internal constructor(
                 ?: it["type"]?.jsonPrimitive?.contentOrNull
         }
 
+    /** True when the session speaks JMAP for Calendars, at either level it can. */
+    fun supportsCalendars(session: JmapSession): Boolean =
+        session.capabilities.containsKey(Jmap.CALENDARS_CAPABILITY) ||
+            session.accounts.values.any { Jmap.CALENDARS_CAPABILITY in it.accountCapabilities }
+
+    /**
+     * Fetch the account's calendars, or an empty list if the server doesn't advertise the
+     * calendars capability.
+     *
+     * ⚠️ Returns EVERY calendar, subscribed or not. See [JmapCalendar.isSubscribed]: filtering on
+     * it here would make this path disagree with the CalDAV mirror about what the account holds.
+     */
+    suspend fun getCalendars(session: JmapSession, accountId: String, auth: JmapAuth): List<JmapCalendar> =
+        withContext(Dispatchers.IO) {
+            if (!supportsCalendars(session)) return@withContext emptyList()
+            val payload = buildJsonObject {
+                putJsonArray("using") {
+                    add(Jmap.CORE_CAPABILITY)
+                    add(Jmap.CALENDARS_CAPABILITY)
+                }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("Calendar/get")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            put("ids", JsonNull)
+                        }
+                        add("cal0")
+                    }
+                }
+            }
+            decodeList(postJmap(session, auth, payload), "Calendar/get", JmapCalendar.serializer())
+        }
+
+    /**
+     * Ids of the events overlapping a time window, newest state first.
+     *
+     * ## 🔴 There is no per-calendar filter
+     * The draft defines `inCalendars`, and Stalwart 0.16.15 answers `unsupportedFilter` to it AND
+     * to `calendarIds` (verified live, 2026-08-16). A caller that wants one calendar has to fetch
+     * the window and select on [JmapCalendarEvent.calendarIds] itself. Sending the filter anyway
+     * would not degrade to "all calendars", it would fail the whole method.
+     *
+     * [after] and [before] are UTC instants bounding the window; both are optional, and omitting
+     * both asks for everything. The window is matched against occurrences, so a repeating event
+     * whose master started years ago still comes back when it lands inside it.
+     */
+    suspend fun queryCalendarEventIds(
+        session: JmapSession,
+        accountId: String,
+        auth: JmapAuth,
+        after: String? = null,
+        before: String? = null,
+        limit: Int? = null,
+        position: Int = 0,
+    ): CalendarEventIdPage = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.CALENDARS_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("CalendarEvent/query")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        if (after != null || before != null) {
+                            putJsonObject("filter") {
+                                after?.let { put("after", it) }
+                                before?.let { put("before", it) }
+                            }
+                        }
+                        put("calculateTotal", true)
+                        limit?.let { put("limit", it) }
+                        if (position != 0) put("position", position)
+                    }
+                    add("cq0")
+                }
+            }
+        }
+        val args = methodResponseArgs(postJmap(session, auth, payload), "CalendarEvent/query")
+        CalendarEventIdPage(
+            ids = args["ids"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty(),
+            // 🔴 The state to hand the NEXT incremental sync. See calendarEventChanges: this is the
+            // only legitimate source of one, so dropping it here means a full re-query every time.
+            queryState = args["queryState"]?.jsonPrimitive?.contentOrNull,
+            total = args["total"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(),
+        )
+    }
+
+    /**
+     * Find the JMAP id of the CalendarEvent carrying this iCalendar UID, or null when the server
+     * doesn't know it.
+     *
+     * Same bridge [queryContactCardId] is, for the same reason: the Room cache keys rows by DAV
+     * href, JMAP has no concept of one, and the UID is the single identifier both sides store
+     * verbatim. Verified supported on Stalwart.
+     */
+    suspend fun queryCalendarEventId(
+        session: JmapSession,
+        accountId: String,
+        uid: String,
+        auth: JmapAuth,
+    ): String? = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.CALENDARS_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("CalendarEvent/query")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("filter") { put("uid", uid) }
+                    }
+                    add("cu0")
+                }
+            }
+        }
+        methodResponseArgs(postJmap(session, auth, payload), "CalendarEvent/query")["ids"]
+            ?.jsonArray?.firstOrNull()?.jsonPrimitive?.contentOrNull
+    }
+
+    /**
+     * Fetch full events by id, in chunks the server will accept.
+     *
+     * Chunked here rather than at the call site because the cap ([MAX_EVENTS_PER_GET]) is a
+     * protocol fact, not a caller's business, and a caller that forgot it would not get an error:
+     * `CalendarEvent/get` silently returns the first N and the rest land in `notFound`, which reads
+     * exactly like "those events were deleted".
+     */
+    suspend fun getCalendarEvents(
+        session: JmapSession,
+        accountId: String,
+        ids: List<String>,
+        auth: JmapAuth,
+    ): List<JmapCalendarEvent> = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext emptyList()
+        ids.chunked(MAX_EVENTS_PER_GET).flatMap { chunk ->
+            val payload = buildJsonObject {
+                putJsonArray("using") {
+                    add(Jmap.CORE_CAPABILITY)
+                    add(Jmap.CALENDARS_CAPABILITY)
+                }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("CalendarEvent/get")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            putJsonArray("ids") { chunk.forEach { add(it) } }
+                        }
+                        add("cg0")
+                    }
+                }
+            }
+            decodeList(postJmap(session, auth, payload), "CalendarEvent/get", JmapCalendarEvent.serializer())
+        }
+    }
+
+    /**
+     * What changed since [sinceState] (RFC 8620 §5.2).
+     *
+     * ## 🔴 A synthetic starting state is not allowed
+     * Stalwart rejects an invented `sinceState` (`"0"`, `""`) with `notRequest` at the REQUEST
+     * level, before any method runs, so the failure is not a method error a caller could inspect
+     * and recover from: the whole batch dies. The only legitimate state is one a previous
+     * `CalendarEvent/query` or `/get` handed back. A blank one therefore returns `calculated =
+     * false` here without touching the network, which is the same signal a server-side
+     * `cannotCalculateChanges` gives, and the same fallback answers both: do a full query.
+     */
+    suspend fun calendarEventChanges(
+        session: JmapSession,
+        accountId: String,
+        sinceState: String?,
+        auth: JmapAuth,
+        maxChanges: Int? = null,
+    ): CalendarChangesResult = withContext(Dispatchers.IO) {
+        if (sinceState.isNullOrBlank()) {
+            return@withContext CalendarChangesResult(null, emptyList(), emptyList(), emptyList(), false, false)
+        }
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.CALENDARS_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("CalendarEvent/changes")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        put("sinceState", sinceState)
+                        maxChanges?.let { put("maxChanges", it) }
+                    }
+                    add("cc0")
+                }
+            }
+        }
+        // OrNull, not the throwing form: cannotCalculateChanges arrives as a method-level error and
+        // is an expected outcome here, not a failure to report.
+        val args = methodResponseArgsOrNull(postJmap(session, auth, payload), "CalendarEvent/changes")
+            ?: return@withContext CalendarChangesResult(null, emptyList(), emptyList(), emptyList(), false, false)
+        CalendarChangesResult(
+            newState = args["newState"]?.jsonPrimitive?.contentOrNull,
+            created = args["created"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty(),
+            updated = args["updated"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty(),
+            destroyed = args["destroyed"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty(),
+            hasMoreChanges = args["hasMoreChanges"]?.jsonPrimitive?.contentOrNull?.toBoolean() ?: false,
+            calculated = true,
+        )
+    }
+
     /**
      * Send a plain-text email: create a draft (Email/set) and submit it
      * (EmailSubmission/set) in one request, moving it to Sent on success.
@@ -2284,6 +2500,13 @@ class JmapClient internal constructor(
         /** Retries for the transient limit/429 error, with a linear backoff step. */
         private const val LIMIT_RETRY_MAX = 4
         private const val LIMIT_RETRY_BASE_MS = 120L
+
+        /**
+         * Ids per `CalendarEvent/get`. Under every `maxObjectsInGet` seen in the wild (Stalwart
+         * says 500) with room to spare, because the penalty for guessing high is silent truncation
+         * into `notFound`, and the penalty for guessing low is one extra round trip.
+         */
+        private const val MAX_EVENTS_PER_GET = 100
 
         /**
          * Defensively upgrade the session-advertised URLs from http:// to https:// when the

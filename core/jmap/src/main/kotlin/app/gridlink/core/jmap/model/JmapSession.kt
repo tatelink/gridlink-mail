@@ -53,6 +53,16 @@ data class JmapSession(
             ?: mailAccountId()
 
     /**
+     * The account to read and write calendars in, resolved exactly as [contactsAccountId] is and
+     * for the same three reasons: the server's own primary, else the first account advertising the
+     * capability, else the mail account for the single-account self-hosted case.
+     */
+    fun calendarsAccountId(): String? =
+        primaryAccounts[Jmap.CALENDARS_CAPABILITY]
+            ?: accounts.entries.firstOrNull { Jmap.CALENDARS_CAPABILITY in it.value.accountCapabilities }?.key
+            ?: mailAccountId()
+
+    /**
      * The server's VAPID application key (RFC 9749), when advertised — passed to the
      * UnifiedPush registration; null for servers without VAPID (e.g. Stalwart today).
      */
