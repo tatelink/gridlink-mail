@@ -226,6 +226,10 @@ object JsCalendar {
                     contentType = link.contentType,
                     size = link.size?.takeIf { it >= 0 },
                     blobId = blob,
+                    // JSCalendar has no word for a managed id, so a server that manages attachments
+                    // still cannot tell us one here. Recovering it from the URL is the only route,
+                    // and it is why our own server shapes that URL the way it does.
+                    managedId = if (fetchable) CalendarAttachment.managedIdFromUrl(href) else null,
                 )
             }
             .take(ICalendarStream.MAX_ATTACHMENTS)

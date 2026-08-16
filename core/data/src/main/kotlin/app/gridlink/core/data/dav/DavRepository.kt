@@ -2,6 +2,7 @@ package app.gridlink.core.data.dav
 
 import app.gridlink.core.data.account.AccountStore
 import app.gridlink.core.data.account.AuthType
+import app.gridlink.core.data.calendar.CalendarAttachment
 import app.gridlink.core.data.calendar.CalendarAttachmentSource
 import app.gridlink.core.data.calendar.CalendarOccurrence
 import app.gridlink.core.data.calendar.EventEditScope
@@ -265,6 +266,158 @@ class DavRepository(
         } catch (e: Exception) {
             DavAttachmentOutcome(error = e.message ?: "The attachment could not be downloaded")
         }
+    }
+
+    // ---- Managed attachments (RFC 8607) --------------------------------------------------------
+
+    /**
+     * Can this event have files attached to it by the server, rather than by inlining them?
+     *
+     * Both halves have to be true and neither is guessable, so both are checked before the editor
+     * offers a button that would otherwise fail on tap:
+     *
+     * 1. **The event has a CalDAV address.** RFC 8607 is a CalDAV extension: every action is a POST
+     *    to the event's own URL. A row synced over JMAP into a calendar this account never saw over
+     *    CalDAV is filed under a synthetic key and has no such URL, so there is nowhere to POST.
+     * 2. **The server says it manages attachments**, by naming `calendar-managed-attachments` in a
+     *    `DAV:` header on OPTIONS. Assuming it from the vendor would be wrong the moment the server
+     *    is upgraded, downgraded, or is not the one we think it is.
+     *
+     * ⚠️ One request, every time it is asked. Not cached: the answer is a property of the server and
+     * the server can change under us, and the alternative is a stale yes that turns into a failed
+     * upload after the user has already chosen a file.
+     */
+    suspend fun managedAttachmentsSupported(accountId: String, href: String): Boolean {
+        val target = attachmentTarget(accountId, href) as? Target.Ready ?: return false
+        return try {
+            client.managedAttachmentsSupported(target.url, target.dav)
+        } catch (c: CancellationException) {
+            throw c
+        } catch (_: Exception) {
+            // A capability probe that failed is a "no". Reporting the error would put a network
+            // message on a screen the user did not ask a question on.
+            false
+        }
+    }
+
+    /**
+     * Hand the server a file and have it hang the result off this event.
+     *
+     * The server stores the bytes, mints a managed id, and answers with the URL it filed them
+     * under; adding the `ATTACH` property to the event is its job too, which is the whole point of
+     * RFC 8607 over inlining base64 into the `.ics`.
+     *
+     * The re-sync afterwards is not optional. The event on the server now differs from the row in
+     * Room, and this class's rule is that screens read Room, so leaving the cache behind would show
+     * the user an event with no attachment on it until something else happened to sync.
+     */
+    suspend fun addEventAttachment(
+        accountId: String,
+        href: String,
+        fileName: String,
+        contentType: String,
+        bytes: ByteArray,
+    ): DavWriteOutcome {
+        val target = when (val it = attachmentTarget(accountId, href)) {
+            is Target.Refused -> return DavWriteOutcome(error = it.reason)
+            is Target.Ready -> it
+        }
+        try {
+            client.addManagedAttachment(
+                objectUrl = target.url,
+                credentials = target.dav,
+                fileName = fileName,
+                contentType = contentType,
+                bytes = bytes,
+                recurrenceId = target.recurrenceId,
+            )
+        } catch (c: CancellationException) {
+            throw c
+        } catch (e: DavException) {
+            return DavWriteOutcome(error = describeAttachment(e))
+        }
+        syncCalendars(accountId)
+        return DavWriteOutcome(href = target.href)
+    }
+
+    /**
+     * Ask the server to unhang a file it is managing, and to delete the file.
+     *
+     * ⚠️ Only a managed attachment can go this way, which is why [CalendarAttachment.managedId] is
+     * the argument rather than the href. An `ATTACH` pointing at some URL a colleague typed into an
+     * invitation is not the server's file to delete, and removing it is an edit to the event, not an
+     * attachment action.
+     */
+    suspend fun removeEventAttachment(
+        accountId: String,
+        href: String,
+        managedId: String,
+    ): DavWriteOutcome {
+        val target = when (val it = attachmentTarget(accountId, href)) {
+            is Target.Refused -> return DavWriteOutcome(error = it.reason)
+            is Target.Ready -> it
+        }
+        try {
+            client.removeManagedAttachment(
+                objectUrl = target.url,
+                credentials = target.dav,
+                managedId = managedId,
+                recurrenceId = target.recurrenceId,
+            )
+        } catch (c: CancellationException) {
+            throw c
+        } catch (e: DavException) {
+            return DavWriteOutcome(error = describeAttachment(e))
+        }
+        syncCalendars(accountId)
+        return DavWriteOutcome(href = target.href)
+    }
+
+    /**
+     * Everything an attachment action needs, or the reason there is no such thing for this event.
+     *
+     * [Access]'s shape and [Access]'s reason: the three ways this can be impossible (the account is
+     * not usable, the event is not cached, the event has no CalDAV address) each produce a different
+     * sentence, and resolving them once keeps both callers down to the failures they can actually
+     * cause themselves.
+     */
+    private sealed interface Target {
+        data class Ready(
+            val dav: DavCredentials,
+            val url: String,
+            val href: String,
+            val recurrenceId: String?,
+        ) : Target
+
+        data class Refused(val reason: String) : Target
+    }
+
+    private suspend fun attachmentTarget(accountId: String, href: String): Target {
+        val dav = when (val access = access(accountId)) {
+            is Access.Refused -> return Target.Refused(access.reason)
+            is Access.Ready -> access.dav
+        }
+        // The `href#day` key an instance is filed under, falling back to the file's own key. Same
+        // two-step [updateEvent] does: a screen showing one occurrence of a repeating event holds
+        // the occurrence's key, not the file's.
+        val row = eventDao.byHref(accountId, href)
+            ?: eventDao.byHref(accountId, href.substringBefore('#'))
+            ?: return Target.Refused("This event isn't synced to this device yet. Sync first.")
+        val url = client.objectUrl(row.collectionUrl, row.href)
+            ?: return Target.Refused("This calendar does not support attaching files.")
+        return Target.Ready(dav, url, row.href, row.recurrenceId)
+    }
+
+    /**
+     * A failed attachment action, in words worth showing.
+     *
+     * 412 is called out because it is the one the user can actually do something about, and the
+     * generic "the server refused" would send them looking for a fault that is not there.
+     */
+    private fun describeAttachment(e: DavException): String = when (e.code) {
+        HTTP_PRECONDITION_FAILED -> "This event changed on another device. Sync and try again."
+        HTTP_PAYLOAD_TOO_LARGE -> "That file is too large for this server."
+        else -> e.message ?: "The server would not attach that file."
     }
 
     // ---- Sync --------------------------------------------------------------------------------
@@ -1469,6 +1622,12 @@ class DavRepository(
 }
 
 /** Hrefs per DELETE. SQLite caps host parameters, and a large calendar can exceed it. */
+/** The server refused a write because the copy we based it on is out of date. */
+private const val HTTP_PRECONDITION_FAILED = 412
+
+/** The server refused a file for its size alone. */
+private const val HTTP_PAYLOAD_TOO_LARGE = 413
+
 private const val DELETE_CHUNK = 400
 
 /** No longer than a filename can sensibly be; the UID becomes `"$uid.ics"` on the server. */

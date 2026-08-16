@@ -144,8 +144,50 @@ class CalendarRichContentTest {
         ).single()
 
         // The query string is not part of the name, and a chip reading the whole URL is a chip
-        // nobody can tell apart from the next one.
-        assertEquals("q3%20audit.pdf", parsed.attachments.single().displayName)
+        // nobody can tell apart from the next one. The segment is percent-decoded, because it is a
+        // filename that was encoded to travel in a path and the user never named it `%20`.
+        assertEquals("q3 audit.pdf", parsed.attachments.single().displayName)
+    }
+
+    @Test fun aManagedAttachmentCarriesTheServersHandleForIt() {
+        val parsed = ICalendarStream.parse(
+            ics(
+                extra = "ATTACH;MANAGED-ID=0d89d3ff44d14bfc94357a4322ba2f12;FMTTYPE=text/plain" +
+                    ";SIZE=22;FILENAME=\"notes.txt\":https://mail.gridlink.me/dav/file/b/.attachments" +
+                    "/0d89d3ff44d14bfc94357a4322ba2f12/notes.txt",
+            ),
+            eastern,
+        ).single()
+
+        assertEquals("0d89d3ff44d14bfc94357a4322ba2f12", parsed.attachments.single().managedId)
+    }
+
+    @Test fun anOrdinaryAttachmentHasNoManagedIdToRemoveItBy() {
+        val parsed = ICalendarStream.parse(
+            ics(extra = "ATTACH:https://files.gridlink.me/w.pdf"),
+            eastern,
+        ).single()
+
+        assertNull(parsed.attachments.single().managedId)
+    }
+
+    @Test fun aManagedAttachmentSurvivesTheTripThroughJmapThatDropsItsParameters() {
+        // 🔴 The reason the server files each blob in a folder named for its managed id. Stalwart's
+        // JSCalendar conversion drops MANAGED-ID and FILENAME both, so this link is everything the
+        // app gets, and without the folder there would be no way back to either.
+        val parsed = JsCalendar.parse(
+            json(
+                extra = """
+                    "links": { "0": { "@type": "Link", "contentType": "text/plain", "size": 22,
+                      "href": "https://mail.gridlink.me/dav/file/b/.attachments/0d89d3ff44d14bfc94357a4322ba2f12/notes%20on%20pay.txt" } },
+                """.trimIndent(),
+            ),
+            eastern,
+        ).single()
+
+        val attachment = parsed.attachments.single()
+        assertEquals("0d89d3ff44d14bfc94357a4322ba2f12", attachment.managedId)
+        assertEquals("notes on pay.txt", attachment.displayName)
     }
 
     @Test fun anInlinedBinaryAttachmentIsSkippedRatherThanCachedTwice() {

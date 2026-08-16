@@ -707,6 +707,22 @@ class DavClient internal constructor(
     }
 
     /**
+     * The absolute URL of one object in a collection, or null when it cannot have one.
+     *
+     * The managed-attachment calls take an absolute URL, and the caller holds a collection URL and
+     * an href, which is how every other write in this class is addressed. Doing the join here keeps
+     * [resolve]'s percent-encoding rule in the one place that knows it.
+     *
+     * Null rather than an exception when the collection URL is not a URL at all: a row synced over
+     * JMAP is filed under a synthetic key like `jmap:calendar/b`, which is a legitimate state and
+     * simply means this event has no CalDAV address to send an attachment action to.
+     */
+    fun objectUrl(collectionUrl: String, href: String): String? {
+        val collection = collectionUrl.toHttpUrlOrNull() ?: return null
+        return runCatching { resolve(collection, href).toString() }.getOrNull()
+    }
+
+    /**
      * Resolve a server-supplied href against [base].
      *
      * 🔴 The href arrives percent-DECODED from [MultiStatus], so it is re-encoded here rather than

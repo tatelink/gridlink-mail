@@ -381,6 +381,11 @@ object ICalendarStream {
             title = line.param("FILENAME") ?: line.param("X-APPLE-FILENAME"),
             contentType = line.param("FMTTYPE"),
             size = line.param("SIZE")?.toLongOrNull()?.takeIf { it >= 0 },
+            // RFC 8607 §4.1. Present only on a server that manages attachments, and only on the
+            // CalDAV side of the wire; falling back to the URL covers the JMAP round trip, which
+            // drops every parameter. See [CalendarAttachment.managedIdFromUrl].
+            managedId = line.param("MANAGED-ID")?.trim()?.takeIf { it.isNotEmpty() }
+                ?: CalendarAttachment.managedIdFromUrl(href),
         )
     }
 
