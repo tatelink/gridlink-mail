@@ -872,7 +872,22 @@ private fun GridlinkDayCell(
                 if (inMonth) {
                     Modifier
                         .background(colors.fieldFill)
-                        .border(GridlinkDimens.hairline, colors.surfaceBorder, DAY_TILE_SHAPE)
+                        // Two washes of the same accent over one tile: how busy the day is, then
+                        // whether it is today. Order matters, today paints last so it wins.
+                        .background(colors.accent.copy(alpha = dayHeatAlpha(events.size)))
+                        .then(
+                            if (isToday) {
+                                Modifier
+                                    .background(colors.accent.copy(alpha = TODAY_TILE_TINT))
+                                    .border(GridlinkDimens.hairline, colors.accent, DAY_TILE_SHAPE)
+                            } else {
+                                Modifier.border(
+                                    GridlinkDimens.hairline,
+                                    colors.surfaceBorder,
+                                    DAY_TILE_SHAPE,
+                                )
+                            },
+                        )
                 } else {
                     Modifier
                 },
@@ -890,11 +905,10 @@ private fun GridlinkDayCell(
                 .size(26.dp)
                 .then(
                     when {
-                        // Selected wins over today, and today keeps a ring so it is still findable
-                        // while a different day is selected. Both filled would be two "you are here"
-                        // markers competing, which is how you end up tapping the wrong day.
+                        // Selected fills the number's circle; today shades the whole tile instead
+                        // (see the tile's background above). One marker each, at different sizes,
+                        // so a selected today reads as both rather than as two rings competing.
                         isSelected -> Modifier.background(colors.accent, CircleShape)
-                        isToday -> Modifier.border(GridlinkDimens.hairline, colors.accent, CircleShape)
                         else -> Modifier
                     },
                 ),
@@ -1008,6 +1022,40 @@ private val DAY_TILE_GAP = 1.5.dp
 /** A wash of the domain colour, not the colour: strong enough to match an event to its sender bar,
  *  weak enough that [GridlinkType.badge] text stays readable on top of it in both palettes. */
 private const val DAY_PILL_TINT = 0.20f
+
+/**
+ * How busy a day looks, as an accent alpha over the tile's own fill.
+ *
+ * ## Why a heat map at all
+ * The dots already say "this day has events", but three dots is where they stop counting and a month
+ * is scanned for shape rather than read cell by cell. Shading the tile answers "which week is the
+ * heavy one" from across the room, before any number is read.
+ *
+ * ## Why deepening accent rather than green-to-red
+ * A busy day is not a warning. Tate picked the accent ramp for that reason: it stays inside the
+ * app's one colour and reads as "more of the same thing" instead of "something is wrong here".
+ *
+ * ## Why it plateaus at four
+ * The steps are spaced so 0/1/2/3 are told apart at a glance, and past four the difference between
+ * six events and nine stops being visible in a 50dp tile no matter how the alpha is spent. A day
+ * that busy is a day you open, so the extra resolution would be spent on a question the tile is not
+ * being asked. ⚠️ Keep the top step well under the [TODAY_TILE_TINT] + heat total, or the busiest
+ * ordinary day starts looking like today.
+ */
+private fun dayHeatAlpha(count: Int): Float =
+    DAY_HEAT_STEPS[count.coerceIn(0, DAY_HEAT_STEPS.lastIndex)]
+
+/** Index is the event count, value is the accent alpha. The last entry is the plateau. */
+private val DAY_HEAT_STEPS = listOf(0f, 0.06f, 0.12f, 0.18f, 0.24f)
+
+/**
+ * Today's own wash, laid over whatever heat the day already has.
+ *
+ * 🔴 It is additive on purpose. Today is also a day with events, and painting it a flat colour would
+ * throw away its place on the heat scale. Stacked, a busy today is visibly busier than a free one
+ * while both stay obviously today, which the hairline accent border settles beyond doubt.
+ */
+private const val TODAY_TILE_TINT = 0.22f
 
 /** First and last hour drawn in the time grids. Outside these the sample day is empty, and an
  *  always-scrolled-to-the-middle grid that starts at midnight wastes a third of the screen. */
