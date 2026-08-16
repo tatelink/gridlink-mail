@@ -107,6 +107,14 @@ data class DavWriteResult(
     val etag: String?,
 )
 
+/**
+ * A file fetched off a DAV server: the bytes, and what the server said they are.
+ *
+ * Not a data class on purpose — a generated `equals` over a [ByteArray] compares identity and would
+ * quietly answer false for two copies of the same file, and nothing here wants to compare downloads.
+ */
+class DavDownload(val bytes: ByteArray, val contentType: String?)
+
 class DavException(message: String, val code: Int? = null) : Exception(message)
 
 /**
@@ -357,6 +365,72 @@ class DavClient internal constructor(
         }
     }
 
+    /**
+     * GET a file the server pointed at, e.g. a calendar attachment's `ATTACH` URL.
+     *
+     * ## 🔴 The password is attached only when the URL is the user's own server
+     * An attachment URL arrives inside an invitation, and an invitation arrives from anybody. A GET
+     * that blindly carried `Authorization: Basic` would let a stranger who sends one appointment
+     * with `ATTACH:https://their-host/x.png` collect the user's mail password from their own logs.
+     * So the header goes on only when the URL's host is [ownServer]'s; every other host is fetched
+     * anonymously, and if it answers 401 the download simply fails, which is the correct outcome.
+     * The check lives here rather than in the caller because a caller can forget it once.
+     *
+     * ⚠️ Plain `http://` is fetched, but never with the header on it, whatever the host: sending a
+     * password in clear is the thing [baseUrl] refuses, and an unauthenticated GET of a file the
+     * user asked for is no worse than the browser they would otherwise open it in.
+     *
+     * [maxBytes] is enforced twice, against the declared `Content-Length` and again while reading,
+     * for the reason written on [LimitedInputStream]: a chunked response declares nothing.
+     */
+    suspend fun fetch(
+        url: String,
+        credentials: DavCredentials?,
+        ownServer: String?,
+        maxBytes: Long = MAX_DOWNLOAD_BYTES,
+    ): DavDownload = withContext(Dispatchers.IO) {
+        val target = url.trim().toHttpUrlOrNull() ?: throw DavException("Bad attachment URL: $url")
+        val trusted = trusts(target, ownServer)
+        val request = Request.Builder()
+            .url(target)
+            .get()
+            .apply {
+                if (trusted && credentials != null) {
+                    header("Authorization", credentials.authorizationHeader())
+                }
+            }
+            .build()
+        http.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw DavException(errorFor(response), response.code)
+            val body = response.body ?: throw DavException("Empty attachment body", response.code)
+            if (body.contentLength() > maxBytes) {
+                throw DavException("Attachment is too large (${body.contentLength()} bytes)")
+            }
+            DavDownload(
+                bytes = LimitedInputStream(body.byteStream(), maxBytes).readBytes(),
+                // The response outranks anything the calendar entry claimed: the entry's FMTTYPE is
+                // written by whoever sent the invitation, and it is what a viewer gets launched on.
+                contentType = response.header("Content-Type")?.substringBefore(';')?.trim()
+                    ?.takeIf { it.isNotBlank() },
+            )
+        }
+    }
+
+    /**
+     * Whether [target] may be sent this account's password. See the 🔴 on [fetch].
+     *
+     * Its own function because it is the security decision in this class that is worth testing on
+     * its own, without a TLS-terminating test server in the way. [ownServer] goes through [baseUrl]
+     * because the stored value may be a bare domain or a full URL, and the comparison has to be
+     * host against whole host: `gridlink.me` matches, `evil-gridlink.me` must not.
+     */
+    internal fun trusts(target: HttpUrl, ownServer: String?): Boolean {
+        if (!target.isHttps) return false
+        val ownHost = ownServer?.takeIf { it.isNotBlank() }
+            ?.let { runCatching { baseUrl(it).host }.getOrNull() } ?: return false
+        return target.host.equals(ownHost, ignoreCase = true)
+    }
+
     private suspend fun read(
         url: HttpUrl,
         credentials: DavCredentials,
@@ -509,6 +583,13 @@ class DavClient internal constructor(
 
     companion object {
         private val XML = "application/xml; charset=utf-8".toMediaType()
+
+        /**
+         * The most a single attachment may be. Held to the same 24 MB as a sync body: the bytes are
+         * read whole into memory before being handed to a viewer, and a phone that OOMs on somebody
+         * else's badly attached video has lost the user their draft as well as the download.
+         */
+        const val MAX_DOWNLOAD_BYTES = 24L * 1024 * 1024
 
         /**
          * The HTTP client this was written against.

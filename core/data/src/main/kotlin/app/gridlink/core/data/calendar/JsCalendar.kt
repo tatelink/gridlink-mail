@@ -24,11 +24,16 @@ import java.time.format.DateTimeParseException
  * speak nothing else.
  *
  * ## What is deliberately NOT converted
- * Participants, links and the HTML flavour of a description have no home in [ParsedCalendarEvent]
- * today. They survive anyway, because they are modelled on [JmapCalendarEvent] and the stored
- * payload is one `decode` away: the screens that will show them do not need a schema change to get
- * at them. Inventing lossy homes for them here (an attachment flattened into the description text,
- * say) is exactly the damage storing the payload in its own language was meant to avoid.
+ * Participants have no home in [ParsedCalendarEvent] today. They survive anyway, because they are
+ * modelled on [JmapCalendarEvent] and the stored payload is one `decode` away: the screen that will
+ * show them does not need a schema change to get at them. Inventing a lossy home for them here (a
+ * guest list flattened into the description text, say) is exactly the damage storing the payload in
+ * its own language was meant to avoid.
+ *
+ * The HTML flavour of a description and the enclosure links used to be on that list and are not any
+ * more: both now cross as [ParsedCalendarEvent.descriptionIsHtml] and
+ * [ParsedCalendarEvent.attachments], because the CalDAV path turned out to carry the same two facts
+ * (`X-ALT-DESC` and `ATTACH`) and a shared home beat two readings of one idea.
  *
  * ⚠️ [encode] writes the MODELLED event, not the bytes the server sent. Properties
  * [JmapCalendarEvent] does not model (alarms, `virtualLocations`, vendor extensions) are absent
@@ -95,6 +100,8 @@ object JsCalendar {
             recurrenceId = null,
             organizerEmail = event.organizerEmail(),
             description = event.description?.takeIf { it.isNotBlank() },
+            descriptionIsHtml = event.descriptionIsHtml(),
+            attachments = event.enclosures(),
             // JSCalendar `keywords` is a set and CATEGORIES is a list, but the edit form offers one
             // box, so the reader takes one the same way the iCalendar reader takes the first
             // CATEGORIES value. The rest stay in the stored payload and survive a patch edit.
@@ -131,6 +138,12 @@ object JsCalendar {
                     cancelled = patch.string("status")?.equals("cancelled", ignoreCase = true)
                         ?: master.cancelled,
                     description = patch.string("description") ?: master.description,
+                    // A patch that changes the text without naming a content type inherits the
+                    // series' own, which is what RFC 8984 patch semantics say and also the only
+                    // reading that does not turn one moved instance into unrendered markup.
+                    descriptionIsHtml = patch.string("descriptionContentType")
+                        ?.startsWith("text/html", ignoreCase = true)
+                        ?: master.descriptionIsHtml,
                     // 🔴 The detached row carries NO rule and NO exclusions. It is one instance; if
                     // it kept the series' RRULE the expander would repeat the override forever and
                     // every occurrence of the series would show the moved time.
@@ -181,6 +194,41 @@ object JsCalendar {
         }
         return parts.joinToString(";")
     }
+
+    /**
+     * The event's links reduced to the ones that are attachments.
+     *
+     * ## Which links count
+     * `rel: enclosure` is RFC 8984's word for "a file attached to this event", and it is the only
+     * one that means that: `icon` is decoration, `describedby` is an alternate rendering of the
+     * description itself. A link with NO rel is taken as an enclosure, because the property is
+     * optional and a server that omits it has still handed over a file with a name and a size.
+     *
+     * ## Which links are dropped
+     * Anything not fetchable. A relative or `cid:` href has nothing to resolve against, so it can
+     * only ever produce a chip that fails when tapped, and a link with neither a usable href nor a
+     * [JmapCalendarLink.blobId] is not a pointer to anything at all.
+     *
+     * ⚠️ The map's key is dropped, and it is not an id — RFC 8984 link keys are local to the event
+     * and a patch is free to renumber them. The href and the blob id are what identify the file.
+     */
+    private fun JmapCalendarEvent.enclosures(): List<CalendarAttachment> =
+        links.values
+            .filter { it.rel.isNullOrBlank() || it.rel.equals("enclosure", ignoreCase = true) }
+            .mapNotNull { link ->
+                val href = link.href.trim()
+                val fetchable = href.startsWith("http://", true) || href.startsWith("https://", true)
+                val blob = link.blobId?.trim()?.takeIf { it.isNotEmpty() }
+                if (!fetchable && blob == null) return@mapNotNull null
+                CalendarAttachment(
+                    href = if (fetchable) href else "",
+                    title = link.title,
+                    contentType = link.contentType,
+                    size = link.size?.takeIf { it >= 0 },
+                    blobId = blob,
+                )
+            }
+            .take(ICalendarStream.MAX_ATTACHMENTS)
 
     /** The days this event's rule skips, from the overrides marked excluded. */
     private fun JmapCalendarEvent.excludedDates(): List<LocalDate> =

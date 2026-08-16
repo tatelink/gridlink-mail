@@ -725,6 +725,15 @@ fun GridlinkRoot(
      */
     contactWriter: GridlinkContactWriter = GridlinkMemoryContactWriter,
     /**
+     * Fetch and open a file hung off an appointment, or null when nothing can.
+     *
+     * 🔴 Null is the default and it is a refusal, [sender]'s kind rather than [calendarWriter]'s: an
+     * attachment is bytes that live on a server, and a tree rendered over nothing has no credentials
+     * to ask for them with. [GridlinkEventScreen] draws the chip either way and makes it inert here,
+     * which is the honest shape for a sample event with no file behind it.
+     */
+    onOpenEventAttachment: ((GridlinkAttachment) -> Unit)? = null,
+    /**
      * The account's mail, or null to draw [GridlinkSample]'s. See [GridlinkMailContent], including
      * the 🔴 on why null is not the same as an empty inbox.
      */
@@ -2236,6 +2245,7 @@ fun GridlinkRoot(
                         } else {
                             null
                         },
+                        onOpenAttachment = onOpenEventAttachment,
                         embedded = embedded,
                     )
                 }

@@ -34,8 +34,19 @@ data class ParsedCalendarEvent(
     /** Set only on a detached override: the date of the instance this VEVENT replaces. */
     val recurrenceId: LocalDate?,
     val organizerEmail: String?,
-    /** Free text (DESCRIPTION), unescaped. */
+    /** Free text (DESCRIPTION), unescaped, or HTML when [descriptionIsHtml]. */
     val description: String? = null,
+    /**
+     * Whether [description] is HTML rather than plain text.
+     *
+     * True on the JMAP path when the event says `descriptionContentType: text/html`, and on the DAV
+     * path when the `.ics` carried an `X-ALT-DESC;FMTTYPE=text/html` (which is how Exchange sends a
+     * formatted description, RFC 5545 having no way to say it). A reader that ignores this shows
+     * markup as prose; a reader that assumes it renders a plain description's `<` as a broken tag.
+     */
+    val descriptionIsHtml: Boolean = false,
+    /** Files hung off the event. Pointers only; see [CalendarAttachment]. */
+    val attachments: List<CalendarAttachment> = emptyList(),
     /** The first CATEGORIES value; the rest are dropped, matching what the app models. */
     val category: String? = null,
     /** Reminder offsets in minutes before the start, from the VALARMs' relative TRIGGERs. */
@@ -67,6 +78,10 @@ data class CalendarOccurrence(
     val location: String?,
     val organizerEmail: String?,
     val description: String? = null,
+    /** See [ParsedCalendarEvent.descriptionIsHtml]. Carried per occurrence because the description is. */
+    val descriptionIsHtml: Boolean = false,
+    /** See [ParsedCalendarEvent.attachments]. Shared by every occurrence of a series, as the file is. */
+    val attachments: List<CalendarAttachment> = emptyList(),
     val category: String? = null,
     val reminders: List<Int> = emptyList(),
     /**
@@ -111,6 +126,14 @@ object ICalendarStream {
 
     /** Most days one all-day event may span, so a mistyped DTEND cannot paint over a decade. */
     const val MAX_SPAN_DAYS = 366L
+
+    /**
+     * Most attachments one event will carry into the UI.
+     *
+     * A cap and not a limit anyone will meet: a meeting with twenty documents on it has a problem
+     * this app cannot fix, and a payload with two thousand ATTACH lines is not a meeting at all.
+     */
+    const val MAX_ATTACHMENTS = 20
 
     private val DATE_TIME = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss")
 
@@ -250,6 +273,8 @@ object ICalendarStream {
         location = event.location,
         organizerEmail = event.organizerEmail,
         description = event.description,
+        descriptionIsHtml = event.descriptionIsHtml,
+        attachments = event.attachments,
         category = event.category,
         reminders = event.reminders,
         editHref = event.href,
@@ -287,6 +312,16 @@ object ICalendarStream {
         // it is left blank and filled in by the caller rather than defaulted to something shared.
         val uid = first("UID")?.value?.trim().orEmpty()
 
+        // 🔴 X-ALT-DESC outranks DESCRIPTION, and only when it says it is HTML. RFC 5545 gives no
+        // way to mark a description as formatted, so Exchange sends both copies: the plain one for
+        // readers that know only the standard, the HTML one for those that do not. Preferring the
+        // plain copy when the other is right there loses every link and bullet in a meeting agenda.
+        // The FMTTYPE check is not a formality either — the property is an extension, and one that
+        // turns up carrying RTF on older exporters.
+        val html = first("X-ALT-DESC")
+            ?.takeIf { it.param("FMTTYPE")?.startsWith("text/html", ignoreCase = true) == true }
+            ?.let { text(it.value) }
+
         return ParsedCalendarEvent(
             uid = uid,
             summary = text(first("SUMMARY")?.value),
@@ -307,7 +342,14 @@ object ICalendarStream {
                 ?.value?.toLocalDate(),
             organizerEmail = first("ORGANIZER")?.value?.trim()
                 ?.replaceFirst(Regex("(?i)^mailto:"), "")?.trim()?.takeIf { it.isNotEmpty() },
-            description = text(first("DESCRIPTION")?.value),
+            description = html ?: text(first("DESCRIPTION")?.value),
+            descriptionIsHtml = html != null,
+            // Event-level only: the depth filter in [parse] means a VALARM's own ATTACH (the sound
+            // an audio alarm plays) never reaches here, which is right — it is not a document the
+            // organiser attached to the meeting.
+            attachments = lines.filter { it.name == "ATTACH" }
+                .mapNotNull(::attachment)
+                .take(MAX_ATTACHMENTS),
             // The first value only. CATEGORIES is legally a comma-list, but the app models one
             // label per event, and [splitStructured] (backslash-aware, not quote-aware) is what
             // keeps "Errands\, urgent" one category rather than two.
@@ -315,6 +357,30 @@ object ICalendarStream {
                 ?.let { ContentLines.splitStructured(it, ',').firstOrNull() }
                 ?.let(::text),
             reminders = reminders.distinct().sorted(),
+        )
+    }
+
+    /**
+     * One ATTACH line as a fetchable pointer, or null when it is not one.
+     *
+     * Two kinds are dropped rather than shown. `VALUE=BINARY` is an inlined base64 payload, and
+     * [CalendarAttachment] says why that is not modelled. A non-`http(s)` URI is dropped because
+     * nothing downstream could fetch it: `cid:` refers to a MIME part of a mail this row is not
+     * attached to, and a bare path has no host to resolve against. A chip that cannot open is worse
+     * than an absent one, because the user taps it.
+     */
+    private fun attachment(line: ContentLine): CalendarAttachment? {
+        if (line.param("VALUE").equals("BINARY", true)) return null
+        val href = line.value.trim()
+        if (!href.startsWith("http://", true) && !href.startsWith("https://", true)) return null
+        return CalendarAttachment(
+            href = href,
+            // FILENAME is Google's; X-APPLE-FILENAME is what iCloud and Apple Calendar write. Both
+            // are extensions, neither is guaranteed, and [CalendarAttachment.displayName] is what
+            // covers the case where a server sends the URL and nothing else.
+            title = line.param("FILENAME") ?: line.param("X-APPLE-FILENAME"),
+            contentType = line.param("FMTTYPE"),
+            size = line.param("SIZE")?.toLongOrNull()?.takeIf { it >= 0 },
         )
     }
 

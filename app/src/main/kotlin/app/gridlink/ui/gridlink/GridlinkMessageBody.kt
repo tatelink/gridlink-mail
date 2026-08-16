@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -103,6 +104,20 @@ internal fun GridlinkMessageBody(
     modifier: Modifier = Modifier,
     plainText: Boolean = false,
     inlineImages: Map<String, String> = emptyMap(),
+    /**
+     * The laid-out content height in pixels, once it settles, for a caller that has to size this
+     * renderer rather than hand it a viewport.
+     *
+     * ⚠️ The mail reader passes nothing and must keep doing so: it gives the WebView the viewport
+     * on purpose (see the class note on Codeberg #5), and sizing it to its content is the
+     * arrangement that janks a long newsletter. The caller that wants this is the calendar's notes
+     * section, where the document is a paragraph inside a column of other facts, there is no
+     * viewport to give it, and a fixed box would be mostly empty under a two-line note.
+     *
+     * 🔴 A caller that starts the box at zero never gets a number back. Nothing can lay out in no
+     * space, so the measurement never happens; start at the cap and shrink to what this reports.
+     */
+    onContentHeightPx: ((Int) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     // The reader is a nav destination, so this is that destination's latch: it releases when the
@@ -196,6 +211,9 @@ internal fun GridlinkMessageBody(
         targetValue = if (heightPx > 0) 1f else 0f,
         label = "gridlinkBodyReveal",
     )
+    // Reported from one place rather than from each of the two that can set the height, so a caller
+    // sizing itself from this cannot see one of them and miss the other.
+    LaunchedEffect(heightPx) { if (heightPx > 0) onContentHeightPx?.invoke(heightPx) }
     // 🔴 The native surface behind the document, and it has to be cleared too. The CSS above only
     // stops the DOCUMENT painting a background; the WebView itself defaults to opaque white, which
     // is the slab this is here to remove.

@@ -454,7 +454,7 @@ fun GridlinkThreadScreen(
                     verticalArrangement = Arrangement.spacedBy(GridlinkSpacing.s8),
                 ) {
                     message.attachments.forEach { attachment ->
-                        GridlinkThreadAttachment(
+                        GridlinkAttachmentChip(
                             attachment = attachment,
                             onOpen = onOpenAttachment?.let { open -> { open(attachment) } },
                             onSave = onSaveAttachment?.let { save -> { save(attachment) } },
@@ -790,6 +790,11 @@ private fun GridlinkImagesBannerAction(
 /**
  * One attachment, as a chip.
  *
+ * Shared with [GridlinkEventScreen], which draws the same chip for a file hung off an appointment.
+ * It lives here because this is where it was written and where the harder case (save button, four
+ * files on one message) is; a calendar attachment is the same object with a different ticket
+ * inside it, and giving it a chip of its own would be two chips to keep looking alike.
+ *
  * Clickable exactly when [onOpen] is non-null. The rule this replaces ("deliberately not clickable,
  * nothing in this prototype can open a file") survives as the null branch: a fixture's chip, with
  * no bytes anywhere behind it, still refuses to highlight under the thumb and then do nothing.
@@ -803,7 +808,7 @@ private fun GridlinkImagesBannerAction(
  * a file to find out whether an app they just installed can keep it.
  */
 @Composable
-private fun GridlinkThreadAttachment(
+internal fun GridlinkAttachmentChip(
     attachment: GridlinkAttachment,
     modifier: Modifier = Modifier,
     onOpen: (() -> Unit)? = null,

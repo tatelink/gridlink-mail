@@ -2,6 +2,7 @@ package app.gridlink.core.data.dav
 
 import app.gridlink.core.data.account.AccountStore
 import app.gridlink.core.data.account.AuthType
+import app.gridlink.core.data.calendar.CalendarAttachmentSource
 import app.gridlink.core.data.calendar.CalendarOccurrence
 import app.gridlink.core.data.calendar.EventEditScope
 import app.gridlink.core.data.calendar.EventField
@@ -66,6 +67,22 @@ data class DavSyncOutcome(
  * [href] is the new item's key in the local cache, which is also how the caller can go look at what
  * it just made. [error] is a sentence for the screen. Exactly one of the two is set.
  */
+/**
+ * A tapped attachment's bytes, or why they never arrived.
+ *
+ * [DavSyncOutcome]'s shape for the same reason: "nothing happened" and "it failed" are different
+ * answers, and a caller that cannot tell them apart shows the user a spinner that stopped.
+ *
+ * Not a data class — see [app.gridlink.core.dav.DavDownload] on comparing byte arrays.
+ */
+class DavAttachmentOutcome(
+    val bytes: ByteArray? = null,
+    val contentType: String? = null,
+    val error: String? = null,
+) {
+    val succeeded: Boolean get() = error == null && bytes != null
+}
+
 data class DavWriteOutcome(
     val href: String? = null,
     val error: String? = null,
@@ -196,6 +213,58 @@ class DavRepository(
     suspend fun defaultCalendar(accountId: String): DavCollectionEntity? {
         if (accountStore.account(accountId)?.syncSelection?.calendar != true) return null
         return collectionDao.forKind(accountId, DavCollectionEntity.KIND_CALENDAR).firstOrNull()
+    }
+
+    /**
+     * The bytes behind a calendar attachment the user tapped.
+     *
+     * ## 🔴 This is the one read in the class that does not come from the cache
+     * Everything else the screens draw is Room, on purpose. An attachment cannot be: it is a file
+     * on a server that was never synced, only pointed at, and pre-fetching every attachment of
+     * every invitation would be both a data bill and a read receipt. So it is fetched on tap, once,
+     * and nothing is written to the database.
+     *
+     * ## Which door it goes through
+     * A [CalendarAttachmentSource.Blob] only means anything inside the account's own JMAP session,
+     * so it is downloaded there. A [CalendarAttachmentSource.Url] goes out over plain HTTPS through
+     * [DavClient.fetch], which decides for itself whether the account's password may ride along —
+     * see the 🔴 on that function, because the URL came out of a message from a stranger.
+     */
+    suspend fun downloadEventAttachment(
+        accountId: String,
+        source: CalendarAttachmentSource,
+        name: String? = null,
+        contentType: String? = null,
+    ): DavAttachmentOutcome {
+        val (dav, server) = when (val access = access(accountId)) {
+            is Access.Refused -> return DavAttachmentOutcome(error = access.reason)
+            is Access.Ready -> access.dav to access.server
+        }
+        return try {
+            when (source) {
+                is CalendarAttachmentSource.Url -> {
+                    val download = client.fetch(source.href, dav, server)
+                    DavAttachmentOutcome(download.bytes, download.contentType ?: contentType)
+                }
+                is CalendarAttachmentSource.Blob -> {
+                    val (session, jmapAccount) = jmapCalendars(server, dav)
+                        ?: return DavAttachmentOutcome(error = "This account has no JMAP calendars")
+                    val bytes = requireNotNull(jmap).downloadBlob(
+                        session = session,
+                        accountId = jmapAccount,
+                        blobId = source.id,
+                        type = contentType,
+                        name = name,
+                        auth = BasicAuth(dav.username, dav.password),
+                    )
+                    DavAttachmentOutcome(bytes, contentType)
+                }
+            }
+        } catch (c: CancellationException) {
+            throw c
+        } catch (e: Exception) {
+            DavAttachmentOutcome(error = e.message ?: "The attachment could not be downloaded")
+        }
     }
 
     // ---- Sync --------------------------------------------------------------------------------

@@ -1,7 +1,9 @@
 package app.gridlink.ui.home
 
 import android.app.Application
+import android.content.Intent
 import android.util.Log
+import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.gridlink.container
@@ -12,6 +14,7 @@ import app.gridlink.core.data.contacts.ContactEdit
 import app.gridlink.core.data.dav.DavSyncOutcome
 import app.gridlink.core.data.db.AddressBookContactEntity
 import app.gridlink.ui.gridlink.DEFAULT_DURATION_MINUTES
+import app.gridlink.ui.gridlink.GridlinkAttachment
 import app.gridlink.ui.gridlink.GridlinkCalendarContent
 import app.gridlink.ui.gridlink.GridlinkCalendarWriter
 import app.gridlink.ui.gridlink.GridlinkContactContent
@@ -31,6 +34,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 
 /**
@@ -63,6 +67,7 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
 
     private val store = application.container.accountStore
     private val repo = application.container.davRepository
+    private val storage = application.container.storageRepository
 
     /** Which account's calendar and address book are on screen. Set by the host. */
     private val accountId = MutableStateFlow<String?>(null)
@@ -339,6 +344,68 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
             contactsPrimed.value = true
         }
     }
+
+    /**
+     * Download a tapped calendar attachment and hand it to whatever on the phone can show it.
+     *
+     * [GridlinkMailViewModel.openAttachment]'s journey, deliberately: fetch, park in the bounded
+     * attachment cache, start a viewer chooser over a FileProvider uri. The app renders nothing
+     * itself, so a PDF opens in the phone's PDF viewer and an image in its gallery.
+     *
+     * ## Where the failure goes
+     * Into the log, like every other DAV failure here, because the event screen has nowhere to show
+     * a status line and inventing one for this alone would be a worse screen. The latch is what the
+     * user actually feels: a second tap while the first is in flight does nothing, so a slow
+     * download cannot become four.
+     *
+     * 🔴 An id this object did not issue is refused rather than guessed at.
+     * [GridlinkDavMapping.attachmentSource] returns null for a mail chip's id (a bare part index),
+     * which would otherwise be read as a relative URL and fetched from the mail server.
+     */
+    fun openAttachment(attachment: GridlinkAttachment) {
+        if (openingAttachment) return
+        val source = GridlinkDavMapping.attachmentSource(attachment.id) ?: return
+        val id = accountId.value ?: return
+        openingAttachment = true
+        val app = getApplication<Application>()
+        viewModelScope.launch {
+            try {
+                val outcome = repo.downloadEventAttachment(id, source, name = attachment.name)
+                val bytes = outcome.bytes
+                if (bytes == null) {
+                    Log.w(TAG, "attachment download failed: ${outcome.error}")
+                    return@launch
+                }
+                val file = storage.cacheAttachment(attachment.name, bytes)
+                val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
+                val view = Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(uri, outcome.contentType ?: "*/*")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                // A chooser rather than a bare ACTION_VIEW, for the reader's reason: a bare intent
+                // throws when nothing is installed to handle the type, and the chooser shows its
+                // own "no apps" sheet instead.
+                //
+                // unguarded: not a tap. The tap was handled above, where [openingAttachment] holds
+                // the second one back until this hand-off is made; there is no composition here to
+                // hang the shared leave guard on. Same reasoning, same latch, as the reader's
+                // GridlinkMailViewModel.openAttachment, which this was written from.
+                app.startActivity(
+                    Intent.createChooser(view, "Open with").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                Log.w(TAG, "attachment open failed", t)
+            } finally {
+                // Released once the chooser is up, not when the user comes back: the file is theirs
+                // to open again as often as they like.
+                openingAttachment = false
+            }
+        }
+    }
+
+    /** Holds the second tap while the first download is in flight. See [openAttachment]. */
+    private var openingAttachment = false
 
     private fun report(what: String, result: Result<DavSyncOutcome>) {
         val outcome = result.getOrElse { t ->

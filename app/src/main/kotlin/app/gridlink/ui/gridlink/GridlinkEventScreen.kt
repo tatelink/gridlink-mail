@@ -19,29 +19,34 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Label
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Domain
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Email
-import androidx.compose.material.icons.automirrored.outlined.Label
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.gridlink.ui.rememberLeaveOnce
 import app.gridlink.ui.theme.GridlinkDimens
+import app.gridlink.ui.theme.GridlinkMode
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
@@ -92,6 +97,8 @@ fun GridlinkEventScreen(
     embedded: Boolean = false,
     /** Open the edit form over this event, or null when no writer can honour an edit (see KDoc). */
     onEdit: ((GridlinkEvent) -> Unit)? = null,
+    /** Fetch and open a tapped file, or null when nothing behind this screen can (see the chips). */
+    onOpenAttachment: ((GridlinkAttachment) -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
@@ -226,7 +233,8 @@ fun GridlinkEventScreen(
             // screen that failed to load its second half. A short card is the honest answer for an
             // appointment that is a time and a title, and it should look deliberate.
             val hasFacts = event.location != null || event.notes != null ||
-                event.category != null || event.reminders.isNotEmpty()
+                event.category != null || event.reminders.isNotEmpty() ||
+                event.attachments.isNotEmpty()
             if (hasFacts || sameDay.isNotEmpty() || !internal) {
                 Box(
                     modifier = Modifier
@@ -259,16 +267,42 @@ fun GridlinkEventScreen(
             // empty sections there would advertise the gap on every single appointment.
             event.notes?.let { notes ->
                 GridlinkSectionLabel(text = "Notes")
-                Text(
-                    text = notes,
-                    style = GridlinkType.body,
-                    color = colors.textPrimary,
-                    modifier = Modifier.padding(
-                        start = GridlinkSpacing.rowHorizontal,
-                        end = GridlinkSpacing.rowHorizontal,
-                        bottom = GridlinkSpacing.s16,
-                    ),
-                )
+                if (event.notesAreHtml) {
+                    GridlinkEventHtmlNotes(notes = notes)
+                } else {
+                    Text(
+                        text = notes,
+                        style = GridlinkType.body,
+                        color = colors.textPrimary,
+                        modifier = Modifier.padding(
+                            start = GridlinkSpacing.rowHorizontal,
+                            end = GridlinkSpacing.rowHorizontal,
+                            bottom = GridlinkSpacing.s16,
+                        ),
+                    )
+                }
+            }
+
+            // ⚠️ After the notes and before the category, because an agenda usually refers to the
+            // documents by name and the chips are then in the reader's eye when they get there.
+            if (event.attachments.isNotEmpty()) {
+                GridlinkSectionLabel(text = if (event.attachments.size == 1) "Attachment" else "Attachments")
+                event.attachments.forEach { attachment ->
+                    GridlinkAttachmentChip(
+                        attachment = attachment,
+                        modifier = Modifier.padding(
+                            start = GridlinkSpacing.rowHorizontal,
+                            end = GridlinkSpacing.rowHorizontal,
+                            bottom = GridlinkSpacing.s8,
+                        ),
+                        // 🔴 Null when no opener was supplied, which is the fixtures' case and the
+                        // one that matters: a chip on a sample event has no bytes behind it, and a
+                        // chip that highlights under the thumb and then does nothing is the shape
+                        // of a broken app. Same rule the mail chips already follow.
+                        onOpen = onOpenAttachment?.let { open -> { open(attachment) } },
+                    )
+                }
+                Spacer(Modifier.height(GridlinkSpacing.s8))
             }
 
             event.category?.let { category ->
@@ -347,6 +381,71 @@ fun GridlinkEventScreen(
         }
     }
 }
+
+/**
+ * An HTML description, rendered by the same locked-down browser the mail reader uses.
+ *
+ * ## Why a WebView for a paragraph
+ * Because the paragraph is not one. An Exchange meeting's `X-ALT-DESC` is a full HTML document with
+ * a dial-in table, a bulleted agenda and a row of links, and every cheaper renderer this app could
+ * reach for turns that into a wall of visible markup or a column of stacked cells. It is the same
+ * problem [GridlinkMessageBody] was written for, written by the same authoring tools, so it gets
+ * the same answer: a real browser with scripts, frames, forms and file access all denied, a CSP on
+ * the document, and links handed to the system rather than followed in place.
+ *
+ * ## 🔴 Remote content is blocked, with no banner to unblock it
+ * The mail reader can offer "show images" because a message is the thing you opened and the sender
+ * is on screen above it. A calendar description arrives from a sync, and the tracking pixel in an
+ * invitation would report every time the appointment was so much as glanced at. Blocking it
+ * unconditionally costs the occasional logo in a meeting agenda; the alternative costs a record of
+ * when its recipient looked at their own diary, which is not a trade to offer in a banner.
+ *
+ * ## Why the box measures itself and then stops at a cap
+ * This section sits in a scrolling column of other facts, so there is no viewport to hand over and
+ * a fixed box would be mostly empty under a two-line note. It starts at [NOTES_MAX_HEIGHT] because
+ * a renderer given no room never lays out and so never reports a height, and shrinks to whatever
+ * comes back. A description longer than the cap scrolls inside it rather than pushing the day's
+ * other appointments off the bottom of a screen the reader came here to see.
+ */
+@Composable
+private fun GridlinkEventHtmlNotes(notes: String, modifier: Modifier = Modifier) {
+    val colors = GridlinkTheme.colors
+    val mode = GridlinkTheme.mode
+    val density = LocalDensity.current
+    // Keyed on the document: opening a second event reuses this composable, and a height left over
+    // from the last one would clip a longer note until its own measurement landed.
+    var measuredPx by remember(notes) { mutableIntStateOf(0) }
+    val height = when (measuredPx) {
+        0 -> NOTES_MAX_HEIGHT
+        else -> with(density) { measuredPx.toDp() }.coerceIn(NOTES_MIN_HEIGHT, NOTES_MAX_HEIGHT)
+    }
+    GridlinkMessageBody(
+        html = notes,
+        blockRemote = true,
+        text = colors.textPrimary,
+        link = colors.accent,
+        dark = mode != GridlinkMode.DAY,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(
+                start = GridlinkSpacing.rowHorizontal,
+                end = GridlinkSpacing.rowHorizontal,
+                bottom = GridlinkSpacing.s16,
+            )
+            .height(height),
+        onContentHeightPx = { measuredPx = it },
+    )
+}
+
+/**
+ * How tall an HTML notes box may grow, and how short it may shrink.
+ *
+ * The floor is there because a measurement of a few pixels (a document that laid out to almost
+ * nothing, or reported early) would collapse the section to a sliver that looks like a rendering
+ * failure. The ceiling is a screenful: past that the note scrolls in place.
+ */
+private val NOTES_MAX_HEIGHT = 360.dp
+private val NOTES_MIN_HEIGHT = 40.dp
 
 /** "Thursday 30 July 2026". The year is present because the calendar pages a year in either direction. */
 private val EVENT_DATE = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.US)

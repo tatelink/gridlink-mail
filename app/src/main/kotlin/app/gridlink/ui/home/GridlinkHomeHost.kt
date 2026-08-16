@@ -441,6 +441,7 @@ fun GridlinkHomeHost(
             attacher = attacher,
             calendarWriter = davViewModel.calendarWriter,
             contactWriter = davViewModel.contactWriter,
+            onOpenEventAttachment = davViewModel::openAttachment,
             scheduled = scheduled,
             onCancelScheduled = viewModel::cancelScheduled,
             snoozed = snoozed,

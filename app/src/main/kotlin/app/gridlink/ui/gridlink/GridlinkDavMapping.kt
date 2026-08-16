@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import app.gridlink.core.data.calendar.CalendarAttachmentSource
 import app.gridlink.core.data.calendar.CalendarOccurrence
 import app.gridlink.core.data.contacts.ContactEdit
 import app.gridlink.core.data.contacts.ContactPayload
@@ -47,6 +48,18 @@ object GridlinkDavMapping {
             ?.takeIf { it.isNotBlank() }
             ?: ownDomain,
         notes = occurrence.description?.takeIf { it.isNotBlank() },
+        // Straight from what the server said, never sniffed off the text. See [GridlinkEvent.notesAreHtml].
+        notesAreHtml = occurrence.descriptionIsHtml,
+        attachments = occurrence.attachments.map {
+            GridlinkAttachment(
+                name = it.displayName,
+                size = it.size?.let(::byteLabel).orEmpty(),
+                // 🔴 The ticket the tap comes back with, prefixed like every other id here so
+                // nothing downstream can mistake it for one of the mail chips', whose id is an
+                // index into an open message's parts and would open the wrong file entirely.
+                id = PREFIX + (it.blobId?.let { blob -> BLOB_MARK + blob } ?: it.href),
+            )
+        },
         category = occurrence.category?.takeIf { it.isNotBlank() },
         reminders = occurrence.reminders.distinct().sorted(),
         // The edit ticket, prefixed like every id so nothing downstream can mistake it for a
@@ -65,6 +78,43 @@ object GridlinkDavMapping {
 
     /** Separates the file from the occurrence inside a calendar handle. See [event]. */
     private const val DAY_MARK = "|@"
+
+    /** Marks an attachment ticket as naming a JMAP blob rather than a URL. See [attachmentSource]. */
+    private const val BLOB_MARK = "blob|"
+
+    /**
+     * A calendar [GridlinkAttachment.id] taken back apart, for the downloader that issued it.
+     *
+     * Null for anything that is not one of this object's tickets, which is the check that stops a
+     * mail chip's id (a bare part index) being read as a URL and fetched from nowhere.
+     */
+    fun attachmentSource(id: String): CalendarAttachmentSource? {
+        if (!id.startsWith(PREFIX)) return null
+        val bare = id.removePrefix(PREFIX)
+        return when {
+            bare.startsWith(BLOB_MARK) -> bare.removePrefix(BLOB_MARK).takeIf { it.isNotBlank() }
+                ?.let(CalendarAttachmentSource::Blob)
+            bare.isNotBlank() -> CalendarAttachmentSource.Url(bare)
+            else -> null
+        }
+    }
+
+    /**
+     * "20 KB", or empty when the server did not say how big the file is.
+     *
+     * ⚠️ Empty and not "unknown": the chip prints this straight, and an unknown size is a thing the
+     * reader does not need told. Deliberately its own copy of the mail composer's formatter rather
+     * than a shared one, because this object is pure Kotlin with no Android or view-model imports
+     * and reaching into `ui.home` for four lines would be the first crack in that.
+     */
+    private fun byteLabel(bytes: Long): String = when {
+        bytes <= 0 -> ""
+        bytes < BYTES_PER_KB -> "$bytes B"
+        bytes < BYTES_PER_KB * BYTES_PER_KB -> "${bytes / BYTES_PER_KB} KB"
+        else -> "%.1f MB".format(bytes.toDouble() / BYTES_PER_KB / BYTES_PER_KB)
+    }
+
+    private const val BYTES_PER_KB = 1024L
 
     /**
      * A calendar [GridlinkEvent.handle] taken back apart, for the writer that issued it.

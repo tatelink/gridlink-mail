@@ -487,8 +487,24 @@ data class GridlinkEvent(
     val location: String? = null,
     /** Drives the event colour through the same hash the message rows use for the identity bar. */
     val domain: String = "gridlink.me",
-    /** Free text (iCalendar DESCRIPTION). Null and blank both mean "no notes section". */
+    /** Free text (iCalendar DESCRIPTION), or HTML when [notesAreHtml]. Null and blank both mean "no notes section". */
     val notes: String? = null,
+    /**
+     * Whether [notes] is HTML and has to be rendered rather than printed.
+     *
+     * 🔴 A screen that gets this wrong is wrong in one of two visible ways: markup shown as prose,
+     * or a plain note whose `<` and `&` are eaten by an HTML parser. The mapping layer answers it
+     * from what the server said, and no screen may guess it by sniffing the text.
+     */
+    val notesAreHtml: Boolean = false,
+    /**
+     * Files hung off the event, in the order the server listed them.
+     *
+     * Shares [GridlinkAttachment] with mail because a chip is a chip, and differs in what the id
+     * means: a mail attachment's is an index into the open message's parts, a calendar one's is a
+     * URL. Both are opaque to every screen that draws them, which is what lets them share a row.
+     */
+    val attachments: List<GridlinkAttachment> = emptyList(),
     /** Single label (iCalendar CATEGORIES). One, not a list: a manager files, not taxonomises. */
     val category: String? = null,
     /**
