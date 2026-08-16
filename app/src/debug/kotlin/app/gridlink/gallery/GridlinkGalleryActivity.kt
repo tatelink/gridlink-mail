@@ -9,20 +9,24 @@ import app.gridlink.container
 import app.gridlink.core.data.mail.MailFilter
 import app.gridlink.ui.gridlink.GRIDLINK_BUNDLE_SWIPE_ID
 import app.gridlink.ui.gridlink.GridlinkApp
+import app.gridlink.ui.gridlink.GridlinkAttacher
 import app.gridlink.ui.gridlink.GridlinkCalendarView
 import app.gridlink.ui.gridlink.GridlinkComposeDraft
 import app.gridlink.ui.gridlink.GridlinkComposeField
 import app.gridlink.ui.gridlink.GridlinkComposeRequest
 import app.gridlink.ui.gridlink.GridlinkDestination
+import app.gridlink.ui.gridlink.GridlinkFileAttacher
 import app.gridlink.ui.gridlink.GridlinkFolderStage
+import app.gridlink.ui.gridlink.GridlinkInvite
+import app.gridlink.ui.gridlink.GridlinkInviteResponse
 import app.gridlink.ui.gridlink.GridlinkOutboxSender
 import app.gridlink.ui.gridlink.GridlinkRoot
 import app.gridlink.ui.gridlink.GridlinkSample
 import app.gridlink.ui.gridlink.GridlinkSampleContacts
 import app.gridlink.ui.gridlink.GridlinkSampleTree
-import app.gridlink.ui.gridlink.GridlinkAttacher
-import app.gridlink.ui.gridlink.GridlinkFileAttacher
 import app.gridlink.ui.gridlink.GridlinkSender
+import app.gridlink.ui.gridlink.GridlinkSigned
+import app.gridlink.ui.gridlink.GridlinkSignedState
 import app.gridlink.ui.gridlink.GridlinkSyncState
 import app.gridlink.ui.gridlink.GridlinkUndoFrame
 import app.gridlink.ui.gridlink.gridlinkSampleChromeConfig
@@ -462,6 +466,70 @@ class GridlinkGalleryActivity : ComponentActivity() {
             "open='$openId', contact='$contactId', event='$eventId' and mailbox='$mailboxId' are " +
                 "on different tabs, so only one of them can be the thing that is open. Pick one."
         }
+        // The two rows that ride ON an open message rather than being screens of their own: the
+        // S/MIME verdict and the meeting card. Neither is reachable in this harness any other way,
+        // because the app draws them only for mail that carries a signature or an .ics, and the
+        // sample mailbox carries neither. Without these extras the only route to looking at either
+        // is to send yourself real mail, which is a slow way to review a border colour.
+        //   am start -S -n .../GridlinkGalleryActivity --es open jonah-dogs --es signed mismatch
+        //   am start -S -n .../GridlinkGalleryActivity --es open jonah-dogs --es invite conflicts
+        val signedName = intent?.getStringExtra("signed")?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        val signedExpired = intent?.getBooleanExtra("signedExpired", false) ?: false
+        val sampleSigned = signedName?.let { name ->
+            val state = requireNotNull(
+                GridlinkSignedState.entries.firstOrNull { it.name.lowercase() == name },
+            ) {
+                "Unknown signature verdict '$name'. Known: " +
+                    GridlinkSignedState.entries.joinToString { it.name.lowercase() }
+            }
+            // 🔴 The signer address differs from the sample sender in MISMATCH and matches it
+            // everywhere else, because that difference IS the state. A fixture that named the same
+            // person in all five would draw the mismatch row saying the reassuring thing.
+            GridlinkSigned(
+                state = state,
+                signer = if (state == GridlinkSignedState.MISMATCH) {
+                    "billing@delivery-notices.example"
+                } else {
+                    "jonah@tatelink.dev"
+                },
+                issuer = when (state) {
+                    GridlinkSignedState.VALID -> "Acme Public CA"
+                    GridlinkSignedState.UNTRUSTED -> "Tatelink Internal CA"
+                    else -> null
+                },
+                expired = signedExpired,
+            )
+        }
+        require(signedName == null || openId != null) {
+            "signed='$signedName' rides on an open message, so it needs one. Add --es open jonah-dogs."
+        }
+        require(!signedExpired || signedName != null) {
+            "signedExpired=true without --es signed would draw no row at all."
+        }
+        val inviteName = intent?.getStringExtra("invite")?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        val sampleInvite = inviteName?.let { name ->
+            when (name) {
+                // The two states with no event behind them, which both still draw a card. They are
+                // in the list precisely because they are the easiest ones to get wrong and the
+                // hardest to provoke: a slow fetch and an unreadable .ics.
+                "loading" -> GridlinkInvite(loading = true)
+                "failed" -> GridlinkInvite(failed = true)
+                "request" -> SAMPLE_INVITE
+                // canRsvp stays false: a cancelled meeting has nothing to answer.
+                "cancelled" -> SAMPLE_INVITE.copy(cancelled = true, canRsvp = false)
+                "conflicts" -> SAMPLE_INVITE.copy(
+                    conflicts = listOf("Standup, 09:00 - 09:30", "Dentist, 09:15 - 10:00"),
+                )
+                "sent" -> SAMPLE_INVITE.copy(response = GridlinkInviteResponse.Sent("ACCEPTED"))
+                else -> throw IllegalArgumentException(
+                    "Unknown invite fixture '$name'. Known: loading, failed, request, cancelled, " +
+                        "conflicts, sent.",
+                )
+            }
+        }
+        require(inviteName == null || openId != null) {
+            "invite='$inviteName' rides on an open message, so it needs one. Add --es open jonah-dogs."
+        }
         val openAt = intent?.getFloatExtra("openAt", 1f) ?: 1f
         require(openAt in 0f..1f) { "openAt=$openAt must be between 0 and 1." }
         require(openIds.isNotEmpty() || openAt == 1f) {
@@ -542,6 +610,8 @@ class GridlinkGalleryActivity : ComponentActivity() {
                 initiallyEmpty = empty,
                 initiallyLoading = loading,
                 initialOpenId = openId,
+                sampleSigned = sampleSigned,
+                sampleInvite = sampleInvite,
                 initialContactId = contactId,
                 initialEventId = eventId,
                 initialFolderId = mailboxId,
@@ -579,6 +649,8 @@ private fun GridlinkGallery(
     initiallyEmpty: Boolean = false,
     initiallyLoading: Boolean = false,
     initialOpenId: String? = null,
+    sampleSigned: GridlinkSigned? = null,
+    sampleInvite: GridlinkInvite? = null,
     initialContactId: String? = null,
     initialEventId: String? = null,
     initialFolderId: String? = null,
@@ -630,6 +702,8 @@ private fun GridlinkGallery(
             initiallyEmpty = initiallyEmpty,
             initiallyLoading = initiallyLoading,
             initialOpenId = initialOpenId,
+            sampleSigned = sampleSigned,
+            sampleInvite = sampleInvite,
             initialContactId = initialContactId,
             initialEventId = initialEventId,
             initialFolderId = initialFolderId,
@@ -638,3 +712,21 @@ private fun GridlinkGallery(
         )
     }
 }
+
+/**
+ * The invitation the `--es invite` fixtures are all variations on.
+ *
+ * Deliberately a meeting with a location, a repeat and six guests: every optional row on the card is
+ * filled, so a fixture that drops one is dropping it visibly. The variants copy this and change the
+ * single thing they are about, rather than each declaring their own event, which is how two fixtures
+ * end up disagreeing about what the same meeting is.
+ */
+private val SAMPLE_INVITE = GridlinkInvite(
+    title = "Quarterly equipment review",
+    whenLine = "Tuesday 19 August, 09:00 - 10:00",
+    location = "Store 51, back office",
+    organizer = "Dara Ridley",
+    guests = 6,
+    repeats = true,
+    canRsvp = true,
+)
