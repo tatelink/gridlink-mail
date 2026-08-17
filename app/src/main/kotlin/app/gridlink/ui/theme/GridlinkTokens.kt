@@ -676,6 +676,17 @@ object GridlinkDimens {
     /** Unfolded two-pane layout: list pane is fixed, thread fills the remainder. */
     val listPaneWidth = 380.dp
 
+    /**
+     * The other way round, for the calendar: the DETAIL pane is fixed and the month fills the rest.
+     * See `GridlinkScaffold`'s `wideList`.
+     *
+     * ⚠️ Deliberately the same 380dp as the list pane, and it should stay that way. It is the width
+     * this app has decided a column of rows wants, and an event card is a column of rows: making it
+     * 420 because there was room would be spending the month grid's width on a card that had already
+     * stopped getting better.
+     */
+    val detailPaneWidth = 380.dp
+
     /** Elevation of a folder row while it is being dragged to a new parent. */
     val dragElevation = 4.dp
 

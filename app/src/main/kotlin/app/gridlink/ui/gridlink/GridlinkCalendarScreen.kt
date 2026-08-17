@@ -123,6 +123,12 @@ fun GridlinkCalendarScreen(
     /** §7's detail pane, or null when the window is too narrow for one. */
     sidePane: (@Composable () -> Unit)? = null,
     /**
+     * True while that pane has nothing in it but its placeholder, which hands its width back to the
+     * month. See `GridlinkScaffold`'s `sidePaneCollapsed`; the caller owns this because the caller is
+     * the one that knows whether a form is open in there, and this screen does not.
+     */
+    sidePaneEmpty: Boolean = false,
+    /**
      * Harness override for the month view's split: true forces grid-plus-list, false forces the
      * stacked layout, null measures the panel.
      *
@@ -207,6 +213,14 @@ fun GridlinkCalendarScreen(
             onNewEvent(if (view == GridlinkCalendarView.MONTH) selectedDate else anchor)
         },
         sidePane = sidePane,
+        // 🔴 The one screen that pins the DETAIL pane instead of the list. A month grid keeps getting
+        // more readable with every extra pixel (it is a 7-column table that has to fit text), while an
+        // event card stops improving almost immediately. Left at the app-wide default the calendar got
+        // 380dp and the event card got the rest, which on the unfolded Fold meant a cramped grid beside
+        // a two-thirds-width "Select an event". This also puts the month pane over MONTH_SPLIT_WIDTH,
+        // so the detailed day cells (dot plus title) actually appear on his device instead of bare dots.
+        wideList = true,
+        sidePaneCollapsed = sidePaneEmpty,
         header = {
             GridlinkHeader(
                 // "Calendar" cannot truncate; the date it displaces is on the line below.
@@ -500,11 +514,24 @@ internal fun GridlinkStepButton(forward: Boolean, onClick: () -> Unit) {
 /**
  * Month / 3 day / Week / Agenda.
  *
- * Same capsule geometry as the nav pill and the search pill: one corner radius, one active-segment
- * treatment, so a third pill on the screen does not introduce a third idea of what a pill is.
+ * ## 🔴 Tabs, deliberately not a pill
+ * This was a filled pill inside a bordered capsule, which is the same nesting Tate called "boxes
+ * inside boxes" about the day cells, one level up. The obvious fix, dropping the outer border, was
+ * not available: the nav pill and the search pill are both bordered capsules, so a third *pill* that
+ * disagreed with them would read as a mistake rather than as a decision.
  *
- * 🔴 The inactive segments are not dimmed with alpha. Tate reads opacity-dimming as broken rather
- * than as off; the distinction is carried by the fill behind the active one and by a colour token
+ * So it stops being a pill. A tab row with an underline is a different, universally understood
+ * component (it is what every calendar app uses for exactly this job), and being visibly a different
+ * component is what keeps it from competing with the two pills instead of losing to them. It also
+ * reads as *where you are* rather than as *a button that is switched on*, which is what a view
+ * switcher actually means.
+ *
+ * The rule below the row is full width and continuous: it separates the switcher from the grid, and
+ * it is the track the active underline sits on, so the indicator has something to be positioned
+ * against rather than floating in the gap.
+ *
+ * 🔴 The inactive tabs are not dimmed with alpha. Tate reads opacity-dimming as broken rather
+ * than as off; the distinction is carried by the underline, by a weight step, and by a colour token
  * step, never by transparency.
  */
 @Composable
@@ -514,47 +541,72 @@ private fun GridlinkViewSwitcher(
     modifier: Modifier = Modifier,
 ) {
     val colors = GridlinkTheme.colors
-    val shape = RoundedCornerShape(GridlinkRadii.pill)
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(38.dp)
-            .background(colors.surface, shape)
-            .border(GridlinkDimens.hairline, colors.surfaceBorder, shape)
-            .padding(3.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        GridlinkCalendarView.entries.forEach { entry ->
-            val active = entry == selected
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .clip(shape)
-                    .then(
-                        if (active) {
-                            Modifier.background(gridlinkAccentFill(colors.accent), shape)
-                        } else {
-                            Modifier
-                        },
+    Box(modifier = modifier.fillMaxWidth()) {
+        // The rule first, so the active tab's indicator lands on top of it rather than beside it.
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .height(GridlinkDimens.hairline)
+                .background(colors.surfaceBorder),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().height(TAB_ROW_HEIGHT),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            GridlinkCalendarView.entries.forEach { entry ->
+                val active = entry == selected
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        // Rounded only at the top: the tap target reaches the rule, and a fully
+                        // rounded ripple would put a curve back where the underline is straight.
+                        .clip(RoundedCornerShape(topStart = TAB_RIPPLE_RADIUS, topEnd = TAB_RIPPLE_RADIUS))
+                        .clickable { onSelect(entry) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = entry.label,
+                        // A step up from toolbarLabel. At 11sp these were legible but read as
+                        // chrome; a view switcher is one of the two controls on this screen anyone
+                        // actually uses, so it gets body-sized text.
+                        style = GridlinkType.metadata.copy(
+                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                        ),
+                        color = if (active) colors.accent else colors.textSecondary,
+                        maxLines = 1,
                     )
-                    .clickable { onSelect(entry) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = entry.label,
-                    style = GridlinkType.toolbarLabel,
-                    // onAccent, not colors.accent: the active segment is *filled* with the accent,
-                    // so an accent label on it is dark blue on dark blue and the one segment that
-                    // matters is the one you cannot read. Same rule the nav pill already follows
-                    // for its selected item.
-                    color = if (active) colors.onAccent else colors.textSecondary,
-                    maxLines = 1,
-                )
+                    if (active) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                // Not the full tab width. An indicator that runs edge to edge butts
+                                // against its neighbour's and the four tabs read as one bar with a
+                                // coloured quarter; inset, it reads as pointing at a word.
+                                .fillMaxWidth(TAB_INDICATOR_WIDTH)
+                                .height(TAB_INDICATOR_HEIGHT)
+                                .background(
+                                    colors.accent,
+                                    RoundedCornerShape(
+                                        topStart = TAB_INDICATOR_HEIGHT,
+                                        topEnd = TAB_INDICATOR_HEIGHT,
+                                    ),
+                                ),
+                        )
+                    }
+                }
             }
         }
     }
 }
+
+private val TAB_ROW_HEIGHT = 42.dp
+private val TAB_RIPPLE_RADIUS = 8.dp
+private val TAB_INDICATOR_HEIGHT = 2.5.dp
+
+/** Fraction of the tab the underline spans. See [GridlinkViewSwitcher]. */
+private const val TAB_INDICATOR_WIDTH = 0.62f
 
 /**
  * The width at which the month view stops stacking and splits into grid + day list.
@@ -929,50 +981,28 @@ private fun GridlinkDayCell(
             )
         }
         if (detailed) {
-            // Two names, and the count of what did not fit rides on the second one.
+            // 🔴 MEASURED, not a constant. A week row is the panel's height divided by six, so how
+            // many names fit is a fact about the window and not about this file: at 807dp unfolded
+            // the row is around 50dp, which is one name plus the number, and a hard "take(2)" drew
+            // the second one half inside the following week. Tate saw exactly that, a row of
+            // sliced text along the bottom of the last two weeks.
             //
-            // 🔴 The count is NOT its own line. It was, and it was clipped: a cell holds a 26dp
-            // number plus whatever the row height leaves, and two chips already spend that, so the
-            // third line was drawn half inside the next week. A trailing "+1" costs no height at all
-            // and it is where a calendar puts an overflow count anyway.
-            val shown = events.take(DETAILED_CELL_EVENTS)
-            shown.forEachIndexed { index, event ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 2.dp)
-                        .height(DETAILED_CHIP_HEIGHT),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // The identity colour, at the one size a calendar ever paints it in a month
-                    // cell. The capsule this dot replaced carried exactly the same information in
-                    // twenty times the ink.
-                    Box(
-                        modifier = Modifier
-                            .size(GridlinkDimens.calendarEventDot)
-                            .background(gridlinkSenderBarColor(mode, event.domain), CircleShape),
-                    )
-                    Text(
-                        text = event.title,
-                        // Row weight rather than badge weight: this is a name being read, and Bold
-                        // 12sp across two lines of a small cell was the other half of what made the
-                        // grid shout.
-                        style = GridlinkType.badge.copy(fontWeight = FontWeight.Medium),
-                        color = if (inMonth) colors.textPrimary else colors.textSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(start = 4.dp),
-                    )
-                    val hidden = events.size - shown.size
-                    if (hidden > 0 && index == shown.lastIndex) {
-                        Text(
-                            text = "+$hidden",
-                            style = GridlinkType.badge,
-                            color = colors.textSecondary,
-                            maxLines = 1,
-                            modifier = Modifier.padding(start = 2.dp),
+            // The count of what did not fit rides on the LAST name drawn rather than taking a line
+            // of its own, for the same reason: a trailing "+2" costs no height, and it is where a
+            // calendar puts an overflow count anyway.
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                val slot = DETAILED_CHIP_HEIGHT + DETAILED_CHIP_GAP
+                val fits = (maxHeight / slot).toInt().coerceIn(0, DETAILED_CELL_EVENTS)
+                val shown = events.take(fits)
+                Column {
+                    shown.forEachIndexed { index, event ->
+                        GridlinkDayCellEvent(
+                            event = event,
+                            inMonth = inMonth,
+                            // Only ever on the last line drawn, and counted against what was SHOWN
+                            // rather than against the constant: on a short row `fits` is one, and a
+                            // day with two events has to say "+1" rather than silently dropping one.
+                            hidden = if (index == shown.lastIndex) events.size - shown.size else 0,
                         )
                     }
                 }
@@ -985,8 +1015,8 @@ private fun GridlinkDayCell(
             ) {
                 // Capped at three. A cell wide enough for four dots is a cell wide enough to have
                 // shown the first event's name, and past three the count stops being readable at a
-                // glance anyway — which is the only thing dots are for.
-                events.take(3).forEach { event ->
+                // glance anyway, which is the only thing dots are for.
+                events.take(COMPACT_CELL_DOTS).forEach { event ->
                     Box(
                         modifier = Modifier
                             .size(GridlinkDimens.calendarEventDot)
@@ -994,6 +1024,53 @@ private fun GridlinkDayCell(
                     )
                 }
             }
+        }
+    }
+}
+
+/** One name in a detailed month cell. Split out only to keep [GridlinkDayCell] readable. */
+@Composable
+private fun GridlinkDayCellEvent(
+    event: GridlinkEvent,
+    inMonth: Boolean,
+    hidden: Int,
+) {
+    val colors = GridlinkTheme.colors
+    val mode = GridlinkTheme.mode
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = DETAILED_CHIP_GAP)
+            .height(DETAILED_CHIP_HEIGHT),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // The identity colour, at the one size a calendar ever paints it in a month cell. The
+        // capsule this dot replaced carried exactly the same information in twenty times the ink.
+        Box(
+            modifier = Modifier
+                .size(GridlinkDimens.calendarEventDot)
+                .background(gridlinkSenderBarColor(mode, event.domain), CircleShape),
+        )
+        Text(
+            text = event.title,
+            // Row weight rather than badge weight: this is a name being read, and Bold 12sp across
+            // two lines of a small cell was the other half of what made the grid shout.
+            style = GridlinkType.badge.copy(fontWeight = FontWeight.Medium),
+            color = if (inMonth) colors.textPrimary else colors.textSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 4.dp),
+        )
+        if (hidden > 0) {
+            Text(
+                text = "+$hidden",
+                style = GridlinkType.badge,
+                color = colors.textSecondary,
+                maxLines = 1,
+                modifier = Modifier.padding(start = 2.dp),
+            )
         }
     }
 }
@@ -1019,11 +1096,29 @@ private val DAY_NUMBER_DISC = 26.dp
  */
 private const val SELECTED_DISC_TINT = 0.28f
 
-/** Names shown in a detailed cell before it gives up and counts. */
+/**
+ * The MOST names a detailed cell will draw, however tall the row gets.
+ *
+ * ⚠️ A ceiling, not a target: [GridlinkDayCell] measures its own row and draws fewer when fewer fit.
+ * Two is where a month cell stops being a month cell; past that the grid is a week view with worse
+ * typography, and the day list beside it is already the place that lists a day in full.
+ */
 private const val DETAILED_CELL_EVENTS = 2
+
+/** Dots on a compact cell before it stops counting. See [GridlinkDayCell]. */
+private const val COMPACT_CELL_DOTS = 3
 
 /** Tall enough for [GridlinkType.badge] and no taller: an event line is a label, not a row. */
 private val DETAILED_CHIP_HEIGHT = 14.dp
+
+/**
+ * Space above each event line.
+ *
+ * 🔴 Part of a line's height for fitting purposes, which is why it is a named constant rather than a
+ * literal 2.dp at the padding: [GridlinkDayCell] divides the row by chip-plus-gap to decide how many
+ * lines it can draw, and a gap left out of that sum is a line drawn one gap too low, six times over.
+ */
+private val DETAILED_CHIP_GAP = 2.dp
 
 /**
  * The corner the tap ripple is cut to.
