@@ -127,9 +127,13 @@ fun GridlinkEventFormScreen(
     val titleFocus = remember { FocusRequester() }
     val locationFocus = remember { FocusRequester() }
     val notesFocus = remember { FocusRequester() }
-    // Straight into the title with the keyboard up, the same opening the composer has. A form that
-    // opens inert costs a tap before anything can be typed, every time.
-    LaunchedEffect(Unit) { titleFocus.requestFocus() }
+    // 🔴 NEW events only. A blank form opens straight into the title with the keyboard up, the same
+    // opening the composer has, because a form that opens inert costs a tap before anything can be
+    // typed. An EDIT is the opposite: the event already has a title, you came to change one field
+    // that is probably not that one, and the keyboard it raised uninvited took HALF the window
+    // before you had read anything. Unfolded that is worse still, because the pane the form is in
+    // is half the width to start with: two fields visible, the third sliced by the glass edge.
+    LaunchedEffect(Unit) { if (initial == null) titleFocus.requestFocus() }
 
     val named = summary.text.isNotBlank()
     GridlinkFormScreen(
