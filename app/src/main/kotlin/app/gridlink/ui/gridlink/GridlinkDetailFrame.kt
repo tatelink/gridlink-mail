@@ -36,6 +36,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -232,15 +233,25 @@ fun GridlinkDetailFrame(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = title,
-                            style = GridlinkType.threadTitle,
-                            color = colors.textPrimary,
-                            // Two lines, not three. The third line is bought with body text, and a
-                            // subject long enough to need it is a subject whose tail is marketing.
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        // 🔴 A BLANK title draws nothing at all, it is not an empty line. The band
+                        // exists to say what the pane is showing, and a screen whose content already
+                        // says it would otherwise print the same words twice, once here and once in
+                        // its own content, a finger apart. Tate on the contact card in two panes,
+                        // 2026-08-16: *"top of screen is duplicate name of person - its not
+                        // needed."* The band keeps its [LocalGridlinkPaneHeaderHeight] floor either
+                        // way, so the two panes' glass still starts on the same line.
+                        if (title.isNotBlank()) {
+                            Text(
+                                text = title,
+                                style = GridlinkType.threadTitle,
+                                color = colors.textPrimary,
+                                // Two lines, not three. The third line is bought with body text, and
+                                // a subject long enough to need it is a subject whose tail is
+                                // marketing.
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                         header?.invoke()
                     }
                     if (titleAction != null) {
@@ -570,6 +581,14 @@ fun GridlinkDetailActionItem(
     icon: ImageVector,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * What a screen reader says, when the visible [label] had to be shortened to fit its slot.
+     *
+     * 🔴 Defaults to [label], and should stay that way almost everywhere: two names for one control
+     * is how a spoken UI and a seen UI drift apart. It exists for the case where the slot is
+     * genuinely too narrow for the honest words, "Copy" over an address being the one so far.
+     */
+    contentDescription: String = label,
 ) {
     val colors = GridlinkTheme.colors
     Column(
@@ -582,7 +601,7 @@ fun GridlinkDetailActionItem(
     ) {
         Icon(
             imageVector = icon,
-            contentDescription = label,
+            contentDescription = contentDescription,
             tint = colors.textPrimary,
             modifier = Modifier.size(20.dp),
         )
@@ -591,11 +610,18 @@ fun GridlinkDetailActionItem(
             style = GridlinkType.toolbarLabel,
             color = colors.textPrimary,
             maxLines = 1,
-            // The longest labels sit within about 10dp of their slot on a folded display. Ellipsis
-            // rather than a clip so if one ever does run out of room it says so, instead of quietly
-            // dropping the last letter and reading as a typo.
+            // The Column centred it before; now that the Text owns the whole slot, it centres itself.
+            textAlign = TextAlign.Center,
+            // Ellipsis rather than a clip so if one ever does run out of room it says so, instead of
+            // quietly dropping the last letter and reading as a typo.
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 2.dp),
+            // 🔴 [fillMaxWidth] is what MAKES that ellipsis work, and it was missing. A centred Text
+            // measures to its own content, so a label wider than its slot overflowed the Column and
+            // was sliced by the pill's clip: "Copy address" lost the right half of its final letter
+            // on the unfolded Fold, reported 2026-08-16. Overflow only ellipsizes when the layout
+            // width is the constraint, so the Text has to be handed the slot's width to know it has
+            // run out. Now a label too long for its slot degrades honestly at every width.
+            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
         )
     }
 }

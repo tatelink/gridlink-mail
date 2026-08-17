@@ -96,7 +96,12 @@ fun GridlinkContactScreen(
     val recent = remember(contact.id) { GridlinkSample.messagesFrom(contact) }
 
     GridlinkDetailFrame(
-        title = contact.displayName,
+        // 🔴 No pane title in two panes: the hero prints this same name at four times the size a few
+        // pixels below it. *"top of screen is duplicate name of person - its not needed."* The
+        // standing screen keeps it, because there the title shares a row with the back button and a
+        // lone arrow over a photo says nothing about where back goes. A thread needs the band (its
+        // subject is nowhere else once the header moved out of the glass); a contact card does not.
+        title = if (embedded) "" else contact.displayName,
         onBack = onBack,
         modifier = modifier,
         embedded = embedded,
@@ -116,8 +121,15 @@ fun GridlinkContactScreen(
             // a second tap to reach one action, which is worse than the thread's case where More
             // covers four.
             GridlinkDetailActionPill(modifier = Modifier.weight(1f)) {
+                // 🔴 "Copy", not "Copy address". The longer words did not fit their slot on the
+                // unfolded Fold and the pill's clip sliced the last letter in half: *"'copy address'
+                // is truncated"*, 2026-08-16. Ellipsis (now fixed to actually fire) would only have
+                // turned a sliced letter into "Copy addre…", which is not better. On a card whose
+                // subject IS an address, beside a copy glyph, one word says it. The spoken label
+                // keeps the full phrase.
                 GridlinkDetailActionItem(
-                    label = "Copy address",
+                    label = "Copy",
+                    contentDescription = "Copy address",
                     icon = Icons.Outlined.ContentCopy,
                     onClick = { clipboard.setText(AnnotatedString(contact.email)) },
                     modifier = Modifier.weight(1f),
