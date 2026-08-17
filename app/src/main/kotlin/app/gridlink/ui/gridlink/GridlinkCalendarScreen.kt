@@ -222,16 +222,16 @@ fun GridlinkCalendarScreen(
             onNewEvent(if (view == GridlinkCalendarView.MONTH) selectedDate else anchor)
         },
         sidePane = sidePane,
-        // 🔴 The one screen that pins the DETAIL pane instead of the list. A month grid keeps getting
-        // more readable with every extra pixel (it is a 7-column table that has to fit text), while an
-        // event card stops improving almost immediately. Left at the app-wide default the calendar got
-        // 380dp and the event card got the rest, which on the unfolded Fold meant a cramped grid beside
-        // a two-thirds-width "Select an event". The grid keeps the surplus instead.
+        // 🔴 Tate, unfolded: *"the split should go right down the middle."* Neither fixed-width
+        // option can do that, because both are a constant beside a remainder: the calendar used to
+        // pin the pane at 380dp, which on the Fold's ~807dp left the month 427 and put the seam
+        // visibly off-centre. Half and half is also the only split that stays centred when the
+        // window changes, which on a folding phone it does mid-session.
         //
-        // ⚠️ This is as far as it goes. The next step, handing the month the WHOLE window whenever the
-        // pane was empty, is the one Tate threw out: *"clicking calendar while unfolded takes to a
-        // broken view where its stretched across the entire phone."*
-        wideList = true,
+        // ⚠️ Do NOT extend this to collapsing the pane when nothing is open. That was the previous
+        // attempt and he threw it out: *"clicking calendar while unfolded takes to a broken view
+        // where its stretched across the entire phone."*
+        split = GridlinkPaneSplit.EVEN,
         header = {
             GridlinkHeader(
                 // "Calendar" cannot truncate; the date it displaces is on the line below.
@@ -862,31 +862,23 @@ private fun GridlinkMonthDayList(
     onOpenEvent: (GridlinkEvent) -> Unit,
     currentId: String?,
     modifier: Modifier = Modifier,
-    /**
-     * The day's name over the rows. False in the reading pane, where the frame's own title band is
-     * already showing that date: two copies of "Thursday 30 July" a few dp apart is not a heading,
-     * it is a rendering bug.
-     */
-    heading: Boolean = true,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
     Column(modifier) {
-        if (heading) {
-            Text(
-                text = date.format(AGENDA_DAY),
-                style = GridlinkType.sectionLabel,
-                color = colors.textSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(
-                    start = GridlinkSpacing.rowHorizontal,
-                    end = GridlinkSpacing.rowHorizontal,
-                    top = GridlinkSpacing.s12,
-                    bottom = GridlinkSpacing.s4,
-                ),
-            )
-        }
+        Text(
+            text = date.format(AGENDA_DAY),
+            style = GridlinkType.sectionLabel,
+            color = colors.textSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(
+                start = GridlinkSpacing.rowHorizontal,
+                end = GridlinkSpacing.rowHorizontal,
+                top = GridlinkSpacing.s12,
+                bottom = GridlinkSpacing.s4,
+            ),
+        )
 
         if (events.isEmpty()) {
             Box(
@@ -929,42 +921,56 @@ private fun GridlinkMonthDayList(
 }
 
 /**
- * The selected day's events, drawn in the READING PANE rather than under the grid.
+ * A scrolling agenda, drawn in the READING PANE beside the month.
  *
  * ## 🔴 Why the pane holds a list at all
- * Tate, on the unfolded Fold: *"day list left panel, event list right panel."* Before this the
- * right panel said "Select an event" until you picked one, which is a third of an unfolded display
- * spent on an instruction, and the fix that came before this one (handing the month the whole window
- * whenever the pane was empty) is the one he threw out as *"stretched across the entire phone"*. So
- * the pane keeps its width and earns it: it opens on today's events, follows every day you tap, and
- * hands over to the event card the moment you open one.
+ * Tate, on the unfolded Fold: *"when unfolded, the calendar should occupy the left side, and the
+ * right side should be a scrolling agenda view."* Before this the right panel said "Select an event"
+ * until you picked one, which is half an unfolded display spent on an instruction, and the fix that
+ * came before that (handing the month the whole window whenever the pane was empty) is the one he
+ * threw out as *"stretched across the entire phone"*. So the pane keeps its half and earns it.
+ *
+ * ⚠️ An agenda, not the selected day's list, which is what the first pass at this put here. One day
+ * in a panel that tall is three rows and a lot of nothing, and it also made the pane a strict
+ * duplicate of the day you had just tapped. The agenda answers "what is coming up" without being
+ * asked, and the [date] tap still steers it: [GridlinkAgendaView] scrolls that day's heading to the
+ * top, so a tap in the grid is a jump in the list rather than a replacement of it.
  *
  * It is [GridlinkDetailFrame] and not a bare column so this panel starts on the same line and wears
- * the same glass as the month beside it. The frame's title band carries the date, which is why the
- * list is asked for no [GridlinkMonthDayList.heading] of its own.
+ * the same glass as the month beside it.
  */
 @Composable
-internal fun GridlinkCalendarDayPane(
+internal fun GridlinkCalendarAgendaPane(
     date: LocalDate,
     onOpenEvent: (GridlinkEvent) -> Unit,
     currentId: String?,
 ) {
     val book = LocalGridlinkBook.current
-    val events = remember(date, book) { book.eventsOn(date) }
+    val today = book.today
+    // 🔴 The window is pinned to TODAY, not to the tapped day, so tapping around the month scrolls
+    // one list instead of rebuilding a new four-week window per tap (which would throw away the
+    // scroll position every time and make the pane flicker under the finger).
+    val range = remember(today) { GridlinkCalendarView.AGENDA.rangeAround(today) }
+    val events = remember(range, book) {
+        book.events.filter { it.date >= range.first && it.date <= range.second }
+    }
     GridlinkDetailFrame(
-        title = date.format(AGENDA_DAY),
+        title = "Agenda",
         // Nothing to go back TO. This is what the pane shows when nothing is open, so the frame is
         // only being used for its shape; embedded draws no back control.
         onBack = {},
         embedded = true,
     ) {
-        GridlinkMonthDayList(
-            date = date,
+        GridlinkAgendaView(
             events = events,
+            from = range.first,
+            until = range.second,
+            today = today,
             onOpenEvent = onOpenEvent,
             currentId = currentId,
-            modifier = Modifier.fillMaxSize(),
-            heading = false,
+            // Only inside the window. Page the month to next March and the agenda holds its four
+            // weeks rather than scrolling to an end and pretending that is March.
+            anchor = date.coerceIn(range.first, range.second),
         )
     }
 }
@@ -1642,6 +1648,11 @@ private fun GridlinkAgendaView(
     today: LocalDate,
     onOpenEvent: (GridlinkEvent) -> Unit,
     currentId: String?,
+    /**
+     * Which day the list should be showing. Today for the full-screen agenda, and the day tapped in
+     * the grid when this is the month's side pane, where changing it SCROLLS rather than reloads.
+     */
+    anchor: LocalDate = today,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
@@ -1655,7 +1666,7 @@ private fun GridlinkAgendaView(
             }
             .toList()
     }
-    // Where today's header lands in the flattened list: one header per day plus its rows, an
+    // Where the anchor day's header lands in the flattened list: one header per day plus its rows, an
     // empty day spending one row on its "Nothing scheduled" line. Only the INITIAL position —
     // the items are keyed, so once the list is up, later data arriving re-anchors on the same
     // day header instead of yanking the scroll.
@@ -1663,18 +1674,27 @@ private fun GridlinkAgendaView(
     // 🔴 The separator counts as an item, and every day but the first draws one. Miss that and the
     // list opens one row further up per day behind today, which after a week is the view landing on
     // last Wednesday and looking like the scroll restore is broken.
-    val todayIndex = remember(byDay, today) {
+    val anchorIndex = remember(byDay, anchor) {
         var index = 0
         for ((dayIndex, day) in byDay.withIndex()) {
             val (date, dayEvents) = day
-            if (date >= today) break
+            if (date >= anchor) break
             index += (if (dayIndex > 0) 1 else 0) + 1 + maxOf(dayEvents.size, 1)
         }
-        // The rule ABOVE today's heading, so today's own separator is scrolled past rather than
+        // The rule ABOVE the anchor's heading, so its own separator is scrolled past rather than
         // left as the first thing on screen with the heading tucked under it.
-        if (byDay.firstOrNull()?.first != today && byDay.any { it.first == today }) index + 1 else index
+        if (byDay.firstOrNull()?.first != anchor && byDay.any { it.first == anchor }) {
+            index + 1
+        } else {
+            index
+        }
     }
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = todayIndex)
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = anchorIndex)
+    // 🔴 Animated, and deliberately not a jump. In the side pane this fires on every day tapped in
+    // the grid, and a list that teleports gives no clue whether it moved forward or back; the slide
+    // is what tells you the tap went a week on rather than reloading the panel. Harmless on the
+    // full-screen agenda, where the anchor never changes after the first composition.
+    LaunchedEffect(anchorIndex) { listState.animateScrollToItem(anchorIndex) }
 
     LazyColumn(
         state = listState,

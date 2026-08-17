@@ -678,7 +678,7 @@ object GridlinkDimens {
 
     /**
      * The other way round, for the calendar: the DETAIL pane is fixed and the month fills the rest.
-     * See `GridlinkScaffold`'s `wideList`.
+     * See `GridlinkPaneSplit.FIXED_DETAIL`.
      *
      * ⚠️ Deliberately the same 380dp as the list pane, and it should stay that way. It is the width
      * this app has decided a column of rows wants, and an event card is a column of rows: making it

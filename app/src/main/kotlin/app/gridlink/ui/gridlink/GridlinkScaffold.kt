@@ -120,6 +120,25 @@ import java.time.ZonedDateTime
  * last part is not a bonus, it is §7's requirement: the selection toolbar morphs out of the nav pill,
  * and the toolbar is specified to span the list pane only, so the pill has to live in that column.
  */
+/**
+ * How a two-pane window is divided.
+ *
+ * 🔴 [EVEN] is the calendar's, and it is a THIRD case rather than one of the two fixed ones because
+ * Tate asked for it in those words: *"the split should go right down the middle."* Neither fixed
+ * option can produce it, since both are a constant beside a remainder and the constant only lands on
+ * half the window at one exact display width.
+ */
+enum class GridlinkPaneSplit {
+    /** Mail's. List pinned at [GridlinkDimens.listPaneWidth], the opened thread takes the rest. */
+    FIXED_LIST,
+
+    /** The reverse: side pane pinned at [GridlinkDimens.detailPaneWidth], the list takes the rest. */
+    FIXED_DETAIL,
+
+    /** Half and half, whatever the window is. */
+    EVEN,
+}
+
 @Composable
 fun GridlinkScaffold(
     destination: GridlinkDestination,
@@ -152,22 +171,19 @@ fun GridlinkScaffold(
      */
     sidePane: (@Composable () -> Unit)? = null,
     /**
-     * Which of the two panes is the fixed-width one. False (the default) pins the LIST at
-     * [GridlinkDimens.listPaneWidth] and gives the rest to the side pane; true pins the SIDE PANE at
-     * [GridlinkDimens.detailPaneWidth] and gives the rest to the list.
+     * How the two panes divide the window. See [GridlinkPaneSplit].
      *
      * ## 🔴 Why this is a choice and not one layout
      * A mailbox and a month are opposite shapes. A list of subjects is done at 380dp and every pixel
      * past that is wasted on truncated text, while the message you opened can use everything it is
      * given, so mail pins the list. A month grid is the opposite: it is a seven-column table that
-     * gets more readable at every width, and the event card beside it is a date, a place and a
-     * handful of rows that stops improving almost immediately.
+     * gets more readable at every width, and the card beside it is a column of rows.
      *
-     * ⚠️ The default was the ONLY behaviour, and on the calendar Tate's word for the result was
-     * that it wasted half the screen: an unfolded Fold showed a month squeezed into 380dp beside six
-     * hundred dp saying "Select an event". Same layout code, wrong way round for this screen.
+     * ⚠️ [GridlinkPaneSplit.FIXED_LIST] was the ONLY behaviour, and on the calendar Tate's word
+     * for the result was that it wasted half the screen: an unfolded Fold showed a month squeezed
+     * into 380dp beside six hundred dp saying "Select an event". Same layout code, wrong way round.
      */
-    wideList: Boolean = false,
+    split: GridlinkPaneSplit = GridlinkPaneSplit.FIXED_LIST,
     /**
      * The screen's far-right control on the chrome row: the inbox's search pill, the calendar's
      * steppers. Null when the screen has nothing to put there, and also how a screen *hides* one
@@ -349,10 +365,13 @@ fun GridlinkScaffold(
                             Column(
                                 modifier = Modifier
                                     .then(
-                                        if (wideList) {
-                                            Modifier.weight(1f)
-                                        } else {
-                                            Modifier.width(GridlinkDimens.listPaneWidth)
+                                        when (split) {
+                                            GridlinkPaneSplit.FIXED_LIST ->
+                                                Modifier.width(GridlinkDimens.listPaneWidth)
+
+                                            GridlinkPaneSplit.FIXED_DETAIL,
+                                            GridlinkPaneSplit.EVEN,
+                                            -> Modifier.weight(1f)
                                         },
                                     )
                                     .fillMaxHeight(),
@@ -383,14 +402,17 @@ fun GridlinkScaffold(
                             // means two panes; a screen that silently becomes one pane when its
                             // selection empties is a layout that moves on its own. The fix for an
                             // empty pane is to put something in it, which is what the calendar now
-                            // does (the selected day's events), not to delete the pane.
+                            // does (a scrolling agenda), not to delete the pane.
                             Box(
                                 modifier = Modifier
                                     .then(
-                                        if (wideList) {
-                                            Modifier.width(GridlinkDimens.detailPaneWidth)
-                                        } else {
-                                            Modifier.weight(1f)
+                                        when (split) {
+                                            GridlinkPaneSplit.FIXED_DETAIL ->
+                                                Modifier.width(GridlinkDimens.detailPaneWidth)
+
+                                            GridlinkPaneSplit.FIXED_LIST,
+                                            GridlinkPaneSplit.EVEN,
+                                            -> Modifier.weight(1f)
                                         },
                                     )
                                     .fillMaxHeight(),
@@ -2424,11 +2446,12 @@ fun GridlinkRoot(
                                 // 🔴 The calendar is the one tab whose empty pane has something
                                 // true to say. Every other destination is waiting for a pick with
                                 // no way to guess which one; the month has already picked a DAY,
-                                // so the pane lists it. Tate: *"day list left panel, event list
-                                // right panel."*
+                                // so the pane runs an agenda through it. Tate: *"when unfolded,
+                                // the calendar should occupy the left side, and the right side
+                                // should be a scrolling agenda view."*
                                 current == null &&
                                     destination == GridlinkDestination.CALENDAR &&
-                                    day != null -> GridlinkCalendarDayPane(
+                                    day != null -> GridlinkCalendarAgendaPane(
                                     date = day,
                                     onOpenEvent = { openEventId = it.id },
                                     currentId = openEventId,
