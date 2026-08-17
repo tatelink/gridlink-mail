@@ -347,13 +347,21 @@ fun GridlinkContactFormScreen(
             }
         }
 
-        // The group pill sits above the pairs rather than on the narrow label half, where
+        // The group heading sits above the pairs rather than on the narrow label half, where
         // "Custom fields" would not fit once the panel is at folded-phone width.
-        GridlinkFieldLabelPill(
+        //
+        // 🔴 [GridlinkType.sectionLabel] and NOT the fields' own caption style. This names a group
+        // of fields, not a field, and once the labels inside the boxes stopped being tinted badges
+        // (2026-08-16) a heading drawn the same way as them would have read as a fourth field with
+        // nothing in it.
+        Text(
             text = "Custom fields",
+            style = GridlinkType.sectionLabel,
+            color = GridlinkTheme.colors.textSecondary,
             modifier = Modifier.padding(
                 start = GridlinkSpacing.rowHorizontal,
-                top = GridlinkSpacing.s8,
+                top = GridlinkSpacing.s16,
+                bottom = GridlinkSpacing.s4,
             ),
         )
         customs.forEachIndexed { index, pair ->

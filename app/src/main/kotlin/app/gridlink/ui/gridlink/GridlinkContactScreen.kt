@@ -439,10 +439,12 @@ private class GridlinkContactField(
 )
 
 /**
- * One field on the card: a [GridlinkFieldLabelPill] naming it, the value in a contained box below.
- * The box is [GridlinkFieldBoxShape] with a hairline border and no underline — a card is read, not
- * typed into, and the underline is reserved for the keyboard's fields. When the field does
- * something on tap (write, dial), the whole box is the target.
+ * One field on the card: its name in a caption, the value under it, both inside one
+ * [GridlinkFieldBoxShape] box with a hairline border.
+ *
+ * Deliberately the same object the form's rows are, since 2026-08-16 — reading a contact and
+ * editing one are two states of the same card, and they used to disagree about where a label goes.
+ * When the field does something on tap (write, dial), the whole box is the target.
  */
 @Composable
 private fun GridlinkContactFieldRow(
@@ -458,20 +460,26 @@ private fun GridlinkContactFieldRow(
                 vertical = GridlinkSpacing.s8,
             ),
     ) {
-        GridlinkFieldLabelPill(field.label)
-        Spacer(Modifier.height(GridlinkSpacing.s8))
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(GridlinkFieldBoxShape)
                 .background(colors.fieldFill)
-                .border(GridlinkDimens.hairline, colors.surfaceBorder, GridlinkFieldBoxShape)
+                .border(GridlinkDimens.hairline, colors.fieldBorder, GridlinkFieldBoxShape)
                 .let { if (field.onClick != null) it.clickable(onClick = field.onClick) else it }
                 .padding(
                     horizontal = GridlinkSpacing.s16,
                     vertical = GridlinkSpacing.s12,
                 ),
         ) {
+            Text(
+                text = field.label,
+                style = GridlinkType.fieldLabel,
+                color = colors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(GridlinkSpacing.s4))
             Text(
                 text = field.value,
                 style = GridlinkType.body,

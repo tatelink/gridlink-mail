@@ -248,19 +248,23 @@ data class GridlinkColors(
     /** 1px row separator in the dense list. The list is separated by hairlines, never by gaps. */
     val divider: Color,
     /**
-     * Fill of a field-label pill: the small badge naming a field on a contact card or in a form
-     * ("Email", "Office", "DATE").
+     * A tinted accent wash carrying small text: the selected day in the date picker, the selected
+     * hour in the time picker.
      *
-     * 🔴 A tinted accent wash, never the full [accent] fill. The grammar says accent means
-     * "tappable", and a label is a caption: at full strength every label on a card would claim to
-     * be a button. The wash keeps the hue (so labels read as one family with the interactive
-     * colour) at a volume that reads as highlighting, not as an action.
+     * 🔴 A wash, never the full [accent] fill. The grammar says accent means "tappable", and these
+     * mark a value rather than offering an action. The wash keeps the hue (so the marks read as one
+     * family with the interactive colour) at a volume that reads as highlighting.
+     *
+     * ⚠️ Named for the field-label pill it was built for. That pill is GONE (2026-08-16, Tate:
+     * *"the small pill labels inside the weirdly shaped entry field... more modern and sleek"*), and
+     * the tokens survive only because `GridlinkMaterialSkin` maps them onto the platform pickers'
+     * `primaryContainer`. Do not reintroduce a pill on the strength of the name.
      */
     val fieldLabelFill: Color,
     /**
-     * Text on a [fieldLabelFill] pill. Kin of the accent hue, tuned per mode so 13sp SemiBold
-     * carries on the wash — the accent itself is contrast-checked for glyphs on fills, not for
-     * small text on its own tint.
+     * Text on a [fieldLabelFill] wash. Kin of the accent hue, tuned per mode so small text carries
+     * on the wash — the accent itself is contrast-checked for glyphs on fills, not for small text
+     * on its own tint.
      */
     val fieldLabelText: Color,
     /**
@@ -271,11 +275,12 @@ data class GridlinkColors(
      */
     val fieldFill: Color,
     /**
-     * Resting underline of an entry field. Focus swaps it for [accent] — that swap IS the focus
-     * cue, so this must be visibly quieter than the accent while staying heavier than [divider],
-     * or the resting state reads as no underline at all.
+     * Resting border of a contained field. Focus swaps it for [accent] at
+     * [GridlinkDimens.fieldFocusBorder] — that swap IS the focus cue, so this must be visibly
+     * quieter than the accent while staying heavier than [divider], or a resting field reads as an
+     * unbounded smudge on [listSurface].
      */
-    val fieldUnderline: Color,
+    val fieldBorder: Color,
     /**
      * What everything behind a modal, sheet or dialog is covered with.
      *
@@ -349,7 +354,7 @@ val GridlinkDayColors = GridlinkColors(
     fieldFill = Color.White.copy(alpha = 0.52f),
     // The divider's ink at ~2.5× its alpha: a 2dp resting underline at 12% vanished into the rules
     // it replaced.
-    fieldUnderline = Color(0xFF0A0F1A).copy(alpha = 0.30f),
+    fieldBorder = Color(0xFF0A0F1A).copy(alpha = 0.30f),
     // The background blue at half strength rather than black: Day's page is a saturated gradient,
     // and dimming it toward grey reads as the screen having gone wrong rather than gone behind
     // something.
@@ -407,7 +412,7 @@ val GridlinkNightColors = GridlinkColors(
     // The only direction Night has headroom is lighter. 7% white over the 66% panel is enough of a
     // step to read as a box without bleaching the aurora behind it.
     fieldFill = Color.White.copy(alpha = 0.07f),
-    fieldUnderline = Color.White.copy(alpha = 0.30f),
+    fieldBorder = Color.White.copy(alpha = 0.30f),
     // Black over near-black is nearly a no-op, so this leans on the background hue and a heavier
     // alpha to push the page down and away from the sheet.
     scrim = Color(0xFF050A14).copy(alpha = 0.62f),
@@ -466,7 +471,7 @@ val GridlinkOledColors = GridlinkColors(
     // surfaceRaised's value. 🔴 The one legitimate "lighter fill" in OLED, borrowed from the raised
     // surface that already made this compromise; definition still comes from the underline/border.
     fieldFill = Color(0xFF0A0604),
-    fieldUnderline = Color(0xFFF97316).copy(alpha = 0.40f),
+    fieldBorder = Color(0xFFF97316).copy(alpha = 0.40f),
     // 🔴 The heaviest of the three, and pure black. There is no hue to lean on here and nothing to
     // dim, so separation has to come from covering the page's own hairlines and text almost
     // completely.
@@ -668,10 +673,14 @@ object GridlinkDimens {
     val hairline = 1.dp
 
     /**
-     * Underline of a contained entry field. 2dp, not the hairline: the underline is an affordance
-     * ("type here"), not a separator, and at 1dp the focus swap to accent is nearly invisible.
+     * The border of a contained field while it has you: focused for typing, picker open.
+     *
+     * ⚠️ Replaced a 2dp bottom underline on a box with square lower corners, 2026-08-16, on
+     * Tate's *"weirdly shaped entry field"*. The whole box now lifts to the accent instead, so
+     * the cue is the same size as the thing it applies to. Only half a dp over [hairline]: any more
+     * and the field visibly grows on focus, nudging every row under it down the form.
      */
-    val fieldUnderline = 2.dp
+    val fieldFocusBorder = 1.5.dp
 
     /** Unfolded two-pane layout: list pane is fixed, thread fills the remainder. */
     val listPaneWidth = 380.dp
@@ -836,6 +845,26 @@ object GridlinkType {
         fontSize = 13.sp,
         fontWeight = FontWeight.SemiBold,
         letterSpacing = 0.78.sp,
+    )
+
+    /**
+     * The word naming a field, sitting above the value inside its box.
+     *
+     * 🔴 Small and quiet on purpose. Tate's verdict on the tinted pill that used to do this job,
+     * 2026-08-16: *"the small pill labels inside the weirdly shaped entry field... should be more
+     * modern and sleek."* A label is not a control and must not be dressed as one, so it lost its
+     * fill and became what every modern form uses: a caption over the thing it names.
+     *
+     * Not [sectionLabel] scaled down. That style is uppercase-at-the-call-site with 0.78sp tracking,
+     * which is a heading's voice; six of them stacked down a form shout. 11sp Medium with a hair of
+     * tracking reads as a caption at a glance and disappears once you know the form.
+     */
+    val fieldLabel = TextStyle(
+        fontFamily = GridlinkFontFamily,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Medium,
+        letterSpacing = 0.4.sp,
+        lineHeight = 14.sp,
     )
 
     // 🔴 The explicit 18sp line height on the two row styles is what makes 64dp rows possible.
