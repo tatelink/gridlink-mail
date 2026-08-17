@@ -370,6 +370,9 @@
     <string name="settings_system_sync_title">Aggiungi ad Android</string>
     <string name="settings_system_sync_subtitle">Pubblica i contatti e i calendari di questo account come account Android, così l\'identificativo chiamante, l\'app Calendario, i widget e qualsiasi selettore di persone possono vederli.</string>
     <string name="settings_system_sync_note">Sola lettura: le modifiche fatte in altre app non vengono inviate al server. Vengono pubblicati solo gli account con la sincronizzazione di contatti o calendario attiva. Disattivando questa opzione l\'account Android e tutto ciò che Gridlink vi ha inserito vengono rimossi.</string>
+    <string name="settings_system_sync_other_title">%1$s è già installato</string>
+    <string name="settings_system_sync_other_body">Se %1$s sincronizza gli stessi contatti e calendari, Android ne conserverà due copie e l\'app Calendario mostrerà ogni evento due volte. Non si danneggia nulla: ogni app scrive con il proprio account e ciò che Gridlink aggiunge è di sola lettura. Attiva questa opzione solo se %1$s non sincronizza questo account.</string>
+    <string name="settings_system_sync_other_confirm">Attiva comunque</string>
     <string name="settings_system_sync_now_title">Sincronizza ora</string>
     <string name="settings_system_sync_now_summary">Scarica dal server e aggiorna ciò che Android vede</string>
     <string name="settings_storage_screen_title">Archiviazione</string>

@@ -64,6 +64,45 @@ object SystemMirror {
             Manifest.permission.WRITE_CALENDAR,
         ).all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
 
+    /**
+     * Other installed apps that publish CardDAV/CalDAV collections into the same two system
+     * providers Gridlink's mirror writes to.
+     *
+     * DAVx5 and PeopleSync are the same codebase under two package names; both are here because
+     * either one is equally capable of syncing the very collections this account already carries.
+     * Declared in `<queries>` so Android 11+ package visibility does not hide them.
+     */
+    private val OTHER_SYNCER_PACKAGES = listOf(
+        "at.bitfire.davdroid",
+        "com.messageconcept.peoplesyncclient",
+    )
+
+    /**
+     * The label of an installed DAV syncer, or null when there is none.
+     *
+     * ## Why this only warns
+     * Two syncers publishing the same collections corrupts nothing: each writes under its own
+     * AccountManager account, and Gridlink's rows are read-only (`CAL_ACCESS_READ` /
+     * `RAW_CONTACT_IS_READ_ONLY`), so neither can overwrite the other. What it does is show every
+     * event twice in the system Calendar app, once per source, which looks like a bug and is
+     * nobody's fault. So the user is told and then left to decide (Tate, 2026-08-16): blocking
+     * the switch would also block the case where DAVx5 is installed for an entirely different
+     * account and there is no overlap at all.
+     *
+     * 🔴 Deliberately checks only whether the app is INSTALLED, not whether it syncs this same
+     * account. Reading that would mean reaching into another app's accounts and matching collection
+     * URLs against its internals, which is a lot of fragile work to sharpen a dialog the user can
+     * already answer for themselves.
+     */
+    fun otherSyncerLabel(context: Context): String? {
+        val pm = context.packageManager
+        for (name in OTHER_SYNCER_PACKAGES) {
+            val info = runCatching { pm.getApplicationInfo(name, 0) }.getOrNull() ?: continue
+            return pm.getApplicationLabel(info).toString()
+        }
+        return null
+    }
+
     /** The permissions [hasPermissions] wants, for the Settings screen to request in one go. */
     val PERMISSIONS: Array<String> = arrayOf(
         Manifest.permission.READ_CONTACTS,

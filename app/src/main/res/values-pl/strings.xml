@@ -370,6 +370,9 @@
     <string name="settings_system_sync_title">Dodaj do Androida</string>
     <string name="settings_system_sync_subtitle">Publikuje kontakty i kalendarze tego konta jako konto Androida, aby identyfikacja dzwoniącego, aplikacja Kalendarz, widżety i dowolny wybór osób mogły je zobaczyć.</string>
     <string name="settings_system_sync_note">Tylko do odczytu: zmiany wprowadzone w innych aplikacjach nie są wysyłane z powrotem na serwer. Publikowane są tylko konta z włączoną synchronizacją kontaktów lub kalendarza. Wyłączenie tej opcji usuwa konto Androida i wszystko, co Gridlink tam umieścił.</string>
+    <string name="settings_system_sync_other_title">%1$s jest już zainstalowany</string>
+    <string name="settings_system_sync_other_body">Jeśli %1$s synchronizuje te same kontakty i kalendarze, Android będzie przechowywać ich dwie kopie, a aplikacja Kalendarz pokaże każde wydarzenie dwa razy. Nic nie ulega uszkodzeniu: każda aplikacja zapisuje pod własnym kontem, a to, co dodaje Gridlink, jest tylko do odczytu. Włącz tę opcję tylko wtedy, gdy %1$s nie synchronizuje tego konta.</string>
+    <string name="settings_system_sync_other_confirm">Włącz mimo to</string>
     <string name="settings_system_sync_now_title">Synchronizuj teraz</string>
     <string name="settings_system_sync_now_summary">Pobierz z serwera i odśwież to, co widzi Android</string>
     <string name="settings_storage_screen_title">Pamięć</string>

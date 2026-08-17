@@ -370,6 +370,9 @@
     <string name="settings_system_sync_title">Добавить в Android</string>
     <string name="settings_system_sync_subtitle">Публикует контакты и календари этой учётной записи как учётную запись Android, чтобы определитель номера, приложение «Календарь», виджеты и любой выбор людей их видели.</string>
     <string name="settings_system_sync_note">Только чтение: изменения, сделанные в других приложениях, не отправляются на сервер. Публикуются только учётные записи с включённой синхронизацией контактов или календаря. Отключение удаляет учётную запись Android и всё, что Gridlink туда поместил.</string>
+    <string name="settings_system_sync_other_title">%1$s уже установлен</string>
+    <string name="settings_system_sync_other_body">Если %1$s синхронизирует те же контакты и календари, Android будет хранить две их копии, а приложение «Календарь» покажет каждое событие дважды. Ничего не повреждается: каждое приложение пишет под своей учётной записью, а то, что добавляет Gridlink, доступно только для чтения. Включайте это только если %1$s не синхронизирует эту учётную запись.</string>
+    <string name="settings_system_sync_other_confirm">Всё равно включить</string>
     <string name="settings_system_sync_now_title">Синхронизировать сейчас</string>
     <string name="settings_system_sync_now_summary">Загрузить с сервера и обновить то, что видит Android</string>
     <string name="settings_storage_screen_title">Хранилище</string>

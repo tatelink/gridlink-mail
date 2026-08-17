@@ -1249,6 +1249,21 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
                 )
             }
             SettingsSection(stringResource(R.string.settings_system_sync_section)) {
+                // Whether another DAV syncer is installed cannot change while this screen is up
+                // (installing one backgrounds the app), so it is read once rather than on every
+                // recomposition of a switch.
+                val otherSyncer = remember(context) { SystemMirror.otherSyncerLabel(context) }
+                var confirmOtherSyncer by remember { mutableStateOf(false) }
+                // The one path that actually turns the mirror on, shared by the switch and by the
+                // warning dialog's confirm button so the permission check cannot be skipped by
+                // going through the dialog.
+                val turnOn = {
+                    if (SystemMirror.hasPermissions(context)) {
+                        viewModel.setSystemAccountMirror(true)
+                    } else {
+                        mirrorPermissions.launch(SystemMirror.PERMISSIONS)
+                    }
+                }
                 SettingSwitch(
                     title = stringResource(R.string.settings_system_sync_title),
                     subtitle = stringResource(R.string.settings_system_sync_subtitle),
@@ -1256,11 +1271,31 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
                     onCheckedChange = { wantOn ->
                         when {
                             !wantOn -> viewModel.setSystemAccountMirror(false)
-                            SystemMirror.hasPermissions(context) -> viewModel.setSystemAccountMirror(true)
-                            else -> mirrorPermissions.launch(SystemMirror.PERMISSIONS)
+                            // Warn once, on the way on. Turning it back off is never questioned,
+                            // and an already-on mirror is not nagged about on every visit.
+                            otherSyncer != null -> confirmOtherSyncer = true
+                            else -> turnOn()
                         }
                     },
                 )
+                if (confirmOtherSyncer && otherSyncer != null) {
+                    AlertDialog(
+                        onDismissRequest = { confirmOtherSyncer = false },
+                        title = { Text(stringResource(R.string.settings_system_sync_other_title, otherSyncer)) },
+                        text = { Text(stringResource(R.string.settings_system_sync_other_body, otherSyncer)) },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                confirmOtherSyncer = false
+                                turnOn()
+                            }) { Text(stringResource(R.string.settings_system_sync_other_confirm)) }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { confirmOtherSyncer = false }) {
+                                Text(stringResource(R.string.settings_cancel))
+                            }
+                        },
+                    )
+                }
                 Text(
                     stringResource(R.string.settings_system_sync_note),
                     style = MaterialTheme.typography.bodySmall,

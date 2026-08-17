@@ -370,6 +370,9 @@
     <string name="settings_system_sync_title">Aan Android toevoegen</string>
     <string name="settings_system_sync_subtitle">Publiceert de contacten en agenda\'s van dit account als een Android-account, zodat nummerherkenning, de Agenda-app, widgets en elke personenkiezer ze kunnen zien.</string>
     <string name="settings_system_sync_note">Alleen-lezen: wijzigingen in andere apps worden niet naar de server teruggestuurd. Alleen accounts met contact- of agendasynchronisatie ingeschakeld worden gepubliceerd. Uitschakelen verwijdert het Android-account en alles wat Gridlink daarin heeft gezet.</string>
+    <string name="settings_system_sync_other_title">%1$s is al geïnstalleerd</string>
+    <string name="settings_system_sync_other_body">Als %1$s dezelfde contacten en agenda\'s synchroniseert, bewaart Android er twee kopieën van en toont de Agenda-app elke afspraak twee keer. Er gaat niets kapot: elke app schrijft onder zijn eigen account en wat Gridlink toevoegt is alleen-lezen. Schakel dit alleen in als %1$s dit account niet synchroniseert.</string>
+    <string name="settings_system_sync_other_confirm">Toch inschakelen</string>
     <string name="settings_system_sync_now_title">Nu synchroniseren</string>
     <string name="settings_system_sync_now_summary">Van de server ophalen en vernieuwen wat Android ziet</string>
     <string name="settings_storage_screen_title">Opslag</string>

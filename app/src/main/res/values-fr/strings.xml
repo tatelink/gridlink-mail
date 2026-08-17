@@ -370,6 +370,9 @@
     <string name="settings_system_sync_title">Ajouter à Android</string>
     <string name="settings_system_sync_subtitle">Publie les contacts et agendas de ce compte comme un compte Android, afin que l\'identification d\'appel, l\'application Agenda, les widgets et tout sélecteur de contacts puissent les voir.</string>
     <string name="settings_system_sync_note">Lecture seule : les modifications faites dans d\'autres applications ne sont pas renvoyées au serveur. Seuls les comptes dont la synchronisation des contacts ou de l\'agenda est activée sont publiés. Désactiver cette option supprime le compte Android et tout ce que Gridlink y a placé.</string>
+    <string name="settings_system_sync_other_title">%1$s est déjà installé</string>
+    <string name="settings_system_sync_other_body">Si %1$s synchronise les mêmes contacts et agendas, Android en conservera deux copies et l\'application Agenda affichera chaque événement deux fois. Rien n\'est endommagé : chaque application écrit sous son propre compte, et ce que Gridlink ajoute est en lecture seule. N\'activez ceci que si %1$s ne synchronise pas ce compte.</string>
+    <string name="settings_system_sync_other_confirm">Activer quand même</string>
     <string name="settings_system_sync_now_title">Synchroniser maintenant</string>
     <string name="settings_system_sync_now_summary">Récupérer depuis le serveur et actualiser ce que voit Android</string>
     <string name="settings_storage_screen_title">Stockage</string>

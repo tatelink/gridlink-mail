@@ -487,6 +487,9 @@
     <string name="settings_system_sync_title">Add to Android</string>
     <string name="settings_system_sync_subtitle">Publish this account\'s contacts and calendars as an Android account, so caller ID, the Calendar app, widgets and any people picker can see them.</string>
     <string name="settings_system_sync_note">Read-only: edits made in other apps aren\'t sent back to the server. Only accounts with contact or calendar sync switched on are published. Turning this off removes the Android account and everything Gridlink put there.</string>
+    <string name="settings_system_sync_other_title">%1$s is already installed</string>
+    <string name="settings_system_sync_other_body">If %1$s syncs the same contacts and calendars, Android will hold two copies of them and the Calendar app will show every event twice. Nothing is damaged: each app writes under its own account, and what Gridlink adds is read-only. Turn this on only if %1$s is not syncing this account.</string>
+    <string name="settings_system_sync_other_confirm">Turn on anyway</string>
     <string name="settings_system_sync_now_title">Sync now</string>
     <string name="settings_system_sync_now_summary">Fetch from the server and refresh what Android sees</string>
     <string name="settings_storage_screen_title">Storage</string>
