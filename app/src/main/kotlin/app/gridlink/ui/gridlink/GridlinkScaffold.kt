@@ -169,26 +169,6 @@ fun GridlinkScaffold(
      */
     wideList: Boolean = false,
     /**
-     * Drop the side pane's WIDTH while keeping the screen in its two-pane form.
-     *
-     * ## 🔴 Not the same as passing a null [sidePane]
-     * Null means "this window is not wide enough for two panes", and every screen reads it that way:
-     * the calendar, for one, moves its month title out of the chrome row and into a big line of its
-     * own, and hides the steppers. Flipping that on and off as an event opens and closes would
-     * rearrange the header under the finger that just tapped a day.
-     *
-     * This flag says something narrower: the pane is still there, still the layout, but there is
-     * nothing IN it except the placeholder glyph, so it is not worth any width. Only the calendar
-     * uses it, and only in the [wideList] arrangement. Mail does not, because a mailbox pinned at
-     * 380dp gains nothing from the placeholder's column and would just re-centre its own list every
-     * time a message was closed.
-     *
-     * The point is the case Tate actually looks at. With nothing selected the month now gets the
-     * whole window, which on an unfolded Fold is over [MONTH_SPLIT_WIDTH], so it draws as a real
-     * grid beside a real day list instead of as a narrow column beside "Select an event".
-     */
-    sidePaneCollapsed: Boolean = false,
-    /**
      * The screen's far-right control on the chrome row: the inbox's search pill, the calendar's
      * steppers. Null when the screen has nothing to put there, and also how a screen *hides* one
      * (the inbox passes null while a selection is live, so search cannot fork the list out from
@@ -395,36 +375,38 @@ fun GridlinkScaffold(
                             // separator, and a hairline drawn on top of a 40dp channel of colour
                             // would be a line separating two things that are already demonstrably
                             // apart.
-                            // Dropped outright rather than measured to zero. A zero-width Box does
-                            // not clip what it holds, so the placeholder would keep drawing over
-                            // the pane beside it; and the only thing this pane can be holding while
-                            // [sidePaneCollapsed] is that placeholder, which has no state to lose
-                            // by leaving the composition.
-                            if (!sidePaneCollapsed) {
-                                Box(
-                                    modifier = Modifier
-                                        .then(
-                                            if (wideList) {
-                                                Modifier.width(GridlinkDimens.detailPaneWidth)
-                                            } else {
-                                                Modifier.weight(1f)
-                                            },
-                                        )
-                                        .fillMaxHeight(),
+                            // 🔴 ALWAYS composed. There was a `sidePaneCollapsed` flag here that
+                            // dropped this pane entirely while it held nothing but its placeholder,
+                            // so the calendar's month could take the whole window. Tate's verdict
+                            // on that, unfolded: *"clicking calendar while unfolded takes to a
+                            // broken view where its stretched across the entire phone."* Two panes
+                            // means two panes; a screen that silently becomes one pane when its
+                            // selection empties is a layout that moves on its own. The fix for an
+                            // empty pane is to put something in it, which is what the calendar now
+                            // does (the selected day's events), not to delete the pane.
+                            Box(
+                                modifier = Modifier
+                                    .then(
+                                        if (wideList) {
+                                            Modifier.width(GridlinkDimens.detailPaneWidth)
+                                        } else {
+                                            Modifier.weight(1f)
+                                        },
+                                    )
+                                    .fillMaxHeight(),
+                            ) {
+                                CompositionLocalProvider(
+                                    // The chrome row plus whatever else the column stacks above
+                                    // its glass. Zeroed on the belowHeader half while there is
+                                    // none rather than trusting the measurement: onSizeChanged
+                                    // only fires while the box is composed, so a switcher that
+                                    // left would strand its last height in [headerHeight] and
+                                    // push the pane down a phantom row.
+                                    LocalGridlinkPaneHeaderHeight provides
+                                        chromeHeight +
+                                        if (belowHeader == null) 0.dp else headerHeight,
                                 ) {
-                                    CompositionLocalProvider(
-                                        // The chrome row plus whatever else the column stacks above
-                                        // its glass. Zeroed on the belowHeader half while there is
-                                        // none rather than trusting the measurement: onSizeChanged
-                                        // only fires while the box is composed, so a switcher that
-                                        // left would strand its last height in [headerHeight] and
-                                        // push the pane down a phantom row.
-                                        LocalGridlinkPaneHeaderHeight provides
-                                            chromeHeight +
-                                            if (belowHeader == null) 0.dp else headerHeight,
-                                    ) {
-                                        sidePane()
-                                    }
+                                    sidePane()
                                 }
                             }
                         }
@@ -1244,6 +1226,16 @@ fun GridlinkRoot(
 
     /** The open appointment, by id, for the reason [openContactId] is one: folding destroys the activity. */
     var openEventId by rememberSaveable(initialEventId) { mutableStateOf(initialEventId) }
+
+    /**
+     * The day the month grid has selected, reported up by [GridlinkCalendarScreen] so the reading
+     * pane can list that day's events instead of saying "Select an event". Null only for the frame
+     * or two before the calendar first reports, and on every other tab, where nothing selects a day.
+     *
+     * ⚠️ Not saved. The calendar re-reports on arrival, so a fold would only be restoring a value
+     * that is about to be overwritten by the screen that owns it.
+     */
+    var calendarDay by remember { mutableStateOf<LocalDate?>(null) }
 
     /** The open mailbox, by id, for the reason the three above are ids: folding destroys the activity. */
     var openFolderId by rememberSaveable(initialFolderId) { mutableStateOf(initialFolderId) }
@@ -2427,7 +2419,21 @@ fun GridlinkRoot(
                             }
                         } else {
                             val current = detail
+                            val day = calendarDay
                             when {
+                                // 🔴 The calendar is the one tab whose empty pane has something
+                                // true to say. Every other destination is waiting for a pick with
+                                // no way to guess which one; the month has already picked a DAY,
+                                // so the pane lists it. Tate: *"day list left panel, event list
+                                // right panel."*
+                                current == null &&
+                                    destination == GridlinkDestination.CALENDAR &&
+                                    day != null -> GridlinkCalendarDayPane(
+                                    date = day,
+                                    onOpenEvent = { openEventId = it.id },
+                                    currentId = openEventId,
+                                )
+
                                 current == null -> GridlinkThreadPlaceholder(label = paneLabel)
                                 // 🔴 The maximized message is drawn ONCE, over the whole window,
                                 // further down this file. Leaving it composed here as well would put
@@ -2693,12 +2699,8 @@ fun GridlinkRoot(
                             initialView = initialCalendarView,
                             initialDate = calendarStart,
                             sidePane = readingPane,
-                            // The three things that can be IN that pane, asked in the same order the
-                            // pane itself asks them further up. None of them open means it is showing
-                            // "Select an event", and the month takes the width back.
-                            sidePaneEmpty = detail == null &&
-                                creating !is GridlinkCreation.Event &&
-                                editingEvent == null,
+                            // What the pane lists while no event is open. See [calendarDay].
+                            onSelectDate = { calendarDay = it },
                             // Same rule as the other two lists: only in two panes, or the marked block
                             // sits under a full-screen card and just looks stuck.
                             currentId = if (twoPane) openEventId else null,
@@ -2709,16 +2711,11 @@ fun GridlinkRoot(
                                     scope.launch { progress.animateTo(1f, GridlinkMotion.standard()) }
                                 }
                             },
-                            // 🔴 Null once the calendar HAS a reading pane, and this is not tidying. The
-                            // month view splits on its own panel width, and it is now trusted to make
-                            // that call itself: with `wideList = true` the calendar owns everything the
-                            // 380dp event card does not, so it clears MONTH_SPLIT_WIDTH on its own on a
-                            // display wide enough to be in two panes at all. Forcing the split from out
-                            // here would only be able to get it wrong on the narrow end, cramming the 2:1
-                            // grid-plus-list into a pane too small for either half, which is precisely the
-                            // "distorted and stretched" month `31ae393` was written to fix. The override
-                            // exists to make the STACKED month photographable on a wide emulator, and that
-                            // case is the one where the pane is collapsed, so it is the only case that
+                            // 🔴 Null once the calendar HAS a reading pane, and this is not tidying. In
+                            // two panes the month draws no day list at all (the pane holds it), so there
+                            // is no split left to force and forcing one from out here could only get it
+                            // wrong. The override exists to make the STACKED month photographable on a
+                            // wide emulator, which is a one-pane case, so one pane is the only case that
                             // still passes it.
                             forceSplit = if (twoPane) null else forceTwoPane,
                         )

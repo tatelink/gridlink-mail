@@ -34,6 +34,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -123,11 +124,15 @@ fun GridlinkCalendarScreen(
     /** §7's detail pane, or null when the window is too narrow for one. */
     sidePane: (@Composable () -> Unit)? = null,
     /**
-     * True while that pane has nothing in it but its placeholder, which hands its width back to the
-     * month. See `GridlinkScaffold`'s `sidePaneCollapsed`; the caller owns this because the caller is
-     * the one that knows whether a form is open in there, and this screen does not.
+     * Which day the month view has selected, reported out as it changes.
+     *
+     * 🔴 This is what lets the reading pane hold that day's events instead of "Select an event".
+     * Tate's layout, in his words: *"day list left panel, event list right panel."* The selection
+     * lives in here because the grid owns it, and the pane that has to render it lives out there, so
+     * it has to travel. Called for the opening day too, not only for taps, or the pane would say
+     * nothing until the first tap.
      */
-    sidePaneEmpty: Boolean = false,
+    onSelectDate: (LocalDate) -> Unit = {},
     /**
      * Harness override for the month view's split: true forces grid-plus-list, false forces the
      * stacked layout, null measures the panel.
@@ -155,6 +160,10 @@ fun GridlinkCalendarScreen(
     // reading to the month it belongs to lands on that month rather than snapping back to today.
     var anchor by remember(start) { mutableStateOf(start) }
     var selectedDate by remember(start) { mutableStateOf(start) }
+    // Reported on arrival as well as on every tap, so the reading pane opens holding today's events
+    // rather than waiting for a day to be tapped before it has anything to say.
+    val reportDate = rememberUpdatedState(onSelectDate)
+    LaunchedEffect(selectedDate) { reportDate.value(selectedDate) }
 
     // The agenda ignores the anchor and always centres on today. It has no steppers and no paging
     // swipe, so the anchor could only reach it as a leftover from whichever view you were last
@@ -217,10 +226,12 @@ fun GridlinkCalendarScreen(
         // more readable with every extra pixel (it is a 7-column table that has to fit text), while an
         // event card stops improving almost immediately. Left at the app-wide default the calendar got
         // 380dp and the event card got the rest, which on the unfolded Fold meant a cramped grid beside
-        // a two-thirds-width "Select an event". This also puts the month pane over MONTH_SPLIT_WIDTH,
-        // so the detailed day cells (dot plus title) actually appear on his device instead of bare dots.
+        // a two-thirds-width "Select an event". The grid keeps the surplus instead.
+        //
+        // ⚠️ This is as far as it goes. The next step, handing the month the WHOLE window whenever the
+        // pane was empty, is the one Tate threw out: *"clicking calendar while unfolded takes to a
+        // broken view where its stretched across the entire phone."*
         wideList = true,
-        sidePaneCollapsed = sidePaneEmpty,
         header = {
             GridlinkHeader(
                 // "Calendar" cannot truncate; the date it displaces is on the line below.
@@ -299,6 +310,11 @@ fun GridlinkCalendarScreen(
                 onOpenEvent = onOpenEvent,
                 currentId = currentId,
                 forceSplit = forceSplit,
+                // 🔴 The day list is drawn HERE only when there is nowhere else to put it. In two
+                // panes it moves to the reading pane, which is Tate's arrangement: *"day list
+                // left panel, event list right panel."* Drawing it in both places would list the
+                // same day's events twice, side by side, which is worse than either alone.
+                dayList = onePane,
                 onPage = onPage,
             )
 
@@ -655,6 +671,7 @@ private fun GridlinkMonthView(
     onOpenEvent: (GridlinkEvent) -> Unit,
     currentId: String?,
     forceSplit: Boolean?,
+    dayList: Boolean,
     onPage: (forward: Boolean) -> Unit,
 ) {
     val colors = GridlinkTheme.colors
@@ -673,7 +690,21 @@ private fun GridlinkMonthView(
             .gridlinkPageSwipe(vertical = true, onPage = page),
     ) {
         val split = forceSplit ?: (maxWidth >= MONTH_SPLIT_WIDTH)
-        if (split) {
+        if (!dayList) {
+            // Two panes: the grid is the whole left panel and the events are in the right one. Tall
+            // cells regardless of how wide the panel is, because there is no list underneath
+            // competing for the height and a grid that stops at [GridlinkDimens.calendarDayCell]
+            // would leave a band of nothing below the last week.
+            GridlinkMonthGrid(
+                month = month,
+                today = today,
+                selected = selected,
+                onSelect = onSelect,
+                fillHeight = true,
+                modifier = Modifier.fillMaxSize(),
+                detailed = false,
+            )
+        } else if (split) {
             Row(Modifier.fillMaxSize()) {
                 GridlinkMonthGrid(
                     month = month,
@@ -755,6 +786,16 @@ private fun GridlinkMonthGrid(
     onSelect: (LocalDate) -> Unit,
     fillHeight: Boolean,
     modifier: Modifier = Modifier,
+    /**
+     * Names in the cells instead of dots. Follows [fillHeight] wherever the two travel together, and
+     * is passed separately by exactly one caller.
+     *
+     * 🔴 The two-pane month is tall (it owns the whole panel) but only about 60dp per column, and a
+     * name in 60dp is "Daily…", "Ec… +1". That is the noise Tate already threw out once: *"the
+     * bubble titles inside the boxes is extremely hard on the eye."* Dots are honest at that width,
+     * and there the day's real names are one panel to the right anyway.
+     */
+    detailed: Boolean = fillHeight,
 ) {
     val colors = GridlinkTheme.colors
     val book = LocalGridlinkBook.current
@@ -797,7 +838,7 @@ private fun GridlinkMonthGrid(
                         isToday = date == today,
                         isSelected = date == selected,
                         events = book.eventsOn(date),
-                        detailed = fillHeight,
+                        detailed = detailed,
                         onClick = { onSelect(date) },
                         modifier = Modifier
                             .weight(1f)
@@ -821,23 +862,31 @@ private fun GridlinkMonthDayList(
     onOpenEvent: (GridlinkEvent) -> Unit,
     currentId: String?,
     modifier: Modifier = Modifier,
+    /**
+     * The day's name over the rows. False in the reading pane, where the frame's own title band is
+     * already showing that date: two copies of "Thursday 30 July" a few dp apart is not a heading,
+     * it is a rendering bug.
+     */
+    heading: Boolean = true,
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
     Column(modifier) {
-        Text(
-            text = date.format(AGENDA_DAY),
-            style = GridlinkType.sectionLabel,
-            color = colors.textSecondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(
-                start = GridlinkSpacing.rowHorizontal,
-                end = GridlinkSpacing.rowHorizontal,
-                top = GridlinkSpacing.s12,
-                bottom = GridlinkSpacing.s4,
-            ),
-        )
+        if (heading) {
+            Text(
+                text = date.format(AGENDA_DAY),
+                style = GridlinkType.sectionLabel,
+                color = colors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(
+                    start = GridlinkSpacing.rowHorizontal,
+                    end = GridlinkSpacing.rowHorizontal,
+                    top = GridlinkSpacing.s12,
+                    bottom = GridlinkSpacing.s4,
+                ),
+            )
+        }
 
         if (events.isEmpty()) {
             Box(
@@ -876,6 +925,47 @@ private fun GridlinkMonthDayList(
                 }
             }
         }
+    }
+}
+
+/**
+ * The selected day's events, drawn in the READING PANE rather than under the grid.
+ *
+ * ## 🔴 Why the pane holds a list at all
+ * Tate, on the unfolded Fold: *"day list left panel, event list right panel."* Before this the
+ * right panel said "Select an event" until you picked one, which is a third of an unfolded display
+ * spent on an instruction, and the fix that came before this one (handing the month the whole window
+ * whenever the pane was empty) is the one he threw out as *"stretched across the entire phone"*. So
+ * the pane keeps its width and earns it: it opens on today's events, follows every day you tap, and
+ * hands over to the event card the moment you open one.
+ *
+ * It is [GridlinkDetailFrame] and not a bare column so this panel starts on the same line and wears
+ * the same glass as the month beside it. The frame's title band carries the date, which is why the
+ * list is asked for no [GridlinkMonthDayList.heading] of its own.
+ */
+@Composable
+internal fun GridlinkCalendarDayPane(
+    date: LocalDate,
+    onOpenEvent: (GridlinkEvent) -> Unit,
+    currentId: String?,
+) {
+    val book = LocalGridlinkBook.current
+    val events = remember(date, book) { book.eventsOn(date) }
+    GridlinkDetailFrame(
+        title = date.format(AGENDA_DAY),
+        // Nothing to go back TO. This is what the pane shows when nothing is open, so the frame is
+        // only being used for its shape; embedded draws no back control.
+        onBack = {},
+        embedded = true,
+    ) {
+        GridlinkMonthDayList(
+            date = date,
+            events = events,
+            onOpenEvent = onOpenEvent,
+            currentId = currentId,
+            modifier = Modifier.fillMaxSize(),
+            heading = false,
+        )
     }
 }
 
