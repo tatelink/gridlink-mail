@@ -730,6 +730,61 @@ class DavClient internal constructor(
     }
 
     /**
+     * The CalDAV URL of the event carrying [uid] in [collectionUrl], or null when the server has no
+     * such event.
+     *
+     * ## Why this exists: JMAP events have no path, and RFC 8607 needs one
+     * An event synced over JMAP is filed under a synthetic key, so [objectUrl] cannot build an
+     * address for it (see the warning on that function). But the event is usually sitting in the
+     * very same store the CalDAV endpoint serves, under a path only the server knows. A
+     * `calendar-query` REPORT (RFC 4791 §7.8.6) filtered on UID is how a client asks for that path
+     * without knowing it, and UID is the one identifier both protocols agree on.
+     *
+     * ⚠️ Null covers three different situations on purpose: no match, a server that does not
+     * implement `calendar-query`, and a collection URL that is one of this app's own synthetic keys.
+     * The caller has one thing to do about any of them, which is to leave the affordance hidden.
+     *
+     * 🔴 Only the FIRST match is returned. A UID is unique within a calendar per RFC 4791 §4.1, so a
+     * second response means either overrides of the same repeating event (which live in one file at
+     * one path anyway) or a server whose data is already inconsistent. Picking one and moving on
+     * beats refusing over a duplicate the user cannot see or fix.
+     */
+    suspend fun findEventUrl(
+        collectionUrl: String,
+        credentials: DavCredentials,
+        uid: String,
+    ): String? = withContext(Dispatchers.IO) {
+        if (uid.isBlank()) return@withContext null
+        val url = collectionUrl.toHttpUrlOrNull() ?: return@withContext null
+        val body = buildString {
+            append("""<?xml version="1.0" encoding="utf-8"?>""")
+            append("""<C:calendar-query xmlns:D="DAV:" xmlns:C="${DavKind.CALENDAR.namespace}">""")
+            // getetag, not the calendar data: the answer wanted is the href, which every response
+            // carries anyway, and asking for the body would download the whole event to read its
+            // address.
+            append("<D:prop><D:getetag/></D:prop>")
+            append("""<C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT">""")
+            append("""<C:prop-filter name="UID"><C:text-match collation="i;octet">""")
+            append(uid.xmlEscaped())
+            append("</C:text-match></C:prop-filter>")
+            append("</C:comp-filter></C:comp-filter></C:filter>")
+            append("</C:calendar-query>")
+        }
+        val result = runCatching { report(url, credentials, body) }.getOrNull()
+            ?: return@withContext null
+        val collectionPath = url.encodedPath.trimEnd('/')
+        result.responses
+            .firstOrNull { response ->
+                // The collection's own href appears in some servers' answers. It is not an event,
+                // and POSTing an attachment to a calendar rather than to an appointment is the kind
+                // of mistake that only shows up on someone else's device.
+                val path = response.href.trimEnd('/')
+                !response.isRemoved && path.isNotBlank() && !path.equals(collectionPath, ignoreCase = true)
+            }
+            ?.let { runCatching { resolve(url, it.href).toString() }.getOrNull() }
+    }
+
+    /**
      * Resolve a server-supplied href against [base].
      *
      * 🔴 The href arrives percent-DECODED from [MultiStatus], so it is re-encoded here rather than

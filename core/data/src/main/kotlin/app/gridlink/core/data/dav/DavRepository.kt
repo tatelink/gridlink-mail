@@ -277,8 +277,9 @@ class DavRepository(
      * offers a button that would otherwise fail on tap:
      *
      * 1. **The event has a CalDAV address.** RFC 8607 is a CalDAV extension: every action is a POST
-     *    to the event's own URL. A row synced over JMAP into a calendar this account never saw over
-     *    CalDAV is filed under a synthetic key and has no such URL, so there is nowhere to POST.
+     *    to the event's own URL. A row synced over JMAP is filed under a synthetic key, so its
+     *    address is looked up by UID first (see [caldavUrlByUid]); a row still without one after
+     *    that has nowhere to POST.
      * 2. **The server says it manages attachments**, by naming `calendar-managed-attachments` in a
      *    `DAV:` header on OPTIONS. Assuming it from the vendor would be wrong the moment the server
      *    is upgraded, downgraded, or is not the one we think it is.
@@ -405,10 +406,52 @@ class DavRepository(
             ?: return Target.Refused("This event isn't synced to this device yet. Sync first.")
         // 🔴 The HREF has to be tested too, and only testing the collection was the bug. See
         // [attachmentRefusal].
-        val url = client.objectUrl(row.collectionUrl, row.href)
-            ?.takeUnless { row.href.startsWith(DavMappers.JMAP_HREF_PREFIX) }
-            ?: return Target.Refused(attachmentRefusal(row))
+        val url = if (row.href.startsWith(DavMappers.JMAP_HREF_PREFIX)) {
+            // No local address, so ask the server for one before giving up. See [caldavUrlByUid].
+            caldavUrlByUid(row, dav)
+        } else {
+            client.objectUrl(row.collectionUrl, row.href)
+        } ?: return Target.Refused(attachmentRefusal(row))
         return Target.Ready(dav, url, row.href, row.recurrenceId)
+    }
+
+    /**
+     * The CalDAV address of a JMAP-keyed event, asked of the server rather than derived.
+     *
+     * ## Why a lookup and not a re-key
+     * An event created since this account switched to JMAP has never had a CalDAV href, so
+     * [DavMappers] files it under `jmap:event/<id>` and RFC 8607 has nowhere to POST. But on a
+     * server that speaks both protocols over one store (Stalwart does), the event IS reachable over
+     * CalDAV, at a path only the server knows. `UID` is the one identifier both protocols share, so
+     * a `calendar-query` REPORT filtered on it produces the address.
+     *
+     * 🔴 The answer is deliberately NOT written back into the row. A row's href is its identity, and
+     * the system-calendar mirror derives the Android provider's `_SYNC_ID` from it, so re-keying a
+     * cached event deletes the phone's copy and inserts a stranger, taking its reminder state with
+     * it. That price is worth paying to avoid churning EVERY event on a protocol switch (which is
+     * what [DavMappers.adoptCollectionUrls] and the uid adoption in `cacheJmapEvents` are for), and
+     * is not worth paying so one attachment button can appear.
+     *
+     * ⚠️ So this costs one REPORT each time it is asked, and it is asked on the event card of a
+     * JMAP-keyed event. That is the minority case (measured on the live account: 2 rows of 33), it
+     * sits beside the OPTIONS probe that was already happening, and it is only reached for a row
+     * that would otherwise have refused outright.
+     *
+     * A collection that is itself synthetic (`jmap:calendar/…`, i.e. a calendar this account has
+     * never seen over CalDAV at all) has nothing to query and is refused without a request.
+     */
+    private suspend fun caldavUrlByUid(row: CalendarEventEntity, dav: DavCredentials): String? {
+        if (row.collectionUrl.startsWith(DavMappers.JMAP_COLLECTION_PREFIX)) return null
+        if (row.uid.isBlank()) return null
+        return try {
+            client.findEventUrl(row.collectionUrl, dav, row.uid)
+        } catch (c: CancellationException) {
+            throw c
+        } catch (_: Exception) {
+            // A lookup that failed is "no address", which is the state this row was already in.
+            // Surfacing the network error would replace a plain refusal with a puzzle.
+            null
+        }
     }
 
     /**
@@ -424,6 +467,10 @@ class DavRepository(
      *
      * Proven against the live server 2026-08-16: a real href attached a 561KB photo (201) forty
      * seconds before a `jmap:event/` href on the same account got `404 That event no longer exists`.
+     *
+     * ⚠️ Reaching this for a JMAP-keyed row now means the UID lookup in [caldavUrlByUid] ALSO came
+     * back empty, so the honest reading is "this server has no CalDAV copy of this event", not "the
+     * app cannot address it". The wording covers both, because the user can act on neither.
      */
     private fun attachmentRefusal(row: CalendarEventEntity): String =
         if (row.href.startsWith(DavMappers.JMAP_HREF_PREFIX)) {
