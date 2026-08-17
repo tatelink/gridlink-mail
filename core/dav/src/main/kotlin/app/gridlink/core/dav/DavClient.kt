@@ -716,6 +716,13 @@ class DavClient internal constructor(
      * Null rather than an exception when the collection URL is not a URL at all: a row synced over
      * JMAP is filed under a synthetic key like `jmap:calendar/b`, which is a legitimate state and
      * simply means this event has no CalDAV address to send an attachment action to.
+     *
+     * ## ⚠️ A non-null answer does NOT mean the event has a CalDAV address
+     * Only the COLLECTION is checked here, and a JMAP calendar can be sitting on a DAV collection
+     * url on purpose (it adopts one so the system-calendar mirror does not churn). Its events still
+     * carry synthetic hrefs, and joining the two produces a well-formed URL for an event that does
+     * not exist, which the server answers 404 to. Callers that need "is this event addressable"
+     * must test the HREF; the repository does, in `attachmentTarget`.
      */
     fun objectUrl(collectionUrl: String, href: String): String? {
         val collection = collectionUrl.toHttpUrlOrNull() ?: return null

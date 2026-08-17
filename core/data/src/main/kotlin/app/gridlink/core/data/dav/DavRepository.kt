@@ -403,10 +403,34 @@ class DavRepository(
         val row = eventDao.byHref(accountId, href)
             ?: eventDao.byHref(accountId, href.substringBefore('#'))
             ?: return Target.Refused("This event isn't synced to this device yet. Sync first.")
+        // 🔴 The HREF has to be tested too, and only testing the collection was the bug. See
+        // [attachmentRefusal].
         val url = client.objectUrl(row.collectionUrl, row.href)
-            ?: return Target.Refused("This calendar does not support attaching files.")
+            ?.takeUnless { row.href.startsWith(DavMappers.JMAP_HREF_PREFIX) }
+            ?: return Target.Refused(attachmentRefusal(row))
         return Target.Ready(dav, url, row.href, row.recurrenceId)
     }
+
+    /**
+     * Why this row cannot take a managed attachment. Only called once it is established that it
+     * cannot, so there is no "it can" case to return.
+     *
+     * ## 🔴 A JMAP-keyed event sits in a collection with a perfectly good CalDAV url
+     * [DavMappers.adoptCollectionUrls] hands a JMAP calendar the DAV calendar's url deliberately,
+     * so that the system-calendar mirror does not delete and recreate the user's calendar. The
+     * consequence is that the collection url proves nothing about the event: the row's own key is
+     * still synthetic, [DavClient.objectUrl] joins the two into a well-formed URL for an event that
+     * does not exist, and the POST goes to `/dav/cal/<user>/default/jmap:event/db`.
+     *
+     * Proven against the live server 2026-08-16: a real href attached a 561KB photo (201) forty
+     * seconds before a `jmap:event/` href on the same account got `404 That event no longer exists`.
+     */
+    private fun attachmentRefusal(row: CalendarEventEntity): String =
+        if (row.href.startsWith(DavMappers.JMAP_HREF_PREFIX)) {
+            "This event can't take file attachments on this server."
+        } else {
+            "This calendar does not support attaching files."
+        }
 
     /**
      * A failed attachment action, in words worth showing.
