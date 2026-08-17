@@ -65,6 +65,27 @@ class EmailPartsTest {
     }
 
     @Test
+    fun detachedSmimeSignatureIsNotAFileRow() {
+        // smime.p7s is a DER blob no reader can open, beside a badge that already says "signed".
+        // Both spellings: Outlook has emitted the x- form for decades.
+        val sig = EmailBodyPart(partId = "2", name = "smime.p7s", type = "application/pkcs7-signature")
+        val legacySig = EmailBodyPart(partId = "3", name = "smime.p7s", type = "application/x-pkcs7-signature")
+        val file = EmailBodyPart(partId = "4", name = "doc.pdf", type = "application/pdf")
+        val e = email(listOf(sig, legacySig, file))
+        assertEquals(listOf(file), e.fileAttachmentParts())
+    }
+
+    @Test
+    fun opaqueSmimeBlobKeepsItsFileRow() {
+        // 🔴 The opposite call from the detached case, on purpose. An OPAQUE pkcs7-mime part has the
+        // message sealed INSIDE it, so hiding the row on mail this app cannot unwrap would leave the
+        // reader no handle on the content at all.
+        val opaque = EmailBodyPart(partId = "2", name = "smime.p7m", type = "application/pkcs7-mime")
+        val e = email(listOf(opaque))
+        assertEquals(listOf(opaque), e.fileAttachmentParts())
+    }
+
+    @Test
     fun imageWithoutCidIsAFileNotInline() {
         val noCid = EmailBodyPart(partId = "2", name = "photo.png", type = "image/png")
         val e = email(listOf(noCid))

@@ -202,9 +202,16 @@ data class Email(
             if (part.type?.startsWith("text/calendar") == true) return@filter false
             // PGP/MIME control parts (version blob, detached signature) are protocol
             // plumbing surfaced via the crypto badge, not user files.
-            if (part.type == "application/pgp-encrypted" ||
-                part.type == "application/pgp-signature"
-            ) {
+            //
+            // S/MIME's detached signature is the same thing under another name: `smime.p7s` is a
+            // DER blob no reader can open, offered beside a badge that already says the message is
+            // signed. The `x-` spelling is here because Outlook has emitted it for decades.
+            //
+            // 🔴 `application/pkcs7-mime` is deliberately NOT in this list. That is the OPAQUE form,
+            // where the message itself is sealed inside the blob rather than sitting beside it, so
+            // dropping its row on mail this app cannot unwrap would take away the only handle the
+            // reader has on the content. A useless chip beats a message with no way in.
+            if (part.type in CRYPTO_CONTROL_TYPES) {
                 return@filter false
             }
             // An inline image renders in the body, never also as a redundant file row.
@@ -214,3 +221,18 @@ data class Email(
         }
     }
 }
+
+/**
+ * Crypto plumbing that must never draw an attachment row: the reader cannot open any of it, and the
+ * crypto badge already says everything these parts mean.
+ *
+ * 🔴 A file-level private, NOT a companion object on [Email]. `@Serializable` generates the
+ * companion that carries `Email.serializer()`, so declaring a private one here compiles the class
+ * fine and then breaks every caller in `JmapClient` with "cannot access companion object".
+ */
+private val CRYPTO_CONTROL_TYPES = setOf(
+    "application/pgp-encrypted",
+    "application/pgp-signature",
+    "application/pkcs7-signature",
+    "application/x-pkcs7-signature",
+)
