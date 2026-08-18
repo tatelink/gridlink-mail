@@ -502,8 +502,11 @@ private const val KOFI_URL = "https://ko-fi.com/tatelink"
  *
  * 🔴 Not upstream's. A bug in the Gridlink layer is not emon's to answer, and this build carries
  * changes their tree has never seen, so a report sent there wastes both people's time.
+ *
+ * 🔴 Not a personal mailbox either. The app is published, so this address is handed to
+ * strangers; it is an alias that can be filtered or retired without touching anyone's mail.
  */
-private const val FEEDBACK_ADDRESS = "tate@gridlink.me"
+private const val FEEDBACK_ADDRESS = "support@gridlink.me"
 
 /**
  * Hands a URL to whatever handles it, and says whether anything took it — a device with no browser
