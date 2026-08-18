@@ -1,12 +1,10 @@
-# F-Droid build metadata for Gridlink Mail.
-#
-# This is the file that goes into fdroiddata as metadata/app.gridlink.yml. It lives here
-# so it is versioned with the app it describes: a versionCode bump or a Gradle change has
-# to be reflected here, and a copy sitting only in a merge request gets forgotten.
 Categories:
+  - Email
   - Internet
+  - Connectivity
 License: GPL-3.0-only
 AuthorName: tatelink
+AuthorEmail: hello@eightpointlabs.com
 SourceCode: https://github.com/tatelink/gridlink-mail
 IssueTracker: https://github.com/tatelink/gridlink-mail/issues
 Changelog: https://github.com/tatelink/gridlink-mail/blob/HEAD/CHANGELOG.md

@@ -35,8 +35,13 @@ This matters because it is what lets F-Droid ship the developer's own signature 
 re-signing with theirs, so an F-Droid install and a direct install are the same artefact and
 can replace each other. Two things in `app/build.gradle.kts` make it hold, and both must stay:
 
-- the compiled ART baseline profile is not packaged (it embeds a build timestamp), and
-- `dependenciesInfo` is off, so no Google dependency-metadata blob is written.
+- `vcsInfo { include = false }` in the release build type, so `META-INF/version-control-info.textproto`
+  is not embedded. Its content depends on whether AGP can read git in the build environment, and
+  F-Droid's rebuild of upstream 1.1.3 differed in exactly that file (`NO_VALID_GIT_FOUND` against an
+  embedded revision). There is a comment on the `signingConfig` line beside it warning that F-Droid's
+  reproducible-build signing strip is line-based, so that expression must stay on ONE line.
+- `dependenciesInfo { includeInApk = false; includeInBundle = false }`, so no Google
+  dependency-metadata blob is written.
 
 To offer the developer signature, add to the metadata once F-Droid has built it and matched:
 
