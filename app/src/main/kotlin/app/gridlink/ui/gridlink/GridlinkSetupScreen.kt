@@ -52,13 +52,12 @@ data class GridlinkSetupRequest(
  * First launch: where you point the app at a server, prove who you are, and say what you want synced.
  *
  * ## Why this replaced upstream's welcome-then-connect pair
- * Tate's brief was that step one is server, credentials, and the sync choice, in that order and in
- * one place. Upstream splits it: a privacy welcome, then a connect screen built around autodiscovery
- * with the server hidden behind an "advanced" disclosure, and no sync question at all because mail is
- * the only thing it does. That is the right shape for an app that only ever syncs mail from a provider
- * you can name by its domain. It is the wrong shape for a self-hosted server, which is the case this
- * fork exists for, and where the server URL is the FIRST thing you know and the last thing a form
- * should hide.
+ * Tate's brief was that step one is the server, the credentials and the sync choice, all in one
+ * place. Upstream splits it: a privacy welcome, then a connect screen built around autodiscovery with
+ * the server hidden behind an "advanced" disclosure, and no sync question at all because mail is the
+ * only thing it does. That is the right shape for an app that only ever syncs mail from a provider you
+ * can name by its domain. It is the wrong shape for a self-hosted server, which is the case this fork
+ * exists for, and where the server URL is something you already know and no form should hide from you.
  *
  * ## 🔴 The server field is optional, and that is not a contradiction
  * Blank does not mean "no server", it means "look it up from the address" — the same
@@ -66,6 +65,17 @@ data class GridlinkSetupRequest(
  * the person who knows their server types it and is done in one round trip, and the person who does
  * not leaves it empty and gets upstream's behaviour unchanged. The placeholder says which is which,
  * because a blank required-looking field with no explanation is how a first launch dead-ends.
+ *
+ * ## 🔴 ACCOUNT leads, SERVER follows, and that reverses the brief's ordering on purpose
+ * The brief listed the server first and this screen was built that way, so the audit of 2026-08-17
+ * (item 6, `docs/AUDIT-2026-08-17.md`) found the screen instructing "enter the address you receive
+ * mail at" directly above a field asking for a hostname, marked optional. The first thing named was
+ * the second thing offered, and the first thing offered was the one field most people should skip.
+ * Tate's call, 2026-08-18: swap the two sections, and do NOT collapse SERVER behind a disclosure.
+ * The distinction is worth keeping straight — the brief's objection was to *hiding* the server, and
+ * it is not hidden, it is one screenful down and still in plain sight with its own section label. A
+ * self-hoster scrolls past three fields to reach it; upstream's user has to know that the word
+ * "advanced" is where their server went.
  *
  * ## The sync toggles are all live now, and both start on
  * Calendar and Contacts once stored a preference with nothing behind it, and this screen carried an
@@ -134,8 +144,8 @@ fun GridlinkSetupScreen(
     val emailFocus = remember { FocusRequester() }
     val loginFocus = remember { FocusRequester() }
     val passwordFocus = remember { FocusRequester() }
-    // The address, not the server: the server is the field most people will leave alone, and opening
-    // the keyboard on an optional field asks the user to decide about it before they have read it.
+    // The address, which is now also the first field on screen: the keyboard opens on the thing the
+    // hint is asking for, and the caret does not have to travel to get there.
     // 🔴 And not while the intro is covering the app: the keyboard is a window ABOVE the intro
     // overlay, so an immediate focus grab raises it over the launch animation (it did, on the Fold).
     val introPlaying = LocalGridlinkIntroPlaying.current
@@ -184,26 +194,6 @@ fun GridlinkSetupScreen(
         },
         modifier = modifier,
     ) {
-        GridlinkSectionLabel(text = "Server")
-
-        GridlinkFormTextRow(
-            value = server,
-            onValueChange = { server = it },
-            placeholder = "mail.yourdomain.com (optional)",
-            placeholderStyle = GridlinkType.body,
-            style = GridlinkType.body,
-            focusRequester = serverFocus,
-            onFocused = {},
-            singleLine = true,
-            // A hostname is not a sentence and is not capitalised. The URI keyboard puts "/" and
-            // "." where the thumb can reach them, which is most of what gets typed here.
-            capitalization = KeyboardCapitalization.None,
-            keyboardType = KeyboardType.Uri,
-            imeAction = ImeAction.Next,
-            onImeAction = { emailFocus.requestFocus() },
-        )
-        GridlinkFormDivider()
-
         GridlinkSectionLabel(text = "Account")
 
         GridlinkFormTextRow(
@@ -258,9 +248,11 @@ fun GridlinkSetupScreen(
             singleLine = true,
             capitalization = KeyboardCapitalization.None,
             keyboardType = KeyboardType.Password,
-            // Done and not Next: this is the last thing typed, and the sync rows below take taps
-            // rather than keystrokes, so advancing focus into them would only close the keyboard
-            // by a longer route.
+            // Done and not Next, even though SERVER is now the field below. Next would march every
+            // user into an optional field that most of them should leave blank, which is the
+            // reading-order complaint this ordering was changed to fix, moved down a row. The
+            // person who needs SERVER knows they need it and taps it; everybody else is finished
+            // here, which is what Done says.
             imeAction = ImeAction.Done,
             onImeAction = null,
             visualTransformation =
@@ -275,6 +267,28 @@ fun GridlinkSetupScreen(
             label = "Show password",
             checked = reveal,
             onToggle = { reveal = it },
+        )
+        GridlinkFormDivider()
+
+        GridlinkSectionLabel(text = "Server")
+
+        GridlinkFormTextRow(
+            value = server,
+            onValueChange = { server = it },
+            placeholder = "mail.yourdomain.com (optional)",
+            placeholderStyle = GridlinkType.body,
+            style = GridlinkType.body,
+            focusRequester = serverFocus,
+            onFocused = {},
+            singleLine = true,
+            // A hostname is not a sentence and is not capitalised. The URI keyboard puts "/" and
+            // "." where the thumb can reach them, which is most of what gets typed here.
+            capitalization = KeyboardCapitalization.None,
+            keyboardType = KeyboardType.Uri,
+            // Done, not Next. Nothing below this takes a keystroke, and it is the end of the chain
+            // now rather than the head of it.
+            imeAction = ImeAction.Done,
+            onImeAction = null,
         )
         GridlinkFormDivider()
 
