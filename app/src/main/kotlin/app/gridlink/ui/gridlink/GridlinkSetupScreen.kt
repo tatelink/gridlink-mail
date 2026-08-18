@@ -137,8 +137,13 @@ fun GridlinkSetupScreen(
     // the address sitting above it.
     var login by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
     var reveal by rememberSaveable { mutableStateOf(false) }
-    var calendar by rememberSaveable { mutableStateOf(false) }
-    var contacts by rememberSaveable { mutableStateOf(false) }
+    // 🔴 Both start ON, which is what the KDoc above has claimed since the toggles stopped being
+    // decorative — the code had said `false` since the screen was written and nobody reconciled the
+    // two until the 2026-08-17 audit. Tate's call, 2026-08-18: the doc was right. Adding an
+    // account means the account, and a server that answers CalDAV and CardDAV is offering all three.
+    // Both are one tap away on this same screen before anything is fetched, and in settings after.
+    var calendar by rememberSaveable { mutableStateOf(true) }
+    var contacts by rememberSaveable { mutableStateOf(true) }
 
     val serverFocus = remember { FocusRequester() }
     val emailFocus = remember { FocusRequester() }
