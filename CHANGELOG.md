@@ -11,10 +11,10 @@ here.
 
 Fork point: upstream Sterna Mail `main` at v1.4.6.
 
-## [Unreleased]
+## [0.1.0] - 2026-08-17
 
-No release of this fork has been published yet. Everything below has landed on the working
-branch between 2026-08-01 and 2026-08-08 (73 commits).
+The first published release of this fork, covering everything written between 2026-08-01 and
+2026-08-17.
 
 ### Added
 
@@ -72,6 +72,93 @@ surface. The Outfit typeface is used throughout.
 - Tapping a message inside a folder doing nothing.
 - The keyboard not raising on text fields, and Back not dismissing it.
 - The setup screen's keyboard stealing focus before the intro finished.
+
+### Added, continued (2026-08-09 to 2026-08-17)
+
+**Mail.**
+
+- Drafts that resume where they were left, a Scheduled screen, and a draft that saves itself.
+- Snooze: put a message away, with a place to see what is away.
+- A unified inbox that merges every account, with per-account colour coding, and a refresh that
+  syncs all of them.
+- Quick filters (unread, starred, has attachment), starring, and custom tags: cached keywords,
+  colour definitions, chips on the message, dots on the row, a filter chip, and a tag manager.
+- Search that indexes the preview, finds partial words, and highlights the match.
+- Rich text in the composer: bold, italic, underline, strikethrough, quotes, headings, lists and
+  links, from a toolbar above the keyboard.
+- Attachments that actually attach: a size cap on outgoing mail, a draft's attachments restored
+  when it is reopened, a forward's attachments staged so it can be sent, and Save to Downloads
+  without handing the screen to another app.
+- Replies and forwards that carry the original.
+- One-tap unsubscribe read from the header, and folder rights read from the server.
+- Reparent a folder by dragging it onto another (IMAP RENAME).
+- Printing.
+- `mailto:` links and notification taps route into the Gridlink screens.
+- Server autodiscovery over SRV, so a domain can say where its mail lives.
+- CONDSTORE: skip folders the server says are untouched.
+- Push into subfolders, which the engine never had.
+- Read receipts ask before telling a sender you opened their mail.
+- S/MIME: the signature row says who really signed it, and the detached signature part is hidden
+  from the attachment list.
+
+**Calendar and contacts.**
+
+- JMAP calendars and contacts, read and written natively when the server speaks it, with CalDAV
+  and CardDAV as the fallback. The sync algorithm lives in its own `JmapCollectionSync`.
+- RFC 8607 managed attachments: attach, open and remove files on an event.
+- Meeting invitation cards that say how an event repeats and what it clashes with.
+- Repeating events editable with "this event or all of them".
+- Calendars and contacts published into Android as a real system account, with a warning before
+  the mirror doubles up on DAVx5.
+- Month grid with a shaded today and a heat map, two-pane unfolded layouts for calendar and
+  contacts, and a scrolling agenda.
+
+**Home screen.**
+
+- Three widgets: recent inbox, unread count, and calendar agenda. Agenda rows open the Calendar
+  tab.
+
+**Settings and appearance.**
+
+- Settings and Add account moved inside the Gridlink design layer; the add-account picker is one
+  glass list with real logos.
+- Configurable swipe actions in all three slots, a live list-density setting, a preview-lines
+  setting, a working message text size, a composer signature, real link-privacy switches, a
+  palette pin that survives a restart, Auto resolved from the real sun, quiet hours on the phone
+  clock, and a launcher-icon setting.
+
+**Engineering.**
+
+- detekt across every Kotlin module, with the full test suite and a dependency scan in CI.
+- Dependabot, and the dependency bumps it raised: Kotlin 2.4, AGP 8.13, KSP 2.3, Room 2.8,
+  BouncyCastle 1.84, UnifiedPush 3.3.3.
+- `-PphoneKey`, so a minified build can be installed over a debug one for testing.
+
+### Changed, continued
+
+- The name is written "Gridlink" everywhere, including the Entra registration and the Outlook
+  sign-in screen.
+- The second, inherited UI is gone; the mailbox list moved into the drawer.
+- Sign-in never hangs, names what went wrong, has its own login field, and stops hammering a
+  server that already said no.
+- Every message action works in every folder, not just the inbox.
+- Archive treats the archive folder as special rather than as an ordinary folder.
+- Yandex and Mail.ru presets dropped.
+- Sample data has to be asked for and is never defaulted into.
+- One field shape across every form, and one shape for pick-one settings.
+- The promises screen was deleted rather than left saying things the app does not do.
+
+### Fixed, continued
+
+- Mail the cache lost is put back, and no longer lost.
+- Pull-to-refresh no longer reports success it did not have.
+- The caret stays on screen while typing in a long form.
+- Swipe actions are reachable with a screen reader.
+- Two maximize defects found on the Z Fold, and the maximized message keeps the app's own edges.
+- The calendar view switcher stays still when the subview changes, opening an event to edit no
+  longer raises the keyboard, and the reminder sheet has a way out that is not the scrim.
+- The undismissable sync notification now opens the app.
+- About's dead links.
 
 ### Inherited from upstream, unchanged
 
