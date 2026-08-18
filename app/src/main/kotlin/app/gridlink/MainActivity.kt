@@ -182,7 +182,14 @@ class MainActivity : AppCompatActivity() {
                             // Gridlink's palette, which the nav host provides for itself further
                             // down but nothing provides up here. See [rememberGridlinkIntroMode] for
                             // why resolving it a second time is safe and what would break it.
-                            ProvideGridlinkTokens(mode = rememberGridlinkIntroMode(gridlinkPalette)) {
+                            // Does not claim the system bars: the nav host underneath is
+                            // already showing the same mode (both resolve from the same palette
+                            // and the same sun), and letting a transient overlay clear the slot
+                            // on dispose would strand the screen that outlives it.
+                            ProvideGridlinkTokens(
+                                mode = rememberGridlinkIntroMode(gridlinkPalette),
+                                ownsSystemBars = false,
+                            ) {
                                 GridlinkIntroOverlay(
                                     onFinished = { introPlaying = false },
                                     started = introReady.value,

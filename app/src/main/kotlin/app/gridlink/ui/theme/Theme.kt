@@ -7,7 +7,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
@@ -45,23 +48,48 @@ fun AppTheme(
         else -> ArcticColorScheme
     }
 
-    // Match the system bar icons to the app theme (it drives light/dark via Compose,
-    // not the system, so the edge-to-edge bars must be told explicitly). In light
-    // theme the status-bar icons go dark so they stay legible on the light surface.
+    // Match the system bar icons to the surface actually being painted (the app drives light/dark
+    // via Compose, not the system, so the edge-to-edge bars must be told explicitly). Dark icons
+    // over a light surface, light icons over a dark one.
+    //
+    // 🔴 NOT simply `!darkTheme`. A Gridlink-skinned screen paints from the solar Day/Night/OLED
+    // ladder, which is a different axis from the Material theme mode and disagrees with it
+    // constantly: system dark mode on at midday paints the light Day surface, and deriving the
+    // bars from Material put white icons on it. Whoever is on screen publishes into
+    // [LocalGridlinkSurfaceOverride]; null means nobody did and Material is the honest answer.
+    //
+    // This is the ONE writer. Reading the override during composition (not inside the SideEffect)
+    // is what makes that hold: it re-runs this composable when the skin comes or goes, so the two
+    // theme systems cannot race each other for the window.
+    val gridlinkSurface = remember { mutableStateOf<GridlinkMode?>(null) }
+    val lightBars = systemBarsAreLight(gridlinkSurface.value, darkTheme)
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
             WindowCompat.getInsetsController(window, view).apply {
-                isAppearanceLightStatusBars = !darkTheme
-                isAppearanceLightNavigationBars = !darkTheme
+                isAppearanceLightStatusBars = lightBars
+                isAppearanceLightNavigationBars = lightBars
             }
         }
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = AppTypography,
-        content = content,
-    )
+    CompositionLocalProvider(LocalGridlinkSurfaceOverride provides gridlinkSurface) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = AppTypography,
+            content = content,
+        )
+    }
 }
+
+/**
+ * Whether the system bar icons should be the dark-on-light set, given the surface underneath them.
+ *
+ * [gridlinkSurface] is the solar rung a Gridlink-skinned screen is painting, or null when no such
+ * screen is up and the Material [darkTheme] flag is the only thing describing the window. Split
+ * out of [AppTheme] so the rule is testable without a Compose runtime; it is the whole of the
+ * decision that used to be a bare `!darkTheme`.
+ */
+internal fun systemBarsAreLight(gridlinkSurface: GridlinkMode?, darkTheme: Boolean): Boolean =
+    gridlinkSurface?.isLightSurface ?: !darkTheme

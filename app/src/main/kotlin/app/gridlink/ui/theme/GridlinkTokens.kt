@@ -8,7 +8,9 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
@@ -56,6 +58,15 @@ enum class GridlinkMode {
     NIGHT,
     OLED,
 }
+
+/**
+ * Whether this rung paints a LIGHT surface, which is what the system bar icons have to contrast
+ * against. Day is the light one: [GridlinkDayColors] is a bright blue ground under near-black
+ * text, while Night and OLED are near-black grounds. Not derivable from the Material light/dark
+ * setting, which is a separate axis entirely. See [LocalGridlinkSurfaceOverride].
+ */
+val GridlinkMode.isLightSurface: Boolean
+    get() = this == GridlinkMode.DAY
 
 /**
  * Fallback automatic ladder, by local hour.
@@ -1142,6 +1153,19 @@ val LocalGridlinkColors = staticCompositionLocalOf { GridlinkNightColors }
 
 val LocalGridlinkMode = staticCompositionLocalOf { GridlinkMode.NIGHT }
 
+/**
+ * The slot a Gridlink-skinned subtree publishes its painted mode into, so that whoever owns the
+ * window's system bars can contrast against the surface actually on screen.
+ *
+ * 🔴 This app runs TWO independent theme systems over one window. `AppTheme` is Material
+ * light/dark, driven by the user's theme setting; the Gridlink skin is a solar Day/Night/OLED
+ * ladder driven by real dusk (see `gridlinkModeAt`). They disagree routinely, and the common case
+ * is not exotic: system dark mode on, opened at midday, gives a light Day surface under white
+ * status-bar icons. Null means nothing Gridlink-skinned is on screen and the Material theme is
+ * the honest answer.
+ */
+val LocalGridlinkSurfaceOverride = staticCompositionLocalOf<MutableState<GridlinkMode?>?> { null }
+
 /** Accessor object, so call sites read `GridlinkTheme.colors.attention` rather than the locals. */
 object GridlinkTheme {
     val colors: GridlinkColors
@@ -1161,8 +1185,18 @@ object GridlinkTheme {
 @Composable
 fun ProvideGridlinkTokens(
     mode: GridlinkMode,
+    ownsSystemBars: Boolean = true,
     content: @Composable () -> Unit,
 ) {
+    // Tell the window owner which surface is really being painted, and take it back on the way
+    // out so upstream Material screens go back to contrasting against themselves.
+    val slot = LocalGridlinkSurfaceOverride.current
+    if (ownsSystemBars && slot != null) {
+        DisposableEffect(slot, mode) {
+            slot.value = mode
+            onDispose { slot.value = null }
+        }
+    }
     CompositionLocalProvider(
         LocalGridlinkMode provides mode,
         LocalGridlinkColors provides gridlinkColorsFor(mode),
