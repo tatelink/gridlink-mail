@@ -281,6 +281,8 @@
     <string name="settings_swipe_archive">Archivieren</string>
     <string name="settings_swipe_flag">Markieren/Markierung entfernen</string>
     <string name="settings_swipe_snooze">Zurückstellen</string>
+    <string name="settings_notifications_blocked_title">Benachrichtigungen sind aus</string>
+    <string name="settings_notifications_blocked_body">Android blockiert die Benachrichtigungen von Gridlink, daher erreicht dich nichts von dieser Seite. Zum Wiedereinschalten tippen.</string>
     <string name="settings_notifications_screen_title">Benachrichtigungen</string>
     <string name="settings_new_mail_section">Neue E-Mails</string>
     <string name="settings_notif_content_section">Benachrichtigungsinhalt</string>

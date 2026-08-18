@@ -281,6 +281,8 @@
     <string name="settings_swipe_archive">Archiveren</string>
     <string name="settings_swipe_flag">Ster toevoegen/verwijderen</string>
     <string name="settings_swipe_snooze">Snoozen</string>
+    <string name="settings_notifications_blocked_title">Meldingen staan uit</string>
+    <string name="settings_notifications_blocked_body">Android blokkeert de meldingen van Gridlink, dus niets op dit scherm kan je bereiken. Tik om ze weer aan te zetten.</string>
     <string name="settings_notifications_screen_title">Meldingen</string>
     <string name="settings_new_mail_section">Nieuwe e-mail</string>
     <string name="settings_notif_content_section">Notificatie-inhoud</string>

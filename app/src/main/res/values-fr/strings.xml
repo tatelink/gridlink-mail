@@ -281,6 +281,8 @@
     <string name="settings_swipe_archive">Archiver</string>
     <string name="settings_swipe_flag">Suivre/ne plus suivre</string>
     <string name="settings_swipe_snooze">Reporter</string>
+    <string name="settings_notifications_blocked_title">Les notifications sont désactivées</string>
+    <string name="settings_notifications_blocked_body">Android bloque les notifications de Gridlink, donc rien de cet écran ne peut vous parvenir. Touchez pour les réactiver.</string>
     <string name="settings_notifications_screen_title">Notifications</string>
     <string name="settings_new_mail_section">Nouveaux messages</string>
     <string name="settings_notif_content_section">Contenu des notifications</string>

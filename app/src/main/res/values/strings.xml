@@ -394,6 +394,8 @@
     <string name="settings_swipe_archive">Archive</string>
     <string name="settings_swipe_flag">Star/unstar</string>
     <string name="settings_swipe_snooze">Snooze</string>
+    <string name="settings_notifications_blocked_title">Notifications are off</string>
+    <string name="settings_notifications_blocked_body">Android is blocking notifications from Gridlink, so nothing on this screen can reach you. Tap to turn them back on.</string>
     <string name="settings_notifications_screen_title">Notifications</string>
     <string name="settings_new_mail_section">New mail</string>
     <string name="settings_notif_content_section">Notification content</string>

@@ -281,6 +281,8 @@
     <string name="settings_swipe_archive">Archiwizuj</string>
     <string name="settings_swipe_flag">Oznacz/usuń oznaczenie</string>
     <string name="settings_swipe_snooze">Odłóż</string>
+    <string name="settings_notifications_blocked_title">Powiadomienia są wyłączone</string>
+    <string name="settings_notifications_blocked_body">Android blokuje powiadomienia Gridlink, więc nic z tego ekranu do Ciebie nie dotrze. Dotknij, aby włączyć je ponownie.</string>
     <string name="settings_notifications_screen_title">Powiadomienia</string>
     <string name="settings_new_mail_section">Nowe wiadomości</string>
     <string name="settings_notif_content_section">Treść powiadomień</string>

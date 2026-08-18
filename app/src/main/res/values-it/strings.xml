@@ -281,6 +281,8 @@
     <string name="settings_swipe_archive">Archivia</string>
     <string name="settings_swipe_flag">Aggiungi/rimuovi da Speciali</string>
     <string name="settings_swipe_snooze">Posticipa</string>
+    <string name="settings_notifications_blocked_title">Le notifiche sono disattivate</string>
+    <string name="settings_notifications_blocked_body">Android sta bloccando le notifiche di Gridlink, quindi nulla di questa schermata può raggiungerti. Tocca per riattivarle.</string>
     <string name="settings_notifications_screen_title">Notifiche</string>
     <string name="settings_new_mail_section">Nuova posta</string>
     <string name="settings_notif_content_section">Contenuto delle notifiche</string>

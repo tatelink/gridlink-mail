@@ -281,6 +281,8 @@
     <string name="settings_swipe_archive">Arquivar</string>
     <string name="settings_swipe_flag">Adicionar/remover estrela</string>
     <string name="settings_swipe_snooze">Adiar</string>
+    <string name="settings_notifications_blocked_title">As notificações estão desativadas</string>
+    <string name="settings_notifications_blocked_body">O Android está a bloquear as notificações do Gridlink, por isso nada neste ecrã lhe pode chegar. Toque para as reativar.</string>
     <string name="settings_notifications_screen_title">Notificações</string>
     <string name="settings_new_mail_section">Novos e-mails</string>
     <string name="settings_notif_content_section">Conteúdo das notificações</string>

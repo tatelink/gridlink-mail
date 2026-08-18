@@ -119,6 +119,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.app.NotificationManagerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
@@ -168,6 +171,7 @@ import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import android.provider.Settings as AndroidSettings
 
 /**
  * Settings hub. A single entry point with global categories (DESIGN.md →
@@ -905,6 +909,7 @@ private fun NotificationsScreen(viewModel: SettingsViewModel, onBack: () -> Unit
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
         ) {
+            NotificationsBlockedNotice()
             SettingsSection(stringResource(R.string.settings_delivery_section)) {
                 SettingChoiceRow(
                     title = stringResource(R.string.settings_delivery_mode_title),
@@ -959,6 +964,37 @@ private fun NotificationsScreen(viewModel: SettingsViewModel, onBack: () -> Unit
             }
         }
     }
+}
+
+/**
+ * Shown at the top of the notifications screen only while Android is blocking notifications.
+ *
+ * 🔴 The app asks for the permission once and never again (see AppNavHost), which is the right
+ * cadence for the dialog and would otherwise be a dead end: everything below this configures
+ * notifications that cannot be delivered, with nothing on screen saying so. This is the way back.
+ * It re-reads on resume because the user fixes it in another app and comes back.
+ */
+@Composable
+private fun NotificationsBlockedNotice() {
+    val context = LocalContext.current
+    val leaveOnce = rememberLeaveOnce()
+    var blocked by remember { mutableStateOf(!NotificationManagerCompat.from(context).areNotificationsEnabled()) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        blocked = !NotificationManagerCompat.from(context).areNotificationsEnabled()
+    }
+    if (!blocked) return
+    SettingsCategoryRow(
+        icon = Icons.Filled.Notifications,
+        title = stringResource(R.string.settings_notifications_blocked_title),
+        summary = stringResource(R.string.settings_notifications_blocked_body),
+        onClick = {
+            leaveOnce {
+                val intent = Intent(AndroidSettings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(AndroidSettings.EXTRA_APP_PACKAGE, context.packageName)
+                runCatching { context.startActivity(intent) }.isSuccess
+            }
+        },
+    )
 }
 
 /**
