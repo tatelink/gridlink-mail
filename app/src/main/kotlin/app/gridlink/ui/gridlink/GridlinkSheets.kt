@@ -55,18 +55,19 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkRadii
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Modal glass: the centred sheet, the slide-out panel and the dialog every Gridlink screen shares.
@@ -855,7 +856,10 @@ fun GridlinkTextButton(
     Box(
         modifier = modifier
             .clip(shape)
-            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+            // 🔴 Not `if (enabled) clickable else Modifier`: that drops the node out of the
+            // semantics tree entirely when disabled, so a screen reader announces a loose word
+            // instead of an unavailable button. `enabled = false` keeps it and still refuses taps.
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = GridlinkSpacing.s16, vertical = GridlinkSpacing.s12),
         contentAlignment = Alignment.Center,
     ) {

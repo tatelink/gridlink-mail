@@ -53,6 +53,9 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
@@ -295,6 +298,7 @@ fun GridlinkFormScreen(
                     label = confirmLabel,
                     enabled = confirmEnabled,
                     onClick = onConfirm,
+                    disabledReason = hint,
                 )
             }
         }
@@ -372,6 +376,7 @@ private fun GridlinkConfirmPill(
     enabled: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    disabledReason: String? = null,
 ) {
     val colors = GridlinkTheme.colors
     val shape = RoundedCornerShape(GridlinkRadii.pill)
@@ -385,7 +390,6 @@ private fun GridlinkConfirmPill(
                         .gridlinkGlow(colors.warmGlow?.copy(alpha = 0.40f), radiusMultiplier = 0.95f)
                         .clip(shape)
                         .background(gridlinkAccentFill(colors.accentWarm, darken = GRIDLINK_WARM_FILL_DARKEN))
-                        .clickable(onClick = onClick)
                 } else {
                     Modifier
                         .clip(shape)
@@ -393,6 +397,14 @@ private fun GridlinkConfirmPill(
                         .border(GridlinkDimens.hairline, colors.surfaceBorder, shape)
                 },
             )
+            // 🔴 Outside the branch on purpose. Applying `clickable` only when enabled means the
+            // disabled pill contributes no semantics node at all, so a screen reader finds no
+            // button, no disabled state and no reason: just a stray label. `clickable(enabled =
+            // false)` keeps the node, marks it unavailable and still refuses the tap.
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            // The form already prints this under the fields; saying it on the button is what tells
+            // somebody who cannot see it why the verb will not fire.
+            .semantics { if (!enabled) disabledReason?.let { stateDescription = it } }
             .padding(horizontal = GridlinkSpacing.s28),
         contentAlignment = Alignment.Center,
     ) {
