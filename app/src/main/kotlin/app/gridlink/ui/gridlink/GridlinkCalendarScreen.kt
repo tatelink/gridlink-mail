@@ -81,6 +81,10 @@ import java.util.Locale
  * agenda is a list you read. Rendering a month as "31 columns" or an agenda as "one very tall
  * column" is how calendars end up with a month view nobody can read the events in.
  *
+ * ## Why unfolded only offers three of them
+ * The agenda tab is dropped when there is a reading pane, because that pane already IS an agenda.
+ * See `view` in the body.
+ *
  * ## Why the switcher sits outside the panel
  * It acts on the panel's contents. Inside a scrolling panel it would scroll away from the thing it
  * controls, and this is a screen where you change view far more often than you scroll.
@@ -155,7 +159,41 @@ fun GridlinkCalendarScreen(
     // with nothing in it.
     val today = book.today
     val start = initialDate ?: today
-    var view by remember(initialView) { mutableStateOf(initialView) }
+    // One pane means the chrome row is a folded-width line shared with the hamburger, the sync chip
+    // and the subline; two panes means there is a reading pane. Computed here rather than beside its
+    // other uses because the AGENDA coercion directly below needs it, and that has to run before
+    // anything reads [view].
+    val onePane = sidePane == null
+
+    /**
+     * What the user last picked, which is not always what is drawn. See [view].
+     *
+     * 🔴 The pick is kept even while it cannot be honoured, so folding back restores the agenda the
+     * user chose rather than leaving them on the month the wide layout substituted.
+     */
+    var picked by remember(initialView) { mutableStateOf(initialView) }
+
+    /**
+     * The view actually on screen.
+     *
+     * 🔴 There is no agenda tab unfolded, because unfolded the RIGHT pane already is one: with no
+     * appointment open the reading pane runs an agenda through the selected day
+     * ([GridlinkCalendarAgendaPane]), and with one open the agenda is what you came back to. Tate:
+     * *"remove agenda view from left because entire right becomes agenda view unless an appt is
+     * selected or being created."* A left-hand agenda beside a right-hand agenda lists the same
+     * events twice, side by side, which is the same objection that moved the month's day list into
+     * the pane one level down.
+     *
+     * Coerced rather than reset, and coerced here rather than in a [LaunchedEffect], because an
+     * effect lands a frame late: unfolding on the agenda would draw one frame of a full-width agenda
+     * beside a pane holding another before the substitution took.
+     */
+    val view = if (!onePane && picked == GridlinkCalendarView.AGENDA) {
+        GridlinkCalendarView.MONTH
+    } else {
+        picked
+    }
+
     // Where the view is pointed. One anchor shared by all four, so switching from a week you were
     // reading to the month it belongs to lands on that month rather than snapping back to today.
     var anchor by remember(start) { mutableStateOf(start) }
@@ -185,16 +223,6 @@ fun GridlinkCalendarScreen(
      */
     val countable = !book.calendarLoading && book.coversDate(range.first) && book.coversDate(range.second)
 
-    // One pane means the chrome row is a folded-width line shared with the hamburger, the sync
-    // chip and the subline, and the title seat is the one that gives way (`weight(1f,
-    // fill = false)` in [GridlinkHeader]), so "August 2026" rendered as "August 2…". Tate:
-    // "the date text display at the top of the screen is truncated (August 2...) isnt useful,
-    // rearrange to display full date, theres plenty of vertical room to move things around."
-    // So in one pane the date leaves the chrome row for its own line in [belowHeader], and the
-    // steppers go with it, because buttons that page a date belong beside the date they page.
-    // Two panes keep the on-row title: there the row has the width, and moving the date down
-    // would spend a line to fix a problem that pane count does not have.
-    val onePane = sidePane == null
     // 🔴 The agenda's title has to be built from the SAME date its range was, or it names a window
     // the list is not showing: [range] pins the agenda to today while [anchor] keeps whatever month
     // the user last paged to, so titling it off the anchor would print "8 Sep – 6 Oct" over a list
@@ -233,6 +261,16 @@ fun GridlinkCalendarScreen(
         // where its stretched across the entire phone."*
         split = GridlinkPaneSplit.EVEN,
         header = {
+            // One pane means the chrome row is a folded-width line shared with the hamburger, the
+            // sync chip and the subline, and the title seat is the one that gives way (`weight(1f,
+            // fill = false)` in [GridlinkHeader]), so "August 2026" rendered as "August 2…".
+            // Tate: "the date text display at the top of the screen is truncated (August 2...)
+            // isnt useful, rearrange to display full date, theres plenty of vertical room to move
+            // things around." So in one pane the date leaves the chrome row for its own line in
+            // [belowHeader], and the steppers go with it, because buttons that page a date belong
+            // beside the date they page. Two panes keep the on-row title: there the row has the
+            // width, and moving the date down would spend a line to fix a problem that pane count
+            // does not have.
             GridlinkHeader(
                 // "Calendar" cannot truncate; the date it displaces is on the line below.
                 title = if (onePane) "Calendar" else view.title(titleAnchor),
@@ -289,7 +327,18 @@ fun GridlinkCalendarScreen(
                     }
                     Spacer(Modifier.height(GridlinkSpacing.s12))
                 }
-                GridlinkViewSwitcher(selected = view, onSelect = { view = it })
+                // 🔴 Three tabs unfolded, four folded. See [view] for why the agenda is the one
+                // that goes: the reading pane is already an agenda, so the tab offered a second
+                // copy of what is on the other half of the screen.
+                GridlinkViewSwitcher(
+                    selected = view,
+                    onSelect = { picked = it },
+                    views = if (onePane) {
+                        GridlinkCalendarView.entries
+                    } else {
+                        GridlinkCalendarView.entries - GridlinkCalendarView.AGENDA
+                    },
+                )
             }
         },
     ) {
@@ -528,7 +577,7 @@ internal fun GridlinkStepButton(forward: Boolean, onClick: () -> Unit) {
 }
 
 /**
- * Month / 3 day / Week / Agenda.
+ * Month / 3 day / Week / Agenda, less whatever [views] leaves out.
  *
  * ## 🔴 Tabs, deliberately not a pill
  * This was a filled pill inside a bordered capsule, which is the same nesting Tate called "boxes
@@ -555,6 +604,14 @@ private fun GridlinkViewSwitcher(
     selected: GridlinkCalendarView,
     onSelect: (GridlinkCalendarView) -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Which tabs to draw, because unfolded there are only three: the agenda is dropped there for
+     * the reason recorded at [GridlinkCalendarScreen]'s `view`.
+     *
+     * ⚠️ A list rather than a `showAgenda` flag. The tabs share the row by `weight(1f)`, so the
+     * count is the layout, and a flag would leave this function deciding which view a boolean meant.
+     */
+    views: List<GridlinkCalendarView> = GridlinkCalendarView.entries,
 ) {
     val colors = GridlinkTheme.colors
     Box(modifier = modifier.fillMaxWidth()) {
@@ -570,7 +627,7 @@ private fun GridlinkViewSwitcher(
             modifier = Modifier.fillMaxWidth().height(TAB_ROW_HEIGHT),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            GridlinkCalendarView.entries.forEach { entry ->
+            views.forEach { entry ->
                 val active = entry == selected
                 Box(
                     modifier = Modifier
