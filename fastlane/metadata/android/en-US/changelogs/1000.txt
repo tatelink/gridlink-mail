@@ -1,0 +1,7 @@
+First public release of Gridlink Mail, a fork of Sterna Mail.
+
+- A new Compose interface: message list, reading view, composer and navigation, with swipe actions, selection mode, scheduled send and an undo-send window.
+- JMAP as a first-class protocol alongside IMAP and SMTP, with push over UnifiedPush and no Google dependency.
+- Contacts and calendar over CardDAV and CalDAV, mirrored into the system providers, including managed attachments on events.
+- OpenPGP through the OpenKeychain API, and S/MIME signature verification.
+- Nine languages.
