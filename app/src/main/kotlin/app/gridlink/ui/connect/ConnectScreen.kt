@@ -122,7 +122,11 @@ fun ConnectScreen(
     val importSignIn by viewModel.importSignIn.collectAsStateWithLifecycle()
 
     LaunchedEffect(state) {
-        if (state is ConnectState.Connected) onConnected()
+        if (state is ConnectState.Connected) {
+            // Stored in the account store by now, so drop the plaintext copy before leaving.
+            viewModel.passwordDrafts.clear()
+            onConnected()
+        }
     }
     // After importing accounts, we sign into each one first; only then enter the app.
     LaunchedEffect(importSignIn) {
@@ -139,7 +143,11 @@ fun ConnectScreen(
     var showAdvanced by rememberSaveable { mutableStateOf(false) }
     var accountName by rememberSaveable { mutableStateOf("") }
     var username by rememberSaveable { mutableStateOf("") }
-    var password by rememberSaveable { mutableStateOf("") }
+    // 🔴 Deliberately NOT `rememberSaveable` like its neighbours: that would write the typed
+    // password into the saved-state Bundle, which lives outside this process. The ViewModel still
+    // carries it across the activity recreation that saveable was there for (rotation, the Fold's
+    // hinge). See [ConnectViewModel.PasswordDrafts].
+    val password by viewModel.passwordDrafts.form.collectAsStateWithLifecycle()
 
     // Autodiscovery couldn't find the server → reveal the manual server field.
     LaunchedEffect(state) {
@@ -537,7 +545,7 @@ fun ConnectScreen(
                     val tokenMode = route == ConnectRoute.JMAP_TOKEN
                     OutlinedTextField(
                         value = password,
-                        onValueChange = { password = it },
+                        onValueChange = { viewModel.passwordDrafts.setForm(it) },
                         label = {
                             Text(
                                 stringResource(
@@ -563,7 +571,7 @@ fun ConnectScreen(
                         ),
                         keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                         modifier = Modifier.fillMaxWidth().credentialField(credentialReveal)
-                            .autofill(listOf(AutofillType.Password)) { password = it },
+                            .autofill(listOf(AutofillType.Password)) { viewModel.passwordDrafts.setForm(it) },
                     )
                     val busy = state is ConnectState.Connecting || state is ConnectState.Discovering
                     Button(
@@ -935,7 +943,11 @@ private fun ImportOAuthPanel(target: ConnectViewModel.SignInTarget, viewModel: C
 @Composable
 private fun ImportSignInPanel(target: ConnectViewModel.SignInTarget, viewModel: ConnectViewModel) {
     val account = target.account
-    var password by rememberSaveable(account.id) { mutableStateOf("") }
+    // 🔴 The password is NOT saveable (it would land in the saved-state Bundle in plaintext); the
+    // "reveal" toggle is, because it is a preference and not a secret. See
+    // [ConnectViewModel.PasswordDrafts] for why the ViewModel is the right home.
+    val draft by viewModel.passwordDrafts.import.collectAsStateWithLifecycle()
+    val password = draft?.takeIf { it.first == account.id }?.second.orEmpty()
     var passwordVisible by rememberSaveable(account.id) { mutableStateOf(false) }
     Spacer(Modifier.height(8.dp))
     Text(
@@ -967,7 +979,7 @@ private fun ImportSignInPanel(target: ConnectViewModel.SignInTarget, viewModel: 
     }
     OutlinedTextField(
         value = password,
-        onValueChange = { password = it },
+        onValueChange = { viewModel.passwordDrafts.setImport(account.id, it) },
         label = { Text(stringResource(R.string.connect_password)) },
         singleLine = true,
         isError = target.error != null,
@@ -984,7 +996,8 @@ private fun ImportSignInPanel(target: ConnectViewModel.SignInTarget, viewModel: 
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = { if (password.isNotBlank()) viewModel.submitImportPassword(password) }),
         // Autofill hint so password managers (Bitwarden…) recognise and fill this field.
-        modifier = Modifier.fillMaxWidth().autofill(listOf(AutofillType.Password)) { password = it },
+        modifier = Modifier.fillMaxWidth()
+            .autofill(listOf(AutofillType.Password)) { viewModel.passwordDrafts.setImport(account.id, it) },
     )
     target.error?.let {
         Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)

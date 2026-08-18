@@ -152,6 +152,46 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
     /** Drives the per-account password prompt shown after a settings import (see [beginImportSignIn]). */
     val importSignIn: StateFlow<ImportSignIn> = _importSignIn.asStateFlow()
 
+    /**
+     * The passwords the user is part-way through typing: one for the setup form, one for the
+     * post-import prompt. Held here, in a ViewModel, on purpose.
+     *
+     * 🔴 They must NOT be `rememberSaveable` in the composable. That serialises whatever is in the
+     * field into the activity's saved-state Bundle, which lives in system_server, outside this
+     * process and outside its private storage, for as long as the task is in the recents list. A
+     * plaintext mail password has no business there. The only thing saveable was buying is
+     * surviving an activity recreation (a rotation, or the Fold's hinge, which recreates on every
+     * open), and a ViewModel survives those too. It does not survive process death, which is
+     * exactly right: the user retypes rather than the password outliving the app.
+     */
+    class PasswordDrafts {
+        private val _form = MutableStateFlow("")
+        val form: StateFlow<String> = _form.asStateFlow()
+
+        /**
+         * The import draft, paired with the account id it was typed for, so switching accounts in
+         * the pending list clears it rather than offering one account's password to another.
+         */
+        private val _import = MutableStateFlow<Pair<String, String>?>(null)
+        val import: StateFlow<Pair<String, String>?> = _import.asStateFlow()
+
+        fun setForm(value: String) {
+            _form.value = value
+        }
+
+        fun setImport(accountId: String, value: String) {
+            _import.value = accountId to value
+        }
+
+        /** Called once a password has been handed to the account store: the copy is now a liability. */
+        fun clear() {
+            _form.value = ""
+            _import.value = null
+        }
+    }
+
+    val passwordDrafts = PasswordDrafts()
+
     private val _imapSuggestion = MutableStateFlow<ImapSuggestion?>(null)
 
     /**
@@ -663,6 +703,7 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
                 onSuccess = {
                     container.accountStore.updatePassword(target.account.id, password)
                     container.accountStore.setImportPending(target.account.id, false)
+                    passwordDrafts.clear()
                     closeImportAccountThenAdvance()
                 },
                 onFailure = { e ->
