@@ -2,6 +2,7 @@ package app.gridlink.ui
 
 import android.Manifest
 import android.app.Application
+import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -30,20 +31,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import androidx.compose.ui.res.stringResource
 import app.gridlink.BuildConfig
-import app.gridlink.R
 import app.gridlink.EmailOpenTarget
 import app.gridlink.MailtoDraft
+import app.gridlink.R
 import app.gridlink.container
 import app.gridlink.core.data.account.StoredAccount
 import app.gridlink.push.PushController
@@ -54,7 +56,6 @@ import app.gridlink.ui.gridlink.GridlinkDestination
 import app.gridlink.ui.home.GridlinkHomeHost
 import app.gridlink.ui.onboarding.WelcomeScreen
 import app.gridlink.ui.settings.SettingsScreen
-import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -159,7 +160,6 @@ fun AppNavHost(
     onSectionConsumed: () -> Unit = {},
     viewModel: RootViewModel = viewModel(),
 ) {
-    RequestNotificationPermission()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     // 🔴 hasSeenWelcome is deliberately NOT collected here any more. The first run goes straight to
@@ -229,6 +229,11 @@ fun AppNavHost(
             // [GridlinkHomeHost] below, through GridlinkRoot's live open request. They no longer
             // touch that NavHost.
             is RootState.Authenticated -> {
+                // 🔴 Here, not at the top of the tree. Mail is the only thing this app notifies
+                // about, so asking before an account exists is a system dialog over a setup form
+                // for a permission that could not be used yet, and "not now" on that question is
+                // the obvious answer. Asking once the mailbox is real makes the ask legible.
+                RequestNotificationPermission()
                 // Upstream's settings, reached from the Gridlink menu. A boolean rather than a
                 // nav route because it is the only place the Gridlink UI hands off, and it is
                 // saveable so the hand-off survives an unfold.
@@ -308,6 +313,15 @@ fun AppNavHost(
     }
 }
 
+/**
+ * Asks for POST_NOTIFICATIONS once, the first time there is a mailbox to notify about.
+ *
+ * 🔴 The "once" is persisted, not just remembered. [LaunchedEffect] keyed on Unit re-runs on every
+ * cold start, so without a flag on disk a declined permission was re-asked at every launch. Android
+ * silently swallows the third request, which makes that worse rather than better: the app looks
+ * like it is nagging until it looks like the dialog is broken. One ask, then the switch in settings
+ * is the way back.
+ */
 @Composable
 private fun RequestNotificationPermission() {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
@@ -316,9 +330,16 @@ private fun RequestNotificationPermission() {
     LaunchedEffect(Unit) {
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
-        if (!granted) launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        if (granted) return@LaunchedEffect
+        val prefs = context.getSharedPreferences(NOTIFICATION_ASK_PREFS, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(NOTIFICATION_ASKED_KEY, false)) return@LaunchedEffect
+        prefs.edit().putBoolean(NOTIFICATION_ASKED_KEY, true).apply()
+        launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 }
+
+private const val NOTIFICATION_ASK_PREFS = "notification_permission"
+private const val NOTIFICATION_ASKED_KEY = "asked"
 
 /**
  * UnifiedPush distributor picker (issue #17): shown ONLY when several distributors
