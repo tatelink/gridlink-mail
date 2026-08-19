@@ -153,11 +153,15 @@ object GridlinkSampleContacts {
         GridlinkContact("facilities", "", "Facilities Dispatch", "24/7 repair line", "dispatch@sitecare.example"),
         GridlinkContact("fowler", "Nathan", "Fowler", "District Lead", "n.fowler@gridlink.me"),
         GridlinkContact("gorman", "Rhea", "Gorman", "Assistant Manager, 2043 Hillcrest", "r.gorman@gridlink.me"),
-        GridlinkContact("guestrelations", "", "Guest Relations", "Customer complaint intake", "guests@sitecare.example"),
+        GridlinkContact(
+            "guestrelations", "", "Guest Relations", "Customer complaint intake", "guests@sitecare.example",
+        ),
         GridlinkContact("hollis", "Darius", "Hollis", "Shift Lead, 2043 Hillcrest", "d.hollis@gridlink.me"),
         GridlinkContact("hrbenefits", "", "HR Benefits", "Enrolment and claims", "benefits@hrbenefits.example"),
         GridlinkContact("ibrahim", "Yusuf", "Ibrahim", "Night Maintenance", "y.ibrahim@sitecare.example"),
-        GridlinkContact("northgate", "", "Northgate Group Talent", "Corporate recruiting", "talent@northgategroup.example"),
+        GridlinkContact(
+            "northgate", "", "Northgate Group Talent", "Corporate recruiting", "talent@northgategroup.example",
+        ),
         GridlinkContact("jennings", "Alicia", "Jennings", "Training Coordinator", "a.jennings@hrbenefits.example"),
         GridlinkContact("kirby", "Wes", "Kirby", "Equipment Tech, fryers and ovens", "w.kirby@sitecare.example"),
         GridlinkContact("loxwell", "Dara", "Loxwell", "General Manager, 2096 Fernhill Rd", "d.loxwell@gridlink.me"),
