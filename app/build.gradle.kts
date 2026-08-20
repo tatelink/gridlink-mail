@@ -161,6 +161,16 @@ android {
         buildConfig = true
     }
 
+    testOptions {
+        unitTests {
+            // The screen tests under src/test run Compose on the JVM through Robolectric, and a
+            // composable that reads a string resource or a theme token needs the real resources and
+            // a real Context. This is what hands them over; without it every such test dies on the
+            // first `stringResource` call with "no resources". (2026-08-20, audit item 8.)
+            isIncludeAndroidResources = true
+        }
+    }
+
     packaging {
         resources {
             // BouncyCastle ships bcprov, bcpkix and bcutil as multi-release jars, and all three
@@ -205,6 +215,15 @@ dependencies {
     // Virtual time + a background scope, to drive the unfolded conversations' live member stream
     // (a flow of flows) without sleeping on a real clock.
     testImplementation(libs.kotlinx.coroutines.test)
+    // Screen tests (src/test/kotlin/app/gridlink/ui/**/*ScreenTest.kt): Compose's own test rule,
+    // hosted on the JVM by Robolectric so they run inside `./gradlew test` with no device attached.
+    // 🔴 Deliberately NOT an androidTest source set. The 2026-08-17 audit found every first-run
+    // defect by hand because nothing covered the layer the user touches, and a suite that needs an
+    // emulator plugged in is a suite that does not run. ui-test-manifest registers the empty
+    // ComponentActivity the rule launches into; it is debug-only and never ships.
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    testImplementation(libs.robolectric)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
 
 kotlin {

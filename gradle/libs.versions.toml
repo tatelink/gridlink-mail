@@ -24,6 +24,7 @@ fragment = "1.8.5"
 datastore = "1.1.1"
 work = "2.9.1"
 junit = "4.13.2"
+robolectric = "4.15.1"
 # Static analysis. 1.23.x embeds a Kotlin 1.9 parser, which reads this project's
 # Kotlin 2.1 sources fine; revisit if the codebase adopts 2.x-only syntax.
 detekt = "1.23.8"
@@ -54,6 +55,8 @@ androidx-compose-ui = { module = "androidx.compose.ui:ui" }
 androidx-compose-ui-graphics = { module = "androidx.compose.ui:ui-graphics" }
 androidx-compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
+androidx-compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
+androidx-compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
 androidx-compose-material3 = { module = "androidx.compose.material3:material3" }
 androidx-compose-material-icons-extended = { module = "androidx.compose.material:material-icons-extended" }
 androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigation" }
@@ -82,6 +85,7 @@ bouncycastle-prov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = 
 bouncycastle-pkix = { module = "org.bouncycastle:bcpkix-jdk18on", version.ref = "bouncycastle" }
 
 junit = { module = "junit:junit", version.ref = "junit" }
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 
 # Wraps ktlint's formatting rules as detekt rules. Build-time only: it adds no
 # runtime dependency and nothing here reaches the APK.
