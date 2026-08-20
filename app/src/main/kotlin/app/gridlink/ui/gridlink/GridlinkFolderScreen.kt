@@ -142,16 +142,19 @@ import kotlin.math.abs
  * thing to reuse. Not done here.
  *
  * ## Long-press, and what refuses to respond to it
- * 🔴 The six JMAP role mailboxes (Inbox, Drafts, Sent, Archive, Junk, Trash) do not answer a
- * long-press **at all** — no haptic, no sheet, nothing. They are required for the account to work
- * and the server will refuse to rename or destroy them, so the gesture is not offered rather than
- * offered and then argued with. Tate's line was "it should disallow long press on inbox or trash
- * bc those are required for operation", and the other four are required for exactly the same reason.
- * Everything the user made (People, Receipts, the store folders, the archive years) responds.
+ * 🔴 The six JMAP role mailboxes (Inbox, Drafts, Sent, Archive, Junk, Trash) never offer Rename or
+ * Delete. They are required for the account to work and the server will refuse to rename or destroy
+ * them, so those lines are not offered rather than offered and then argued with. Tate's line was
+ * "it should disallow long press on inbox or trash bc those are required for operation", and the
+ * other four are required for exactly the same reason. Everything the user made (People, Receipts,
+ * the store folders, the archive years) gets the full sheet.
  *
- * A dead-feeling long-press is a real cost, and it is the right one here: the alternative is a sheet
- * that opens onto two greyed-out lines, which teaches the gesture is broken rather than that the
- * folder is protected.
+ * Since "Notify me here" arrived the gate is [GridlinkFolder.hasActions] = mayEdit OR mayWatch, so
+ * five of the six role mailboxes DO answer a long-press, with a one-line sheet that only toggles
+ * watching. The inbox alone stays dead (it is always watched, there is nothing to offer), and a
+ * dead-feeling long-press there is the right cost: the alternative is a sheet that opens onto
+ * greyed-out lines, which teaches the gesture is broken rather than that the folder is protected.
+ * `GridlinkFolderScreenTest` pins both halves.
  *
  * 🔴 Two gates, kept separate, because they are two different rights.
  * [GridlinkFolder.hasActions] decides whether the long-press does anything at all;
@@ -278,7 +281,7 @@ fun GridlinkFolderScreen(
         // to focus a row that is not in the list, which is a silent no-op frame rather than a crash.
         val createTarget = initialCreateUnder
             ?.takeIf { it != "root" }
-            ?.let { GridlinkSampleTree.mailboxes.ancestorIds(it).orEmpty() + it }
+            ?.let { tree.ancestorIds(it).orEmpty() + it }
             .orEmpty()
         initiallyExpanded + ancestors + createTarget + dragging + dropping
     }
