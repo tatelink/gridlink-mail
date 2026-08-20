@@ -2140,14 +2140,15 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         // The opaque id is an index into [openedParts]; anything else means a chip from a fixture
         // or another message's list, and the only correct response to that is nothing.
         val part = attachment.id.toIntOrNull()?.let { openedParts.getOrNull(it) } ?: return
-        val id = accountId.value ?: return
-        val credentials = store.credentials(id) ?: return
+        // The message's own account, not the bound one: in a unified list the opened row may
+        // belong to another account, and a blob fetched with the wrong login comes back 404.
+        val (credentials, emailId) = resolve(current.id) ?: return
         openingAttachment = true
         val app = getApplication<Application>()
         status(messageId, "Opening ${attachment.name}…")
         viewModelScope.launch {
             try {
-                val bytes = repo.downloadAttachment(credentials, part, messageId)
+                val bytes = repo.downloadAttachment(credentials, part, emailId)
                 val file = storage.cacheAttachment(part.name, bytes)
                 val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
                 val view = Intent(Intent.ACTION_VIEW)
@@ -2175,7 +2176,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                         "(over ${DownloadLimits.ATTACHMENT_MAX_BYTES / (1024 * 1024)} MB).",
                 )
             } catch (t: Throwable) {
-                Log.w(TAG, "attachment open failed", t)
+                Log.w(TAG, "attachment open failed: ${attachment.name} (account ${credentials.id})", t)
                 status(messageId, "Couldn't open ${attachment.name}.")
             } finally {
                 // Released when the chooser is up or the attempt failed, not when the user comes
@@ -2210,13 +2211,14 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         val current = opened.value ?: return
         val messageId = current.id
         val part = attachment.id.toIntOrNull()?.let { openedParts.getOrNull(it) } ?: return
-        val id = accountId.value ?: return
-        val credentials = store.credentials(id) ?: return
+        // The message's own account, not the bound one: in a unified list the opened row may
+        // belong to another account, and a blob fetched with the wrong login comes back 404.
+        val (credentials, emailId) = resolve(current.id) ?: return
         val app = getApplication<Application>()
         status(messageId, "Saving ${attachment.name}…")
         viewModelScope.launch {
             try {
-                val bytes = repo.downloadAttachment(credentials, part, messageId)
+                val bytes = repo.downloadAttachment(credentials, part, emailId)
                 val saved = withContext(Dispatchers.IO) {
                     writeIntoDownloads(app.contentResolver, attachment.name, part.type, bytes)
                 }
@@ -2230,7 +2232,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                         "(over ${DownloadLimits.ATTACHMENT_MAX_BYTES / (1024 * 1024)} MB).",
                 )
             } catch (t: Throwable) {
-                Log.w(TAG, "attachment save failed", t)
+                Log.w(TAG, "attachment save failed: ${attachment.name} (account ${credentials.id})", t)
                 status(messageId, "Couldn't save ${attachment.name}.")
             }
         }
@@ -2320,13 +2322,14 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         val current = opened.value ?: return
         val messageId = current.id
         val part = attachment.id.toIntOrNull()?.let { openedParts.getOrNull(it) } ?: return
-        val id = accountId.value ?: return
-        val credentials = store.credentials(id) ?: return
+        // The message's own account, not the bound one: in a unified list the opened row may
+        // belong to another account, and a blob fetched with the wrong login comes back 404.
+        val (credentials, emailId) = resolve(current.id) ?: return
         val app = getApplication<Application>()
         status(messageId, "Saving ${attachment.name}…")
         viewModelScope.launch {
             try {
-                val bytes = repo.downloadAttachment(credentials, part, messageId)
+                val bytes = repo.downloadAttachment(credentials, part, emailId)
                 withContext(Dispatchers.IO) {
                     // "wt" truncates: the picker may have handed back a file that already existed
                     // and that the user chose to overwrite, and an un-truncated write would leave
@@ -2344,7 +2347,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                         "(over ${DownloadLimits.ATTACHMENT_MAX_BYTES / (1024 * 1024)} MB).",
                 )
             } catch (t: Throwable) {
-                Log.w(TAG, "attachment save failed", t)
+                Log.w(TAG, "attachment save failed: ${attachment.name} (account ${credentials.id})", t)
                 status(messageId, "Couldn't save ${attachment.name}.")
             }
         }

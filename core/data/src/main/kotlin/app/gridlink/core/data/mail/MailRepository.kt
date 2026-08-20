@@ -139,6 +139,9 @@ private const val PAGE_SIZE = 50
  */
 private const val SET_ERROR_NOT_FOUND = "notFound"
 
+/** The blob download answer for "not yours or not there": Stalwart does not tell the two apart. */
+private const val HTTP_NOT_FOUND = 404
+
 /**
  * Per-APPEND fill target for the conversation list: a network page is messages, but the
  * collapsed list's rows are threads, so one page can add almost no visible rows (a big
@@ -5766,9 +5769,50 @@ class MailRepository(
         }
         val ctx = connect(credentials)
         val blobId = part.blobId ?: error("Attachment has no blob.")
-        return client.downloadBlob(
-            ctx.session, ctx.accountId, blobId, part.type, part.name, ctx.auth, maxBytes,
-        )
+        return try {
+            client.downloadBlob(
+                ctx.session, ctx.accountId, blobId, part.type, part.name, ctx.auth, maxBytes,
+            )
+        } catch (e: JmapException) {
+            // Stalwart answers 404 for "no such blob for this login", which is also what a
+            // remembered blob id earns once the server has re-stored the message (a restore, a
+            // migration, a re-delivery: the Email id survives, the section ids do not). The body
+            // cache hands out those ids for as long as the row lives, so a tap would fail the
+            // same way forever. Ask the server what the part is called NOW and try once more;
+            // a second 404 is a real one.
+            if (e.httpCode != HTTP_NOT_FOUND) throw e
+            val fresh = refreshedBlobId(ctx, credentials.id, emailId, part)
+            if (fresh == null || fresh == blobId) throw e
+            client.downloadBlob(
+                ctx.session, ctx.accountId, fresh, part.type, part.name, ctx.auth, maxBytes,
+            )
+        }
+    }
+
+    /**
+     * The server's current blob id for [part] of [emailId], refreshing the cached body on the
+     * way so the next open does not have to take this detour. Null when the message is gone or
+     * no part matches (by partId first, then by the name/size/type triple a cached part carries
+     * when partIds were renumbered).
+     */
+    private suspend fun refreshedBlobId(
+        ctx: Context,
+        accountId: String,
+        emailId: String,
+        part: EmailBodyPart,
+    ): String? {
+        val email = runCatching { client.getEmail(ctx.session, ctx.accountId, emailId, ctx.auth) }
+            .getOrNull() ?: return null
+        val match = email.attachments.firstOrNull { it.partId != null && it.partId == part.partId }
+            ?: email.attachments.firstOrNull {
+                it.name == part.name && it.size == part.size && it.type == part.type
+            }
+            ?: return null
+        if (match.blobId != null && match.blobId != part.blobId) {
+            val inline = cachedMessage(accountId, emailId)?.inlineImages.orEmpty()
+            persistBody(accountId, emailId, email, inline)
+        }
+        return match.blobId
     }
 
     /** Upload bytes as an attachment blob; returns a body part ready to attach when sending. */

@@ -2386,7 +2386,11 @@ class JmapClient internal constructor(
             .build()
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                throw JmapException("Download failed: HTTP ${response.code} ${response.message}")
+                throw JmapException(
+                    "Download failed: HTTP ${response.code} ${response.message} " +
+                        "(${request.url.host} account $accountId blob $blobId)",
+                    httpCode = response.code,
+                )
             }
             val declared = response.header("Content-Length")?.toLongOrNull()
             if (declared != null && declared > maxBytes) {
