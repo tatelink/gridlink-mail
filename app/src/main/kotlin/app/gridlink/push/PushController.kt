@@ -6,8 +6,6 @@ import app.gridlink.container
 import app.gridlink.core.data.account.AccountCredentials
 import app.gridlink.core.data.account.MailProtocol
 import app.gridlink.core.data.settings.DeliveryMode
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
 
 /** How one account's new mail arrives. */
 enum class Transport { UNIFIED_PUSH, EVENT_SOURCE, IMAP_IDLE, PERIODIC }
@@ -86,12 +84,15 @@ object PushController {
     }
 
     /**
-     * Synchronous read of the outcome setting. DataStore serves it from memory after
-     * the first disk load, and apply()/statusFor run on user actions, not hot paths.
+     * Synchronous read of the outcome setting, off the mirror the repository keeps warm
+     * ([app.gridlink.core.data.settings.SettingsRepository.deliveryModeNow]). This used to
+     * `runBlocking` on the DataStore flow, and [statusFor] is called inside a composition and
+     * [apply] inside view-model actions on the main thread, so a slow or contended store stalled
+     * the UI thread to answer one enum.
      */
     private fun isBatterySaver(context: Context): Boolean {
         val settings = (context.applicationContext as Application).container.settingsRepository
-        return runBlocking { settings.deliveryMode.first() } == DeliveryMode.BATTERY_SAVER
+        return settings.deliveryModeNow() == DeliveryMode.BATTERY_SAVER
     }
 
     /**

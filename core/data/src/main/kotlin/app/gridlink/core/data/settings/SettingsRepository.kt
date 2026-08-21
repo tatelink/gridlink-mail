@@ -3,16 +3,22 @@ package app.gridlink.core.data.settings
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
-import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import app.gridlink.core.data.db.EmailKeywords
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 /** How the app picks light vs dark colours. */
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
@@ -169,7 +175,14 @@ private val Context.settingsDataStore: DataStore<Preferences> by preferencesData
  * credentials, and per-account metadata. Each setting is exposed as a [Flow] so
  * the UI (and the theme) can collect changes live.
  */
-class SettingsRepository(context: Context) {
+class SettingsRepository(
+    context: Context,
+    /**
+     * Where the repository keeps its synchronous mirrors warm (see [deliveryModeNow]). Lives as
+     * long as the process on a phone; a test may hand in a scope it controls.
+     */
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+) {
     private val dataStore = context.applicationContext.settingsDataStore
 
     val themeMode: Flow<ThemeMode> = dataStore.data.map { prefs ->
@@ -566,8 +579,29 @@ class SettingsRepository(context: Context) {
             ?: DeliveryMode.INSTANT
     }
 
+    /** [deliveryMode] as a value. Null until the first load has landed; see [deliveryModeNow]. */
+    private val deliveryModeMirror = MutableStateFlow<DeliveryMode?>(null)
+
+    init {
+        scope.launch { deliveryMode.collect { deliveryModeMirror.value = it } }
+    }
+
+    /**
+     * The delivery mode right now, without suspending, for the callers that cannot: the push
+     * controller decides a transport inside user actions and inside a composition.
+     *
+     * Served from a mirror the repository keeps warm from construction on, so once the store has
+     * loaded this is a field read and no caller blocks on DataStore again. Before that (the first
+     * moments of the process) it falls back to the one blocking read DataStore serves from disk,
+     * rather than answering the default and letting an arm at startup open a connection the user
+     * turned off. [setDeliveryMode] writes the mirror itself, so a caller that sets the mode and
+     * re-arms in the same breath reads the new value without waiting for the collector.
+     */
+    fun deliveryModeNow(): DeliveryMode = deliveryModeMirror.value ?: runBlocking { deliveryMode.first() }
+
     suspend fun setDeliveryMode(mode: DeliveryMode) {
         dataStore.edit { it[KEY_DELIVERY_MODE] = mode.name }
+        deliveryModeMirror.value = mode
     }
 
     /** What a new-mail notification shows; sender + subject by default (Codeberg #25). */
