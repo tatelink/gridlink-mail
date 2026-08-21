@@ -62,6 +62,11 @@ class GridlinkBook(
      * somebody else's.
      */
     val ownDomain: String = GridlinkSample.OWN_DOMAIN,
+    /**
+     * This run's in-memory deletions, by [GridlinkContact.id]: [editedContacts]' counterpart for
+     * the Delete control, hiding a card the memory writer has no server to remove it from.
+     */
+    val removedContactIds: Set<String> = emptySet(),
 ) {
 
     /** True when the calendar below is the account's, so nothing may fill it in from the sample. */
@@ -101,6 +106,9 @@ class GridlinkBook(
     val contacts: List<GridlinkContact> =
         (addressBook?.contacts ?: GridlinkSampleContacts.all)
             .let { base ->
+                if (removedContactIds.isEmpty()) base else base.filterNot { it.id in removedContactIds }
+            }
+            .let { base ->
                 if (editedContacts.isEmpty()) base else base.map { editedContacts[it.id] ?: it }
             }
             .let {
@@ -114,6 +122,10 @@ class GridlinkBook(
                 }
             }
 
+    /** True when nothing this run added, edited or removed is shadowing the underlying list. */
+    private val contactOverlaysAreEmpty: Boolean
+        get() = addedContacts.isEmpty() && editedContacts.isEmpty() && removedContactIds.isEmpty()
+
     /**
      * [contacts], grouped for the A-Z list.
      *
@@ -123,7 +135,7 @@ class GridlinkBook(
      * per emission of the flow, which is the same bargain.
      */
     val sections: List<GridlinkContactSection> =
-        if (addressBook == null && addedContacts.isEmpty() && editedContacts.isEmpty()) {
+        if (addressBook == null && contactOverlaysAreEmpty) {
             GridlinkSampleContacts.sections
         } else {
             contacts.groupBy { it.letter }

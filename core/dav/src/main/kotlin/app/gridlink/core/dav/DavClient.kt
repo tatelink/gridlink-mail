@@ -382,6 +382,44 @@ class DavClient internal constructor(
     }
 
     /**
+     * Remove an existing item, guarded by the etag the last sync stored for it.
+     *
+     * [update]'s precondition, for [update]'s reason: `If-Match: <etag>` means the DELETE only lands
+     * if the server still holds the version this device last saw, and a **412** says somebody else
+     * changed it since; the caller's move is to resync and let the user look again, not to retry
+     * harder. A null [etag] goes unconditional, exactly as the PUT does.
+     *
+     * ⚠️ **404 is success.** The item is already gone, which is the state the caller asked for, and
+     * reporting it as a failure would leave a card that no longer exists on the server stuck in the
+     * local mirror with no way to clear it short of a full resync.
+     */
+    suspend fun delete(
+        collectionUrl: String,
+        href: String,
+        credentials: DavCredentials,
+        etag: String?,
+    ): Unit = withContext(Dispatchers.IO) {
+        val collection = collectionUrl.toHttpUrlOrNull()
+            ?: throw DavException("Bad collection URL: $collectionUrl")
+        val target = resolve(collection, href)
+        val request = Request.Builder()
+            .url(target)
+            .delete()
+            .apply {
+                if (etag != null) header("If-Match", "\"$etag\"")
+            }
+            .header("Authorization", credentials.authorizationHeader())
+            .build()
+        http.newCall(request).execute().use { response ->
+            if (response.code == 412) {
+                throw DavException("This item changed on the server since the last sync", 412)
+            }
+            if (response.code == HTTP_NOT_FOUND) return@use
+            if (!response.isSuccessful) throw DavException(errorFor(response), response.code)
+        }
+    }
+
+    /**
      * GET a file the server pointed at, e.g. a calendar attachment's `ATTACH` URL.
      *
      * ## 🔴 The password is attached only when the URL is the user's own server
@@ -807,6 +845,9 @@ class DavClient internal constructor(
 
     companion object {
         private val XML = "application/xml; charset=utf-8".toMediaType()
+
+        /** An item the server does not have. [delete] treats it as the outcome it asked for. */
+        private const val HTTP_NOT_FOUND = 404
 
         /** The RFC 8607 §5.1 capability token, as it appears in a `DAV:` response header. */
         internal const val MANAGED_ATTACHMENTS_TOKEN = "calendar-managed-attachments"

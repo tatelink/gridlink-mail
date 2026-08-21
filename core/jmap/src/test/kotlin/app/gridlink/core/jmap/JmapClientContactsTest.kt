@@ -272,7 +272,39 @@ class JmapClientContactsTest {
         }
     }
 
+    @Test fun destroyContactCard_sendsDestroyAndReturnsWhenTheServerDestroyedIt() = runBlocking {
+        server.enqueue(MockResponse().setBody(DESTROY_JSON))
+
+        client.destroyContactCard(contactsSession(), "d", "card9", BasicAuth("u", "p"))
+
+        val body = server.takeRequest().body.readUtf8()
+        assertTrue(body.contains("\"destroy\":[\"card9\"]"))
+        assertFalse(body.contains("\"update\""))
+        assertFalse(body.contains("\"create\""))
+    }
+
+    @Test fun destroyContactCard_throwsWithTheServersReasonWhenNotDestroyed() {
+        server.enqueue(MockResponse().setBody(DESTROY_REFUSED_JSON))
+        try {
+            runBlocking {
+                client.destroyContactCard(contactsSession(), "d", "card9", BasicAuth("u", "p"))
+            }
+            throw AssertionError("expected JmapException")
+        } catch (e: JmapException) {
+            assertTrue(e.message!!.contains("forbidden"))
+        }
+    }
+
     private companion object {
+        val DESTROY_JSON = """
+            {"methodResponses":[["ContactCard/set",{"accountId":"d","destroyed":["card9"]},"cs0"]]}
+        """.trimIndent()
+
+        val DESTROY_REFUSED_JSON = """
+            {"methodResponses":[["ContactCard/set",{"accountId":"d","destroyed":null,
+                "notDestroyed":{"card9":{"type":"forbidden"}}},"cs0"]]}
+        """.trimIndent()
+
         val ADDRESS_BOOKS_JSON = """
             {"methodResponses":[["AddressBook/get",{"accountId":"d","list":[
                 {"id":"b","name":"Contacts","isDefault":true},

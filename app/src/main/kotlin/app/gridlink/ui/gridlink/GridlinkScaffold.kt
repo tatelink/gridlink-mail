@@ -1342,14 +1342,18 @@ fun GridlinkRoot(
     var addedContacts by remember { mutableStateOf(emptyList<GridlinkContact>()) }
     /** In-memory edits by contact id, [addedContacts]' counterpart for the edit form. */
     var editedContacts by remember { mutableStateOf(emptyMap<String, GridlinkContact>()) }
+
+    /** In-memory deletions by contact id, [editedContacts]' counterpart for the Delete control. */
+    var removedContactIds by remember { mutableStateOf(emptySet<String>()) }
     // 🔴 [calendar] and [contacts] are keys too, not just constructor arguments. They change when a
     // sync lands, and a book remembered on the added lists alone would be the same object before and
     // after, so a calendar open on screen would keep drawing the pre-sync month forever.
     val book = remember(
-        addedEvents, editedEvents, addedContacts, editedContacts, calendar, contacts, ownDomain,
+        addedEvents, editedEvents, addedContacts, editedContacts, removedContactIds, calendar, contacts, ownDomain,
     ) {
         GridlinkBook(
             addedEvents, editedEvents, addedContacts, editedContacts, calendar, contacts, ownDomain,
+            removedContactIds = removedContactIds,
         )
     }
 
@@ -1470,6 +1474,9 @@ fun GridlinkRoot(
     /** True while a contact save is on the wire — either form, they cannot both be open. */
     var savingContact by remember { mutableStateOf(false) }
 
+    /** True while a contact delete is on the wire. Only the edit form can start one. */
+    var deletingContact by remember { mutableStateOf(false) }
+
     /** Why the last contact save was refused, shown on the form that still holds the edit. */
     var saveContactError by remember { mutableStateOf<String?>(null) }
 
@@ -1520,6 +1527,39 @@ fun GridlinkRoot(
                 editedContacts = editedContacts + (contact.id to gridlinkContactOf(edit, contact.id))
             }
             editingContact = null
+        }
+    }
+
+    /**
+     * Remove [contact] for good, from the edit form's Delete control (the form has already asked
+     * "are you sure"). [updateContact]'s exact shape: a refusal lands on the form's hint line and
+     * the form stays open; success closes it and, when the writer does not echo, hides the card by
+     * id (see [GridlinkBook.removedContactIds]).
+     *
+     * The detail pane closes too when it was showing this card: leaving a deleted contact open as
+     * the reading pane is how a user taps Edit on something that no longer exists.
+     */
+    fun deleteContact(contact: GridlinkContact) {
+        deletingContact = true
+        saveContactError = null
+        scope.launch {
+            val failure = runCatching { contactWriter.delete(contact.id) }
+                .getOrElse { t ->
+                    if (t is CancellationException) throw t
+                    t.message ?: "Couldn't delete that contact."
+                }
+            deletingContact = false
+            if (failure != null) {
+                saveContactError = failure
+                return@launch
+            }
+            if (!contactWriter.echoesIntoContent) {
+                removedContactIds = removedContactIds + contact.id
+                addedContacts = addedContacts.filterNot { it.id == contact.id }
+                editedContacts = editedContacts - contact.id
+            }
+            editingContact = null
+            if (openContactId == contact.id) openContactId = null
         }
     }
 
@@ -2409,7 +2449,9 @@ fun GridlinkRoot(
                                     initial = editing.editSeed,
                                     onClose = { editingContact = null; saveContactError = null },
                                     onSave = { updateContact(editing, it) },
+                                    onDelete = { deleteContact(editing) },
                                     saving = savingContact,
+                                    deleting = deletingContact,
                                     failure = saveContactError,
                                     embedded = true,
                                 )
@@ -2888,7 +2930,9 @@ fun GridlinkRoot(
                             initial = editing.editSeed,
                             onClose = { editingContact = null; saveContactError = null },
                             onSave = { updateContact(editing, it) },
+                            onDelete = { deleteContact(editing) },
                             saving = savingContact,
+                            deleting = deletingContact,
                             failure = saveContactError,
                         )
                     }

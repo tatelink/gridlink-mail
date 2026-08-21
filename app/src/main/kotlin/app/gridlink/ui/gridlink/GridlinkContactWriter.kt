@@ -35,6 +35,13 @@ interface GridlinkContactWriter {
      * saved, or null when it was.
      */
     suspend fun update(contactId: String, edit: ContactEdit): String?
+
+    /**
+     * Remove the card behind [contactId] from the server, returning why it could not be removed,
+     * or null when it was. Same echo contract as the saves: a writer that echoes drops the card
+     * from the address book content itself, one that does not leaves the scaffold to hide it.
+     */
+    suspend fun delete(contactId: String): String?
 }
 
 /**
@@ -48,6 +55,8 @@ object GridlinkMemoryContactWriter : GridlinkContactWriter {
     override suspend fun create(edit: ContactEdit): String? = null
 
     override suspend fun update(contactId: String, edit: ContactEdit): String? = null
+
+    override suspend fun delete(contactId: String): String? = null
 }
 
 /**

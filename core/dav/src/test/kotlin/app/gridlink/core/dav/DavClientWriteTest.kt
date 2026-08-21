@@ -108,6 +108,51 @@ class DavClientWriteTest {
         assertNull(written.etag)
     }
 
+    @Test fun delete_sendsDeleteWithTheStoredEtagQuoted() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(204))
+
+        client.delete(collection(), "/dav/card/b/u-1.vcf", credentials, etag = "e1")
+
+        val request = server.takeRequest()
+        assertEquals("DELETE", request.method)
+        assertEquals("/dav/card/b/u-1.vcf", request.path)
+        assertEquals("\"e1\"", request.getHeader("If-Match"))
+    }
+
+    @Test fun delete_goesUnconditionalWhenNoEtagWasEverStored() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(204))
+        client.delete(collection(), "/dav/card/b/u-1.vcf", credentials, etag = null)
+        assertNull(server.takeRequest().getHeader("If-Match"))
+    }
+
+    @Test fun delete_treatsAlreadyGoneAsDone() = runBlocking {
+        // 404 is the state the caller asked for; failing here would strand the local mirror.
+        server.enqueue(MockResponse().setResponseCode(404))
+        client.delete(collection(), "/dav/card/b/u-1.vcf", credentials, etag = "e1")
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test fun delete_reportsSomebodyElsesEditAs412() {
+        server.enqueue(MockResponse().setResponseCode(412))
+        try {
+            runBlocking { client.delete(collection(), "/dav/card/b/u-1.vcf", credentials, etag = "e1") }
+            throw AssertionError("expected DavException")
+        } catch (e: DavException) {
+            assertEquals(412, e.code)
+            assertTrue(e.message!!.contains("changed on the server"))
+        }
+    }
+
+    @Test fun delete_reportsOtherRefusalsWithTheirCode() {
+        server.enqueue(MockResponse().setResponseCode(403))
+        try {
+            runBlocking { client.delete(collection(), "/dav/card/b/u-1.vcf", credentials, etag = null) }
+            throw AssertionError("expected DavException")
+        } catch (e: DavException) {
+            assertEquals(403, e.code)
+        }
+    }
+
     private companion object {
         val VCF = listOf(
             "BEGIN:VCARD",

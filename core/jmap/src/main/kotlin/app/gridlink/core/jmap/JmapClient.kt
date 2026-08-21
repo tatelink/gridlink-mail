@@ -1526,6 +1526,47 @@ class JmapClient internal constructor(
     }
 
     /**
+     * Destroy a ContactCard outright (RFC 8620 §5.3 `destroy`). Throws [JmapException] with the
+     * server's reason when the card was not destroyed.
+     *
+     * ⚠️ A card the server no longer knows answers `notDestroyed` with `type: notFound`, and that
+     * is thrown like any other refusal rather than folded into success: the caller decides what an
+     * already-gone card means for its cache, this layer only reports what the server said.
+     */
+    suspend fun destroyContactCard(
+        session: JmapSession,
+        accountId: String,
+        cardId: String,
+        auth: JmapAuth,
+    ): Unit = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.CONTACTS_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("ContactCard/set")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonArray("destroy") { add(cardId) }
+                    }
+                    add("cs0")
+                }
+            }
+        }
+        val args = methodResponseArgs(postJmap(session, auth, payload), "ContactCard/set")
+        // `destroyed` is nullable the same way `created` is (see createContactCard), and it is an
+        // array of ids rather than a map.
+        val destroyed = (args["destroyed"] as? JsonArray)?.any { it.jsonPrimitive.contentOrNull == cardId } == true
+        if (!destroyed) {
+            throw JmapException(
+                "Couldn't delete the contact" + (setErrorDetail(args, "notDestroyed", cardId)?.let { " ($it)" } ?: ""),
+            )
+        }
+    }
+
+    /**
      * Ids of every ContactCard in the account, one page at a time.
      *
      * No filter. RFC 9610 defines `inAddressBook`, and the same rule the calendar query follows

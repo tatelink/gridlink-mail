@@ -318,6 +318,20 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
             }
             return outcome.error
         }
+
+        override suspend fun delete(contactId: String): String? {
+            val id = accountId.value ?: return "No account is signed in."
+            val outcome = repo.deleteContact(
+                accountId = id,
+                href = contactId.removePrefix(GridlinkDavMapping.PREFIX),
+            )
+            if (outcome.succeeded) {
+                Log.i(TAG, "deleted contact ${outcome.href}")
+            } else {
+                Log.w(TAG, "delete contact failed: ${outcome.error}")
+            }
+            return outcome.error
+        }
     }
 
     /**

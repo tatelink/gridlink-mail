@@ -41,11 +41,14 @@ class GridlinkContactFormScreenTest {
 
     private val saved = mutableListOf<ContactEdit>()
     private var closed = 0
+    private var deleted = 0
 
     private fun show(
         initial: ContactEdit? = null,
         saving: Boolean = false,
         failure: String? = null,
+        deletable: Boolean = false,
+        deleting: Boolean = false,
     ) {
         rule.setContent {
             GridlinkApp(initialModeOverride = GridlinkMode.DAY) {
@@ -56,6 +59,8 @@ class GridlinkContactFormScreenTest {
                     onClose = { closed++ },
                     saving = saving,
                     failure = failure,
+                    onDelete = if (deletable) ({ deleted++ }) else null,
+                    deleting = deleting,
                 )
             }
         }
@@ -200,8 +205,44 @@ class GridlinkContactFormScreenTest {
         assertTrue(saved.isEmpty())
     }
 
+    @Test
+    fun newContact_hasNothingToDelete() {
+        show()
+        rule.onNodeWithText(DELETE_ROW).assertDoesNotExist()
+    }
+
+    @Test
+    fun delete_asksFirst_andCancelFiresNothing() {
+        show(initial = ContactEdit(given = "Ada"), deletable = true)
+        rule.onNodeWithText(DELETE_ROW).performScrollTo().performClick()
+        rule.onNodeWithText("Delete this contact?").assertExists()
+        rule.onNodeWithText("Cancel").performClick()
+        rule.onNodeWithText("Delete this contact?").assertDoesNotExist()
+        assertEquals(0, deleted)
+        assertEquals(0, closed)
+    }
+
+    @Test
+    fun delete_confirmed_firesOnce() {
+        show(initial = ContactEdit(given = "Ada"), deletable = true)
+        rule.onNodeWithText(DELETE_ROW).performScrollTo().performClick()
+        rule.onNode(hasText("Delete") and hasClickAction()).performClick()
+        assertEquals(1, deleted)
+        assertTrue(saved.isEmpty())
+        rule.onNodeWithText("Delete this contact?").assertDoesNotExist()
+    }
+
+    @Test
+    fun deleting_locksSaveAndRemovesTheWayOut() {
+        show(initial = ContactEdit(given = "Ada"), deletable = true, deleting = true)
+        save().assertIsNotEnabled()
+        rule.onNodeWithContentDescription("Discard").assertDoesNotExist()
+        rule.onNodeWithText("Deleting this contact.").assertExists()
+    }
+
     private companion object {
         const val HINT_FILE = "A contact needs a name or a company to file under."
+        const val DELETE_ROW = "Delete contact"
         const val HINT_EMAIL = "Check the email addresses: one of them doesn't look like name@company.com."
         const val GIVEN = 0
         const val FAMILY = 1

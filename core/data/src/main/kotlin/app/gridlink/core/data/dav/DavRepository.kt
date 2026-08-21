@@ -1066,6 +1066,100 @@ class DavRepository(
     }
 
     /**
+     * Remove a contact from the server, then from the local mirror.
+     *
+     * Routed exactly as [updateContact] routes: a row whose `remoteId` is a JMAP card id is
+     * destroyed over `ContactCard/set`; a DAV-keyed row whose UID the JMAP server knows is
+     * destroyed by that id; anything else is a CardDAV DELETE guarded by the stored etag. The local
+     * rows go only AFTER the server said yes, so a refused delete leaves the card where the user
+     * can see it and read why.
+     *
+     * 🔴 Never a DAV retry after a JMAP refusal, for [createContact]'s reason: the two are the same
+     * card on the same server, and a refusal is an answer, not a routing hint.
+     */
+    @Suppress("ReturnCount")
+    suspend fun deleteContact(accountId: String, href: String): DavWriteOutcome {
+        if (accountStore.account(accountId)?.syncSelection?.contacts != true) {
+            return DavWriteOutcome(error = "Turn on contact sync for this account to delete contacts")
+        }
+        val (dav, server) = when (val access = access(accountId)) {
+            is Access.Refused -> return DavWriteOutcome(error = access.reason)
+            is Access.Ready -> access.dav to access.server
+        }
+        val row = contactDao.byHref(accountId, href)
+            ?: return DavWriteOutcome(error = "This contact isn't synced to this device yet. Sync first.")
+
+        // JMAP by card id, then JMAP by UID, then DAV: the same ladder updateContact climbs, and the
+        // same reasons for each rung (see the comments there).
+        val cardId = try {
+            row.remoteId ?: jmapCardIdForUid(server, dav, ContactPayload.parse(row)?.uid ?: row.uid)
+        } catch (c: CancellationException) {
+            throw c
+        } catch (e: Exception) {
+            return DavWriteOutcome(error = describeJmap(e))
+        }
+        if (cardId != null) return destroyCardOverJmap(accountId, server, dav, href, cardId)
+
+        try {
+            client.delete(row.collectionUrl, href, dav, row.etag)
+        } catch (e: DavException) {
+            if (e.code == 412) {
+                // [updateContact]'s 412 rule: pull the other device's version so the user is looking
+                // at the truth before deciding again.
+                syncContacts(accountId)
+                return DavWriteOutcome(
+                    error = "Someone changed this contact on another device. " +
+                        "The newer copy has been synced; try again.",
+                )
+            }
+            return DavWriteOutcome(error = describe(e))
+        }
+        forgetContact(accountId, href)
+        return DavWriteOutcome(href = href)
+    }
+
+    /**
+     * The JMAP card id for a DAV-keyed contact, found by the UID both sides share, or null when
+     * there is no UID to look up or no JMAP contacts surface to look it up on.
+     */
+    private suspend fun jmapCardIdForUid(server: String, dav: DavCredentials, uid: String?): String? {
+        if (uid.isNullOrBlank()) return null
+        val (session, jmapAccountId) = jmapContacts(server, dav) ?: return null
+        return jmap?.queryContactCardId(session, jmapAccountId, uid, BasicAuth(dav.username, dav.password))
+    }
+
+    /** [deleteContact]'s JMAP half: destroy the card, then forget the rows it fed. */
+    private suspend fun destroyCardOverJmap(
+        accountId: String,
+        server: String,
+        dav: DavCredentials,
+        href: String,
+        cardId: String,
+    ): DavWriteOutcome {
+        val jmapClient = jmap ?: return DavWriteOutcome(error = "Contacts are not available right now.")
+        val (session, jmapAccountId) = jmapContacts(server, dav)
+            ?: return DavWriteOutcome(error = "Contacts are not available right now.")
+        try {
+            jmapClient.destroyContactCard(session, jmapAccountId, cardId, BasicAuth(dav.username, dav.password))
+        } catch (c: CancellationException) {
+            throw c
+        } catch (e: Exception) {
+            return DavWriteOutcome(error = describeJmap(e))
+        }
+        forgetContact(accountId, href)
+        return DavWriteOutcome(href = href)
+    }
+
+    /**
+     * Drop every local row behind one card file. [cacheUploadedContact]'s idiom: a `.vcf` can
+     * carry more than one card and the mirror keys each on the file's href plus a suffix, so the
+     * prefix form is the one that clears all of them.
+     */
+    private suspend fun forgetContact(accountId: String, href: String) {
+        contactDao.deleteForFile(accountId, href, DavMappers.hrefPrefix(href))
+    }
+
+    /**
      * The session and account id for a JMAP contact write, or null when the write belongs to DAV.
      *
      * Null means "this server doesn't speak JMAP contacts as far as we can tell" — including a

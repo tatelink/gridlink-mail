@@ -102,7 +102,16 @@ fun GridlinkContactFormScreen(
     failure: String? = null,
     /** Draw as §7's reading pane: editing swaps only the right pane. See [GridlinkFormScreen]. */
     embedded: Boolean = false,
+    /**
+     * Remove the card being edited, or null for a form with nothing to remove (a new contact).
+     * Rendered as a "Delete contact" row under the fields; the row asks before calling this, so
+     * the caller does not confirm again.
+     */
+    onDelete: (() -> Unit)? = null,
+    /** True while a delete is in flight. Freezes the form the way [saving] does. */
+    deleting: Boolean = false,
 ) {
+    var confirmingDelete by remember { mutableStateOf(false) }
     var photo by remember { mutableStateOf(initial?.photo) }
     var given by remember { mutableStateOf(TextFieldValue(initial?.given.orEmpty())) }
     var family by remember { mutableStateOf(TextFieldValue(initial?.family.orEmpty())) }
@@ -179,18 +188,39 @@ fun GridlinkContactFormScreen(
     val typedEmails = emails.map { it.text.trim() }.filter { it.isNotEmpty() }
     val misspelled = typedEmails.any { gridlinkTypedRecipient(it) == null }
     val hint = failure ?: when {
+        deleting -> "Deleting this contact."
         !filed -> "A contact needs a name or a company to file under."
         misspelled -> "Check the email addresses: one of them doesn't look like name@company.com."
         else -> null
+    }
+
+    if (confirmingDelete) {
+        GridlinkDialog(
+            title = "Delete this contact?",
+            confirmLabel = "Delete",
+            onConfirm = {
+                confirmingDelete = false
+                onDelete?.invoke()
+            },
+            onDismiss = { confirmingDelete = false },
+            destructive = true,
+        ) {
+            Text(
+                "It will be removed from the server and from every device that syncs this " +
+                    "account. This cannot be undone.",
+                style = GridlinkType.body,
+                color = GridlinkTheme.colors.textSecondary,
+            )
+        }
     }
 
     GridlinkFormScreen(
         title = title,
         // No way out while the write is in flight, for the event form's reason: closing would not
         // recall it, and the card turns up on the server anyway.
-        onClose = if (saving) null else onClose,
+        onClose = if (saving || deleting) null else onClose,
         confirmLabel = if (saving) "Saving" else "Save",
-        confirmEnabled = filed && !misspelled && !saving,
+        confirmEnabled = filed && !misspelled && !saving && !deleting,
         hint = hint,
         embedded = embedded,
         onConfirm = {
@@ -430,6 +460,24 @@ fun GridlinkContactFormScreen(
             label = "Note",
             contained = true,
         )
+
+        // The one destructive control, at the end of the fields where the eye lands last: a user
+        // who came to delete scrolls past nothing they could tap by mistake, and a user who came
+        // to edit never meets it. Text rather than a button, in [GridlinkTheme.colors.destructive]
+        // alone, for the theme's rule that the red means delete and nothing else.
+        if (onDelete != null) {
+            Spacer(Modifier.height(GridlinkSpacing.s16))
+            Text(
+                "Delete contact",
+                style = GridlinkType.body,
+                color = GridlinkTheme.colors.destructive,
+                modifier = Modifier
+                    .padding(start = GridlinkSpacing.rowHorizontal - GridlinkSpacing.s12)
+                    .clip(GridlinkFieldBoxShape)
+                    .clickable(enabled = !saving && !deleting) { confirmingDelete = true }
+                    .padding(horizontal = GridlinkSpacing.s12, vertical = GridlinkSpacing.s8),
+            )
+        }
     }
 }
 
