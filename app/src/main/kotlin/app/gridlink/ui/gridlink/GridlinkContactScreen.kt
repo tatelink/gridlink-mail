@@ -66,6 +66,12 @@ import app.gridlink.ui.theme.gridlinkSenderBarColor
  * [GridlinkSampleContacts.forSender] rather than by address, which is what stops the card from
  * saying "no recent mail" about someone with four messages in the inbox.
  *
+ * ⚠️ And that panel is FIXTURE-ONLY, gated on [GridlinkBook.contactsLive] exactly as the event
+ * screen gates its mail panel: [GridlinkSample.messagesFrom] can only ever answer for the sample's
+ * people, so on a real address book it would say "Nothing from this address yet." about everyone,
+ * a confident wrong statement about somebody who may have written. A live card draws no Recent
+ * mail section at all; the real version is a mailbox query, a different piece of work.
+ *
  * ## The field rows act, they don't just display
  * Tapping an address opens the composer already addressed to it (each address, not just the
  * primary — that is the point of listing them); tapping a number opens the dialler with it typed
@@ -93,7 +99,11 @@ fun GridlinkContactScreen(
     // The share sheet is the one place these cards leave the app, and a card is not a nav
     // destination, so this is the activity-scoped guard: it latches until we are RESUMED again.
     val leaveOnce = rememberLeaveOnce()
-    val recent = remember(contact.id) { GridlinkSample.messagesFrom(contact) }
+    val book = LocalGridlinkBook.current
+    // See the header: fixture-only, and absent (not empty) on a live address book.
+    val recent = remember(contact.id, book) {
+        if (book.contactsLive) emptyList() else GridlinkSample.messagesFrom(contact)
+    }
 
     GridlinkDetailFrame(
         // 🔴 No pane title in two panes: the hero prints this same name at four times the size a few
@@ -211,30 +221,32 @@ fun GridlinkContactScreen(
                 )
             }
 
-            GridlinkSectionLabel(text = "Recent mail")
+            if (!book.contactsLive) {
+                GridlinkSectionLabel(text = "Recent mail")
 
-            if (recent.isEmpty()) {
-                Text(
-                    // ⚠️ States what is missing, not what went wrong. Most of the address book has
-                    // never written, and a card that reads as an error for the ordinary case teaches
-                    // the user to distrust the ones that are correct.
-                    text = "Nothing from this address yet.",
-                    style = GridlinkType.body,
-                    color = colors.textSecondary,
-                    modifier = Modifier.padding(
-                        start = GridlinkSpacing.rowHorizontal,
-                        end = GridlinkSpacing.rowHorizontal,
-                        bottom = GridlinkSpacing.s16,
-                    ),
-                )
-            } else {
-                recent.forEachIndexed { index, message ->
-                    GridlinkContactMessageRow(
-                        message = message,
-                        onClick = { onOpenMessage(message) },
+                if (recent.isEmpty()) {
+                    Text(
+                        // ⚠️ States what is missing, not what went wrong. Most of the address book has
+                        // never written, and a card that reads as an error for the ordinary case teaches
+                        // the user to distrust the ones that are correct.
+                        text = "Nothing from this address yet.",
+                        style = GridlinkType.body,
+                        color = colors.textSecondary,
+                        modifier = Modifier.padding(
+                            start = GridlinkSpacing.rowHorizontal,
+                            end = GridlinkSpacing.rowHorizontal,
+                            bottom = GridlinkSpacing.s16,
+                        ),
                     )
-                    if (index != recent.lastIndex) {
-                        GridlinkRowDivider(startInset = GridlinkSpacing.rowHorizontal)
+                } else {
+                    recent.forEachIndexed { index, message ->
+                        GridlinkContactMessageRow(
+                            message = message,
+                            onClick = { onOpenMessage(message) },
+                        )
+                        if (index != recent.lastIndex) {
+                            GridlinkRowDivider(startInset = GridlinkSpacing.rowHorizontal)
+                        }
                     }
                 }
             }

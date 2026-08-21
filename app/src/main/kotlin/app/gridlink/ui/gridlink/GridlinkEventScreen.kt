@@ -93,8 +93,8 @@ import java.util.Locale
  *
  * ## What the counterparty is, and why an internal event has none
  * [GridlinkEvent.domain] is the event's only statement about who it is with, and it is not
- * decoration: it runs through the same [gridlinkSenderBarColor] hash the message rows use, so an
- * Sanivex appointment and an Sanivex email are the same colour because they are the same counterparty.
+ * decoration: it runs through the same [gridlinkSenderBarColor] hash the message rows use, so a
+ * Sanivex appointment and a Sanivex email are the same colour because they are the same counterparty.
  * This screen reads it as exactly that and no further.
  *
  * 🔴 When the domain is the account's own ([GridlinkSample.OWN_DOMAIN]) there is no counterparty at
@@ -581,12 +581,6 @@ private fun durationLabel(start: LocalTime, end: LocalTime): String {
 }
 
 /**
- * The event as text, for the clipboard and the share sheet.
- *
- * 🔴 One function feeding both, because a Copy and a Share that produce different text for the same
- * event is a bug nobody reports and everybody notices once.
- */
-/**
  * Hand a place name to whatever map app the device has.
  *
  * `geo:0,0?q=<query>` is the documented way to ask for a place you have no coordinates for: the
@@ -611,6 +605,12 @@ internal fun openMap(context: android.content.Context, place: String): Boolean {
     }
 }
 
+/**
+ * The event as text, for the clipboard and the share sheet.
+ *
+ * 🔴 One function feeding both, because a Copy and a Share that produce different text for the same
+ * event is a bug nobody reports and everybody notices once.
+ */
 private fun GridlinkEvent.asPlainText(): String = buildString {
     appendLine(title)
     appendLine(date.format(EVENT_DATE))

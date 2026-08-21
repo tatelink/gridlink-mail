@@ -80,7 +80,10 @@ class GridlinkFolderScreenTest {
                     destination = GridlinkDestination.FOLDERS,
                     onSelectDestination = { selected += it },
                     tree = tree,
-                    onTreeChange = { tree = it; treeChanges += it },
+                    onTreeChange = {
+                        tree = it
+                        treeChanges += it
+                    },
                     onEdit = { edits += it },
                     loading = loading,
                     initiallyExpanded = initiallyExpanded,

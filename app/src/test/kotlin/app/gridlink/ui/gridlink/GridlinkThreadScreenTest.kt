@@ -155,7 +155,11 @@ class GridlinkThreadScreenTest {
 
     @Test
     fun toolbarActions_decideTheBar_threeFitWithoutMore_andNoneLeavesOnlyReply() {
-        show(toolbarActions = setOf(ThreadToolbarAction.DELETE, ThreadToolbarAction.MOVE, ThreadToolbarAction.MARK_UNREAD))
+        show(
+            toolbarActions = setOf(
+                ThreadToolbarAction.DELETE, ThreadToolbarAction.MOVE, ThreadToolbarAction.MARK_UNREAD,
+            ),
+        )
         rule.onAllNodesWithText("More").assertCountEquals(0)
         rule.onAllNodesWithText("Forward").assertCountEquals(0)
         rule.onAllNodesWithText("Archive").assertCountEquals(0)
