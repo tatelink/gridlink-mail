@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -95,11 +94,13 @@ import app.gridlink.ui.theme.GridlinkType
  * "Editing it will cause only the right pane to change." The differences all follow
  * [GridlinkDetailFrame]'s embedded conventions, because the pane the form replaces is drawn by that
  * frame and the glass must not jump when view swaps to edit:
- * - No [GridlinkBackground] and no systemBars inset — the scaffold painted one backdrop across both
- *   panes and its Row already took the bars. 🔴 The ime inset is still needed (the keyboard covers
- *   the pane's lower half), but as `ime.exclude(systemBars)`: the ime inset is measured from the
- *   bottom of the display and contains the gesture bar the scaffold already padded for, so applying
- *   it whole would double-count that band.
+ * - No [GridlinkBackground] and no systemBars inset of its own — the scaffold painted one backdrop
+ *   across both panes and its Row already took the bars. 🔴 The ime inset is still needed (the
+ *   keyboard covers the pane's lower half) and is applied WHOLE, the same line as the standing
+ *   form: `windowInsetsPadding` subtracts whatever an ancestor already consumed, and the scaffold's
+ *   padding consumed systemBars, so the pane ends up padded by exactly the keyboard's extra height.
+ *   It used to be `ime.exclude(systemBars)`, which subtracted the gesture bar a SECOND time and left
+ *   the baseline row one bar's height under the keyboard (Save half hidden on the Fold).
  * - The header collapses to the frame's paneFloor spacer, and the title moves INSIDE the glass over
  *   a hairline, exactly where the detail pane draws its own. The X rides the title row's far end.
  * - The baseline row stops one compose button short of the window edge — the scaffold parks its "+"
@@ -156,20 +157,15 @@ fun GridlinkFormScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .windowInsetsPadding(
-                    if (embedded) {
-                        // The scaffold's Row already took systemBars for the whole window; only the
-                        // keyboard's extra height belongs to the pane. See the class KDoc for why
-                        // this is exclude and not the ime inset whole.
-                        WindowInsets.ime.exclude(WindowInsets.systemBars)
-                    } else {
-                        // The composer's line, and the reasoning is written out there: `union`,
-                        // never the two insets applied one after the other, because the ime inset is
-                        // measured from the bottom of the display and already contains the gesture
-                        // bar.
-                        WindowInsets.systemBars.union(WindowInsets.ime)
-                    },
-                ),
+                // The composer's line, and the reasoning is written out there: `union`, never the
+                // two insets applied one after the other, because the ime inset is measured from
+                // the bottom of the display and already contains the gesture bar. The same line
+                // serves the embedded pane: `windowInsetsPadding` subtracts what an ancestor already
+                // consumed, and the scaffold consumed systemBars for both panes, so here the bars
+                // fall out and only the keyboard's extra height is paid. 🔴 Do NOT "help" with
+                // `ime.exclude(systemBars)` for the embedded case: that subtracts the bar a second
+                // time, and Save ends up a bar's height under the keyboard. See the class KDoc.
+                .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.ime)),
         ) {
             if (embedded) {
                 // The detail frame's paneFloor spacer, so the form's glass starts on the same line
@@ -267,8 +263,14 @@ fun GridlinkFormScreen(
                             .fillMaxWidth()
                             .verticalScroll(rememberScrollState())
                             .gridlinkEdgeFade(fadeTop = false),
-                        content = fields,
-                    )
+                    ) {
+                        fields()
+                        // The fade above eats the bottom `listFade` of whatever scrolls under it, and
+                        // every form ends in a contained row (a Note box, the Reminders row). Without
+                        // this tail the last row's lower border sits inside the fade at scroll end
+                        // and reads as clipped; with it the row can scroll fully clear.
+                        Spacer(Modifier.height(GridlinkDimens.listFade))
+                    }
                 }
             }
 
