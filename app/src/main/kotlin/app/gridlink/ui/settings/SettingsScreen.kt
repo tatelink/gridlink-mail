@@ -106,6 +106,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -1238,7 +1239,10 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
                 if (showAddSender) {
                     var sender by remember { mutableStateOf("") }
                     val focusRequester = remember { FocusRequester() }
-                    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+                    // Focus is asked for from the field's first placement, not a LaunchedEffect:
+                    // the effect can run before the dialog window has laid the field out, and a
+                    // FocusRequester with nothing attached yet throws. Same fix as the tag editor.
+                    var focusRequested by remember { mutableStateOf(false) }
                     fun submit() {
                         if (sender.isNotBlank()) {
                             viewModel.setImageAllowed(sender, true)
@@ -1256,7 +1260,14 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
                                 placeholder = { Text(stringResource(R.string.settings_image_allowlist_hint)) },
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                                 keyboardActions = KeyboardActions(onDone = { submit() }),
-                                modifier = Modifier.focusRequester(focusRequester),
+                                modifier = Modifier
+                                    .focusRequester(focusRequester)
+                                    .onGloballyPositioned {
+                                        if (!focusRequested) {
+                                            focusRequested = true
+                                            focusRequester.requestFocus()
+                                        }
+                                    },
                             )
                         },
                         confirmButton = {
