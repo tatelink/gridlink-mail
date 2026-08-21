@@ -37,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -289,7 +290,13 @@ private fun TagEditorDialog(
     var label by remember { mutableStateOf(initialLabel) }
     var color by remember { mutableStateOf(initialColor) }
     val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    // Focus the name on open, from the field's first layout rather than from an effect. A dialog
+    // composes its content before its window has attached, and a focus request that lands in that
+    // gap throws `FocusRequester is not initialized`. The rename-folder dialog waits a frame for
+    // the same reason, but that is a bet on ordering: under Robolectric the window attaches a
+    // looper turn after the compose frame when the dialog opens mid-screen, and the bet loses every
+    // time. The first layout pass cannot happen before the field is attached, so this cannot.
+    var focusRequested by remember { mutableStateOf(false) }
     // ⚠️ Blank is not the only invalid label: EmailKeywords.toKeyword returns null for anything that
     // leaves no usable wire name (punctuation and emoji only, say), and createMailTag would silently
     // do nothing. Save is disabled in exactly the cases the write would be a no-op.
@@ -312,7 +319,15 @@ private fun TagEditorDialog(
                     placeholder = { Text(stringResource(R.string.settings_tags_name_hint)) },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { submit() }),
-                    modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester)
+                        .onGloballyPositioned {
+                            if (!focusRequested) {
+                                focusRequested = true
+                                focusRequester.requestFocus()
+                            }
+                        },
                 )
                 if (keyword != null) {
                     Text(
