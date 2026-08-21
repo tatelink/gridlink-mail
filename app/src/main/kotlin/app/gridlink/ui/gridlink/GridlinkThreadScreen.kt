@@ -420,7 +420,20 @@ fun GridlinkThreadScreen(
             // it, and a reader who scrolls to the end of a long mail has already decided what to do.
             receipt?.let { GridlinkReceiptRow(receipt = it, onSend = onSendReceipt) }
 
-            GridlinkMessageBody(
+            // 🔴 The failed fetch gets said out loud, and it takes the body's place rather than
+            // sitting above it: there is no body to sit above. Gated on the body being empty as
+            // well as the error being set, because a message that arrived and then failed
+            // something later still has prose worth reading, and swapping it for an apology would
+            // be the worse of the two bugs. See [GridlinkMessage.bodyError].
+            val bodyError = message.bodyError?.takeIf { message.body.isBlank() }
+            if (bodyError != null) {
+                GridlinkBodyErrorNotice(
+                    reason = bodyError,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                )
+            } else GridlinkMessageBody(
                 html = message.body,
                 blockRemote = !showRemote,
                 // The palette's text and accent, so nothing in the markup can paint itself

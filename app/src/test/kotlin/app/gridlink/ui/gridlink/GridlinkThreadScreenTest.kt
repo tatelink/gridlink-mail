@@ -47,6 +47,7 @@ class GridlinkThreadScreenTest {
 
     private fun message(
         body: String = "<p>Your statement for July is attached.</p>",
+        bodyError: String? = null,
         unsubscribe: GridlinkUnsubscribe? = null,
         attachments: List<GridlinkAttachment> = emptyList(),
         starred: Boolean = false,
@@ -58,6 +59,7 @@ class GridlinkThreadScreenTest {
         timestamp = "9:41 AM",
         body = body,
         addressOverride = "billing@dalton-energy.example",
+        bodyError = bodyError,
         unsubscribe = unsubscribe,
         attachments = attachments,
         starred = starred,
@@ -95,6 +97,35 @@ class GridlinkThreadScreenTest {
                 )
             }
         }
+    }
+
+    // ---- a body that never arrived ---------------------------------------------------------------
+
+    @Test
+    fun failedBodyFetch_saysSo_andShowsTheServersOwnReason() {
+        // The bug this pins: an empty body drew an empty page, so a failed fetch was
+        // indistinguishable from a message that genuinely had nothing in it. The header stayed
+        // perfectly healthy above it, which is what made it so convincing.
+        show(message(body = "", bodyError = "HTTP 404"))
+        rule.onNodeWithText("This message could not be loaded.").assertExists()
+        rule.onNodeWithText("HTTP 404").assertExists()
+        rule.onNodeWithText("Open it again to try once more.").assertExists()
+    }
+
+    @Test
+    fun inFlightBody_isNotAnError() {
+        // An empty body with no error is a fetch still on its way. Saying "could not be loaded"
+        // here would be the same lie in the other direction.
+        show(message(body = ""))
+        rule.onNodeWithText("This message could not be loaded.").assertDoesNotExist()
+    }
+
+    @Test
+    fun bodyThatArrived_isNeverReplacedByAnError() {
+        // Prose in hand beats an apology: an error raised after the body landed must not take the
+        // message away from the reader.
+        show(message(body = "<p>Your statement for July is attached.</p>", bodyError = "HTTP 404"))
+        rule.onNodeWithText("This message could not be loaded.").assertDoesNotExist()
     }
 
     // ---- the header -----------------------------------------------------------------------------

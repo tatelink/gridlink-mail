@@ -681,6 +681,19 @@ data class GridlinkMessage(
      */
     val bodyIsPlainText: Boolean = false,
     /**
+     * Why this message's body could not be fetched, in a sentence, or null when nothing went wrong.
+     *
+     * 🔴 The reason this exists: an empty [body] means two completely different things — the fetch
+     * is still in flight, or the fetch FAILED — and until this field they were drawn identically,
+     * as a blank page under a perfectly good header. A reader whose body fetch 404s or times out
+     * sat looking at a message that appeared to have nothing in it, forever, with the cause logged
+     * where only a developer could read it. Carried on the row rather than left on
+     * [GridlinkOpenMessage] because the reader draws the row, not the fetch.
+     *
+     * Null for sample data, which never fetches anything.
+     */
+    val bodyError: String? = null,
+    /**
      * `cid:` → `data:` for the images the body references inline, so a signature logo or an embedded
      * screenshot draws without going near the network.
      *

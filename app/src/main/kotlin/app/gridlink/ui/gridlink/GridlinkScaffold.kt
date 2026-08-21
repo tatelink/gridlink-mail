@@ -1621,6 +1621,12 @@ fun GridlinkRoot(
                 // flight the body is "", which the renderer draws as an empty page either way, so
                 // the defaults here are not a claim that the message is plain text.
                 bodyIsPlainText = fetched?.plainText == true,
+                // 🔴 The one thing here that is about the fetch FAILING rather than the fetch
+                // answering. Without it a body that never arrived is indistinguishable from a body
+                // still on its way and from a message that is genuinely empty: all three draw the
+                // same blank page under a header that looks entirely healthy. See
+                // [GridlinkMessage.bodyError].
+                bodyError = fetched?.error,
                 inlineImages = fetched?.inlineImages.orEmpty(),
                 // Travels with the body for the same reason: the `List-Unsubscribe` header comes
                 // back on the single-message fetch, so it is null on a row and known once opened.
