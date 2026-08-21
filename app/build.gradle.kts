@@ -228,6 +228,10 @@ dependencies {
     // library's startup provider. TestGridlinkApplication (src/test) initialises a synchronous
     // test WorkManager before building the container; those tests opt in with @Config.
     testImplementation(libs.androidx.work.testing)
+    // The mail view model's test seeds the cache it reads through a second handle on the
+    // container's database. core:data keeps Room to itself (implementation), so the test source
+    // set needs the runtime on its own classpath to name RoomDatabase's members.
+    testImplementation(libs.androidx.room.runtime)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
 
