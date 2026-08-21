@@ -433,24 +433,26 @@ fun GridlinkThreadScreen(
                         .weight(1f)
                         .fillMaxWidth(),
                 )
-            } else GridlinkMessageBody(
-                html = message.body,
-                blockRemote = !showRemote,
-                // The palette's text and accent, so nothing in the markup can paint itself
-                // invisible. 🔴 A body carrying `#000000` because it looked right in Day would be
-                // unreadable in Night, which is what the whole-page invert in a dark theme is for.
-                // There is no background to pass: the renderer is transparent so the frosted panel
-                // reads through it. See [GridlinkMessageBody].
-                text = colors.textPrimary,
-                link = colors.accent,
-                dark = mode != GridlinkMode.DAY,
-                plainText = message.bodyIsPlainText,
-                inlineImages = message.inlineImages,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .gridlinkEdgeFade(fadeTop = false),
-            )
+            } else {
+                GridlinkMessageBody(
+                    html = message.body,
+                    blockRemote = !showRemote,
+                    // The palette's text and accent, so nothing in the markup can paint itself
+                    // invisible. 🔴 A body carrying `#000000` because it looked right in Day would be
+                    // unreadable in Night, which is what the whole-page invert in a dark theme is for.
+                    // There is no background to pass: the renderer is transparent so the frosted panel
+                    // reads through it. See [GridlinkMessageBody].
+                    text = colors.textPrimary,
+                    link = colors.accent,
+                    dark = mode != GridlinkMode.DAY,
+                    plainText = message.bodyIsPlainText,
+                    inlineImages = message.inlineImages,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .gridlinkEdgeFade(fadeTop = false),
+                )
+            }
 
             if (message.attachments.isNotEmpty()) {
                 // Pinned under the body rather than following it. It used to sit at the end of the

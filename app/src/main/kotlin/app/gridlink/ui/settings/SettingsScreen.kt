@@ -36,6 +36,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -83,6 +84,7 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
@@ -384,6 +386,17 @@ private fun SettingsHub(
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
         ) {
+            // 🔴 The support card sits ABOVE account management, which is the most valuable
+            // position in the app's only settings screen, and that is deliberate. This is Tate's
+            // third pass at the same request: the row he asked to be removed in August (it pointed
+            // at upstream's Ko-fi), the About row he asked for in his own name on 08-15, and then
+            // 08-21: *"make my Kofi tips thing PROMINENT please."* An About row is not prominent,
+            // it is the last section of a scroll. 🔴 It stays OUT of the mail path though. A tip
+            // jar in the drawer or on the message list would meet him with an ask every time he
+            // opened his own inbox, and the thing he objected to the first time was exactly that:
+            // a beg living inside his mail app. Settings is the compromise: unmissable the moment
+            // anyone looks, invisible while anyone is reading.
+            SupportCard { onOpenUrl(KOFI_URL) }
             // Account management on top.
             SettingsCategoryRow(
                 Icons.Filled.Person,
@@ -420,24 +433,28 @@ private fun SettingsHub(
             // purpose, so a row added later cannot fire an intent of its own without saying so.
             // 🔴 And some of them deliberately do NOTHING. See the Version and Source code rows.
             SettingsSection(stringResource(R.string.settings_about_section)) {
-                // 🔴 Inert, both of them: no chevron, no tap. They used to open the releases page
-                // and the repo, and both 404 because the repo is private — GitHub gives an
-                // anonymous visitor a flat "not found", not a sign-in prompt. Tate, 2026-08-15:
-                // *"the settings app has dead links… version, source code, license, based on all
-                // point at dead links."* The fix he chose was to stop linking rather than to
-                // publish the tree, because the sample data in it is his real work inbox. A row
-                // that states a fact needs no destination; it was the chevron promising one that
-                // made these look broken.
+                // 🔴 Live again, both of them, and the reason they were dead is gone. They were
+                // made inert on 2026-08-15 because the repo was private and GitHub hands an
+                // anonymous visitor a flat "not found" rather than a sign-in prompt, so a chevron
+                // promised a page that 404'd. Tate published the tree on 2026-08-16 (the work-inbox
+                // sample data that was the reason to keep it closed was scrubbed out of the history
+                // first), so as of 2026-08-21 both destinations resolve for a stranger and the rows
+                // link again. 🔴 If the repo ever goes private, do not just drop the chevron:
+                // [SOURCE_URL]'s subtitle would then be a lie as well.
                 SettingsCategoryRow(
                     Icons.Filled.Info,
                     stringResource(R.string.settings_about_version),
                     "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) · ${BuildConfig.VERSION_DATE}",
-                )
+                ) { onOpenUrl(RELEASES_URL) }
+                // 🔴 The subtitle is the repo path, deliberately not a translated sentence: it is
+                // an address, it reads the same in every locale, and it is the one thing a reader
+                // who wants the source actually needs. It replaced a string that claimed the
+                // repository was private, which outlived the fact by five days.
                 SettingsCategoryRow(
                     Icons.Filled.Code,
                     stringResource(R.string.settings_about_source),
-                    stringResource(R.string.settings_about_source_private),
-                )
+                    SOURCE_LABEL,
+                ) { onOpenUrl(SOURCE_URL) }
                 // The GPL requires its text to travel with the binary, so it does: read from the
                 // APK's own assets, offline, unable to 404. See [LicenseScreen].
                 SettingsCategoryRow(
@@ -471,28 +488,67 @@ private fun SettingsHub(
                             Uri.encode("Gridlink feedback (${BuildConfig.VERSION_NAME})"),
                     )
                 }
-                // 🔴 A support row, and 🔴 it is TATE'S, not upstream's. Read the history before
-                // touching it, because the obvious edit here is the wrong one twice over:
-                //  - 2026-08-10 he had the original row REMOVED — *"Remove any kofi or donation to
-                //    emon content."* That row asked his users to pay emon, who wrote Sterna but not
-                //    this layer, and its subtitle was the bare URL, which his device truncated into
-                //    something that read as a clipped beg inside his own mail app.
-                //  - 2026-08-15 he asked for one back, in his own name: *"where is the PROMINENT
-                //    kofi button?"*, and gave [KOFI_URL].
-                // So: never emon's page, and never a bare URL as the subtitle. The subtitle is a
-                // translated sentence that survives being cut off mid-way.
-                SettingsCategoryRow(
-                    Icons.Filled.Favorite,
-                    stringResource(R.string.settings_about_support),
-                    stringResource(R.string.settings_about_support_summary),
-                ) { onOpenUrl(KOFI_URL) }
+                // 🔴 There is no support row here any more, and that is not a removal of the
+                // feature, it is the same feature moved UP. 2026-08-21, Tate: *"make my Kofi tips
+                // thing PROMINENT please."* It now leads the screen as [SupportCard]; leaving this
+                // row as well would ask the same person for money twice on one scroll. Read
+                // [SupportCard]'s doc before adding anything back: the history on this one row is
+                // three reversals deep and every one of them was about tone.
             }
+        }
+    }
+}
+
+/**
+ * The tip jar, drawn as a card rather than a row so it reads as an offer instead of a setting.
+ *
+ * 🔴 Why a [Surface] in `secondaryContainer` and not the accent: the accent is this app's
+ * "act on your mail" colour (send, confirm, the nav pill), and spending it here would put a
+ * donation ask at the same visual weight as the send button. The container tone is one step off the
+ * page and still the only coloured block on the screen, which is enough to be the first thing an
+ * eye lands on without claiming to be the most important thing in the app.
+ *
+ * The button carries the label and the destination; the heart is decorative and unlabelled, so
+ * a screen reader announces the offer once rather than reciting an icon first.
+ */
+@Composable
+private fun SupportCard(onSupport: () -> Unit) {
+    Surface(
+        Modifier.fillMaxWidth().padding(horizontal = GridlinkSpacing.s16, vertical = GridlinkSpacing.s12),
+        shape = RoundedCornerShape(GridlinkSpacing.s16),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+    ) {
+        Column(Modifier.padding(GridlinkSpacing.s20)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Favorite, contentDescription = null, Modifier.size(GridlinkSpacing.s20))
+                Spacer(Modifier.width(GridlinkSpacing.s12))
+                Text(stringResource(R.string.settings_about_support), style = MaterialTheme.typography.titleMedium)
+            }
+            Spacer(Modifier.height(GridlinkSpacing.s8))
+            Text(
+                stringResource(R.string.settings_support_card_body),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(GridlinkSpacing.s16))
+            Button(onSupport) { Text(stringResource(R.string.settings_about_support_summary)) }
         }
     }
 }
 
 /** What Gridlink is a fork of, credited in About. 🔴 The one About link that is not a dead end. */
 private const val UPSTREAM_URL = "https://codeberg.org/emon/sterna-mail"
+
+/**
+ * Gridlink's own tree, behind the Source code row, and its releases page behind Version.
+ *
+ * 🔴 Public since 2026-08-16. These two were dead links while it was private and the rows were
+ * made inert rather than left promising a 404; see the About section for that history. [SOURCE_LABEL]
+ * is what the row shows, without the scheme, because a subtitle is read not clicked.
+ */
+private const val SOURCE_URL = "https://github.com/tatelink/gridlink-mail"
+private const val SOURCE_LABEL = "github.com/tatelink/gridlink-mail"
+private const val RELEASES_URL = "$SOURCE_URL/releases"
 
 /**
  * Tate's Ko-fi, behind the support row.

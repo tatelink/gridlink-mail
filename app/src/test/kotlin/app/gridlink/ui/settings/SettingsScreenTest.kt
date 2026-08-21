@@ -233,26 +233,36 @@ class SettingsScreenTest {
         rule.onNodeWithText("${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})", substring = true)
             .assertExists()
         rule.onNodeWithText("Source code").assertExists()
-        rule.onNodeWithText("Private repository, held by the app’s owner").assertExists()
+        rule.onNodeWithText("github.com/tatelink/gridlink-mail").assertExists()
         rule.onNodeWithText("License").assertExists()
         rule.onNodeWithText("GPL-3.0-or-later").assertExists()
         rule.onNodeWithText("Based on").assertExists()
         rule.onNodeWithText("Sterna Mail by emon").assertExists()
         rule.onNodeWithText("Send feedback").assertExists()
         rule.onNodeWithText("support@gridlink.me").assertExists()
+        // The tip jar is a card at the TOP of the screen now, not a row in About, so these are
+        // asserted as the one and only support surface on the scroll.
         rule.onNodeWithText("Support Gridlink").assertExists()
         rule.onNodeWithText("Buy me a coffee on Ko-fi").assertExists()
+        rule.onNodeWithText(
+            "Gridlink is free, has no ads and no trackers, and is built by one person. " +
+                "A coffee keeps it going.",
+        ).assertExists()
     }
 
     @Test
-    fun hub_versionAndSourceRowsAreInert_theOthersOpen() {
+    fun hub_everyAboutRowOpensSomething() {
         show()
-        // A row with nothing behind it gets no click action (and no chevron); its title stays a
-        // plain text node. A row that opens something merges its title into a clickable node.
-        rule.onNodeWithText("Version").assert(!hasClickAction())
-        rule.onNodeWithText("Source code").assert(!hasClickAction())
-        listOf("Accounts", "Appearance", "License", "Based on", "Send feedback", "Support Gridlink")
-            .forEach { rule.onNodeWithText(it).assert(hasClickAction()) }
+        // 🔴 This test used to assert the opposite: Version and Source code were made INERT on
+        // 2026-08-15 because the repo was private and both destinations 404'd for a stranger. The
+        // repo went public on 2026-08-16, so as of 2026-08-21 they link again and the assertion
+        // inverted with them. Nothing in About is a dead end now, which is the point.
+        listOf(
+            "Accounts", "Appearance", "Version", "Source code",
+            "License", "Based on", "Send feedback",
+        ).forEach { rule.onNodeWithText(it).assert(hasClickAction()) }
+        // The tip jar's button is the clickable part, not the card's heading.
+        rule.onNodeWithText("Buy me a coffee on Ko-fi").assert(hasClickAction())
     }
 
     @Test

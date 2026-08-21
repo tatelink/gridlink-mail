@@ -321,7 +321,7 @@ drag-to-reorder third is permanently cut.
 - `TranslationParityTest` gates every new `<string>` across nine locales. `ui/gridlink` uses
   hardcoded English and is exempt.
 - **Release signing.** A real 4096-bit RSA key exists as of 2026-08-16, at
-  `C:/Users/brand/keys/gridlink-release.jks`, alias `gridlink`, referenced by the gitignored
+  a keystore OUTSIDE the repo, alias `gridlink`, referenced by the gitignored
   `keystore.properties` at the repo root. Certificate SHA-256 is
   `17fac1d9740cdcf9fdb1e6857831b2fa9873f0869a6432e30980aaad732dca96`. Neither the key nor its
   password is in this repo, and neither should ever be: `.gitignore` already covers

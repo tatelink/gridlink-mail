@@ -42,9 +42,9 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Server-side Sieve filters/rules (form-based rule builder); ✅ server `Quota` display
 
 **Tier 4 — polish**
-- ✅ Richer search filters (from/subject/has-attachment/date, AND-combined); 💡 `SearchSnippet` highlights
+- ✅ Richer search filters (from/subject/has-attachment/date, AND-combined); ✅ search-snippet highlights (the matched terms are emphasised in the result row)
 - ✅ Gridlink brand identity — Arctic (light) / Pelagic (dark) palette, a calm sea-teal action colour with a coral accent (the tern's beak); Material You is an opt-in toggle; coastal line-art empty states; calmer microcopy
-- ✅ Per-account colour (avatar + unified-inbox chip); ✅ accessibility pass v1 (screen-reader labels, font scaling, system-bar contrast); ✅ home-screen widgets (a resizable recent-inbox list and a 2x1 unread count, both cache-only — they never sync); 💡 fuller TalkBack audit
+- ✅ Per-account colour (avatar + unified-inbox chip); ✅ accessibility pass v1 (screen-reader labels, font scaling, system-bar contrast); ✅ home-screen widgets (a resizable recent-inbox list and a 2x1 unread count, both cache-only — they never sync)
 - ✅ Bundled/grouped notifications (per-account summary) + quiet hours (silent nightly window)
 - ✅ Settings export/import (app preferences → JSON file via SAF; excludes accounts/credentials); ✅ `/.well-known/jmap` autodiscovery (email → server); ✅ OAuth2 device-flow sign-in (RFC 8628)
 
@@ -61,7 +61,7 @@ The categories further down list the full feature set; this is the order of work
   so the cache, paging, and entire UI are protocol-agnostic.
   - ✅ One pooled connection per account, reused across calls (no reconnect per page).
   - ✅ IDLE push (new-mail notifications) via a dedicated IDLE connection.
-  - 💡 IMAP gap: CONDSTORE incremental sync.
+  - ✅ IMAP CONDSTORE incremental sync: a re-sync asks only for what changed since the last modification sequence, instead of re-reading the mailbox.
 
 ## Reading & triage
 
@@ -103,11 +103,11 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Mailbox listing
 - ✅ Server-side search — inline on the mailbox (search-as-you-type; JMAP query / IMAP SEARCH, with instant local-cache results); the search field names its scope (current folder, or "All inboxes"). In the unified inbox the search fans out to **every** account in parallel (not just the active one), merges + de-duplicates the results, and each result row carries its account name/address chip like the unified list
 - ✅ Unified inbox across multiple accounts (merged, date-sorted; per-row account; JMAP + IMAP) — switching the active account refreshes the list; archive/delete from the unified inbox resolve the target folder on each message's own account
-- ✅ Richer search filters (from, subject, has-attachment, date) — advanced panel in Search, JMAP Email/query AND filter; 💡 `SearchSnippet` highlights
+- ✅ Richer search filters (from, subject, has-attachment, date) — advanced panel in Search, JMAP Email/query AND filter; ✅ snippet highlights on the result row
 - ✅ Auto-create an Archive folder on first archive (when the account has none)
-- ✅ Folder management — create / rename / delete custom folders from the drawer, including nested subfolders (JMAP parentId / IMAP path), shown as a collapsible tree; 💡 subscribe + per-folder settings, drag-to-reorder
+- ✅ Folder management — create / rename / delete custom folders from the drawer, including nested subfolders (JMAP parentId / IMAP path), shown as a collapsible tree; 💡 subscribe + per-folder settings (notifications on/off, how far back to sync)
 - ✅ Quick filter: unread-only toggle on the current view
-- 💡 Quick filters: starred-only, has-attachment
+- ✅ Quick filters: starred-only and has-attachment chips over any folder, with star and unstar available from the same place.
 
 ## Composing & sending
 
@@ -138,7 +138,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Multiple sending identities per account (name + address), **each with its own
   signature** (plain text or HTML, with HTML-file import); a "From" picker in compose
   chooses which to send as (matched to a server `Identity` for JMAP submission)
-- 💡 Read-receipt request and response
+- ✅ Read receipts (RFC 8098): you can ask for one when composing, and a message that asks for one shows a line with a button. 🔒 Nothing is ever sent automatically, and there is no setting to make it automatic, so a tracker hidden in a newsletter learns nothing about you.
 
 ## Accounts & setup
 
@@ -148,7 +148,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ JMAP **and** IMAP/SMTP account setup (protocol picker; host/port/security) — IMAP setup has quick-setup presets (Gmail, Yahoo, iCloud, Fastmail, Proton Bridge) that prefill host/port/security, with a reminder that most providers need an app-specific password (not the normal one); a rejected IMAP login repeats that hint. Password fields have a show/hide toggle. (Outlook/Microsoft uses OAuth instead of a password — see the XOAUTH2 item below.)
 - ✅ Account management panel — per-account editable server settings (protocol-aware: JMAP URL, or IMAP/SMTP host/port/security; username, password), with a "Test connection" button that validates the (edited) settings before saving
 - ✅ Optional account display name (falls back to the address when unset)
-- ✅ Onboarding via `/.well-known/jmap` autodiscovery — enter just email + password; Gridlink probes the email domain's well-known endpoint (and mail./jmap. subdomains, following redirects) to find the JMAP server, with a manual-server fallback; 💡 DNS SRV (`_jmap._tcp`)
+- ✅ Onboarding via `/.well-known/jmap` autodiscovery — enter just email + password; Gridlink probes the email domain's well-known endpoint (and mail./jmap. subdomains, following redirects) to find the JMAP server, with a manual-server fallback; ✅ DNS SRV (`_jmap._tcp`) lookup as a further fallback
 - ✅ OAuth2 / Bearer auth — "Sign in with OAuth" uses the OAuth 2.0 Device Authorization Grant (RFC 8628): discovers the server's `/.well-known/oauth-authorization-server`, shows a user code to enter in the browser, polls for tokens, and stores an encrypted refresh token (auto-refreshed). No password handled by the app. Verified against Stalwart.
 - ✅ **Outlook / Microsoft OAuth2 + XOAUTH2** — "Sign in with Microsoft" via the OAuth 2.0 Device Authorization Grant (a code typed into the browser), against a registered public Azure client; the access token is presented to the IMAP **and** SMTP servers with the **XOAUTH2** SASL mechanism (no password handled or stored; refresh token encrypted and auto-refreshed). Outlook is a provider chip in Add account, with server fields hidden. **Personal Outlook/Hotmail works.** Two limits, both gatekeeping rather than code: **work/school (org) accounts** need the organisation's admin to consent, or a Microsoft "verified publisher" badge I cannot obtain from a personal Microsoft account (investigated, paused); and a brand-new, not-yet-provisioned Outlook mailbox can fail (K-9 fails on it too — it's the account, not the client).
 - 🔜 **Gmail / Google OAuth2 + XOAUTH2** *(planned)* — the XOAUTH2 plumbing above (IMAP + SMTP) is provider-agnostic and reusable; what is missing is a Google OAuth provider (Google client id + endpoints + the `https://mail.google.com/` scope). The real blocker is **Google's verification for restricted Gmail scopes** (a recurring third-party security assessment), not the code. Until then Gmail works with an **app-specific password**, like Yahoo/iCloud/Fastmail.
@@ -183,7 +183,7 @@ The categories further down list the full feature set; this is the order of work
   in Settings; a lock toggle in the composer. Decrypted content is never written
   to disk (not cached, not search-indexed); the message subject is not encrypted.
   User guide: [ENCRYPTION.md](ENCRYPTION.md).
-- 💡 S/MIME (longer-term)
+- ✅ S/MIME signatures are verified and the verdict is shown on the message. 🔒 Verify only: Gridlink does not sign or decrypt S/MIME, and never holds an S/MIME private key.
 
 ## UX & accessibility
 
@@ -201,7 +201,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Compact inbox top bar showing folder + account
 - ✅ About section in Settings — version (with release date), source code, license and author links
 - ✅ Home-screen widgets — a resizable recent-inbox list (sender, subject, preview, relative time, unread dot, attachment mark; header carries the account, an unread pill, refresh and compose) and a 2x1 unread count. Both read the local cache only: they never sync, so they cost no network and cannot stall the launcher. Refresh enqueues the ordinary fetch worker and both redraw when it lands. "Never synced" prints an em dash rather than a zero, which would be a claim the widget has not earned
-- ✅ Accessibility pass (v1): screen-reader labels for icon-only controls (e.g. the star reads "Add star"/"Remove star" instead of the ★ glyph), decorative icons left unlabelled to avoid double-announcement, and text scales with the system font size (Compose sp); 💡 fuller TalkBack audit, large-touch-target review
+- ✅ Accessibility pass (v1): screen-reader labels for icon-only controls (e.g. the star reads "Add star"/"Remove star" instead of the ★ glyph), decorative icons left unlabelled to avoid double-announcement, and text scales with the system font size (Compose sp)
 
 ## "Complete app" extras
 
@@ -217,4 +217,4 @@ The categories further down list the full feature set; this is the order of work
 - ✅ RSVP to an invite — Accept / Decline / Tentative on a `REQUEST` invite sends an iTIP
   `REPLY` email (`text/calendar; METHOD:REPLY`) to the organiser, built without any
   dependency and sent over the existing JMAP/IMAP path (so still **no calendar
-  permission**). 💡 Conflict detection later (deferred: it would need calendar read access)
+  permission**). ✅ Conflict detection: an invitation says which of your existing events it overlaps

@@ -794,9 +794,9 @@
     <string name="settings_about_section">Informazioni</string>
     <string name="settings_about_version">Versione</string>
     <string name="settings_about_source">Codice sorgente</string>
-    <string name="settings_about_source_private">Repository privato, di proprietà del titolare dell&#8217;app</string>
     <string name="settings_about_support">Sostieni Gridlink</string>
     <string name="settings_about_support_summary">Offrimi un caffè su Ko-fi</string>
+    <string name="settings_support_card_body">Gridlink è gratuito, senza pubblicità né tracker, ed è sviluppato da una sola persona. Un caffè lo tiene in vita.</string>
     <string name="settings_about_license">Licenza</string>
     <string name="settings_about_feedback">Send feedback</string>
     <string name="settings_about_upstream">Basato su</string>

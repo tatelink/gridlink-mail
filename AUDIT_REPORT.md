@@ -1,7 +1,7 @@
 # Sterna-Mail (Gridlink) — Security, Code Quality & Competitiveness Audit
 
 **Date:** 2026-08-09
-**Project:** `C:\Users\brand\code\sterna-mail`
+**Project:** `sterna-mail` (Gridlink)
 **Scope:** Security audit, code flaw assessment, competitiveness improvements, Play Store monetization strategies.
 
 ---

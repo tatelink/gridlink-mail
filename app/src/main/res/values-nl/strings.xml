@@ -795,9 +795,9 @@
     <string name="settings_about_section">Over</string>
     <string name="settings_about_version">Versie</string>
     <string name="settings_about_source">Broncode</string>
-    <string name="settings_about_source_private">Privérepository, in handen van de eigenaar van de app</string>
     <string name="settings_about_support">Gridlink steunen</string>
     <string name="settings_about_support_summary">Trakteer me op een koffie via Ko-fi</string>
+    <string name="settings_support_card_body">Gridlink is gratis, zonder advertenties of trackers, en wordt door één persoon gemaakt. Een kopje koffie houdt het draaiende.</string>
     <string name="settings_about_license">Licentie</string>
     <string name="settings_about_feedback">Send feedback</string>
     <string name="settings_about_upstream">Gebaseerd op</string>

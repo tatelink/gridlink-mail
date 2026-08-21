@@ -22,7 +22,7 @@
 # 🔴 The launch gate is not a sleep. A fixed 2200ms wait silently ran the whole first attempt
 # against the splash screen, and every swipe "passed" by doing nothing to a logo.
 
-param([string]$OutDir = "C:\Users\brand\AppData\Local\Temp\claude\C--Users-brand\4ce4b2d8-34ab-4b95-88e3-8e63a0648be3\scratchpad\swipetest")
+param([string]$OutDir = (Join-Path $env:TEMP "gridlink-swipetest"))
 
 $env:Path = "$env:LOCALAPPDATA\Android\Sdk\platform-tools;$env:Path"
 Add-Type -AssemblyName System.Drawing
