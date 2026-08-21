@@ -1253,7 +1253,10 @@ data class GridlinkComposeDraft(
         /** §1d, replying to the callout in [GridlinkSample]. */
         val Reply = GridlinkComposeDraft(
             title = "Reply",
-            recipients = listOfNotNull(GridlinkSampleContacts.all.firstOrNull { it.id == "rivera" }),
+            // 🔴 Looked up by contact id, so it follows the contact. The id was "rivera" until the
+            // sample scrub renamed the person, and for a while this looked up an id nobody had and
+            // the frame replied to no one. Pinned by GridlinkSampleDefaultsTest.
+            recipients = listOfNotNull(GridlinkSampleContacts.all.firstOrNull { it.id == "ridley" }),
             recipientQuery = "",
             subject = "Re: Callout Saturday AM, need coverage 2071 Kirkwood",
             body = "Approved the OT for Perez. Post the updated schedule tonight and copy " +
@@ -1262,7 +1265,7 @@ data class GridlinkComposeDraft(
             // why it reads like sample data: it is. The frame is §1d's, and this is the callout it
             // replies to.
             quoted = GridlinkQuote(
-                attribution = "On Yesterday 3:05 PM, M. Ridley <m.ridley@gridlink.me> wrote:",
+                attribution = "On Yesterday 3:05 PM, M. Ridley <m.ridley@hrbenefits.example> wrote:",
                 html = "Need coverage Saturday AM at 2071 Kirkwood. Two callouts overnight and " +
                     "Perez has already picked up one of them.",
                 text = "Need coverage Saturday AM at 2071 Kirkwood. Two callouts overnight and " +

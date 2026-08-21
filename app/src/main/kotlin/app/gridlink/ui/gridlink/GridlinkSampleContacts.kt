@@ -258,7 +258,7 @@ object GridlinkSampleContacts {
      *
      *  1. the display names agree ("Dalton Energy" is Dalton Energy at dalton-energy.example);
      *  2. the local parts agree once the sender's name is flattened the same way
-     *     [GridlinkMessage.address] flattens it ("M. Ridley" against `m.rivera`).
+     *     [GridlinkMessage.address] flattens it ("M. Ridley" against `m.ridley`).
      *
      * ⚠️ Rule 1 before rule 2, not the other way round. Under rule 2 alone, `no-reply@microsoft.com`
      * would match nothing and Power BI Service would drop out despite being filed by name.

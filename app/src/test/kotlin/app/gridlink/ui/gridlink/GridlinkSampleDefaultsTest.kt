@@ -114,4 +114,16 @@ class GridlinkSampleDefaultsTest {
         assertEquals("new:contact:3", gridlinkNewId("contact", mixed))
         assertEquals("new:event:10", gridlinkNewId("event", mixed))
     }
+
+    /**
+     * The sample reply finds its recipient by contact id, and the id was renamed in the sample scrub
+     * ("rivera" became "ridley") without the lookup following, so the frame replied to nobody and
+     * nothing said so. The recipient is the person the quoted callout is from, on the same address.
+     */
+    @Test fun `the sample reply addresses the sender of the callout it quotes`() {
+        val reply = GridlinkComposeDraft.Reply
+        val ridley = GridlinkSampleContacts.all.single { it.id == "ridley" }
+        assertEquals(listOf(ridley.email), reply.recipients.map { it.email })
+        assertTrue(reply.quoted!!.attribution.contains("<${ridley.email}>"))
+    }
 }
