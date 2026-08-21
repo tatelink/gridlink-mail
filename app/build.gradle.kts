@@ -223,6 +223,11 @@ dependencies {
     // ComponentActivity the rule launches into; it is debug-only and never ships.
     testImplementation(libs.androidx.compose.ui.test.junit4)
     testImplementation(libs.robolectric)
+    // For the screen tests that need the real AppContainer (view-model-bound screens): the
+    // container's init schedules WorkManager, which under Robolectric is not initialised by the
+    // library's startup provider. TestGridlinkApplication (src/test) initialises a synchronous
+    // test WorkManager before building the container; those tests opt in with @Config.
+    testImplementation(libs.androidx.work.testing)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
 

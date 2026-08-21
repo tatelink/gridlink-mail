@@ -56,6 +56,35 @@ fun FiltersScreen(
     viewModel: FiltersViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    FiltersScreenContent(
+        state = state,
+        onBack = onBack,
+        onLoad = viewModel::load,
+        onAdd = viewModel::addRule,
+        onUpdate = viewModel::updateRule,
+        onRemove = viewModel::removeRule,
+        onSetEnabled = viewModel::setRuleEnabled,
+        onSave = viewModel::save,
+    )
+}
+
+/**
+ * The screen itself, fed by [state] and callbacks and holding only what is the screen's own: which
+ * rule is open in the editor and the leave-with-unsaved-changes dance. Split from [FiltersScreen]
+ * so it can be driven by a test with hand-built state and no server; the view model keeps the
+ * network and the dirty bookkeeping. Callbacks mirror [FiltersViewModel] one for one.
+ */
+@Composable
+internal fun FiltersScreenContent(
+    state: FiltersUiState,
+    onBack: () -> Unit,
+    onLoad: () -> Unit,
+    onAdd: () -> Unit,
+    onUpdate: (Int, FilterRule) -> Unit,
+    onRemove: (Int) -> Unit,
+    onSetEnabled: (Int, Boolean) -> Unit,
+    onSave: () -> Unit,
+) {
     var editing by remember { mutableStateOf<Int?>(null) }
     // Same confirm-on-back as the account editor: rules edited and left behind used to vanish
     // without a word (#34). Both doors go through it — the scaffold's arrow and the system gesture.
@@ -71,8 +100,8 @@ fun FiltersScreen(
         RuleEditScreen(
             initial = state.rules[editIndex],
             folders = state.folders,
-            onCommit = { viewModel.updateRule(editIndex, it); editing = null },
-            onDelete = { viewModel.removeRule(editIndex); editing = null },
+            onCommit = { onUpdate(editIndex, it); editing = null },
+            onDelete = { onRemove(editIndex); editing = null },
         )
         return
     }
@@ -92,7 +121,7 @@ fun FiltersScreen(
             canSave = !state.saving,
             onCancel = { confirmExit = false },
             onDiscard = { confirmExit = false; onBack() },
-            onSave = { confirmExit = false; leaveAfterSave = true; viewModel.save() },
+            onSave = { confirmExit = false; leaveAfterSave = true; onSave() },
         )
     }
 
@@ -107,13 +136,16 @@ fun FiltersScreen(
                 !state.supported -> FiltersNote(stringResource(R.string.settings_filters_unsupported))
                 state.errorKind == FiltersError.LOAD -> FiltersNote(
                     stringResource(R.string.settings_vacation_load_error, state.errorDetail),
-                    onRetry = viewModel::load,
+                    onRetry = onLoad,
                 )
                 else -> FiltersList(
                     state = state,
-                    viewModel = viewModel,
+                    onToggle = onSetEnabled,
+                    onSave = onSave,
                     onEdit = { editing = it },
-                    onAdd = { viewModel.addRule(); editing = state.rules.size },
+                    // The new rule lands at the end of the list as it stands now, so its index
+                    // is the current size; the editor opens on it once the list has grown.
+                    onAdd = { onAdd(); editing = state.rules.size },
                 )
             }
         }
@@ -140,7 +172,8 @@ private fun BoxScope.FiltersNote(text: String, onRetry: (() -> Unit)? = null) {
 @Composable
 private fun FiltersList(
     state: FiltersUiState,
-    viewModel: FiltersViewModel,
+    onToggle: (Int, Boolean) -> Unit,
+    onSave: () -> Unit,
     onEdit: (Int) -> Unit,
     onAdd: () -> Unit,
 ) {
@@ -173,7 +206,7 @@ private fun FiltersList(
                 HorizontalDivider()
                 RuleRow(
                     rule = rule,
-                    onToggle = { viewModel.setRuleEnabled(index, it) },
+                    onToggle = { onToggle(index, it) },
                     onEdit = { onEdit(index) },
                 )
             }
@@ -195,7 +228,7 @@ private fun FiltersList(
             )
         }
         Button(
-            onClick = viewModel::save,
+            onClick = onSave,
             // Nothing to push until a rule actually differs from what the server holds (#34).
             enabled = !state.saving && state.dirty,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),

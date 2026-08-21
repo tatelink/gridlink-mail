@@ -127,7 +127,12 @@ class AppContainer(context: Context) {
     }
 }
 
-class GridlinkApplication : Application() {
+/**
+ * Open so the screen tests can subclass it: `TestGridlinkApplication` (src/test) stands up a
+ * synchronous WorkManager before [onCreate] builds the container, which under Robolectric the
+ * library's startup provider does not do. Nothing in production extends it.
+ */
+open class GridlinkApplication : Application() {
     lateinit var container: AppContainer
         private set
 
