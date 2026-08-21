@@ -21,6 +21,9 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.height
+import androidx.compose.ui.unit.width
 import androidx.test.core.app.ApplicationProvider
 import app.gridlink.R
 import app.gridlink.core.data.mail.SignInStep
@@ -33,6 +36,8 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 /**
  * The first screen a new install shows, driven the way a user drives it.
@@ -338,5 +343,32 @@ class GridlinkSetupScreenTest {
         const val HINT_ADDRESS = "Enter the address you receive mail at, like you@yourdomain.com."
         const val HINT_PASSWORD = "Enter the password, app password or API token for that account."
         const val HINT_NO_SERVER = "No server entered, so Gridlink will look one up from your address."
+    }
+
+    /**
+     * A window narrower than the phone default: the Fold's cover screen, give or take. The baseline
+     * used to measure "JMAP, IMAP or Outlook" first and hand Connect the remainder, which on a
+     * narrow window was a few dozen dp, and the pill stacked its word letter by letter (Tate,
+     * 2026-08-20: "the connect button is distorted, the text wraps"). The pill is measured first now
+     * and its label is one line whatever the width; the way-out button is what yields.
+     */
+    // 🔴 NATIVE graphics on purpose. Under the default legacy mode Robolectric measures text at one
+    // pixel a character ("Connect" is 7px, under 3dp here), so nothing is ever squeezed and this
+    // test would pass against the regression it guards. Native mode measures with real fonts.
+    @Test
+    @Config(qualifiers = "w320dp-h640dp-xxhdpi")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun onANarrowWindow_theConnectPillKeepsItsLabelOnOneLine() {
+        show()
+        val connect = rule.onNodeWithText("Connect").getUnclippedBoundsInRoot()
+        val leading = rule.onNodeWithText("JMAP, IMAP or Outlook").getUnclippedBoundsInRoot()
+        // The pill is a fixed-height capsule, so what a squeeze shows is width: the word plus its
+        // 28dp of padding a side is well over 90dp, and the regression handed it under 60.
+        assertTrue("Connect squeezed: $connect beside $leading", connect.width > 90.dp)
+        // The link yields instead, on one line: 12dp of padding a side round a 19dp line is ~43dp,
+        // and a second line would put it past 60.
+        assertTrue("leading wrapped: $leading", leading.height < 52.dp)
+        // And the two stay side by side in one row, the pill to the right.
+        assertTrue("not side by side: $leading / $connect", leading.right <= connect.left)
     }
 }

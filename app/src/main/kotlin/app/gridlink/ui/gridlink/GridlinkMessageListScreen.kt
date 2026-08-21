@@ -923,7 +923,13 @@ fun GridlinkMessageListScreen(
         destination = destination,
         onSelectDestination = onSelectDestination,
         selecting = selecting,
-        onSelectionAction = ::applySelectionAction,
+        // 🔴 A lambda, NOT `::applySelectionAction`. Two references to the same local function are
+        // `equal` even when the values they closed over differ, so a consumer that memoises on the
+        // callback (the pill's onClick does) keeps the FIRST one and with it the selection as it was
+        // when the toolbar appeared: long-press one row, tick a second, Archive, and only the first
+        // left. A lambda's identity follows its captures, so the fresh set always arrives.
+        // GridlinkMessageListScreenTest.archiveFromTheToolbar_removesTheRows_andReportsOnce guards it.
+        onSelectionAction = { applySelectionAction(it) },
         // The same thing the scaffold's own back handler does, and it has to stay the same thing:
         // one mode with two exits that disagree is a toolbar that sometimes refuses to go away. It
         // does not touch the destination the way back does, because this control is only ever drawn

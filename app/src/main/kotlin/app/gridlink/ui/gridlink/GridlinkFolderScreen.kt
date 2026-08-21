@@ -468,9 +468,14 @@ fun GridlinkFolderScreen(
                         } else {
                             null
                         },
-                        onDragBy = ::dragTo,
-                        onDrop = ::drop,
-                        onDragCancel = ::cancelDrag,
+                        // Lambdas, not `::dragTo` and friends: a reference to a local function
+                        // compares equal to the last one however its captures changed, so anything
+                        // memoised on it (a row's gesture) would keep dropping into the tree as it
+                        // was when the row first composed. See GridlinkMessageListScreen's
+                        // onSelectionAction for the proven case.
+                        onDragBy = { dragTo(it) },
+                        onDrop = { drop() },
+                        onDragCancel = { cancelDrag() },
                         dragOffset = dragOffset.takeIf { drag?.id == item.folder.id },
                         dropTarget = drag?.targetIndex == index,
                     )

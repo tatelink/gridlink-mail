@@ -292,8 +292,18 @@ fun GridlinkFormScreen(
                 horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s16),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                baselineLeading?.invoke()
-                Spacer(Modifier.weight(1f))
+                // 🔴 The leading control sits in the WEIGHTED slot, so the Row measures the pill
+                // first at its own width and hands the leading whatever is left. The other way
+                // round (leading at its intrinsic width, Spacer, pill) is what shipped, and on a
+                // narrow window ("JMAP, IMAP or Outlook" beside Connect on the Fold's cover screen)
+                // the pill was handed a few dozen dp and stacked its label letter by letter. The
+                // main action never yields; the way out ellipsizes instead.
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    baselineLeading?.invoke()
+                }
                 GridlinkConfirmPill(
                     label = confirmLabel,
                     enabled = confirmEnabled,
@@ -412,6 +422,10 @@ private fun GridlinkConfirmPill(
             text = label,
             style = GridlinkType.senderName,
             color = if (enabled) colors.onAccentWarm else colors.textSecondary,
+            // One line, whatever the width: a pill that cannot fit its word clips rather than
+            // stacks. The baseline above is laid out so it never comes to that.
+            maxLines = 1,
+            softWrap = false,
         )
     }
 }

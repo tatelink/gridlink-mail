@@ -314,7 +314,8 @@ fun GridlinkContactsScreen(
         // no populated letters is the control that made the blank panel read as broken.
         GridlinkAlphabetRail(
             populated = populated,
-            onScrubTo = ::jumpTo,
+            // A lambda, not `::jumpTo`: see GridlinkMessageListScreen's onSelectionAction.
+            onScrubTo = { jumpTo(it) },
             initialScrubLetter = initialScrubLetter,
             modifier = Modifier.align(Alignment.CenterEnd),
         )

@@ -2394,7 +2394,7 @@ fun GridlinkRoot(
                                 title = "New contact",
                                 initial = null,
                                 onClose = { creating = null; saveContactError = null },
-                                onSave = ::saveContact,
+                                onSave = { saveContact(it) },
                                 saving = savingContact,
                                 failure = saveContactError,
                                 embedded = true,
@@ -2420,7 +2420,7 @@ fun GridlinkRoot(
                                 date = creatingEvent.date,
                                 initial = null,
                                 onClose = { creating = null; saveError = null },
-                                onSave = ::saveEvent,
+                                onSave = { saveEvent(it) },
                                 saving = savingEvent,
                                 failure = saveError,
                                 embedded = true,
@@ -2433,7 +2433,7 @@ fun GridlinkRoot(
                                     date = eventEditing.date,
                                     initial = eventEditing,
                                     onClose = { editingEvent = null; saveError = null },
-                                    onSave = ::updateEvent,
+                                    onSave = { updateEvent(it) },
                                     saving = savingEvent,
                                     failure = saveError,
                                     embedded = true,
@@ -2854,7 +2854,7 @@ fun GridlinkRoot(
                             // it would be showing history about an event nobody is trying to save
                             // any more.
                             onClose = { creating = null; saveError = null },
-                            onSave = ::saveEvent,
+                            onSave = { saveEvent(it) },
                             saving = savingEvent,
                             failure = saveError,
                         )
@@ -2865,7 +2865,7 @@ fun GridlinkRoot(
                             title = "New contact",
                             initial = null,
                             onClose = { creating = null; saveContactError = null },
-                            onSave = ::saveContact,
+                            onSave = { saveContact(it) },
                             saving = savingContact,
                             failure = saveContactError,
                         )
@@ -2901,7 +2901,7 @@ fun GridlinkRoot(
                                 date = editing.date,
                                 initial = editing,
                                 onClose = { editingEvent = null; saveError = null },
-                                onSave = ::updateEvent,
+                                onSave = { updateEvent(it) },
                                 saving = savingEvent,
                                 failure = saveError,
                             )
@@ -3066,8 +3066,10 @@ fun GridlinkRoot(
                                 }
                             }
                         },
-                        onSend = ::sendWithUndo,
-                        onSchedule = ::scheduleSend,
+                        // Lambdas, not `::sendWithUndo`: see GridlinkMessageListScreen's
+                        // onSelectionAction for why a local-function reference goes stale.
+                        onSend = { sendWithUndo(it) },
+                        onSchedule = { request, millis -> scheduleSend(request, millis) },
                         draft = request.draft,
                         initialFocus = request.focus,
                         initiallyScheduling = request.scheduling,

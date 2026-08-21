@@ -56,6 +56,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -867,6 +868,11 @@ fun GridlinkTextButton(
             text = label,
             style = GridlinkType.toolbarLabel.copy(fontSize = GridlinkType.senderName.fontSize),
             color = if (enabled) tint else colors.textSecondary.copy(alpha = 0.45f),
+            // A text button is a word or three; squeezed (the setup baseline's "JMAP, IMAP or
+            // Outlook" on a narrow window) it shortens on one line rather than wrapping into a
+            // block beside the pill it sits with.
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
