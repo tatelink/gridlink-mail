@@ -8,10 +8,12 @@ import java.io.File
 /**
  * SOURCE LINT, NOT A BEHAVIOUR TEST — same instrument and same disclaimer as
  * [app.gridlink.ui.inbox.ConversationScopeWiringTest]: it reads a file as text and proves nothing
- * about what runs. `ConnectViewModel` is an `AndroidViewModel` wired to the app container, so this
- * module (no Robolectric, no instrumented tests) cannot instantiate it. The decision it now takes
- * is covered for real in [AccountAddPrimingTest]; what is left to hold is that the three add paths
- * actually go through that decision, and reading the source is the only way to hold it.
+ * about what runs. `ConnectViewModel` is an `AndroidViewModel` wired to the app container; it can
+ * be stood up under Robolectric through [app.gridlink.TestGridlinkApplication] (see
+ * [ConnectScreenTest]), but no test that runs it can see which of its private paths a successful
+ * sign-in took. The decision it now takes is covered for real in [AccountAddPrimingTest]; what is
+ * left to hold is that the three add paths actually go through that decision, and reading the
+ * source is the only way to hold it.
  *
  * The rule, from #121: an add path must never hand the repository credentials it built itself,
  * because those carry no account id until the account exists — and priming the cache with them
