@@ -138,6 +138,19 @@ fun GridlinkContactsScreen(
         }
     }
     val listState = rememberLazyListState()
+
+    // How many times the name order has been flipped since the screen opened. The sort pill's
+    // scroll-to-top hangs off THIS rather than running inside the tap, for a reason that cost a
+    // test to find: a `scope.launch { scrollToItem(0) }` fired from the tap runs BEFORE the
+    // recomposition that regroups [sections], so it measures the old list, remembers the old
+    // first item's key, and when the new sections land the lazy list keeps that key in view. Flip
+    // Last,First -> First Last -> Last,First and the list sat at the "C" heading with A and B
+    // scrolled off above it. An effect keyed on the flip runs after the regrouped list is composed,
+    // so "top" means the top of the list the user is now looking at.
+    var reshuffles by remember { mutableIntStateOf(0) }
+    LaunchedEffect(reshuffles) {
+        if (reshuffles > 0) listState.scrollToItem(0)
+    }
     val scope = rememberCoroutineScope()
 
     // Which lazy item each letter's heading is, so a scrub can jump straight to it. Headings and
@@ -171,8 +184,9 @@ fun GridlinkContactsScreen(
                 sort = sort.other
                 if (!preview) saveContactSort(context, sort)
                 // The whole book just reshuffled, so wherever the list was is now a different
-                // run of names. Top is the one position that still means something.
-                scope.launch { listState.scrollToItem(0) }
+                // run of names. Top is the one position that still means something, and the
+                // scroll itself waits for the new list (see [reshuffles]).
+                reshuffles++
             },
         )
     }

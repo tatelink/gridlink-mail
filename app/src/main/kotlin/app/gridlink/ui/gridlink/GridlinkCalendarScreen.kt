@@ -112,7 +112,10 @@ fun GridlinkCalendarScreen(
      * shows September means every event added from a month you paged to lands in July unless you
      * notice and change it, and the one thing a calendar's "+" must get right is which day it meant.
      * In the month view that is the SELECTED day (the one whose events are listed underneath); in the
-     * others it is the anchor, which is the first day of what is on screen.
+     * others it is the anchor. In the 3 day view the anchor IS the first column on screen. In the
+     * week view it is the day the week was entered on, stepped by whole weeks, so it can be any
+     * column of the Sunday-to-Saturday row, not the Sunday: the day you were on is a better guess
+     * at the day you meant than whichever weekday happens to come first.
      */
     onNewEvent: (LocalDate) -> Unit = {},
     /** Opening an appointment. See [GridlinkEventScreen]. */
@@ -281,6 +284,7 @@ fun GridlinkCalendarScreen(
                 subline = when {
                     book.calendarLoading -> "Loading"
                     !countable -> "Not synced this far out"
+                    inRange.size == 1 -> "1 event"
                     else -> "${inRange.size} events"
                 },
             )
