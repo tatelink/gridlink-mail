@@ -172,12 +172,12 @@ object GridlinkSampleContacts {
         GridlinkContact("maddox", "Thea", "Maddox", "Catering Coordinator", "t.maddox@gridlink.me"),
         GridlinkContact("marden", "", "Marden Halloway", "Workers comp broker", "claims@mardenmma.example"),
         GridlinkContact("halesworth", "", "Halesworth County", "Health inspections", "health@halesworthcounty.example"),
-        GridlinkContact("moore", "Andre", "Moore", "Kitchen Manager, 4058 Stonebridge", "a.moore@gridlink.me"),
+        GridlinkContact("moore", "Andre", "Moore", "Nursery Manager, 4058 Stonebridge", "a.moore@gridlink.me"),
         GridlinkContact("nakamura", "Grace", "Nakamura", "Regional Trainer", "g.nakamura@hrbenefits.example"),
         GridlinkContact("okafor", "Curtis", "Okafor", "Overnight Cleaning Lead", "c.okafor@sitecare.example"),
         GridlinkContact("harker", "Jonah", "Harker", "Personal", "jonah.harker@gridlink.me"),
         GridlinkContact("payroll", "", "Payroll", "Pay runs and corrections", "payroll@hrbenefits.example"),
-        GridlinkContact("perez", "Tomas", "Perez", "Kitchen Manager, 4073 Ashgrove", "t.perez@gridlink.me"),
+        GridlinkContact("perez", "Tomas", "Perez", "Nursery Manager, 4073 Ashgrove", "t.perez@gridlink.me"),
         GridlinkContact("powerbi", "", "Power BI Service", "Automated report delivery", "no-reply@microsoft.com"),
         // Deliberately role-less: the shape of a real synced book, where most cards carry no
         // TITLE or ORG (an email-only trusted-sender card carries nothing but its address).
@@ -203,15 +203,18 @@ object GridlinkSampleContacts {
         GridlinkContact("sandoval", "Leah", "Sandoval", "Assistant Manager, 4073 Ashgrove", "l.sandoval@gridlink.me"),
         GridlinkContact("scheduling", "", "Scheduling", "Shift swaps and coverage", "scheduling@hrbenefits.example"),
         GridlinkContact("verdant", "", "Verdant", "Pest control", "service@verdantfs.example"),
-        GridlinkContact("brightmar", "", "Brightmar Regional", "Food distribution", "orders@brightmar.example"),
+        GridlinkContact(
+            "brightmar", "", "Brightmar Regional", "Horticultural distribution",
+            "orders@brightmar.example",
+        ),
         GridlinkContact("training", "", "Training Team", "Certification tracking", "training@hrbenefits.example"),
         GridlinkContact("tran", "Victor", "Tran", "POS Support Tech", "v.tran@tallyman.example"),
         GridlinkContact("ueda", "Nadia", "Ueda", "Plant Health Auditor", "n.ueda@verdantfs.example"),
-        GridlinkContact("valdez", "Hector", "Valdez", "Produce Rep, Brightmar", "h.valdez@brightmar.example"),
+        GridlinkContact("valdez", "Hector", "Valdez", "Plants Rep, Brightmar", "h.valdez@brightmar.example"),
         GridlinkContact("whitfield", "Monica", "Whitfield", "Store Accountant", "m.whitfield@gridlink.me"),
         GridlinkContact("yancey", "Adele", "Yancey", "HR Generalist", "a.yancey@hrbenefits.example"),
         GridlinkContact("zielinski", "Petra", "Zielinski", "Insurance Adjuster, Marden Halloway", "p.zielinski@mardenmma.example"),
-        GridlinkContact("okonkwo", "Chidi", "Okonkwo", "Beverage Vendor Rep", "c.okonkwo@brightmar.example"),
+        GridlinkContact("okonkwo", "Chidi", "Okonkwo", "Sundries Vendor Rep", "c.okonkwo@brightmar.example"),
     ).sortedWith(compareBy({ it.filedUnder.lowercase() }, { it.given.lowercase() }))
 
     /** [all], grouped. Computed once: the list is a constant, so regrouping it per recomposition
