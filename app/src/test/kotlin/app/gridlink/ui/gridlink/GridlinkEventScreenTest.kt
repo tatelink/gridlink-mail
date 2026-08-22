@@ -70,7 +70,7 @@ class GridlinkEventScreenTest {
 
     private fun event(
         id: String = "e1",
-        title: String = "Dish machine service",
+        title: String = "Irrigation service",
         date: LocalDate = DAY,
         start: LocalTime? = LocalTime.of(13, 0),
         end: LocalTime? = LocalTime.of(16, 0),
@@ -147,7 +147,7 @@ class GridlinkEventScreenTest {
     @Test
     fun header_namesTheDayInFull_saysTheSpanWithItsDuration_andBackClosesOnce() {
         show()
-        rule.onNodeWithText("Dish machine service").assertExists()
+        rule.onNodeWithText("Irrigation service").assertExists()
         rule.onNodeWithText("Thursday 30 July 2026").assertExists()
         rule.onNodeWithText("1 PM – 4 PM · 3 hr").assertExists()
         // No writer, so no Edit; Copy and Share are real everywhere.
@@ -188,14 +188,14 @@ class GridlinkEventScreenTest {
     fun facts_locationNotesCategoryAndReminders_areDrawn_withRemindersSortedOnOneLine() {
         show(
             event = event(
-                location = "Store 604",
+                location = "Site 612",
                 notes = "Bring the gasket kit.",
                 category = "Maintenance",
                 // Unsorted on purpose: the card sorts, soonest-to-fire last.
                 reminders = listOf(1440, 0, 10),
             ),
         )
-        rule.onNodeWithText("Store 604").assertExists().assertHasClickAction()
+        rule.onNodeWithText("Site 612").assertExists().assertHasClickAction()
         rule.onNodeWithText("Notes").assertExists()
         rule.onNodeWithText("Bring the gasket kit.").assertExists()
         rule.onNodeWithText("Maintenance").assertExists()
@@ -236,7 +236,7 @@ class GridlinkEventScreenTest {
         rule.onNodeWithContentDescription("Remove quote.pdf from this event").performClick()
         rule.onNodeWithText("Remove this file?").assertExists()
         rule.onNodeWithText(
-            "quote.pdf will be deleted from Dish machine service for everyone it is shared with. " +
+            "quote.pdf will be deleted from Irrigation service for everyone it is shared with. " +
                 "This cannot be undone.",
         ).assertExists()
         button("Cancel").performClick()
@@ -274,18 +274,18 @@ class GridlinkEventScreenTest {
 
     @Test
     fun alsoThatDay_listsTheBooksOtherEventsOnTheDate_allDayFirst_andOpensTheOneTapped() {
-        val opened = event(id = "e1", title = "Dish machine service", start = LocalTime.of(8, 30), end = null)
+        val opened = event(id = "e1", title = "Irrigation service", start = LocalTime.of(8, 30), end = null)
         val deadline = event(id = "e2", title = "CAP due", start = null, end = null)
         val later = event(id = "e3", title = "Callout coverage", start = LocalTime.of(18, 0), end = LocalTime.of(19, 0))
-        val tomorrow = event(id = "e4", title = "Store walk", date = DAY.plusDays(1))
+        val tomorrow = event(id = "e4", title = "Site walk", date = DAY.plusDays(1))
         show(event = opened, book = liveBook(events = listOf(later, tomorrow, opened, deadline)))
 
         // A start with no end is just the start.
         rule.onNodeWithText("8:30 AM").assertExists()
         rule.onNodeWithText("Also that day").assertExists()
         // The open event is not listed under itself, and another day's event is not on this card.
-        rule.onAllNodesWithText("Dish machine service").assertCountEquals(1)
-        rule.onAllNodesWithText("Store walk").assertCountEquals(0)
+        rule.onAllNodesWithText("Irrigation service").assertCountEquals(1)
+        rule.onAllNodesWithText("Site walk").assertCountEquals(0)
         // All-day first, then by start; the row's time is the start alone.
         rule.onNodeWithText("All day").assertExists()
         rule.onNodeWithText("6 PM").assertExists()
@@ -302,7 +302,7 @@ class GridlinkEventScreenTest {
 
     @Test
     fun internalEvent_hasNoWithRowAndNoMailSection() {
-        show(event = event(domain = OWN_DOMAIN, location = "Store 604"))
+        show(event = event(domain = OWN_DOMAIN, location = "Site 612"))
         rule.onAllNodesWithText(OWN_DOMAIN).assertCountEquals(0)
         rule.onAllNodesWithText("Mail from $OWN_DOMAIN").assertCountEquals(0)
         rule.onAllNodesWithText("Nothing from them yet.").assertCountEquals(0)
@@ -314,7 +314,7 @@ class GridlinkEventScreenTest {
             id = "c-sanivex",
             given = "",
             family = "Sanivex",
-            role = "Dish machines",
+            role = "Irrigation",
             email = "service@sanivex.example",
         )
         val tech = GridlinkContact(
@@ -368,7 +368,7 @@ class GridlinkEventScreenTest {
     fun copy_putsTheCardOnTheClipboardAsText_withoutTheReminders() {
         show(
             event = event(
-                location = "Store 604",
+                location = "Site 612",
                 category = "Maintenance",
                 notes = "Bring the gasket kit.",
                 reminders = listOf(10),
@@ -378,7 +378,7 @@ class GridlinkEventScreenTest {
         val clipboard = screenContext!!.getSystemService(ClipboardManager::class.java)
         val copied = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
         assertEquals(
-            "Dish machine service\nThursday 30 July 2026\n1 PM – 4 PM · 3 hr\nStore 604\nMaintenance\n" +
+            "Irrigation service\nThursday 30 July 2026\n1 PM – 4 PM · 3 hr\nSite 612\nMaintenance\n" +
                 "Bring the gasket kit.",
             copied,
         )

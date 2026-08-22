@@ -178,12 +178,12 @@ class GridlinkMessageListScreenTest {
         rule.onNodeWithText("14 new").assertExists()
         rule.onNodeWithContentDescription("Expand").assertExists()
         rule.onNodeWithText("TODAY").assertExists()
-        rule.onNodeWithText("did you feed the dogs").assertExists()
+        rule.onNodeWithText("are you home for tea").assertExists()
         // Collapsed: the robots' own rows are not in the timeline.
-        rule.onNodeWithText("Daily Sales Summary 2043 HILLCREST 07/30").assertDoesNotExist()
+        rule.onNodeWithText("Daily Sales Summary 4021 WILLOWMERE 07/30").assertDoesNotExist()
         assertTrue(top("AUTOMATED") < top("Reports"))
         assertTrue(top("Reports") < top("TODAY"))
-        assertTrue(top("TODAY") < top("did you feed the dogs"))
+        assertTrue(top("TODAY") < top("are you home for tea"))
         rule.onNodeWithContentDescription("Loading mail").assertDoesNotExist()
         rule.onNodeWithText("Nothing to read").assertDoesNotExist()
     }
@@ -192,12 +192,12 @@ class GridlinkMessageListScreenTest {
     fun bundle_opensOnItsChevron_andClosesAgain() {
         show(initiallyExpanded = true)
         rule.onNodeWithContentDescription("Collapse").assertExists()
-        rule.onNodeWithText("Daily Sales Summary 2043 HILLCREST 07/30").assertExists()
+        rule.onNodeWithText("Daily Sales Summary 4021 WILLOWMERE 07/30").assertExists()
 
         rule.onNodeWithContentDescription("Collapse").performClick()
         rule.waitForIdle()
         rule.onNodeWithContentDescription("Expand").assertExists()
-        rule.onNodeWithText("Daily Sales Summary 2043 HILLCREST 07/30").assertDoesNotExist()
+        rule.onNodeWithText("Daily Sales Summary 4021 WILLOWMERE 07/30").assertDoesNotExist()
     }
 
     @Test
@@ -215,7 +215,7 @@ class GridlinkMessageListScreenTest {
         assertTrue(top("Gamma yesterday") < top("EARLIER"))
         assertTrue(top("EARLIER") < top("Delta earlier"))
         // The sample never leaks in beside real mail.
-        rule.onNodeWithText("did you feed the dogs").assertDoesNotExist()
+        rule.onNodeWithText("are you home for tea").assertDoesNotExist()
     }
 
     @Test
@@ -239,7 +239,7 @@ class GridlinkMessageListScreenTest {
     fun initiallyEmpty_withoutASupplier_isTheSameEmptyInbox() {
         show(initiallyEmpty = true)
         rule.onNodeWithText("Nothing to read").assertExists()
-        rule.onNodeWithText("did you feed the dogs").assertDoesNotExist()
+        rule.onNodeWithText("are you home for tea").assertDoesNotExist()
         rule.onNodeWithText("Reports").assertDoesNotExist()
     }
 
@@ -415,11 +415,11 @@ class GridlinkMessageListScreenTest {
     @Test
     fun typingInSearch_reportsEveryKeystroke_andTheSampleSearchesItself() {
         show(initialSearchExpanded = true)
-        rule.onNodeWithText("Search mail").performTextInput("dogs")
+        rule.onNodeWithText("Search mail").performTextInput("home")
         rule.waitForIdle()
-        assertEquals("dogs", queries.last())
-        rule.onNodeWithText("did you feed the dogs").assertExists()
-        rule.onNodeWithText("Truck came up 3 cases short again, 2043 HILLCREST").assertDoesNotExist()
+        assertEquals("home", queries.last())
+        rule.onNodeWithText("are you home for tea").assertExists()
+        rule.onNodeWithText("Delivery came up 3 trays short again, 4021 WILLOWMERE").assertDoesNotExist()
         rule.onNodeWithText("Reports").assertDoesNotExist()
 
         rule.onNodeWithContentDescription("Close search").performClick()
@@ -459,7 +459,7 @@ class GridlinkMessageListScreenTest {
         rule.waitForIdle()
 
         assertEquals(listOf(MailFilter(unread = true)), filters)
-        rule.onNodeWithText("did you feed the dogs").assertExists()
+        rule.onNodeWithText("are you home for tea").assertExists()
         rule.onNodeWithText("Week 32 schedules are posted, please review before Thursday").assertDoesNotExist()
     }
 

@@ -35,13 +35,13 @@ class GridlinkReparentTest {
         mayRename = mayRename,
     )
 
-    /** inbox > (ops > (604, hillcrest), people); plus a top-level trash and a top-level user folder. */
+    /** inbox > (ops > (604, willowmere), people); plus a top-level trash and a top-level user folder. */
     private val tree = listOf(
         folder(
             "inbox",
             GridlinkFolderRole.INBOX,
             listOf(
-                folder("ops", children = listOf(folder("604"), folder("hillcrest"))),
+                folder("ops", children = listOf(folder("604"), folder("willowmere"))),
                 folder("people"),
             ),
         ),
@@ -123,7 +123,7 @@ class GridlinkReparentTest {
         val moved = tree.moveFolder("ops", null)
         assertNull(moved.findFolder("inbox")?.children?.firstOrNull { it.id == "ops" })
         val ops = moved.findFolder("ops")
-        assertEquals(listOf("604", "hillcrest"), ops?.children?.map { it.id })
+        assertEquals(listOf("604", "willowmere"), ops?.children?.map { it.id })
         // Appended at the destination rather than sorted in, same as a create.
         assertEquals("ops", moved.last().id)
     }
@@ -131,7 +131,7 @@ class GridlinkReparentTest {
     @Test fun `a move into another branch lands at the end of it`() {
         val moved = tree.moveFolder("604", "people")
         assertEquals(listOf("604"), moved.findFolder("people")?.children?.map { it.id })
-        assertEquals(listOf("hillcrest"), moved.findFolder("ops")?.children?.map { it.id })
+        assertEquals(listOf("willowmere"), moved.findFolder("ops")?.children?.map { it.id })
         // The whole tree still has the same folders in it, one of them somewhere else.
         assertEquals(tree.flatten().size, moved.flatten().size)
     }
@@ -163,14 +163,14 @@ class GridlinkReparentTest {
 
     @Test fun `the sample tree can move a store folder under vendors and back out`() {
         val top = GridlinkSampleTree.mailboxes
-        assertTrue(top.mayReparent("ops-604", "vendors"))
-        val moved = top.moveFolder("ops-604", "vendors")
-        assertTrue(moved.findFolder("vendors")?.children?.any { it.id == "ops-604" } == true)
-        assertTrue(moved.findFolder("ops")?.children?.none { it.id == "ops-604" } == true)
+        assertTrue(top.mayReparent("ops-612", "vendors"))
+        val moved = top.moveFolder("ops-612", "vendors")
+        assertTrue(moved.findFolder("vendors")?.children?.any { it.id == "ops-612" } == true)
+        assertTrue(moved.findFolder("ops")?.children?.none { it.id == "ops-612" } == true)
         assertEquals(top.flatten().size, moved.flatten().size)
 
-        val out = moved.moveFolder("ops-604", null)
-        assertEquals("ops-604", out.last().id)
+        val out = moved.moveFolder("ops-612", null)
+        assertEquals("ops-612", out.last().id)
         assertEquals(top.flatten().size, out.flatten().size)
     }
 

@@ -1258,7 +1258,7 @@ data class GridlinkComposeDraft(
             // the frame replied to no one. Pinned by GridlinkSampleDefaultsTest.
             recipients = listOfNotNull(GridlinkSampleContacts.all.firstOrNull { it.id == "ridley" }),
             recipientQuery = "",
-            subject = "Re: Callout Saturday AM, need coverage 2071 Kirkwood",
+            subject = "Re: Callout Saturday AM, need coverage 4090 Briarfield",
             body = "Approved the OT for Perez. Post the updated schedule tonight and copy " +
                 "Danielle when she is back on.",
             // The sentence here used to live inside the chip's expanded state, hard-coded, which is
@@ -1266,9 +1266,9 @@ data class GridlinkComposeDraft(
             // replies to.
             quoted = GridlinkQuote(
                 attribution = "On Yesterday 3:05 PM, M. Ridley <m.ridley@hrbenefits.example> wrote:",
-                html = "Need coverage Saturday AM at 2071 Kirkwood. Two callouts overnight and " +
+                html = "Need coverage Saturday AM at 4090 Briarfield. Two callouts overnight and " +
                     "Perez has already picked up one of them.",
-                text = "Need coverage Saturday AM at 2071 Kirkwood. Two callouts overnight and " +
+                text = "Need coverage Saturday AM at 4090 Briarfield. Two callouts overnight and " +
                     "Perez has already picked up one of them.",
             ),
             attachments = listOf(GridlinkAttachment("wk32_schedule_1155.pdf", "84 KB")),
@@ -1330,7 +1330,7 @@ data class GridlinkComposeDraft(
             "Approved the OT for Perez. Post the updated schedule tonight and copy Danielle when " +
                 "she is back on.",
             "On the rest of the chain below: I read all of it and I am not re-litigating the " +
-                "Kirkwood swap here. That decision stands until the district call.",
+                "Briarfield swap here. That decision stands until the regional call.",
             "Coverage first. Two callouts overnight is the whole problem and everything after it " +
                 "is downstream of that, so please stop routing it through scheduling.",
             "If the truck is late again on Thursday we hold the line at the same answer we gave " +

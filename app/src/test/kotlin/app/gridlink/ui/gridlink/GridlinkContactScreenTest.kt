@@ -167,7 +167,7 @@ class GridlinkContactScreenTest {
             contact = contact(
                 emails = listOf("dara@ridgeline-foods.test", "dara.loxwell@personal.test"),
                 phones = listOf("+1 704 555 0142"),
-                addresses = listOf("2043 Hillcrest Rd, Charlotte NC"),
+                addresses = listOf("4021 Willowmere Rd, Charlotte NC"),
                 company = "Ridgeline Foods",
                 customFields = listOf(ContactCardCustomField("Birthday", "June 3")),
             ),
@@ -179,14 +179,14 @@ class GridlinkContactScreenTest {
         rule.onNodeWithText("Phone").assertExists()
         rule.onNodeWithText("+1 704 555 0142").assertExists()
         rule.onNodeWithText("Address").assertExists()
-        rule.onNodeWithText("2043 Hillcrest Rd, Charlotte NC").assertExists()
+        rule.onNodeWithText("4021 Willowmere Rd, Charlotte NC").assertExists()
         rule.onNodeWithText("Company").assertExists()
         rule.onNodeWithText("Ridgeline Foods").assertExists().assertHasNoClickAction()
         rule.onNodeWithText("Birthday").assertExists()
         rule.onNodeWithText("June 3").assertExists().assertHasNoClickAction()
 
         val tops = listOf(
-            "dara.loxwell@personal.test", "+1 704 555 0142", "2043 Hillcrest Rd, Charlotte NC", "Ridgeline Foods",
+            "dara.loxwell@personal.test", "+1 704 555 0142", "4021 Willowmere Rd, Charlotte NC", "Ridgeline Foods",
             "June 3",
         )
             .map { rule.onNodeWithText(it).getUnclippedBoundsInRoot().top }
@@ -232,12 +232,12 @@ class GridlinkContactScreenTest {
 
     @Test
     fun addressRow_asksTheMapForThePlace() {
-        show(contact = contact(addresses = listOf("2043 Hillcrest Rd")))
-        rule.onNodeWithText("2043 Hillcrest Rd").performClick()
+        show(contact = contact(addresses = listOf("4021 Willowmere Rd")))
+        rule.onNodeWithText("4021 Willowmere Rd").performClick()
         val intent = nextStartedIntent()
         assertNotNull("the map was asked", intent)
         assertEquals(Intent.ACTION_VIEW, intent!!.action)
-        assertEquals("geo:0,0?q=2043%20Hillcrest%20Rd", intent.dataString)
+        assertEquals("geo:0,0?q=4021%20Willowmere%20Rd", intent.dataString)
     }
 
     // ---- recent mail ---------------------------------------------------------------------------

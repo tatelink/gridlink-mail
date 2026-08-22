@@ -100,8 +100,8 @@ class GridlinkCalendarScreenTest {
         // The selected day's list under the grid, with its events in time order.
         rule.onNodeWithText("Wednesday 12 August").assertExists()
         rule.onNodeWithText("Morning huddle").assertExists()
-        rule.onNodeWithText("Dish machine service").assertExists()
-        rule.onNodeWithText("Store 604").assertExists()
+        rule.onNodeWithText("Irrigation service").assertExists()
+        rule.onNodeWithText("Site 612").assertExists()
         // Reported on arrival, not only on a tap, so a reading pane has something to say at once.
         rule.waitForIdle()
         assertEquals(listOf(TODAY), selectedDates)
@@ -187,7 +187,7 @@ class GridlinkCalendarScreenTest {
     @Test
     fun tappingAnEvent_opensThatEvent_fromTheDayList_andFromTheWeekGrid() {
         show()
-        rule.onNodeWithText("Dish machine service").performClick()
+        rule.onNodeWithText("Irrigation service").performClick()
         assertEquals(listOf("dish"), opened.map { it.id })
 
         tab("Week").performClick()
@@ -308,15 +308,15 @@ class GridlinkCalendarScreenTest {
                 date = TODAY,
                 start = LocalTime.of(8, 0),
                 end = LocalTime.of(8, 30),
-                location = "2043 Hillcrest",
+                location = "4021 Willowmere",
             ),
             GridlinkEvent(
                 id = "dish",
-                title = "Dish machine service",
+                title = "Irrigation service",
                 date = TODAY,
                 start = LocalTime.of(13, 0),
                 end = LocalTime.of(16, 0),
-                location = "Store 604",
+                location = "Site 612",
                 domain = "sanivex.example",
             ),
             GridlinkEvent(

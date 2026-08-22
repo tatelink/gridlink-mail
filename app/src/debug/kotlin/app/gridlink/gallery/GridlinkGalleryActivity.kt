@@ -210,8 +210,8 @@ class GridlinkGalleryActivity : ComponentActivity() {
         // target wearing the accent outline. Not drivable from adb for a reason no `input swipe` can
         // get around — the drag ends the instant the finger lifts, and the screenshot is taken after
         // it has, so the capture is always of the tree after the move rather than during it.
-        //   am start -n .../GridlinkGalleryActivity --es tab folders --es drag ops-604 --es onto vendors
-        //   am start -n .../GridlinkGalleryActivity --es tab folders --es drag ops-604 --es onto root
+        //   am start -n .../GridlinkGalleryActivity --es tab folders --es drag ops-612 --es onto vendors
+        //   am start -n .../GridlinkGalleryActivity --es tab folders --es drag ops-612 --es onto root
         val dragFolderId = intent?.getStringExtra("drag")?.trim()?.takeIf { it.isNotEmpty() }
         val dropTargetId = intent?.getStringExtra("onto")?.trim()?.takeIf { it.isNotEmpty() }
         if (dragFolderId != null) {
@@ -394,7 +394,7 @@ class GridlinkGalleryActivity : ComponentActivity() {
         // whichever direction it settled from, so a mid-flight frame is the only proof the parallax,
         // the scrim and the edge shadow are all reading the same value.
         //   am start -S -n .../GridlinkGalleryActivity --es open jonah-dogs
-        //   am start -S -n .../GridlinkGalleryActivity --es open tally-hillcrest --ef openAt 0.45
+        //   am start -S -n .../GridlinkGalleryActivity --es open tally-willowmere --ef openAt 0.45
         val openId = intent?.getStringExtra("open")?.trim()?.takeIf { it.isNotEmpty() }
         // Validated here rather than left to the lookup, so the failure names the extra that is
         // wrong. GridlinkSample.messageById throws on a miss and lists the ids.
@@ -434,7 +434,7 @@ class GridlinkGalleryActivity : ComponentActivity() {
         }
         // The folder's message list, already open. Fourth of the same shape, sharing `openAt` for the
         // same reason the other three do: one tab shows at a time, so one detail exists at a time.
-        //   am start -S -n .../GridlinkGalleryActivity --es tab folders --es mailbox ops-604
+        //   am start -S -n .../GridlinkGalleryActivity --es tab folders --es mailbox ops-612
         //
         // ⚠️ `mailbox`, NOT `folder`. `--es folder` is the long-press sheet ON a mailbox and this is
         // the mail INSIDE one: two frames of two different features that happen to name the same
@@ -724,7 +724,7 @@ private fun GridlinkGallery(
 private val SAMPLE_INVITE = GridlinkInvite(
     title = "Quarterly equipment review",
     whenLine = "Tuesday 19 August, 09:00 - 10:00",
-    location = "Store 51, back office",
+    location = "Site 51, back office",
     organizer = "Dara Ridley",
     guests = 6,
     repeats = "Every 3 months on the third Tuesday",

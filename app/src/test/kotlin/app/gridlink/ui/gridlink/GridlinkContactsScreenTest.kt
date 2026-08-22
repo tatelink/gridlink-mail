@@ -126,7 +126,7 @@ class GridlinkContactsScreenTest {
     @Test
     fun secondLine_isTheRole_orTheEmailWithoutOne_orThePhoneWithoutEither() {
         show()
-        rule.onNodeWithText("District Manager").assertExists()
+        rule.onNodeWithText("Regional Manager").assertExists()
         list().performScrollToNode(hasText("i.duarte@sitecare.example"))
         rule.onNodeWithText("i.duarte@sitecare.example").assertExists()
         list().performScrollToNode(hasText("555-0142"))
@@ -257,7 +257,7 @@ class GridlinkContactsScreenTest {
         val CONTACTS: List<GridlinkContact> = listOf(
             GridlinkContact("zimmer", "Petra", "Zimmer", "Insurance Adjuster", "p.zimmer@mardenmma.example"),
             GridlinkContact("nash", "Grace", "Nash", "Regional Trainer", "g.nash@hrbenefits.example"),
-            GridlinkContact("avery", "Nora", "Avery", "District Manager", "n.avery@gridlink.me"),
+            GridlinkContact("avery", "Nora", "Avery", "Regional Manager", "n.avery@gridlink.me"),
             GridlinkContact("coastal", "", "Coastal Linen", "Linen service", "service@coastallinen.example"),
             GridlinkContact("bramwell", "Theo", "Bramwell", "General Manager", "t.bramwell@gridlink.me"),
             GridlinkContact("duarte", "Ines", "Duarte", "", "i.duarte@sitecare.example"),
@@ -266,7 +266,7 @@ class GridlinkContactsScreenTest {
             GridlinkContact("park", "June", "Park", "Shift Lead", "j.park@gridlink.me"),
             GridlinkContact("quinn", "Rory", "Quinn", "Payroll Specialist", "r.quinn@hrbenefits.example"),
             GridlinkContact("reyes", "Tomas", "Reyes", "Kitchen Manager", "t.reyes@gridlink.me"),
-            GridlinkContact("sato", "Hana", "Sato", "Food Safety Auditor", "h.sato@verdantfs.example"),
+            GridlinkContact("sato", "Hana", "Sato", "Plant Health Auditor", "h.sato@verdantfs.example"),
             GridlinkContact("tully", "Finn", "Tully", "POS Support Tech", "f.tully@tallyman.example"),
             GridlinkContact("vance", "Lena", "Vance", "Store Accountant", "l.vance@gridlink.me"),
             GridlinkContact("ward", "Milo", "Ward", "Maintenance Tech", "m.ward@sitecare.example"),

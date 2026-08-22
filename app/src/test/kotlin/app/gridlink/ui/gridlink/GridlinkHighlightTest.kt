@@ -48,7 +48,7 @@ class GridlinkHighlightTest {
 
     @Test
     fun `every query term is highlighted`() {
-        assertEquals(listOf("Store", "2043"), matched("Store 2043 weekly summary", "store 2043"))
+        assertEquals(listOf("Site", "4021"), matched("Site 4021 weekly summary", "site 4021"))
     }
 
     @Test

@@ -53,11 +53,11 @@ object GridlinkSampleTree {
                     id = "ops",
                     name = "Ops",
                     children = listOf(
-                        GridlinkFolder(id = "ops-604", name = "Store 604"),
-                        GridlinkFolder(id = "ops-hillcrest", name = "2043 Hillcrest"),
-                        GridlinkFolder(id = "ops-kirkwood", name = "2071 Kirkwood"),
-                        GridlinkFolder(id = "ops-ellsworth", name = "2118 Ellsworth"),
-                        GridlinkFolder(id = "ops-fernhill", name = "2096 Fernhill Rd"),
+                        GridlinkFolder(id = "ops-612", name = "Site 612"),
+                        GridlinkFolder(id = "ops-willowmere", name = "4021 Willowmere"),
+                        GridlinkFolder(id = "ops-briarfield", name = "4090 Briarfield"),
+                        GridlinkFolder(id = "ops-ashgrove", name = "4073 Ashgrove"),
+                        GridlinkFolder(id = "ops-stonebridge", name = "4058 Stonebridge"),
                     ),
                 ),
                 GridlinkFolder(
@@ -91,7 +91,7 @@ object GridlinkSampleTree {
     /**
      * Stamps each folder with the unread count of the mail actually in it.
      *
-     * ⚠️ Own mail only, not a rolled-up total including children. Ops reading 2 while Store 604 under
+     * ⚠️ Own mail only, not a rolled-up total including children. Ops reading 2 while Site 612 under
      * it reads 2 as well is not a contradiction, they are two different lists; a parent that summed
      * its children would claim mail its own message list does not show. The tree was already written
      * this way by hand, so this only makes the existing rule enforceable.
@@ -138,12 +138,12 @@ object GridlinkSampleTree {
             domain = "tallyman.example",
         ),
         GridlinkEvent(
-            id = "hillcrest-huddle",
+            id = "willowmere-huddle",
             title = "Daily sales huddle",
             date = LocalDate.of(2026, 7, 30),
             start = LocalTime.of(8, 0),
             end = LocalTime.of(8, 30),
-            location = "2043 Hillcrest",
+            location = "4021 Willowmere",
             domain = "gridlink.me",
             notes = "Yesterday's numbers, today's staffing, one callout each.",
             category = "Operations",
@@ -151,16 +151,16 @@ object GridlinkSampleTree {
         ),
         GridlinkEvent(
             id = "sanivex-dish",
-            title = "Sanivex technician, dish machine",
+            title = "Sanivex technician, irrigation controller",
             date = LocalDate.of(2026, 7, 30),
             start = LocalTime.of(13, 0),
             end = LocalTime.of(16, 0),
-            location = "Store 604",
+            location = "Site 612",
             domain = "sanivex.example",
         ),
         GridlinkEvent(
             id = "complaint-callback",
-            title = "Guest complaint 2210447 callback",
+            title = "Customer complaint 2210447 callback",
             date = LocalDate.of(2026, 7, 30),
             start = LocalTime.of(16, 30),
             end = LocalTime.of(17, 0),
@@ -173,21 +173,21 @@ object GridlinkSampleTree {
             domain = "hrbenefits.example",
         ),
         GridlinkEvent(
-            id = "fernhill-walk",
-            title = "Store walk 2096 Fernhill Rd",
+            id = "stonebridge-walk",
+            title = "Site walk 4058 Stonebridge",
             date = LocalDate.of(2026, 7, 31),
             start = LocalTime.of(9, 0),
             end = LocalTime.of(11, 0),
-            location = "2096 Fernhill Rd",
+            location = "4058 Stonebridge",
             domain = "gridlink.me",
         ),
         GridlinkEvent(
-            id = "kirkwood-callout",
+            id = "briarfield-callout",
             title = "Callout coverage",
             date = LocalDate.of(2026, 8, 1),
             start = LocalTime.of(6, 0),
             end = LocalTime.of(10, 0),
-            location = "2071 Kirkwood",
+            location = "4090 Briarfield",
             domain = "gridlink.me",
         ),
         GridlinkEvent(
@@ -200,7 +200,7 @@ object GridlinkSampleTree {
         ),
         GridlinkEvent(
             id = "cap-due",
-            title = "Corrective Action Plan due, Store 604",
+            title = "Corrective Action Plan due, Site 612",
             date = LocalDate.of(2026, 8, 4),
             domain = "verdantfs.example",
         ),
@@ -210,7 +210,7 @@ object GridlinkSampleTree {
             date = LocalDate.of(2026, 8, 5),
             start = LocalTime.of(7, 0),
             end = LocalTime.of(9, 0),
-            location = "2043 Hillcrest",
+            location = "4021 Willowmere",
             domain = "brightmar.example",
         ),
         GridlinkEvent(
@@ -227,16 +227,16 @@ object GridlinkSampleTree {
             date = LocalDate.of(2026, 8, 7),
             start = LocalTime.of(10, 0),
             end = LocalTime.of(12, 0),
-            location = "Store 604",
+            location = "Site 612",
             domain = "verdantfs.example",
-            notes = "Re-check walk-in door gasket and the dish machine final rinse temp. " +
+            notes = "Re-check the glasshouse vent motor and the irrigation controller zone pressures. " +
                 "Bring the corrected CAP paperwork from the 8/4 submission.",
             category = "Audit",
             reminders = listOf(30, 1440),
         ),
         GridlinkEvent(
             id = "recert-expires",
-            title = "Food safety recert expires",
+            title = "Applicator recert expires",
             date = LocalDate.of(2026, 8, 15),
             domain = "verdantfs.example",
         ),

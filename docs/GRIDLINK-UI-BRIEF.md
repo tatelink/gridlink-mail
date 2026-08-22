@@ -115,7 +115,7 @@ No avatar circles. Sender identity is carried by a 3dp vertical color bar on the
 ```
 ┌──────────────────────────────────────────────────┐
 │▌ Tallyman                            7:14 AM  │
-│▌ Daily Sales Summary 2043 HILLCREST 07/30      📎  │
+│▌ Daily Sales Summary 4021 WILLOWMERE 07/30      📎  │
 └──────────────────────────────────────────────────┘
 ```
 
@@ -237,28 +237,30 @@ Do not include any of the following. Each is a default that would make this look
 - Live/real-time blur behind scrolling content (per-frame GPU cost, guaranteed jank)
 - Snippet preview text in list rows
 - Swipe-to-reveal action menus (actions must complete on the swipe itself)
-- Lorem ipsum, placeholder names, or invented sample content
+- Lorem ipsum, placeholder names, or sample content that is shorter or tidier than real mail (see §10)
 - Pull-to-refresh (JMAP pushes; a refresh gesture would be theater)
 - Onboarding, welcome, or upsell screens
 
 ---
 
-## 10. Use this real content
+## 10. Use this content
 
-Every mockup must use these actual senders and subject lines. They are long, ugly, and repetitive on purpose, and a design that only looks good with short subjects is not finished.
+Every mockup must use these senders and subject lines. They are long, ugly, and repetitive on purpose, and a design that only looks good with short subjects is not finished.
+
+🔴 These began as a real morning in a real mailbox and were re-themed, keeping every string length and every message archetype, once the repository went public. The point was never the particular industry: it is that the layout has to survive report subjects with site numbers and dates in them, a recruiter, a compliance notice and a two-word note from a spouse, all in one list. Do not "clean these up", do not shorten them to make a screenshot look better, and do not put anything real back.
 
 | Sender | Subject | Time |
 |---|---|---|
-| Tallyman | Daily Sales Summary 2043 HILLCREST 07/30 | 7:14 AM |
-| Power BI Service | Refresh failed: District7_P7_Rollup (dataset) | 6:52 AM |
-| Verdant | ACTION REQUIRED: Corrective Action Plan due 08/04 Store 604 | 6:31 AM |
-| Jonah | did you feed the dogs | 6:22 AM |
-| Larkfield HR | Open Enrollment closes Friday, action needed for all salaried TMs | Yesterday |
-| Tallyman | Labor Variance Exception Report 2096 FERNHILL RD Week 30 | Yesterday |
-| M. Ridley | Callout Saturday AM, need coverage 2071 Kirkwood | Yesterday |
-| Northgate Group Talent | Franchise Business Consultant, next steps and availability | Tue |
-| Verdant | Pest Sighting Report filed 2118 ELLSWORTH | Tue |
-| Power BI Service | Your subscription: District 7 Weekly Scorecard | Mon |
+| Tallyman | Daily Sales Summary 4021 WILLOWMERE 07/30 | 7:14 AM |
+| Power BI Service | Refresh failed: Region4_P7_Rollup (dataset) | 6:52 AM |
+| Verdant | ACTION REQUIRED: Corrective Action Plan due 08/04 Site 612 | 6:31 AM |
+| Jonah | are you home for tea | 6:22 AM |
+| Larkfield HR | Open Enrollment closes Friday, action needed for all salaried staff | Yesterday |
+| Tallyman | Labor Variance Exception Report 4058 STONEBRIDGE Week 30 | Yesterday |
+| M. Ridley | Callout Saturday AM, need coverage 4090 Briarfield | Yesterday |
+| Northgate Group Talent | Nursery Operations Manager, next steps and availability | Tue |
+| Verdant | Pest Sighting Report filed 4073 ASHGROVE | Tue |
+| Power BI Service | Your subscription: Region 4 Weekly Scorecard | Mon |
 
 ---
 

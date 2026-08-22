@@ -246,7 +246,7 @@ fun GridlinkFolderScreen(
     onOpenFolder: (GridlinkFolder) -> Unit = {},
     onCompose: () -> Unit = {},
 ) {
-    // Ancestors of a harness-requested folder are forced open, so `--es folderSheet ops-604` cannot
+    // Ancestors of a harness-requested folder are forced open, so `--es folderSheet ops-612` cannot
     // produce a sheet floating over a tree that does not visibly contain the row it names. Same
     // no-plausible-wrong-picture rule the gallery's other extras enforce by crashing.
     // 🔴 Resolved against [tree], not against [GridlinkSampleTree]. It read the sample while the
@@ -1292,7 +1292,7 @@ private fun GridlinkFolderActionSheet(
             title = folder.name,
             icon = folder.role.icon(),
             // Which branch it is on, because five of these folders are store numbers and three are
-            // vendors, and "Store 604" on its own does not say which parent you long-pressed under.
+            // vendors, and "Site 612" on its own does not say which parent you long-pressed under.
             subline = parentName?.let { "in $it" },
         )
         GridlinkSheetDivider()

@@ -291,7 +291,7 @@ fun GridlinkEventScreen(
             }
 
             // 🔴 Drawn only when something follows it. Two of the sample appointments are internal
-            // and have no location ("Guest complaint 2210447 callback"), so their whole card is the
+            // and have no location ("Customer complaint 2210447 callback"), so their whole card is the
             // block above, and a rule ending it would be a line under nothing: the exact shape of a
             // screen that failed to load its second half. A short card is the honest answer for an
             // appointment that is a time and a title, and it should look deliberate.
@@ -668,7 +668,7 @@ private fun GridlinkEventGroupLabel(text: String) {
  * Inert unless given an [onClick]. The With row stays inert (a domain is not somewhere you can go);
  * Where is tappable now that the events are real DAV events carrying whatever the organiser typed.
  *
- * ⚠️ Sample events still say things like "2043 Hillcrest", which is a store number rather than an
+ * ⚠️ Sample events still say things like "4021 Willowmere", which is a store number rather than an
  * address, so tapping one hands a map a query it will not find. That is the map's answer to give, not
  * this screen's to pre-empt: guessing which strings are "real enough" to be tappable would make the
  * row work for some appointments and silently not for others.

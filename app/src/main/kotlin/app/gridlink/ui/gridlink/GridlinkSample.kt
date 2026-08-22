@@ -1,31 +1,33 @@
 package app.gridlink.ui.gridlink
 
 /**
- * The brief's real content, verbatim.
+ * The brief's content, re-themed.
  *
- * 🔴 `docs/GRIDLINK-UI-BRIEF.md` §10 requires these exact senders and subject lines in every
- * mockup, and §9 bans invented sample content outright. They are long, ugly and repetitive on
- * purpose: a layout that only survives short subjects is not finished. Do not "clean these up",
- * do not shorten them to make a screenshot look better, and do not add extra rows to fill space.
+ * 🔴 `docs/GRIDLINK-UI-BRIEF.md` §10 requires these senders and subject lines in every mockup, and
+ * §9 bans sample content that is shorter or tidier than real mail. They are long, ugly and
+ * repetitive on purpose: a layout that only survives short subjects is not finished. Do not "clean
+ * these up", do not shorten them to make a screenshot look better, and do not add rows to fill
+ * space.
  *
- * ⚠️ The one thing the brief does NOT give is addresses, and the identity bar is keyed on sender
- * domain, so the domains below are inferred from the sender names. They affect only which colour a
- * sender's bar gets. Swap them for the real ones once the app is talking to the live mailbox.
+ * 🔴 These began as a real morning in a real mailbox. Once this repository went public they were
+ * re-themed onto a fictional garden-centre chain, keeping every string length and every message
+ * archetype: the automated overnight report, the compliance notice, the vendor thread, the
+ * recruiter, the two-word note from a spouse. The shapes are load-bearing; the subject matter is
+ * not. Re-theme freely, but do not make anything shorter, cleaner, or more uniform.
  *
- * ⚠️ One deliberate departure from §10: the brief's employer-branded HR sender was renamed to a
- * neutral "HR Benefits" at Tate's request, because seeing that brand in mockups was colliding
- * with unrelated work in other sessions. Subject lines are untouched, so the layout is still being
- * tested against the same real-world string lengths.
+ * ⚠️ The brief does not give addresses, and the identity bar is keyed on sender domain, so the
+ * domains below are invented to match the sender names. They affect only which colour a sender's
+ * bar gets.
  */
 object GridlinkSample {
 
     /** §10's ten, untouched. Everything below this list is filler; see [extraMessages]. */
     private val briefMessages: List<GridlinkMessage> = listOf(
         GridlinkMessage(
-            id = "tally-hillcrest",
+            id = "tally-willowmere",
             sender = "Tallyman",
             domain = "tallyman.example",
-            subject = "Daily Sales Summary 2043 HILLCREST 07/30",
+            subject = "Daily Sales Summary 4021 WILLOWMERE 07/30",
             timestamp = "7:14 AM",
             unread = false,
             attachments = listOf(GridlinkAttachment("dss_1182_0730.pdf", "61 KB")),
@@ -36,14 +38,14 @@ object GridlinkSample {
             // unsubscribed from" are different facts, and the gallery should show that they are.
             // This one is mailto-only — the method that opens a draft and sends nothing by itself.
             unsubscribe = GridlinkUnsubscribe(
-                mailto = "mailto:dss-unsub+2043@tallyman.example?subject=Unsubscribe%201182",
+                mailto = "mailto:dss-unsub+4021@tallyman.example?subject=Unsubscribe%201182",
             ),
         ),
         GridlinkMessage(
             id = "pbi-refresh",
             sender = "Power BI Service",
             domain = "microsoft.com",
-            subject = "Refresh failed: District7_P7_Rollup (dataset)",
+            subject = "Refresh failed: Region4_P7_Rollup (dataset)",
             timestamp = "6:52 AM",
             unread = false,
             automated = true,
@@ -56,7 +58,7 @@ object GridlinkSample {
             id = "verdant-cap",
             sender = "Verdant",
             domain = "verdantfs.example",
-            subject = "ACTION REQUIRED: Corrective Action Plan due 08/04 Store 604",
+            subject = "ACTION REQUIRED: Corrective Action Plan due 08/04 Site 612",
             timestamp = "6:31 AM",
             unread = true,
             automated = true,
@@ -65,7 +67,7 @@ object GridlinkSample {
             id = "jonah-dogs",
             sender = "Jonah Harker",
             domain = "gridlink.me",
-            subject = "did you feed the dogs",
+            subject = "are you home for tea",
             timestamp = "6:22 AM",
             unread = true,
             section = GridlinkSection.TODAY,
@@ -74,16 +76,16 @@ object GridlinkSample {
             id = "hr-enrollment",
             sender = "HR Benefits",
             domain = "hrbenefits.example",
-            subject = "Open Enrollment closes Friday, action needed for all salaried TMs",
+            subject = "Open Enrollment closes Friday, action needed for all salaried staff",
             timestamp = "Yesterday",
             unread = false,
             section = GridlinkSection.YESTERDAY,
         ),
         GridlinkMessage(
-            id = "tally-fernhill",
+            id = "tally-stonebridge",
             sender = "Tallyman",
             domain = "tallyman.example",
-            subject = "Labor Variance Exception Report 2096 FERNHILL RD Week 30",
+            subject = "Labor Variance Exception Report 4058 STONEBRIDGE Week 30",
             timestamp = "Yesterday",
             unread = false,
             automated = true,
@@ -92,16 +94,16 @@ object GridlinkSample {
             id = "ridley-callout",
             sender = "M. Ridley",
             domain = "hrbenefits.example",
-            subject = "Callout Saturday AM, need coverage 2071 Kirkwood",
+            subject = "Callout Saturday AM, need coverage 4090 Briarfield",
             timestamp = "Yesterday",
             unread = true,
             section = GridlinkSection.YESTERDAY,
         ),
         GridlinkMessage(
-            id = "northgate-fbc",
+            id = "northgate-role",
             sender = "Northgate Group Talent",
             domain = "northgategroup.example",
-            subject = "Franchise Business Consultant, next steps and availability",
+            subject = "Nursery Operations Manager, next steps and availability",
             timestamp = "Tue",
             // ⚠️ Read, on request. §10 has this one unread; it was flipped so there is a read row
             // sitting directly under the timeline's own heading where the difference between the
@@ -113,7 +115,7 @@ object GridlinkSample {
             id = "verdant-pest",
             sender = "Verdant",
             domain = "verdantfs.example",
-            subject = "Pest Sighting Report filed 2118 ELLSWORTH",
+            subject = "Pest Sighting Report filed 4073 ASHGROVE",
             timestamp = "Tue",
             unread = false,
             automated = true,
@@ -122,7 +124,7 @@ object GridlinkSample {
             id = "pbi-scorecard",
             sender = "Power BI Service",
             domain = "microsoft.com",
-            subject = "Your subscription: District 7 Weekly Scorecard",
+            subject = "Your subscription: Region 4 Weekly Scorecard",
             timestamp = "Mon",
             unread = false,
             automated = true,
@@ -161,7 +163,7 @@ object GridlinkSample {
             id = "fill-dl-truck",
             sender = "D. Loxwell",
             domain = "gridlink.me",
-            subject = "Truck came up 3 cases short again, 2043 HILLCREST",
+            subject = "Delivery came up 3 trays short again, 4021 WILLOWMERE",
             timestamp = "9:41 AM",
             unread = true,
             section = GridlinkSection.TODAY,
@@ -179,7 +181,7 @@ object GridlinkSample {
             id = "fill-sanivex",
             sender = "Sanivex Service",
             domain = "sanivex.example",
-            subject = "Technician arriving between 1 and 4 PM for the dish machine",
+            subject = "Technician arriving between 1 and 4 PM for the irrigation controller",
             timestamp = "8:37 AM",
             unread = true,
             attachments = listOf(GridlinkAttachment("sanivex_wo_44120.pdf", "62 KB")),
@@ -189,7 +191,7 @@ object GridlinkSample {
             id = "fill-tperez",
             sender = "T. Perez",
             domain = "gridlink.me",
-            subject = "Re: drive thru timer is reading 20 seconds fast",
+            subject = "Re: irrigation timer is running 20 minutes long",
             timestamp = "8:05 AM",
             unread = false,
             section = GridlinkSection.TODAY,
@@ -207,7 +209,7 @@ object GridlinkSample {
             id = "fill-facilities",
             sender = "Facilities Dispatch",
             domain = "sitecare.example",
-            subject = "Work order 88231 closed: walk-in freezer condenser 2096 FERNHILL RD",
+            subject = "Work order 88231 closed: glasshouse heater exchanger 4058 STONEBRIDGE",
             timestamp = "7:20 AM",
             unread = false,
             attachments = listOf(GridlinkAttachment("wo_88231_closure.pdf", "141 KB")),
@@ -246,7 +248,7 @@ object GridlinkSample {
             id = "fill-training",
             sender = "Training Team",
             domain = "hrbenefits.example",
-            subject = "Food safety recertification expires 08/15 for four of your TMs",
+            subject = "Applicator recertification expires 08/15 for four of your staff",
             timestamp = "Yesterday",
             unread = true,
             section = GridlinkSection.YESTERDAY,
@@ -262,10 +264,10 @@ object GridlinkSample {
         ),
         // EARLIER
         GridlinkMessage(
-            id = "fill-guest-relations",
-            sender = "Guest Relations",
+            id = "fill-customer-relations",
+            sender = "Customer Relations",
             domain = "sitecare.example",
-            subject = "Guest complaint 2210447 assigned to you, response due within 48 hours",
+            subject = "Customer complaint 2210447 assigned to you, response due within 48 hours",
             timestamp = "Tue",
             unread = true,
             // ⚠️ One of exactly two starred fixtures, and the only one that is also unread. Without
@@ -292,7 +294,7 @@ object GridlinkSample {
             subject = "Numbers for the P7 review, let me know if you want it cut differently",
             timestamp = "Mon",
             unread = false,
-            attachments = listOf(GridlinkAttachment("p7_review_by_store.xlsx", "412 KB")),
+            attachments = listOf(GridlinkAttachment("p7_review_by_site.xlsx", "412 KB")),
             section = GridlinkSection.EARLIER,
         ),
         GridlinkMessage(
@@ -311,7 +313,7 @@ object GridlinkSample {
             id = "fill-dhollis",
             sender = "D. Hollis",
             domain = "gridlink.me",
-            subject = "Lobby TV is stuck on the setup screen again",
+            subject = "Foyer screen is stuck on the setup screen again",
             timestamp = "Sun",
             unread = false,
             section = GridlinkSection.EARLIER,
@@ -320,7 +322,7 @@ object GridlinkSample {
             id = "fill-permit",
             sender = "Halesworth County",
             domain = "halesworthcounty.example",
-            subject = "Health inspection score posted: 2118 ELLSWORTH, 97.5",
+            subject = "Stock inspection score posted: 4073 ASHGROVE, 97.5",
             timestamp = "Sun",
             unread = false,
             attachments = listOf(GridlinkAttachment("inspection_1206_0726.pdf", "203 KB")),
@@ -328,10 +330,10 @@ object GridlinkSample {
         ),
         // Automated, to give the bundle enough children to be worth expanding.
         GridlinkMessage(
-            id = "fill-tally-kirkwood",
+            id = "fill-tally-briarfield",
             sender = "Tallyman",
             domain = "tallyman.example",
-            subject = "Daily Sales Summary 2071 KIRKWOOD 07/30",
+            subject = "Daily Sales Summary 4090 BRIARFIELD 07/30",
             timestamp = "7:14 AM",
             unread = true,
             attachments = listOf(GridlinkAttachment("dss_1155_0730.pdf", "58 KB")),
@@ -341,7 +343,7 @@ object GridlinkSample {
             id = "fill-tally-overtime",
             sender = "Tallyman",
             domain = "tallyman.example",
-            subject = "Overtime Threshold Alert, 6 TMs projected over 40 hours",
+            subject = "Overtime Threshold Alert, 6 staff projected over 40 hours",
             timestamp = "Yesterday",
             unread = true,
             automated = true,
@@ -359,7 +361,7 @@ object GridlinkSample {
             id = "fill-verdant-followup",
             sender = "Verdant",
             domain = "verdantfs.example",
-            subject = "Follow-up visit scheduled 08/07 Store 604",
+            subject = "Follow-up visit scheduled 08/07 Site 612",
             timestamp = "Mon",
             unread = false,
             automated = true,
@@ -410,20 +412,20 @@ object GridlinkSample {
             id = "draft-brightmar-credit",
             sender = GRIDLINK_SAMPLE_ACCOUNT,
             domain = "gridlink.me",
-            subject = "Credit request, truck short 3 cases 2043 HILLCREST 07/30",
+            subject = "Credit request, delivery short 3 trays 4021 WILLOWMERE 07/30",
             timestamp = "10:44 AM",
             section = GridlinkSection.TODAY,
             sentTo = GridlinkRecipient("Brightmar Regional", "brightmar.example"),
         ),
         GridlinkMessage(
-            id = "draft-cap-604",
+            id = "draft-cap-612",
             sender = GRIDLINK_SAMPLE_ACCOUNT,
             domain = "gridlink.me",
-            subject = "Corrective Action Plan, Store 604, walk-in gasket and prep sink",
+            subject = "Corrective Action Plan, Site 612, vent motor and spray station",
             timestamp = "10:12 AM",
             section = GridlinkSection.TODAY,
             // The one multi-recipient row, so the "(+2)" form is on screen in the gallery: a CAP
-            // goes back to the inspector with the store and the area director copied.
+            // goes back to the inspector with the store and the regional manager copied.
             sentTo = GridlinkRecipient("Verdant", "verdantfs.example", others = 2),
         ),
         GridlinkMessage(
@@ -489,7 +491,7 @@ object GridlinkSample {
             id = "sent-tally-recap",
             sender = GRIDLINK_SAMPLE_ACCOUNT,
             domain = "gridlink.me",
-            subject = "Weekly recap, all five stores, week ending 08/02",
+            subject = "Weekly recap, all six sites, week ending 08/02",
             timestamp = "Mon",
             section = GridlinkSection.EARLIER,
             attachments = listOf(GridlinkAttachment("recap-wk-0802.pdf", "204 KB")),

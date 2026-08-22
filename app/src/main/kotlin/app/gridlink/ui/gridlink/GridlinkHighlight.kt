@@ -53,7 +53,7 @@ object GridlinkHighlight {
 
     /**
      * Split the query the same way the tokenizer does: on anything that is not a letter or a digit.
-     * A search for "store 2043" is two prefix terms, and both get highlighted wherever they land.
+     * A search for "site 4021" is two prefix terms, and both get highlighted wherever they land.
      */
     private val TOKEN_SPLIT = Regex("[^\\p{L}\\p{N}]+")
 

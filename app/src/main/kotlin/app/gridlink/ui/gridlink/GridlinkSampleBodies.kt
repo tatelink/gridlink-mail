@@ -77,22 +77,22 @@ internal object GridlinkSampleBodies {
         // -------------------------------------------------------------------------------------
         // The brief's ten
         // -------------------------------------------------------------------------------------
-        "tally-hillcrest" to (
+        "tally-willowmere" to (
             "<p><b>Daily Sales Summary</b><br>" +
-                "Store 2043 HILLCREST &middot; Business date 07/30</p>" +
+                "Site 4021 WILLOWMERE &middot; Business date 07/30</p>" +
                 "<p>Net sales <b>\$14,208.63</b><br>" +
                 "Transactions 1,043<br>" +
-                "Average check \$13.62<br>" +
+                "Average basket \$13.62<br>" +
                 "Labour 24.1% of net, 0.6 points over plan</p>" +
-                "<p>Day part detail and the hourly break-out are attached. Figures are provisional " +
+                "<p>Department detail and the hourly break-out are attached. Figures are provisional " +
                 "until the 4:00 AM poll completes.</p>" +
                 "<p>This mailbox is not monitored. Raise reporting issues through the Tallyman " +
                 "support portal.</p>"
             ),
         "pbi-refresh" to (
             "<p><b>Refresh failed</b></p>" +
-                "<p>Dataset: District7_P7_Rollup<br>" +
-                "Workspace: District 7 Operations<br>" +
+                "<p>Dataset: Region4_P7_Rollup<br>" +
+                "Workspace: Region 4 Operations<br>" +
                 "Started: 07/30 6:47 AM<br>" +
                 "Failed: 07/30 6:52 AM</p>" +
                 "<p>Error: <i>The gateway ASH-REPORTING-01 did not respond within the configured " +
@@ -103,22 +103,22 @@ internal object GridlinkSampleBodies {
             ),
         "verdant-cap" to (
             "<p><b>ACTION REQUIRED</b></p>" +
-                "<p>A Corrective Action Plan is outstanding for <b>Store 604</b> following the " +
+                "<p>A Corrective Action Plan is outstanding for <b>Site 612</b> following the " +
                 "inspection on 07/24. It is due <b>08/04</b>.</p>" +
                 "<p>Open findings:</p>" +
-                "<p>&#8226; Walk-in cooler gasket torn, unit 2<br>" +
-                "&#8226; Sanitiser concentration below range at the three-compartment sink<br>" +
-                "&#8226; Hand sink at the prep line blocked by a rack</p>" +
+                "<p>&#8226; Glasshouse vent motor seized, bay 2<br>" +
+                "&#8226; Spray concentration below range at the mixing station<br>" +
+                "&#8226; Eye wash at the potting bench blocked by a rack</p>" +
                 "<p>Submit the completed plan through the Verdant portal. Plans not received by " +
-                "the due date escalate to your District Manager.</p>"
+                "the due date escalate to your Regional Manager.</p>"
             ),
         "jonah-dogs" to (
-            "<p>did you feed the dogs</p>" +
+            "<p>are you home for tea</p>" +
                 "<p>im not doing this again like last time</p>"
             ),
         "hr-enrollment" to (
             "<p>Open Enrollment for the 2027 plan year closes <b>Friday at 11:59 PM</b>. All " +
-                "salaried team members must complete an election, including anyone waiving " +
+                "salaried staff must complete an election, including anyone waiving " +
                 "coverage.</p>" +
                 "<p>What changed this year:</p>" +
                 "<p>&#8226; The HSA employer match moves to 4% of contributions<br>" +
@@ -129,9 +129,9 @@ internal object GridlinkSampleBodies {
                 "window.</p>" +
                 "<p><a href=\"https://benefits.hrbenefits.example/\">Complete your election</a></p>"
             ),
-        "tally-fernhill" to (
+        "tally-stonebridge" to (
             "<p><b>Labor Variance Exception Report</b><br>" +
-                "Store 2096 FERNHILL RD &middot; Week 30</p>" +
+                "Site 4058 STONEBRIDGE &middot; Week 30</p>" +
                 "<p>Scheduled 612.0 hours<br>" +
                 "Actual 648.5 hours<br>" +
                 "Variance <b>+36.5 hours</b>, 6.0% over</p>" +
@@ -142,20 +142,20 @@ internal object GridlinkSampleBodies {
             ),
         "ridley-callout" to (
             "<p>Morning,</p>" +
-                "<p>Perez called out for Saturday AM at 2071 Kirkwood. That leaves us one short on " +
-                "the front counter for the 6 to 2.</p>" +
-                "<p>I can cover until 10 but I have the district call at 10:30. Baxter said she " +
+                "<p>Perez called out for Saturday AM at 4090 Briarfield. That leaves us one short on " +
+                "the till for the 6 to 2.</p>" +
+                "<p>I can cover until 10 but I have the regional call at 10:30. Baxter said she " +
                 "would take the rest of it if we clear the overtime, she is at 34 hours " +
                 "already.</p>" +
                 "<p>Let me know either way tonight and I will post it.</p>" +
                 "<p>Ridley</p>"
             ),
-        "northgate-fbc" to (
+        "northgate-role" to (
             "<p>Hi Tate,</p>" +
                 "<p>Thanks for the call on Tuesday. The team would like to move you to the next " +
-                "stage for the <b>Franchise Business Consultant</b> opening covering the " +
-                "Carolinas.</p>" +
-                "<p>Next steps are a panel with the Regional Director and two current FBCs, about " +
+                "stage for the <b>Nursery Operations Manager</b> opening covering the " +
+                "Midlands.</p>" +
+                "<p>Next steps are a panel with the Regional Director and two current site managers, about " +
                 "ninety minutes, and a short written exercise on multi-unit labour planning sent a " +
                 "day beforehand.</p>" +
                 "<p>Could you send two or three windows that work in the next fortnight? Mornings " +
@@ -164,21 +164,21 @@ internal object GridlinkSampleBodies {
             ),
         "verdant-pest" to (
             "<p><b>Pest Sighting Report filed</b><br>" +
-                "Store 2118 ELLSWORTH &middot; Reported 07/28 9:12 PM</p>" +
-                "<p>Type: German cockroach, single adult<br>" +
-                "Location: Dry storage, behind the shelving on the north wall<br>" +
+                "Site 4073 ASHGROVE &middot; Reported 07/28 9:12 PM</p>" +
+                "<p>Type: Vine weevil, single adult<br>" +
+                "Location: Container yard, behind the shelving on the north wall<br>" +
                 "Reported by: K. Baxter, Shift Lead</p>" +
                 "<p>A service visit has been requested. No corrective action plan is required for a " +
                 "single sighting, but a second report inside thirty days opens one " +
                 "automatically.</p>"
             ),
         "pbi-scorecard" to (
-            "<p>Your subscription <b>District 7 Weekly Scorecard</b> ran on Monday at 6:00 AM.</p>" +
+            "<p>Your subscription <b>Region 4 Weekly Scorecard</b> ran on Monday at 6:00 AM.</p>" +
                 "<p>Top line for week 30:</p>" +
                 "<p>&#8226; Net sales \$214,880, up 2.1% on week 29<br>" +
                 "&#8226; Labour 23.8% of net, 0.3 points under plan<br>" +
-                "&#8226; Drive thru average 214 seconds, 14 over target<br>" +
-                "&#8226; Two stores below the 95 service threshold</p>" +
+                "&#8226; Order pick average 214 seconds, 14 over target<br>" +
+                "&#8226; Two sites below the 95 service threshold</p>" +
                 "<p><a href=\"https://app.powerbi.com/\">View the full scorecard</a></p>"
             ),
 
@@ -186,20 +186,20 @@ internal object GridlinkSampleBodies {
         // Filler, matching GridlinkSample.extraMessages
         // -------------------------------------------------------------------------------------
         "fill-dl-truck" to (
-            "<p>Truck came up three cases short again at 2043 HILLCREST. Two cases of the 8 inch " +
-                "tortillas and one of the 5 pound cheese.</p>" +
+            "<p>Delivery came up three trays short again at 4021 WILLOWMERE. Two trays of the 2 litre " +
+                "lavender and one of the bare root roses.</p>" +
                 "<p>Third week running. I have photos of the seal and the manifest if you want " +
                 "them for the claim.</p>"
             ),
         "fill-scheduling" to (
-            "<p>Week 32 schedules are posted for all six stores.</p>" +
-                "<p>Please review your store before <b>Thursday</b>. Anything not disputed by then " +
+            "<p>Week 32 schedules are posted for all six sites.</p>" +
+                "<p>Please review your site before <b>Thursday</b>. Anything not disputed by then " +
                 "locks, and changes after that need a manager override.</p>"
             ),
         "fill-sanivex" to (
-            "<p>A technician is scheduled for your dish machine between <b>1 and 4 PM</b> " +
+            "<p>A technician is scheduled for your irrigation controller between <b>1 and 4 PM</b> " +
                 "today.</p>" +
-                "<p>The work order covers the rinse temperature fault reported on 07/28 and a full " +
+                "<p>The work order covers the zone pressure fault reported on 07/28 and a full " +
                 "descale. Expect the machine to be out of service for about ninety minutes.</p>" +
                 "<p>The service sheet is attached. Please have someone available to sign at " +
                 "completion.</p>"
@@ -216,8 +216,8 @@ internal object GridlinkSampleBodies {
             ),
         "fill-facilities" to (
             "<p><b>Work order 88231 closed</b><br>" +
-                "2096 FERNHILL RD &middot; Walk-in freezer condenser</p>" +
-                "<p>Condenser fan motor replaced and the coil cleaned. Box pulled down to -2F " +
+                "4058 STONEBRIDGE &middot; Glasshouse heater exchanger</p>" +
+                "<p>Blower motor replaced and the exchanger cleaned. The house came back to 64F " +
                 "within forty minutes of the repair and held.</p>" +
                 "<p>Labour 2.5 hours, parts \$318.40. The closure report is attached.</p>"
             ),
@@ -229,7 +229,7 @@ internal object GridlinkSampleBodies {
         "fill-payroll" to (
             "<p>Punch corrections for the period ending <b>07/26</b> are due by <b>noon " +
                 "Monday</b>.</p>" +
-                "<p>Nine open exceptions across your stores: six missed clock outs, two unpaid " +
+                "<p>Nine open exceptions across your sites: six missed clock outs, two unpaid " +
                 "breaks under thirty minutes, one duplicate punch.</p>" +
                 "<p>Anything not corrected by the deadline pays as punched and comes out of the " +
                 "following period.</p>"
@@ -238,32 +238,32 @@ internal object GridlinkSampleBodies {
             "<p><b>Order confirmation 4471902</b><br>" +
                 "Delivery Thursday, window 4:00 to 7:00 AM</p>" +
                 "<p>Two substitutions on your standing order:</p>" +
-                "<p>&#8226; Bacon, 18/22 slice, substituted 14/18 slice, same case price<br>" +
-                "&#8226; Pickle chips, 5 gallon, substituted 4 gallon, price adjusted</p>" +
+                "<p>&#8226; Peat free compost, 50 litre, substituted 40 litre, same case price<br>" +
+                "&#8226; Slow release feed, 20 kg, substituted 10 kg, price adjusted</p>" +
                 "<p>The full pick sheet is attached. Substitutions can be refused at the door.</p>"
             ),
         "fill-training" to (
-            "<p>Food safety recertification expires <b>08/15</b> for four of your team " +
+            "<p>Applicator recertification expires <b>08/15</b> for four of your team " +
                 "members.</p>" +
-                "<p>&#8226; M. Bexley, 2071 Kirkwood<br>" +
-                "&#8226; K. Baxter, 2118 Ellsworth<br>" +
-                "&#8226; A. Moore, 2043 Hillcrest<br>" +
-                "&#8226; D. Hollis, 2096 Fernhill Rd</p>" +
+                "<p>&#8226; M. Bexley, 4090 Briarfield<br>" +
+                "&#8226; K. Baxter, 4073 Ashgrove<br>" +
+                "&#8226; A. Moore, 4021 Willowmere<br>" +
+                "&#8226; D. Hollis, 4058 Stonebridge</p>" +
                 "<p>The course runs about four hours and can be split. Anyone lapsed cannot be " +
-                "scheduled as the certified manager on duty.</p>"
+                "scheduled as the certified applicator on duty.</p>"
             ),
         "fill-amoore" to (
             "<p>Can I swap Friday close for Sunday open? Hollis said he would take the close if it " +
                 "is alright with you.</p>" +
                 "<p>It is for my sister's thing, I would not ask otherwise.</p>"
             ),
-        "fill-guest-relations" to (
-            "<p><b>Guest complaint 2210447</b> has been assigned to you. A response is due within " +
+        "fill-customer-relations" to (
+            "<p><b>Customer complaint 2210447</b> has been assigned to you. A response is due within " +
                 "<b>48 hours</b>.</p>" +
-                "<p>Summary: guest reports a twenty six minute wait in the drive thru on 07/27 at " +
+                "<p>Summary: customer reports a twenty six minute wait at the till on 07/27 at " +
                 "approximately 7:40 PM, order incorrect on arrival, no receipt offered.</p>" +
-                "<p>Store: 2043 HILLCREST. Contact preference: email.</p>" +
-                "<p>Responses go through the Guest Relations portal, not by replying here.</p>"
+                "<p>Store: 4021 WILLOWMERE. Contact preference: email.</p>" +
+                "<p>Responses go through the Customer Relations portal, not by replying here.</p>"
             ),
         // 🔴 The one sample body that reaches off the network, and it is here on purpose: it is what
         // exercises the blocked-images banner. A banner nothing in the gallery can raise is a banner
@@ -284,10 +284,10 @@ internal object GridlinkSampleBodies {
                 "<img src=\"https://track.dalton-energy.example/o.gif?m=2210447\" width=\"1\" height=\"1\">"
             ),
         "fill-rgorman" to (
-            "<p>Numbers for the P7 review are attached. I cut it by store and then by day part, " +
+            "<p>Numbers for the P7 review are attached. I cut it by site and then by department, " +
                 "which is how Ashby asked for it last time.</p>" +
-                "<p>Two things worth a look before Monday: Kirkwood's late night is carrying the " +
-                "whole period, and Ellsworth's waste is up for the third week without a matching " +
+                "<p>Two things worth a look before Monday: Briarfield's houseplants are carrying the " +
+                "whole period, and Ashgrove's shrink is up for the third week without a matching " +
                 "sales move.</p>" +
                 "<p>Let me know if you want it cut differently, it is about ten minutes to " +
                 "redo.</p>"
@@ -302,32 +302,32 @@ internal object GridlinkSampleBodies {
                 "lapses.</p>"
             ),
         "fill-dhollis" to (
-            "<p>Lobby TV is stuck on the setup screen again. Same as last month.</p>" +
+            "<p>Foyer screen is stuck on the setup screen again. Same as last month.</p>" +
                 "<p>I pulled the power for a minute and it came back to the same screen. Do you " +
                 "want me to leave it off or keep trying?</p>"
             ),
         "fill-permit" to (
-            "<p><b>Health inspection score posted</b><br>" +
-                "2118 ELLSWORTH &middot; Inspected 07/26</p>" +
+            "<p><b>Stock inspection score posted</b><br>" +
+                "4073 ASHGROVE &middot; Inspected 07/26</p>" +
                 "<p>Score <b>97.5</b>, grade A.</p>" +
-                "<p>Two deductions: a thermometer missing from the reach-in at the prep line, and " +
-                "one uncovered container in the walk-in. Both were corrected during the " +
+                "<p>Two deductions: a log sheet missing from the mixing station, and " +
+                "one unlabelled container in the chemical store. Both were corrected during the " +
                 "inspection.</p>" +
                 "<p>The signed report is attached and the score is public as of today.</p>"
             ),
-        "fill-tally-kirkwood" to (
+        "fill-tally-briarfield" to (
             "<p><b>Daily Sales Summary</b><br>" +
-                "Store 2071 KIRKWOOD &middot; Business date 07/30</p>" +
+                "Site 4090 BRIARFIELD &middot; Business date 07/30</p>" +
                 "<p>Net sales <b>\$11,764.19</b><br>" +
                 "Transactions 902<br>" +
-                "Average check \$13.04<br>" +
+                "Average basket \$13.04<br>" +
                 "Labour 25.8% of net, 1.3 points over plan</p>" +
-                "<p>Late night carried the day again at 22% of net. Full detail attached.</p>" +
+                "<p>Sundries carried the day again at 22% of net. Full detail attached.</p>" +
                 "<p>This mailbox is not monitored.</p>"
             ),
         "fill-tally-overtime" to (
             "<p><b>Overtime Threshold Alert</b></p>" +
-                "<p>Six team members are projected over 40 hours for the current week, based on " +
+                "<p>Six staff are projected over 40 hours for the current week, based on " +
                 "punches through Thursday close.</p>" +
                 "<p>&#8226; K. Baxter, 44.25 projected<br>" +
                 "&#8226; T. Perez, 43.00<br>" +
@@ -347,10 +347,10 @@ internal object GridlinkSampleBodies {
                 "action is taken automatically.</p>"
             ),
         "fill-verdant-followup" to (
-            "<p>A follow-up visit has been scheduled for <b>08/07</b> at <b>Store 604</b> to verify " +
+            "<p>A follow-up visit has been scheduled for <b>08/07</b> at <b>Site 612</b> to verify " +
                 "the corrective actions from the 07/24 inspection.</p>" +
-                "<p>The visit is unannounced within the business day. Please make sure the walk-in " +
-                "gasket has been replaced and the sanitiser log is current for the full period.</p>"
+                "<p>The visit is unannounced within the business day. Please make sure the vent " +
+                "motor has been replaced and the spray log is current for the full period.</p>"
             ),
 
         // -------------------------------------------------------------------------------------
@@ -368,18 +368,18 @@ internal object GridlinkSampleBodies {
         // -------------------------------------------------------------------------------------
         "draft-brightmar-credit" to (
             "<p>Hi Ray,</p>" +
-                "<p>The Tuesday truck landed 3 cases short at 2043 HILLCREST again, same as the " +
-                "week before last. Invoice 4471183, the shortage is on the 8 oz portion cups and " +
+                "<p>The Tuesday delivery landed 3 trays short at 4021 WILLOWMERE again, same as the " +
+                "week before last. Invoice 4471183, the shortage is on the 2 litre pots and " +
                 "the case of gloves.</p>" +
                 "<p>Can you put a credit through for those and let me know what</p>"
             ),
-        "draft-cap-604" to (
-            "<p>Corrective Action Plan, Store 604, inspection 07/24.</p>" +
-                "<p>Walk-in cooler gasket, unit 2: replacement ordered 07/26, fitted 07/29. " +
+        "draft-cap-612" to (
+            "<p>Corrective Action Plan, Site 612, inspection 07/24.</p>" +
+                "<p>Glasshouse vent motor, bay 2: replacement ordered 07/26, fitted 07/29. " +
                 "Photo attached.</p>" +
-                "<p>Sanitiser concentration at the three-compartment sink: dispenser recalibrated " +
+                "<p>Spray concentration at the mixing station: doser recalibrated " +
                 "07/25 and the shift log has been checked twice a day since.</p>" +
-                "<p>Prep line hand sink: the rack has been moved to</p>"
+                "<p>Potting bench eye wash: the rack has been moved to</p>"
             ),
         "draft-tperez-overtime" to (
             "<p>T,</p>" +
@@ -401,7 +401,7 @@ internal object GridlinkSampleBodies {
         // Tate's actual correspondents.
         // -------------------------------------------------------------------------------------
         "sent-dalton-meter" to (
-            "<p>Attaching the meter photo for 2043 HILLCREST taken this morning, reading 41,208.</p>" +
+            "<p>Attaching the meter photo for 4021 WILLOWMERE taken this morning, reading 41,208.</p>" +
                 "<p>The July bill has us at roughly twice the June usage on the same trading " +
                 "days, so before I pay it I would like the read verified against the meter.</p>" +
                 "<p>Account 8841-2207-9.</p>"
@@ -409,15 +409,15 @@ internal object GridlinkSampleBodies {
         "sent-kbaxter-schedule" to (
             "<p>Kim,</p>" +
                 "<p>Approved for period 8 as written. The only change is Saturday: put the second " +
-                "opener on at 6 rather than 7, the drive thru is backing up before the biscuit " +
-                "case is full.</p>" +
+                "opener on at 6 rather than 7, the tills back up before the trolleys " +
+                "are out.</p>" +
                 "<p>Thanks for turning it round quickly.</p>"
             ),
         "sent-tally-recap" to (
-            "<p>Weekly recap for all five stores is attached.</p>" +
-                "<p>604 and Kirkwood are both ahead of plan. Hillcrest is the one to watch: labour " +
-                "is fine but waste is up for the third week and it is all on the fried side.</p>" +
-                "<p>I am at Hillcrest Thursday and will send a note after.</p>"
+            "<p>Weekly recap for all six sites is attached.</p>" +
+                "<p>612 and Briarfield are both ahead of plan. Willowmere is the one to watch: labour " +
+                "is fine but shrink is up for the third week and it is all on the bedding side.</p>" +
+                "<p>I am at Willowmere Thursday and will send a note after.</p>"
             ),
     )
 }

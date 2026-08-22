@@ -141,22 +141,25 @@ object GridlinkSampleContacts {
 
     val all: List<GridlinkContact> = listOf(
         GridlinkContact("tallyman", "", "Tallyman Support", "Labour and scheduling platform", "support@tallyman.example"),
-        GridlinkContact("ashby", "Paloma", "Ashby", "District Manager, Southgate", "p.ashby@gridlink.me"),
-        GridlinkContact("baxter", "Kayla", "Baxter", "Shift Lead, 2118 Ellsworth", "k.baxter@gridlink.me"),
-        GridlinkContact("bexley", "Malcolm", "Bexley", "General Manager, 2071 Kirkwood", "m.bexley@gridlink.me"),
+        GridlinkContact("ashby", "Paloma", "Ashby", "Regional Manager, Southgate", "p.ashby@gridlink.me"),
+        GridlinkContact("baxter", "Kayla", "Baxter", "Shift Lead, 4073 Ashgrove", "k.baxter@gridlink.me"),
+        GridlinkContact("bexley", "Malcolm", "Bexley", "General Manager, 4090 Briarfield", "m.bexley@gridlink.me"),
         GridlinkContact("cabrera", "Renee", "Cabrera", "Payroll Specialist", "r.cabrera@hrbenefits.example"),
-        GridlinkContact("riverbendwater", "", "Riverbend Water", "Utility billing, all stores", "billing@riverbendwater.example"),
-        GridlinkContact("dalton", "", "Dalton Energy", "Utility, store accounts", "service@dalton-energy.example"),
+        GridlinkContact(
+            "riverbendwater", "", "Riverbend Water", "Utility billing, all sites",
+            "billing@riverbendwater.example",
+        ),
+        GridlinkContact("dalton", "", "Dalton Energy", "Utility, site accounts", "service@dalton-energy.example"),
         GridlinkContact("duran", "Omar", "Duran", "Maintenance Tech", "o.duran@sitecare.example"),
-        GridlinkContact("sanivex", "", "Sanivex Service", "Chemical and warewash service", "service@sanivex.example"),
+        GridlinkContact("sanivex", "", "Sanivex Service", "Chemical and irrigation service", "service@sanivex.example"),
         GridlinkContact("everly", "Sonia", "Everly", "Recruiter, Northgate Group", "s.everly@northgategroup.example"),
         GridlinkContact("facilities", "", "Facilities Dispatch", "24/7 repair line", "dispatch@sitecare.example"),
-        GridlinkContact("fowler", "Nathan", "Fowler", "District Lead", "n.fowler@gridlink.me"),
-        GridlinkContact("gorman", "Rhea", "Gorman", "Assistant Manager, 2043 Hillcrest", "r.gorman@gridlink.me"),
+        GridlinkContact("fowler", "Nathan", "Fowler", "Region Lead", "n.fowler@gridlink.me"),
+        GridlinkContact("gorman", "Rhea", "Gorman", "Assistant Manager, 4021 Willowmere", "r.gorman@gridlink.me"),
         GridlinkContact(
-            "guestrelations", "", "Guest Relations", "Customer complaint intake", "guests@sitecare.example",
+            "customerrelations", "", "Customer Relations", "Customer complaint intake", "customers@sitecare.example",
         ),
-        GridlinkContact("hollis", "Darius", "Hollis", "Shift Lead, 2043 Hillcrest", "d.hollis@gridlink.me"),
+        GridlinkContact("hollis", "Darius", "Hollis", "Shift Lead, 4021 Willowmere", "d.hollis@gridlink.me"),
         GridlinkContact("hrbenefits", "", "HR Benefits", "Enrolment and claims", "benefits@hrbenefits.example"),
         GridlinkContact("ibrahim", "Yusuf", "Ibrahim", "Night Maintenance", "y.ibrahim@sitecare.example"),
         GridlinkContact(
@@ -164,24 +167,24 @@ object GridlinkSampleContacts {
         ),
         GridlinkContact("jennings", "Alicia", "Jennings", "Training Coordinator", "a.jennings@hrbenefits.example"),
         GridlinkContact("kirby", "Wes", "Kirby", "Equipment Tech, fryers and ovens", "w.kirby@sitecare.example"),
-        GridlinkContact("loxwell", "Dara", "Loxwell", "General Manager, 2096 Fernhill Rd", "d.loxwell@gridlink.me"),
+        GridlinkContact("loxwell", "Dara", "Loxwell", "General Manager, 4058 Stonebridge", "d.loxwell@gridlink.me"),
         GridlinkContact("ludlow", "Brennan", "Ludlow", "Brightmar Account Rep", "b.ludlow@brightmar.example"),
         GridlinkContact("maddox", "Thea", "Maddox", "Catering Coordinator", "t.maddox@gridlink.me"),
         GridlinkContact("marden", "", "Marden Halloway", "Workers comp broker", "claims@mardenmma.example"),
         GridlinkContact("halesworth", "", "Halesworth County", "Health inspections", "health@halesworthcounty.example"),
-        GridlinkContact("moore", "Andre", "Moore", "Kitchen Manager, 2096 Fernhill Rd", "a.moore@gridlink.me"),
+        GridlinkContact("moore", "Andre", "Moore", "Kitchen Manager, 4058 Stonebridge", "a.moore@gridlink.me"),
         GridlinkContact("nakamura", "Grace", "Nakamura", "Regional Trainer", "g.nakamura@hrbenefits.example"),
         GridlinkContact("okafor", "Curtis", "Okafor", "Overnight Cleaning Lead", "c.okafor@sitecare.example"),
         GridlinkContact("harker", "Jonah", "Harker", "Personal", "jonah.harker@gridlink.me"),
         GridlinkContact("payroll", "", "Payroll", "Pay runs and corrections", "payroll@hrbenefits.example"),
-        GridlinkContact("perez", "Tomas", "Perez", "Kitchen Manager, 2118 Ellsworth", "t.perez@gridlink.me"),
+        GridlinkContact("perez", "Tomas", "Perez", "Kitchen Manager, 4073 Ashgrove", "t.perez@gridlink.me"),
         GridlinkContact("powerbi", "", "Power BI Service", "Automated report delivery", "no-reply@microsoft.com"),
         // Deliberately role-less: the shape of a real synced book, where most cards carry no
         // TITLE or ORG (an email-only trusted-sender card carries nothing but its address).
         // This is the fixture that keeps the list row's role→email fallback visible.
-        GridlinkContact("printshop", "", "Print Shop Counter", "", "orders@printellsworth.example"),
+        GridlinkContact("printshop", "", "Print Shop Counter", "", "orders@printashgrove.example"),
         GridlinkContact("quintero", "Elena", "Quintero", "Front of House Trainer", "e.quintero@hrbenefits.example"),
-        GridlinkContact("randall", "Deshawn", "Randall", "Shift Lead, 2071 Kirkwood", "d.randall@gridlink.me"),
+        GridlinkContact("randall", "Deshawn", "Randall", "Shift Lead, 4090 Briarfield", "d.randall@gridlink.me"),
         // The one fixture with a photo, a company and custom fields, so every render path is
         // visible on the emulator without a live account. Tate asked for a stock photo for the
         // demonstration, so the photo is a face — an AI-generated one (this-person-does-not-exist),
@@ -197,13 +200,13 @@ object GridlinkSampleContacts {
                 ContactCardCustomField("Case portal ID", "HRB-4417"),
             ),
         ),
-        GridlinkContact("sandoval", "Leah", "Sandoval", "Assistant Manager, 2118 Ellsworth", "l.sandoval@gridlink.me"),
+        GridlinkContact("sandoval", "Leah", "Sandoval", "Assistant Manager, 4073 Ashgrove", "l.sandoval@gridlink.me"),
         GridlinkContact("scheduling", "", "Scheduling", "Shift swaps and coverage", "scheduling@hrbenefits.example"),
         GridlinkContact("verdant", "", "Verdant", "Pest control", "service@verdantfs.example"),
         GridlinkContact("brightmar", "", "Brightmar Regional", "Food distribution", "orders@brightmar.example"),
         GridlinkContact("training", "", "Training Team", "Certification tracking", "training@hrbenefits.example"),
         GridlinkContact("tran", "Victor", "Tran", "POS Support Tech", "v.tran@tallyman.example"),
-        GridlinkContact("ueda", "Nadia", "Ueda", "Food Safety Auditor", "n.ueda@verdantfs.example"),
+        GridlinkContact("ueda", "Nadia", "Ueda", "Plant Health Auditor", "n.ueda@verdantfs.example"),
         GridlinkContact("valdez", "Hector", "Valdez", "Produce Rep, Brightmar", "h.valdez@brightmar.example"),
         GridlinkContact("whitfield", "Monica", "Whitfield", "Store Accountant", "m.whitfield@gridlink.me"),
         GridlinkContact("yancey", "Adele", "Yancey", "HR Generalist", "a.yancey@hrbenefits.example"),
@@ -249,7 +252,7 @@ object GridlinkSampleContacts {
      * `dalton.energy@dalton-energy.example` while the card says `service@dalton-energy.example`. Both are
      * plausible, neither is wrong, and nothing in the data says they are the same counterparty.
      * Measured across the whole sample: exact matching resolves nine senders out of twenty-odd, and
-     * loses Dalton Energy, Verdant, HR Benefits, Training Team, Guest Relations, Facilities Dispatch,
+     * loses Dalton Energy, Verdant, HR Benefits, Training Team, Customer Relations, Facilities Dispatch,
      * Brightmar Regional, Marden Halloway, Halesworth County, Northgate Group Talent and Sanivex Service.
      * A contact card that says "no recent mail" from someone with four messages in the inbox is a
      * card that reads as broken.

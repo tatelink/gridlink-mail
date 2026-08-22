@@ -7,8 +7,8 @@ package app.gridlink.ui.gridlink
  * Every message in [GridlinkSample] is inbox mail, and there are thirty-one of them. Filling
  * seventeen folders with mail that is exclusively theirs would mean inventing another forty
  * messages, which brief §9 bans and which Tate did not ask for. So the folders below are **views
- * over the one pool**: a message can appear in Store 604 and in Verdant, because it is a Verdant
- * message about Store 604, and it is still in the Inbox as well.
+ * over the one pool**: a message can appear in Site 612 and in Verdant, because it is a Verdant
+ * message about Site 612, and it is still in the Inbox as well.
  *
  * That is not how a JMAP account works and it is not pretending to be. It is how a set of saved
  * searches works, and it is the honest way to show a folder screen real mail without writing
@@ -16,8 +16,8 @@ package app.gridlink.ui.gridlink
  * `inMailbox` filter.
  *
  * ## ⚠️ Membership is a list of ids, not a rule
- * A matcher over subject lines was the obvious shape and it is worse: "Store 604" appears in two
- * subjects and in one body, "2071 KIRKWOOD" is written as "2071 Kirkwood" by the one human who
+ * A matcher over subject lines was the obvious shape and it is worse: "Site 612" appears in two
+ * subjects and in one body, "4090 BRIARFIELD" is written as "4090 Briarfield" by the one human who
  * mentions it, and a regex that quietly missed that message would look exactly like a folder that
  * genuinely had one item in it. Written out, every membership can be read against §10's table in a
  * few seconds, and the `init` below fails on a typo instead of quietly dropping a row.
@@ -25,7 +25,7 @@ package app.gridlink.ui.gridlink
  * ## 🔴 Unread counts are DERIVED from this, never declared
  * The tree used to carry hand-written unread numbers, which was fine while a folder was a label you
  * could not open. It stopped being fine the moment tapping one shows the mail: "Junk 4" opening onto
- * an empty panel, or "Store 604 3" onto a list with two dots in it, is the app contradicting itself
+ * an empty panel, or "Site 612 3" onto a list with two dots in it, is the app contradicting itself
  * one tap apart. [unreadIn] is what [GridlinkSampleTree.mailboxes] fills its counts from, so the
  * badge cannot disagree with what is behind it.
  *
@@ -46,7 +46,7 @@ object GridlinkSampleFolders {
      *  - People is the colleagues, which is exactly the `gridlink.me` senders;
      *  - Receipts is the statements, orders and filings, the things you keep rather than answer.
      *
-     * ⚠️ Most of the sample is in none of these. HR, scheduling, payroll, the recruiter and the guest
+     * ⚠️ Most of the sample is in none of these. HR, scheduling, payroll, the recruiter and the customer
      * complaint sit in the Inbox and nowhere else, because that is where mail actually lives: a
      * folder tree describes the minority of mail somebody bothered to file.
      */
@@ -59,11 +59,11 @@ object GridlinkSampleFolders {
             "fill-tperez",
             "pbi-scorecard",
         ),
-        "ops-604" to listOf("fill-sanivex", "verdant-cap", "fill-verdant-followup"),
-        "ops-hillcrest" to listOf("fill-dl-truck", "tally-hillcrest"),
-        "ops-kirkwood" to listOf("fill-tally-kirkwood", "ridley-callout"),
-        "ops-ellsworth" to listOf("verdant-pest", "fill-permit"),
-        "ops-fernhill" to listOf("fill-facilities", "tally-fernhill"),
+        "ops-612" to listOf("fill-sanivex", "verdant-cap", "fill-verdant-followup"),
+        "ops-willowmere" to listOf("fill-dl-truck", "tally-willowmere"),
+        "ops-briarfield" to listOf("fill-tally-briarfield", "ridley-callout"),
+        "ops-ashgrove" to listOf("verdant-pest", "fill-permit"),
+        "ops-stonebridge" to listOf("fill-facilities", "tally-stonebridge"),
         "vendors" to listOf("fill-dalton", "fill-insurance"),
         "vendor-sanivex" to listOf("fill-sanivex"),
         "vendor-verdant" to listOf("verdant-cap", "verdant-pest", "fill-verdant-followup"),
