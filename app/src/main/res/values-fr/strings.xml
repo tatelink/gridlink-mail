@@ -360,6 +360,14 @@
     <string name="settings_image_allowlist_section">Images distantes</string>
     <string name="settings_block_remote_images_title">Bloquer les images distantes</string>
     <string name="settings_block_remote_images_subtitle">Empêche les messages de charger des images depuis le serveur de l\'expéditeur, ce qui permet à un pixel espion de signaler que vous les avez ouverts. Vous pouvez toujours afficher les images d\'un message, ou faire confiance à un expéditeur ci-dessous.</string>
+    <string name="settings_image_allowlist_title">Expéditeurs autorisés</string>
+    <string name="settings_image_allowlist_none">Aucun pour l\'instant</string>
+    <plurals name="settings_image_allowlist_count">
+        <item quantity="one">%1$d expéditeur</item>
+        <item quantity="many">%1$d d\'expéditeurs</item>
+        <item quantity="other">%1$d expéditeurs</item>
+    </plurals>
+    <string name="settings_image_allowlist_caption">Les images de ces expéditeurs sont toujours chargées, même lorsque les images distantes sont bloquées.</string>
     <string name="settings_image_allowlist_clear">Effacer</string>
     <string name="settings_strip_tracking_title">Supprimer les paramètres de suivi</string>
     <string name="settings_strip_tracking_subtitle">Supprimez les traceurs (utm_*, fbclid, gclid…) des liens avant de les ouvrir, afin que les expéditeurs ne puissent pas savoir quand vous cliquez.</string>

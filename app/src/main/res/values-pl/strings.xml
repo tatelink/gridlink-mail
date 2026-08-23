@@ -360,6 +360,15 @@
     <string name="settings_image_allowlist_section">Obrazy zdalne</string>
     <string name="settings_block_remote_images_title">Blokuj zdalne obrazy</string>
     <string name="settings_block_remote_images_subtitle">Zapobiega pobieraniu przez wiadomości obrazów z serwera nadawcy – właśnie tak piksel śledzący zgłasza, że je otworzyłeś. Nadal możesz pokazać obrazy w pojedynczej wiadomości lub zaufać nadawcy poniżej.</string>
+    <string name="settings_image_allowlist_title">Dozwoleni nadawcy</string>
+    <string name="settings_image_allowlist_none">Jeszcze nikt</string>
+    <plurals name="settings_image_allowlist_count">
+        <item quantity="one">%1$d nadawca</item>
+        <item quantity="few">%1$d nadawcy</item>
+        <item quantity="many">%1$d nadawców</item>
+        <item quantity="other">%1$d nadawców</item>
+    </plurals>
+    <string name="settings_image_allowlist_caption">Obrazy od tych nadawców są zawsze wczytywane, nawet gdy zdalne obrazy są zablokowane.</string>
     <string name="settings_image_allowlist_clear">Wyczyść</string>
     <string name="settings_strip_tracking_title">Usuwaj parametry śledzące</string>
     <string name="settings_strip_tracking_subtitle">Usuwaj elementy śledzące (utm_*, fbclid, gclid…) z linków przed ich otwarciem, aby nadawcy nie wiedzieli, kiedy w nie klikasz.</string>

@@ -360,6 +360,15 @@
     <string name="settings_image_allowlist_section">Удалённые изображения</string>
     <string name="settings_block_remote_images_title">Блокировать внешние изображения</string>
     <string name="settings_block_remote_images_subtitle">Не даёт письмам загружать картинки с сервера отправителя: именно так следящий пиксель сообщает, что вы их открыли. Вы всё равно можете показать изображения в отдельном письме или доверять отправителю ниже.</string>
+    <string name="settings_image_allowlist_title">Разрешённые отправители</string>
+    <string name="settings_image_allowlist_none">Пока никого</string>
+    <plurals name="settings_image_allowlist_count">
+        <item quantity="one">%1$d отправитель</item>
+        <item quantity="few">%1$d отправителя</item>
+        <item quantity="many">%1$d отправителей</item>
+        <item quantity="other">%1$d отправителей</item>
+    </plurals>
+    <string name="settings_image_allowlist_caption">Изображения от этих отправителей всегда загружаются, даже когда внешние изображения заблокированы.</string>
     <string name="settings_image_allowlist_clear">Очистить</string>
     <string name="settings_strip_tracking_title">Удалять параметры отслеживания</string>
     <string name="settings_strip_tracking_subtitle">Удалять трекеры (utm_*, fbclid, gclid…) из ссылок перед их открытием, чтобы отправители не могли узнать, когда вы переходите по ссылке.</string>

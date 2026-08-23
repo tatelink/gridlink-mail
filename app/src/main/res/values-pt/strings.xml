@@ -360,6 +360,13 @@
     <string name="settings_image_allowlist_section">Imagens remotas</string>
     <string name="settings_block_remote_images_title">Bloquear imagens remotas</string>
     <string name="settings_block_remote_images_subtitle">Impede que as mensagens carreguem imagens do servidor do remetente, que é como um pixel de rastreio comunica que as abriste. Podes na mesma mostrar as imagens de uma mensagem ou confiar num remetente abaixo.</string>
+    <string name="settings_image_allowlist_title">Remetentes permitidos</string>
+    <string name="settings_image_allowlist_none">Ainda ninguém</string>
+    <plurals name="settings_image_allowlist_count">
+        <item quantity="one">%1$d remetente</item>
+        <item quantity="other">%1$d remetentes</item>
+    </plurals>
+    <string name="settings_image_allowlist_caption">As imagens destes remetentes são sempre carregadas, mesmo com as imagens remotas bloqueadas.</string>
     <string name="settings_image_allowlist_clear">Limpar</string>
     <string name="settings_strip_tracking_title">Remover parâmetros de rastreamento</string>
     <string name="settings_strip_tracking_subtitle">Remove rastreadores (utm_*, fbclid, gclid…) dos links antes de abri-los, para que os remetentes não saibam quando você clica.</string>

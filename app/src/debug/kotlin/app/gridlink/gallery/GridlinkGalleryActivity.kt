@@ -653,6 +653,7 @@ class GridlinkGalleryActivity : ComponentActivity() {
 private val SETTINGS_ROUTES = listOf(
     "accounts", "appearance", "reading", "notifications", "vacation",
     "filters", "tags", "privacy", "storage", "license", "backup",
+    "allowed-senders",
 )
 
 @Composable

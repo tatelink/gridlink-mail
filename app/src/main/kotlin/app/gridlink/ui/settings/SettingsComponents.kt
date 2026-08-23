@@ -155,6 +155,52 @@ fun SettingsSection(title: String, content: @Composable () -> Unit) {
 }
 
 /**
+ * Detail-screen row that opens a screen of its own: title, current summary, chevron. No icon.
+ *
+ * [SettingsCategoryRow] is the hub's version of this and DOES carry an icon, because the hub is a
+ * list of doors and the icon is how you pick yours out of eleven. A detail screen is a list of
+ * switches and choices with no icon column, so a door there has to line up with its neighbours
+ * instead; giving it an icon would indent it away from every row above it.
+ *
+ * 🔴 It exists because a list that can grow without limit cannot live inline in a settings
+ * section. The allowed-senders list was rendered in full inside Privacy, which was fine at two
+ * entries and pushes every row below it off the screen at forty. Tate's words, 2026-08-22:
+ * "hide allowed senders (remote images) behind a button, list could get very long."
+ */
+@Composable
+fun SettingsOpenRow(
+    title: String,
+    summary: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(
+                horizontal = GridlinkSpacing.rowHorizontal,
+                vertical = GridlinkSpacing.rowVertical,
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                summary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.width(GridlinkSpacing.s16))
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
  * Boolean toggle row. [enabled] = false renders the row inert and dimmed.
  *
  * [subtitle] is nullable, and null omits the second line entirely rather than drawing a blank one.

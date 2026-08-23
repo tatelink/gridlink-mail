@@ -360,6 +360,13 @@
     <string name="settings_image_allowlist_section">Externe Bilder</string>
     <string name="settings_block_remote_images_title">Externe Bilder blockieren</string>
     <string name="settings_block_remote_images_subtitle">Verhindert, dass Nachrichten Bilder vom Server des Absenders laden – genau so meldet ein Zählpixel, dass du sie geöffnet hast. Du kannst Bilder weiterhin für eine einzelne Nachricht anzeigen oder einem Absender unten vertrauen.</string>
+    <string name="settings_image_allowlist_title">Erlaubte Absender</string>
+    <string name="settings_image_allowlist_none">Noch niemand</string>
+    <plurals name="settings_image_allowlist_count">
+        <item quantity="one">%1$d Absender</item>
+        <item quantity="other">%1$d Absender</item>
+    </plurals>
+    <string name="settings_image_allowlist_caption">Bei diesen Absendern werden Bilder immer geladen, auch wenn externe Bilder blockiert sind.</string>
     <string name="settings_image_allowlist_clear">Leeren</string>
     <string name="settings_strip_tracking_title">Tracking-Parameter entfernen</string>
     <string name="settings_strip_tracking_subtitle">Tracker (utm_*, fbclid, gclid…) aus Links entfernen, bevor sie geöffnet werden, damit Absender nicht erkennen können, wann du klickst.</string>

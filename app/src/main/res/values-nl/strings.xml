@@ -360,6 +360,13 @@
     <string name="settings_image_allowlist_section">Externe afbeeldingen</string>
     <string name="settings_block_remote_images_title">Externe afbeeldingen blokkeren</string>
     <string name="settings_block_remote_images_subtitle">Voorkomt dat berichten afbeeldingen van de server van de afzender laden, waarmee een trackingpixel doorgeeft dat je ze hebt geopend. Je kunt afbeeldingen nog steeds per bericht tonen of een afzender hieronder vertrouwen.</string>
+    <string name="settings_image_allowlist_title">Toegestane afzenders</string>
+    <string name="settings_image_allowlist_none">Nog niemand</string>
+    <plurals name="settings_image_allowlist_count">
+        <item quantity="one">%1$d afzender</item>
+        <item quantity="other">%1$d afzenders</item>
+    </plurals>
+    <string name="settings_image_allowlist_caption">Van deze afzenders worden afbeeldingen altijd geladen, ook als externe afbeeldingen zijn geblokkeerd.</string>
     <string name="settings_image_allowlist_clear">Wissen</string>
     <string name="settings_strip_tracking_title">Trackingparameters verwijderen</string>
     <string name="settings_strip_tracking_subtitle">Verwijder trackers (utm_*, fbclid, gclid…) uit links voordat je ze opent, zodat afzenders niet kunnen zien wanneer je klikt.</string>

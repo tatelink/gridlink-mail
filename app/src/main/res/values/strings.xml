@@ -472,6 +472,13 @@
     <string name="settings_image_allowlist_section">Remote images</string>
     <string name="settings_block_remote_images_title">Block remote images</string>
     <string name="settings_block_remote_images_subtitle">Stop messages loading pictures from the sender\'s server, which is how a tracking pixel reports that you opened them. You can still show images for one message, or trust a sender below.</string>
+    <string name="settings_image_allowlist_title">Allowed senders</string>
+    <string name="settings_image_allowlist_none">No one yet</string>
+    <plurals name="settings_image_allowlist_count">
+        <item quantity="one">%1$d sender</item>
+        <item quantity="other">%1$d senders</item>
+    </plurals>
+    <string name="settings_image_allowlist_caption">These senders always have their pictures loaded, even while remote images are blocked.</string>
     <string name="settings_image_allowlist_clear">Clear all</string>
     <string name="settings_image_allowlist_empty">No senders are set to always show images yet.</string>
     <string name="settings_image_allowlist_add">Add sender…</string>

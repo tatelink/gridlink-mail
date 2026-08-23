@@ -360,6 +360,13 @@
     <string name="settings_image_allowlist_section">Immagini remote</string>
     <string name="settings_block_remote_images_title">Blocca le immagini remote</string>
     <string name="settings_block_remote_images_subtitle">Impedisce ai messaggi di caricare immagini dal server del mittente, il modo in cui un pixel di tracciamento segnala che li hai aperti. Puoi comunque mostrare le immagini di un singolo messaggio o fidarti di un mittente qui sotto.</string>
+    <string name="settings_image_allowlist_title">Mittenti consentiti</string>
+    <string name="settings_image_allowlist_none">Ancora nessuno</string>
+    <plurals name="settings_image_allowlist_count">
+        <item quantity="one">%1$d mittente</item>
+        <item quantity="other">%1$d mittenti</item>
+    </plurals>
+    <string name="settings_image_allowlist_caption">Le immagini di questi mittenti vengono sempre caricate, anche quando le immagini remote sono bloccate.</string>
     <string name="settings_image_allowlist_clear">Cancella</string>
     <string name="settings_strip_tracking_title">Rimuovi parametri di tracciamento</string>
     <string name="settings_strip_tracking_subtitle">Rimuove i tracker (utm_*, fbclid, gclid…) dai collegamenti prima di aprirli, così i mittenti non possono sapere quando fai clic.</string>

@@ -550,8 +550,11 @@ class SettingsScreenTest {
         switchFor("Confirm before opening links").assertIsOff()
         rule.onNodeWithText("REMOTE IMAGES").assertExists()
         switchFor("Block remote images").assertIsOn()
-        rule.onNodeWithText("No senders are set to always show images yet.").assertExists()
-        rule.onNodeWithText("Add sender…").assertExists()
+        // The list is a door now, not a wall of addresses: what Privacy states is HOW MANY.
+        rule.onNodeWithText("Allowed senders").assertExists()
+        rule.onNodeWithText("No one yet").assertExists()
+        rule.onNodeWithText("No senders are set to always show images yet.").assertDoesNotExist()
+        rule.onNodeWithText("Add sender…").assertDoesNotExist()
         rule.onNodeWithText("Clear all").assertDoesNotExist()
         rule.onNodeWithText("RECIPIENT SUGGESTIONS").assertExists()
         switchFor("Suggest from contacts").assertIsOff()
@@ -593,8 +596,11 @@ class SettingsScreenTest {
 
     @Test
     fun privacy_allowlist_addsRemovesAndClearsSenders() {
-        show(route = "privacy")
-        row("Add sender…").performClick()
+        // Straight onto the list's own screen, and NOT through [row]: Add and Clear all are a fixed
+        // header above the LazyColumn, so there is no scrolling ancestor for performScrollTo to
+        // find. That is the point of the header, not an accident of it.
+        show(route = "allowed-senders")
+        rule.onNodeWithText("Add sender…").performClick()
         rule.onNode(hasSetTextAction()).assertExists()
         rule.onNodeWithText("sender@example.com").assertExists()
         rule.onNode(hasText("Save") and hasClickAction()).assertIsNotEnabled()
@@ -605,7 +611,7 @@ class SettingsScreenTest {
         rule.onNodeWithText("No senders are set to always show images yet.").assertDoesNotExist()
         rule.onNodeWithText("Clear all").assertExists()
 
-        row("Add sender…").performClick()
+        rule.onNodeWithText("Add sender…").performClick()
         rule.onNode(hasSetTextAction()).performTextInput("alerts@example.com")
         rule.onNode(hasText("Save") and hasClickAction()).performClick()
         waitForText("alerts@example.com")
@@ -615,16 +621,48 @@ class SettingsScreenTest {
         waitForText("news@example.com", present = false)
         rule.onNodeWithText("alerts@example.com").assertExists()
 
-        row("Clear all").performClick()
+        rule.onNodeWithText("Clear all").performClick()
         waitForText("alerts@example.com", present = false)
         rule.onNodeWithText("No senders are set to always show images yet.").assertExists()
         rule.onNodeWithText("Clear all").assertDoesNotExist()
     }
 
+    /**
+     * The door itself. Privacy states HOW MANY senders are trusted and opens the list; it does not
+     * render the list, at any length. Guards the 2026-08-23 fix for "hide allowed senders (remote
+     * images) behind a button, list could get very long" against a well-meant revert to an inline
+     * forEach, which is what the screen did before and what looks harmless at two entries.
+     */
+    @Test
+    fun privacy_allowedSenders_countsThemAndKeepsTheListOnItsOwnScreen() {
+        val repo = app.container.settingsRepository
+        runBlocking {
+            repo.setImageAllowed("news@example.com", true)
+            repo.setImageAllowed("alerts@example.com", true)
+        }
+        show(route = "privacy")
+        waitForText("2 senders")
+        rule.onNodeWithText("Allowed senders").assertExists()
+        rule.onNodeWithText("news@example.com").assertDoesNotExist()
+        rule.onNodeWithText("alerts@example.com").assertDoesNotExist()
+
+        row("Allowed senders").performClick()
+        waitForText("news@example.com")
+        rule.onNodeWithText("alerts@example.com").assertExists()
+        rule.onAllNodesWithContentDescription("Remove sender").assertCountEquals(2)
+
+        // Back returns to Privacy rather than leaving Settings: this is an inner destination, so
+        // the host's own Back is not the one that fires.
+        rule.onNodeWithContentDescription("Back").performClick()
+        waitForText("2 senders")
+        rule.onNodeWithText("news@example.com").assertDoesNotExist()
+        assertEquals(0, backs)
+    }
+
     @Test
     fun privacy_addSender_cancelAddsNothing() {
-        show(route = "privacy")
-        row("Add sender…").performClick()
+        show(route = "allowed-senders")
+        rule.onNodeWithText("Add sender…").performClick()
         rule.onNode(hasSetTextAction()).performTextInput("news@example.com")
         rule.onNodeWithText("Cancel").performClick()
         rule.onNode(hasSetTextAction()).assertDoesNotExist()

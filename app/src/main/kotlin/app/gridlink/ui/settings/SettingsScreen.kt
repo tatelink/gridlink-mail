@@ -111,6 +111,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -346,7 +347,17 @@ fun SettingsScreen(
             )
         }
         composable("privacy") { entry ->
-            PrivacySecurityScreen(viewModel = viewModel, onBack = { entry.navigateOnce { nav.popBackStack() } })
+            PrivacySecurityScreen(
+                viewModel = viewModel,
+                onBack = { entry.navigateOnce { nav.popBackStack() } },
+                onOpenImageAllowlist = { entry.navigateOnce { nav.navigate("allowed-senders") } },
+            )
+        }
+        composable("allowed-senders") { entry ->
+            ImageAllowlistScreen(
+                viewModel = viewModel,
+                onBack = { entry.navigateOnce { nav.popBackStack() } },
+            )
         }
         composable("storage") { entry ->
             StorageScreen(onBack = { entry.navigateOnce { nav.popBackStack() } })
@@ -1188,7 +1199,11 @@ private fun BackupScreen(
 }
 
 @Composable
-private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
+private fun PrivacySecurityScreen(
+    viewModel: SettingsViewModel,
+    onBack: () -> Unit,
+    onOpenImageAllowlist: () -> Unit,
+) {
     val appLock by viewModel.appLockEnabled.collectAsStateWithLifecycle()
     val appLockUnavailable by viewModel.appLockUnavailable.collectAsStateWithLifecycle()
     val contactSuggestions by viewModel.contactSuggestions.collectAsStateWithLifecycle()
@@ -1251,94 +1266,25 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
                     checked = blockRemoteImages,
                     onCheckedChange = viewModel::setBlockRemoteImages,
                 )
-                var showAddSender by remember { mutableStateOf(false) }
-                if (imageAllowlist.isEmpty()) {
-                    Text(
-                        stringResource(R.string.settings_image_allowlist_empty),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
-                }
-                imageAllowlist.sorted().forEach { sender ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            sender,
-                            style = MaterialTheme.typography.bodyLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
+                // 🔴 The list itself is a screen away now. It has no ceiling: every sender you
+                // ever trust stays on it, and rendered in full here it pushed Recipient suggestions
+                // and both system-sync switches off the bottom of Privacy. Tate, 2026-08-22: "hide
+                // allowed senders (remote images) behind a button, list could get very long."
+                // The count is the summary, so the row still answers "how many do I trust?" without
+                // being opened, which is the one thing the inline list was actually good for.
+                SettingsOpenRow(
+                    title = stringResource(R.string.settings_image_allowlist_title),
+                    summary = if (imageAllowlist.isEmpty()) {
+                        stringResource(R.string.settings_image_allowlist_none)
+                    } else {
+                        pluralStringResource(
+                            R.plurals.settings_image_allowlist_count,
+                            imageAllowlist.size,
+                            imageAllowlist.size,
                         )
-                        IconButton(onClick = { viewModel.setImageAllowed(sender, false) }) {
-                            Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.settings_image_allowlist_remove))
-                        }
-                    }
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    TextButton(onClick = { showAddSender = true }) {
-                        Text(stringResource(R.string.settings_image_allowlist_add))
-                    }
-                    if (imageAllowlist.isNotEmpty()) {
-                        TextButton(onClick = viewModel::clearImageAllowlist) {
-                            Text(stringResource(R.string.settings_image_allowlist_clear))
-                        }
-                    }
-                }
-                if (showAddSender) {
-                    var sender by remember { mutableStateOf("") }
-                    val focusRequester = remember { FocusRequester() }
-                    // Focus is asked for from the field's first placement, not a LaunchedEffect:
-                    // the effect can run before the dialog window has laid the field out, and a
-                    // FocusRequester with nothing attached yet throws. Same fix as the tag editor.
-                    var focusRequested by remember { mutableStateOf(false) }
-                    fun submit() {
-                        if (sender.isNotBlank()) {
-                            viewModel.setImageAllowed(sender, true)
-                            showAddSender = false
-                        }
-                    }
-                    AlertDialog(
-                        onDismissRequest = { showAddSender = false },
-                        title = { Text(stringResource(R.string.settings_image_allowlist_add)) },
-                        text = {
-                            OutlinedTextField(
-                                value = sender,
-                                onValueChange = { sender = it },
-                                singleLine = true,
-                                placeholder = { Text(stringResource(R.string.settings_image_allowlist_hint)) },
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                                keyboardActions = KeyboardActions(onDone = { submit() }),
-                                modifier = Modifier
-                                    .focusRequester(focusRequester)
-                                    .onGloballyPositioned {
-                                        if (!focusRequested) {
-                                            focusRequested = true
-                                            focusRequester.requestFocus()
-                                        }
-                                    },
-                            )
-                        },
-                        confirmButton = {
-                            TextButton(
-                                onClick = { submit() },
-                                enabled = sender.isNotBlank(),
-                            ) { Text(stringResource(R.string.settings_save)) }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showAddSender = false }) {
-                                Text(stringResource(R.string.settings_cancel))
-                            }
-                        },
-                    )
-                }
+                    },
+                    onClick = onOpenImageAllowlist,
+                )
             }
             SettingsSection(stringResource(R.string.settings_recipient_suggestions_section)) {
                 SettingSwitch(
@@ -1421,6 +1367,135 @@ private fun PrivacySecurityScreen(viewModel: SettingsViewModel, onBack: () -> Un
                 }
             }
         }
+    }
+}
+
+/**
+ * The allowed senders, on a screen of their own.
+ *
+ * 🔴 This list has no ceiling. It grows by one every time a message is trusted, it is never
+ * pruned by anything but the user, and it lived inline in Privacy until 2026-08-23, where at
+ * twenty entries it buried Recipient suggestions and the system-sync switches under a wall of
+ * addresses. Tate's words: "hide allowed senders (remote images) behind a button, list could get
+ * very long." So it is a LazyColumn now rather than a forEach in a scrolling Column, because a
+ * list whose whole problem is its length should not compose every row it has.
+ *
+ * Add and Clear all sit ABOVE the list rather than under it, for the same reason: below a
+ * hundred addresses "Add sender" is a button nobody will ever scroll to.
+ */
+@Composable
+private fun ImageAllowlistScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    val imageAllowlist by viewModel.imageAllowlist.collectAsStateWithLifecycle()
+    var showAddSender by remember { mutableStateOf(false) }
+    DetailScaffold(
+        title = stringResource(R.string.settings_image_allowlist_title),
+        onBack = onBack,
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            Text(
+                stringResource(R.string.settings_image_allowlist_caption),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                TextButton(onClick = { showAddSender = true }) {
+                    Text(stringResource(R.string.settings_image_allowlist_add))
+                }
+                if (imageAllowlist.isNotEmpty()) {
+                    TextButton(onClick = viewModel::clearImageAllowlist) {
+                        Text(stringResource(R.string.settings_image_allowlist_clear))
+                    }
+                }
+            }
+            if (imageAllowlist.isEmpty()) {
+                Text(
+                    stringResource(R.string.settings_image_allowlist_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            } else {
+                LazyColumn(Modifier.weight(1f)) {
+                    // Keyed by the address, which IS the identity here: the store is a set, so
+                    // removing one entry must not renumber the rows below it into new items.
+                    items(imageAllowlist.sorted(), key = { it }) { sender ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                sender,
+                                style = MaterialTheme.typography.bodyLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            IconButton(onClick = { viewModel.setImageAllowed(sender, false) }) {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    contentDescription = stringResource(
+                                        R.string.settings_image_allowlist_remove,
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (showAddSender) {
+        var sender by remember { mutableStateOf("") }
+        val focusRequester = remember { FocusRequester() }
+        // Focus is asked for from the field's first placement, not a LaunchedEffect: the effect can
+        // run before the dialog window has laid the field out, and a FocusRequester with nothing
+        // attached yet throws. Same fix as the tag editor.
+        var focusRequested by remember { mutableStateOf(false) }
+        fun submit() {
+            if (sender.isNotBlank()) {
+                viewModel.setImageAllowed(sender, true)
+                showAddSender = false
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { showAddSender = false },
+            title = { Text(stringResource(R.string.settings_image_allowlist_add)) },
+            text = {
+                OutlinedTextField(
+                    value = sender,
+                    onValueChange = { sender = it },
+                    singleLine = true,
+                    placeholder = { Text(stringResource(R.string.settings_image_allowlist_hint)) },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { submit() }),
+                    modifier = Modifier
+                        .focusRequester(focusRequester)
+                        .onGloballyPositioned {
+                            if (!focusRequested) {
+                                focusRequested = true
+                                focusRequester.requestFocus()
+                            }
+                        },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { submit() },
+                    enabled = sender.isNotBlank(),
+                ) { Text(stringResource(R.string.settings_save)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddSender = false }) {
+                    Text(stringResource(R.string.settings_cancel))
+                }
+            },
+        )
     }
 }
 
