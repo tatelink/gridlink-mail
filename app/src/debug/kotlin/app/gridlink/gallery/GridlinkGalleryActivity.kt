@@ -5,8 +5,18 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import app.gridlink.container
+import app.gridlink.core.data.filter.FilterRule
+import app.gridlink.core.data.filter.RuleCondition
+import app.gridlink.core.data.filter.RuleField
+import app.gridlink.core.data.filter.RuleMatch
+import app.gridlink.core.data.filter.RuleMatchMode
 import app.gridlink.core.data.mail.MailFilter
+import app.gridlink.core.data.settings.MailTag
 import app.gridlink.ui.gridlink.GRIDLINK_BUNDLE_SWIPE_ID
 import app.gridlink.ui.gridlink.GridlinkApp
 import app.gridlink.ui.gridlink.GridlinkAttacher
@@ -32,6 +42,8 @@ import app.gridlink.ui.gridlink.GridlinkUndoFrame
 import app.gridlink.ui.gridlink.gridlinkSampleChromeConfig
 import app.gridlink.ui.gridlink.gridlinkSampleLastSyncedAt
 import app.gridlink.ui.gridlink.mayReparent
+import app.gridlink.ui.settings.FiltersScreenContent
+import app.gridlink.ui.settings.FiltersUiState
 import app.gridlink.ui.settings.SettingsScreen
 import app.gridlink.ui.theme.GridlinkMode
 
@@ -654,6 +666,56 @@ private val SETTINGS_ROUTES = listOf(
     "accounts", "appearance", "reading", "notifications", "vacation",
     "filters", "tags", "privacy", "storage", "license", "backup",
     "allowed-senders",
+    // Not one of that screen's routes: `filters` opens the real one, which asks the account store
+    // for an account and says "No account available" when there is none. See [SAMPLE_FILTERS].
+    FILTERS_SAMPLE,
+)
+
+/**
+ * `--es settings filters-sample`: the filter rules against hand-built state.
+ *
+ * The shipping [SettingsScreen] route reaches a view model that loads the rules over the network,
+ * so on a gallery with no account signed in the screen is one sentence saying so and there is
+ * nothing to look at. [FiltersScreenContent] is already state-in/callbacks-out, so the harness
+ * hands it a mailbox's worth of rules directly and the editor becomes reachable by tapping a row.
+ * Edits are kept in memory for the length of the capture and go no further: nothing here reaches a
+ * server, and nothing here is what the app ships.
+ */
+private const val FILTERS_SAMPLE = "filters-sample"
+
+/** Rules that between them use every field kind, both joins, and each action. */
+private val SAMPLE_FILTERS = listOf(
+    FilterRule(
+        name = "Receipts",
+        conditions = listOf(RuleCondition(RuleField.SUBJECT, RuleMatch.CONTAINS, "invoice")),
+        moveTo = "INBOX.Receipts",
+        markRead = true,
+    ),
+    FilterRule(
+        name = "Big lists",
+        mode = RuleMatchMode.ANY,
+        conditions = listOf(
+            RuleCondition(RuleField.LIST_ID, RuleMatch.CONTAINS, "lists.example"),
+            RuleCondition(RuleField.SIZE, RuleMatch.OVER, "5000"),
+            RuleCondition(RuleField.HAS_ATTACHMENT, RuleMatch.PRESENT),
+        ),
+        addTag = "finance",
+        stop = true,
+    ),
+    FilterRule(
+        name = "Away from the team",
+        conditions = listOf(
+            RuleCondition(RuleField.TO_OR_CC, RuleMatch.ENDS_WITH, "@gridlink.me"),
+            RuleCondition(RuleField.FROM, RuleMatch.NOT_CONTAINS, "noreply"),
+        ),
+        flag = true,
+    ),
+    FilterRule(
+        name = "Off for now",
+        enabled = false,
+        conditions = listOf(RuleCondition(RuleField.BODY, RuleMatch.CONTAINS, "unsubscribe")),
+        moveTo = "INBOX.Lists",
+    ),
 )
 
 @Composable
@@ -715,6 +777,10 @@ private fun GridlinkGallery(
         config = gridlinkSampleChromeConfig(),
         initialLastSyncedAt = gridlinkSampleLastSyncedAt(),
     ) {
+        if (settingsRoute == FILTERS_SAMPLE) {
+            SampleFilters()
+            return@GridlinkApp
+        }
         if (settingsRoute != null) {
             // Back is a no-op rather than a finish(): the harness has nowhere to go back TO, and a
             // stray tap closing the activity mid-capture is a lost screenshot.
@@ -772,3 +838,47 @@ private val SAMPLE_INVITE = GridlinkInvite(
     repeats = "Every 3 months on the third Tuesday",
     canRsvp = true,
 )
+
+/**
+ * The filters screen driven by [SAMPLE_FILTERS], with the edits applied the way the view model
+ * applies them, so adding a rule opens the editor on it and a committed rule shows up in its row.
+ */
+@Composable
+private fun SampleFilters() {
+    var state by remember {
+        mutableStateOf(
+            FiltersUiState(
+                loading = false,
+                accountLabel = "avery@gridlink.me",
+                rules = SAMPLE_FILTERS,
+                folders = listOf("INBOX.Receipts", "INBOX.Lists", "INBOX.Projects.Archive"),
+                tags = listOf(MailTag("finance", "Finance"), MailTag("travel", "Travel")),
+            ),
+        )
+    }
+    FiltersScreenContent(
+        state = state,
+        onBack = {},
+        onLoad = {},
+        onAdd = { state = state.copy(rules = state.rules + FilterRule(), dirty = true) },
+        onUpdate = { i, rule ->
+            state = state.copy(
+                rules = state.rules.toMutableList().also { list ->
+                    if (rule.isEmpty) list.removeAt(i) else list[i] = rule
+                },
+                dirty = true,
+            )
+        },
+        onRemove = { i ->
+            state = state.copy(rules = state.rules.toMutableList().also { it.removeAt(i) }, dirty = true)
+        },
+        onSetEnabled = { i, on ->
+            state = state.copy(
+                rules = state.rules.toMutableList().also { it[i] = it[i].copy(enabled = on) },
+                dirty = true,
+            )
+        },
+        // Saving is the one thing the harness cannot pretend at: there is no server behind it.
+        onSave = { state = state.copy(dirty = false, savedTick = state.savedTick + 1) },
+    )
+}

@@ -1,6 +1,7 @@
 package app.gridlink.ui.settings
 
 import app.gridlink.core.data.filter.FilterRule
+import app.gridlink.core.data.filter.RuleCondition
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
@@ -85,16 +86,23 @@ class UnsavedExitTest {
     }
 
     @Test fun aRuleToggledBackOffIsBackToWhatTheServerHolds() {
-        val onServer = listOf(FilterRule(name = "Newsletters", value = "news@example.org"))
+        val onServer = listOf(NEWSLETTERS)
         val edited = onServer.map { it.copy(enabled = !it.enabled) }
         assertNotEquals(onServer, edited)
         assertEquals(onServer, edited.map { it.copy(enabled = !it.enabled) })
     }
 
     @Test fun aRuleAddedThenRemovedIsBackToWhatTheServerHolds() {
-        val onServer = listOf(FilterRule(name = "Newsletters", value = "news@example.org"))
+        val onServer = listOf(NEWSLETTERS)
         val added = onServer + FilterRule()
         assertNotEquals(onServer, added)
         assertEquals(onServer, added.dropLast(1))
+    }
+
+    private companion object {
+        val NEWSLETTERS = FilterRule(
+            name = "Newsletters",
+            conditions = listOf(RuleCondition(value = "news@example.org")),
+        )
     }
 }

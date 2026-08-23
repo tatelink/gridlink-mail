@@ -18,11 +18,15 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import app.gridlink.core.data.filter.FilterRule
+import app.gridlink.core.data.filter.RuleCondition
 import app.gridlink.core.data.filter.RuleField
 import app.gridlink.core.data.filter.RuleMatch
+import app.gridlink.core.data.filter.RuleMatchMode
+import app.gridlink.core.data.settings.MailTag
 import app.gridlink.ui.gridlink.GridlinkApp
 import app.gridlink.ui.theme.GridlinkMode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -137,12 +141,39 @@ class FiltersScreenTest {
 
     @Test
     fun rows_nameTheRule_orCallItUntitled_andSummariseItInOneLine() {
-        show(loaded(RECEIPTS, FilterRule(value = "boss@acme.example")))
+        show(loaded(RECEIPTS, FilterRule(conditions = listOf(RuleCondition(value = "boss@acme.example")))))
         rule.onNodeWithText("Receipts").assertExists()
         rule.onNodeWithText("Subject contains \"invoice\" → Move to INBOX.Receipts · Mark as read · Star")
             .assertExists()
         rule.onNodeWithText("Untitled rule").assertExists()
         rule.onNodeWithText("Sender contains \"boss@acme.example\"").assertExists()
+    }
+
+    @Test
+    fun aRuleOfSeveralConditions_stillReadsAsOneSentence() {
+        // ⚠️ The row is the only place the whole rule is visible at once, so every part of it has to
+        // survive into one line: the join that decides whether this fires on one condition or all
+        // three, a size in the unit it was typed in, a presence test that has no value to quote, and
+        // a tag under the name the reader gave it rather than the keyword the server stores.
+        show(
+            loaded(
+                FilterRule(
+                    name = "Big lists",
+                    mode = RuleMatchMode.ANY,
+                    conditions = listOf(
+                        RuleCondition(RuleField.LIST_ID, RuleMatch.CONTAINS, "lists.example"),
+                        RuleCondition(RuleField.SIZE, RuleMatch.OVER, "5000"),
+                        RuleCondition(RuleField.HAS_ATTACHMENT, RuleMatch.PRESENT),
+                    ),
+                    addTag = "finance",
+                    stop = true,
+                ),
+            ).copy(tags = TAGS),
+        )
+        rule.onNodeWithText(
+            "Mailing list contains \"lists.example\" or Size is over 5000 kB or " +
+                "Attachment is present → Tag Finance · Stop",
+        ).assertExists()
     }
 
     @Test
@@ -199,9 +230,7 @@ class FiltersScreenTest {
             listOf(
                 1 to FilterRule(
                     name = "Newsletters",
-                    field = RuleField.TO,
-                    match = RuleMatch.IS,
-                    value = "news@gridlink.me",
+                    conditions = listOf(RuleCondition(RuleField.TO, RuleMatch.IS, "news@gridlink.me")),
                     moveTo = "INBOX.Lists",
                     flag = true,
                 ),
@@ -222,10 +251,130 @@ class FiltersScreenTest {
         rule.onNodeWithText("invoice").assertExists()
         rule.onNodeWithText("Subject").assertExists()
         rule.onNodeWithText("INBOX.Receipts").assertExists()
+        // One condition, so nothing to join and nothing to remove; and no tags defined, so the
+        // action that would apply one is left out rather than offered empty.
+        rule.onNodeWithText("Must match").assertDoesNotExist()
+        rule.onNodeWithText("Remove condition").assertDoesNotExist()
+        rule.onNodeWithText("Apply tag").assertDoesNotExist()
         rule.onNodeWithText("Delete rule").performScrollTo().performClick()
         assertEquals(listOf(1), removes)
         assertEquals(emptyList<Pair<Int, FilterRule>>(), updates)
         rule.onNodeWithText("Add rule").assertExists()
+    }
+
+    @Test
+    fun theJoinIsAskedAboutOnlyOnceThereIsSomethingToJoin() {
+        show(loaded(RECEIPTS))
+        rule.onNodeWithText("Receipts").performClick()
+        rule.onNodeWithText("Must match").assertDoesNotExist()
+
+        rule.onNodeWithText("Add condition").performScrollTo().performClick()
+        rule.onNodeWithText("Must match").performScrollTo().assertExists()
+        // Defaults to the narrower reading: a second condition tightens the rule until the reader
+        // says otherwise, rather than widening one that was already firing.
+        rule.onNodeWithText("all of these").assertExists()
+        rule.onNodeWithText("Must match").performClick()
+        rule.onNodeWithText("any of these").performClick()
+        rule.onNodeWithContentDescription("Back").performClick()
+
+        val committed = updates.single().second
+        assertEquals(RuleMatchMode.ANY, committed.mode)
+        assertEquals(2, committed.conditions.size)
+    }
+
+    @Test
+    fun conditionsCanBeAddedAndTakenAwayAgain() {
+        show(loaded(RECEIPTS))
+        rule.onNodeWithText("Receipts").performClick()
+        rule.onNodeWithText("Add condition").performScrollTo().performClick()
+        rule.onAllNodesWithText("Remove condition").assertCountEquals(2)
+
+        rule.onAllNodesWithText("Field")[1].performScrollTo().performClick()
+        rule.onNodeWithText("Mailing list").performClick()
+        rule.onAllNodes(hasSetTextAction())[2].performTextInput("lists.example")
+        // Drop the FIRST one: the survivor has to be the row that was not removed, not whichever
+        // row happens to sit at that index afterwards.
+        rule.onAllNodesWithText("Remove condition")[0].performScrollTo().performClick()
+        rule.onNodeWithText("Remove condition").assertDoesNotExist()
+        rule.onNodeWithContentDescription("Back").performClick()
+
+        assertEquals(
+            listOf(RuleCondition(RuleField.LIST_ID, RuleMatch.CONTAINS, "lists.example")),
+            updates.single().second.conditions,
+        )
+    }
+
+    @Test
+    fun pickingAFieldOfAnotherKind_changesWhatCanBeAsked_andTakesTheValueAway() {
+        show(loaded(RECEIPTS))
+        rule.onNodeWithText("Receipts").performClick()
+        // Two text fields to begin with: the rule's name and the condition's value.
+        rule.onAllNodes(hasSetTextAction()).assertCountEquals(2)
+
+        rule.onNodeWithText("Field").performClick()
+        rule.onNodeWithText("Attachment").performClick()
+        // 🔴 "Subject contains invoice" must not survive into "Attachment contains invoice": there
+        // is no such test to compile, and the row would read as a condition the rule does not have.
+        rule.onAllNodes(hasSetTextAction()).assertCountEquals(1)
+        rule.onNodeWithText("is present").assertExists()
+        rule.onNodeWithText(ATTACHMENT_NOTE).assertExists()
+
+        rule.onNodeWithText("Condition").performClick()
+        rule.onNodeWithText("contains").assertDoesNotExist()
+        rule.onNodeWithText("is absent").assertExists()
+        rule.onNodeWithText("Cancel").performClick()
+        rule.onNodeWithContentDescription("Back").performClick()
+
+        assertEquals(
+            listOf(RuleCondition(RuleField.HAS_ATTACHMENT, RuleMatch.PRESENT, "")),
+            updates.single().second.conditions,
+        )
+    }
+
+    @Test
+    fun aSizeConditionAsksForKilobytes_andSaysSoInTheRow() {
+        show(loaded(RECEIPTS))
+        rule.onNodeWithText("Receipts").performClick()
+        rule.onNodeWithText("Field").performClick()
+        rule.onNodeWithText("Size").performClick()
+        rule.onNodeWithText("Size in kB").assertExists()
+        rule.onNodeWithText("is over").assertExists()
+        rule.onAllNodes(hasSetTextAction())[1].performTextInput("5000")
+        rule.onNodeWithContentDescription("Back").performClick()
+
+        assertEquals(
+            listOf(RuleCondition(RuleField.SIZE, RuleMatch.OVER, "5000")),
+            updates.single().second.conditions,
+        )
+    }
+
+    @Test
+    fun aTagIsPickedByItsName_andStopIsJustAnotherAction() {
+        show(loaded(RECEIPTS).copy(tags = TAGS))
+        rule.onNodeWithText("Receipts").performClick()
+        rule.onNodeWithText("Apply tag").performScrollTo().assertExists()
+        rule.onNodeWithText("(no tag)").assertExists()
+        rule.onNodeWithText("Apply tag").performClick()
+        rule.onNodeWithText("Finance").performClick()
+        switches()[2].performScrollTo().performClick() // Stop processing later rules
+        rule.onNodeWithContentDescription("Back").performClick()
+
+        val committed = updates.single().second
+        // 🔴 The keyword is what reaches the server; the label is only ever what the reader saw.
+        assertEquals("finance", committed.addTag)
+        assertTrue(committed.stop)
+    }
+
+    @Test
+    fun aRuleTaggedFromAnotherDevice_keepsThatTag_evenWithNoneDefinedHere() {
+        // Tags live on this device, the rule lives on the server: a keyword written from a phone
+        // that has the tag must not be dropped by a phone that does not.
+        show(loaded(RECEIPTS.copy(addTag = "elsewhere")))
+        rule.onNodeWithText("Receipts").performClick()
+        rule.onNodeWithText("Apply tag").performScrollTo().assertExists()
+        rule.onNodeWithText("elsewhere").assertExists()
+        rule.onNodeWithContentDescription("Back").performClick()
+        assertEquals("elsewhere", updates.single().second.addTag)
     }
 
     @Test
@@ -300,12 +449,13 @@ class FiltersScreenTest {
         const val NO_ACCOUNT = "No account available."
         const val FOREIGN_WARNING =
             "Another filter script is active on the server; saving will make Gridlink's the active one."
+        const val ATTACHMENT_NOTE =
+            "Read from the message's structure, so an unusually built message can slip past."
         val FOLDERS = listOf("INBOX.Receipts", "INBOX.Lists")
+        val TAGS = listOf(MailTag("finance", "Finance"))
         val RECEIPTS = FilterRule(
             name = "Receipts",
-            field = RuleField.SUBJECT,
-            match = RuleMatch.CONTAINS,
-            value = "invoice",
+            conditions = listOf(RuleCondition(RuleField.SUBJECT, RuleMatch.CONTAINS, "invoice")),
             moveTo = "INBOX.Receipts",
             markRead = true,
             flag = true,

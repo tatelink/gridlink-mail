@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import app.gridlink.TestGridlinkApplication
 import app.gridlink.core.data.filter.FilterRule
+import app.gridlink.core.data.filter.RuleCondition
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -58,7 +59,11 @@ class FiltersViewModelTest {
         val vm = FiltersViewModel(app)
         vm.addRule()
         vm.addRule()
-        val edited = FilterRule(name = "Receipts", value = "invoice", markRead = true)
+        val edited = FilterRule(
+            name = "Receipts",
+            conditions = listOf(RuleCondition(value = "invoice")),
+            markRead = true,
+        )
         vm.updateRule(1, edited)
         assertEquals(listOf(FilterRule(), edited), vm.state.value.rules)
     }

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import app.gridlink.container
 import app.gridlink.core.data.filter.FilterRule
 import app.gridlink.core.data.mail.FilterRulesState
+import app.gridlink.core.data.settings.MailTag
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
@@ -30,6 +31,15 @@ data class FiltersUiState(
      * says, with no second spelling in between.
      */
     val folders: List<String> = emptyList(),
+    /**
+     * The reader's own tags, offered as the "apply tag" action.
+     *
+     * Local, not read off the server: a tag is a plain IMAP keyword, and the app is the only
+     * place that knows which keywords the reader has given a name and a colour. A rule can still
+     * carry a keyword that is not in this list (written on another device, or a tag since
+     * deleted); the editor keeps it selected rather than silently dropping the action.
+     */
+    val tags: List<MailTag> = emptyList(),
     val saving: Boolean = false,
     val errorKind: FiltersError? = null,
     val errorDetail: String = "",
@@ -50,6 +60,7 @@ data class FiltersUiState(
 class FiltersViewModel(application: Application) : AndroidViewModel(application) {
     private val repo = application.container.mailRepository
     private val store = application.container.accountStore
+    private val settings = application.container.settingsRepository
 
     private val _state = MutableStateFlow(FiltersUiState())
     val state = _state.asStateFlow()
@@ -76,6 +87,7 @@ class FiltersViewModel(application: Application) : AndroidViewModel(application)
                     repo.observeMailboxes(credentials.id).first()
                         .let { all -> all.mapNotNull { mb -> mailboxFilePath(mb, all) } }
                 }.getOrDefault(emptyList())
+                val tags = settings.mailTags.first()
                 when (val result = repo.loadFilterRules(credentials)) {
                     FilterRulesState.Unsupported -> {
                         serverRules = emptyList()
@@ -92,6 +104,7 @@ class FiltersViewModel(application: Application) : AndroidViewModel(application)
                             accountLabel = store.accountLabel(),
                             rules = result.rules,
                             folders = folders,
+                            tags = tags,
                         )
                     }
                 }
