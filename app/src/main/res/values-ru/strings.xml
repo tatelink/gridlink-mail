@@ -854,6 +854,7 @@
     <string name="settings_tags_summary">Цветные метки для почты</string>
     <string name="settings_tags_section">Ваши теги</string>
     <string name="settings_tags_empty">Тегов пока нет. Создайте первый, чтобы отмечать письма.</string>
+    <string name="settings_tags_empty_adoptable">На этом устройстве теги ещё не названы. Те, что уже стоят на письмах, перечислены ниже и готовы к принятию.</string>
     <string name="settings_tags_add">Новый тег</string>
     <string name="settings_tags_new">Новый тег</string>
     <string name="settings_tags_edit">Изменить тег</string>
@@ -868,6 +869,7 @@
     <string name="settings_tags_unknown_section">Встречаются в почте</string>
     <string name="settings_tags_unknown_note">Теги на письмах, для которых у этого устройства нет ни имени, ни цвета. Примите тег, чтобы задать и то, и другое.</string>
     <string name="settings_tags_adopt">Принять</string>
+    <string name="settings_tags_adopt_all">Принять все (%1$d)</string>
     <string name="read_receipt_subject">Прочитано: %1$s</string>
     <string name="read_receipt_body">Ваше сообщение было отображено на устройстве получателя. Это не гарантирует, что оно прочитано или понято.</string>
 </resources>

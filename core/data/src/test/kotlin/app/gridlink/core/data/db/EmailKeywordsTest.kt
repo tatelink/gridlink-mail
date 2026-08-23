@@ -104,4 +104,30 @@ class EmailKeywordsTest {
         val regex = pattern.split("%").joinToString(".*") { Regex.escape(it) }
         return Regex(regex).matches(value)
     }
+
+    @Test fun `a wire keyword un-slugs into a label worth starting from`() {
+        assertEquals("Orders shipping", EmailKeywords.toLabel("orders-shipping"))
+        assertEquals("Job search", EmailKeywords.toLabel("job_search"))
+        assertEquals("Bills", EmailKeywords.toLabel("bills"))
+        // Sentence case, not title case: a chip label, not a proper noun.
+        assertEquals("Accounts security", EmailKeywords.toLabel("accounts-security"))
+    }
+
+    @Test fun `un-slugging is total and never widens what toKeyword would accept`() {
+        // Separator runs and edge separators are toKeyword's own leftovers, so they must not
+        // produce doubled or leading spaces in a label the reader is shown.
+        assertEquals("Tax 2026", EmailKeywords.toLabel("tax--2026"))
+        assertEquals("Work", EmailKeywords.toLabel("-work-"))
+        // Nothing usable left: return the input rather than an empty field the editor rejects.
+        assertEquals("--", EmailKeywords.toLabel("--"))
+        assertEquals("", EmailKeywords.toLabel(""))
+    }
+
+    @Test fun `a label survives the round trip through a keyword when it was already a slug`() {
+        // 🔴 One direction only. toKeyword is lossy (an ampersand and casing are both gone), so
+        // this asserts the loop closes for names that WERE slugs, not that a typed label returns.
+        listOf("bills", "orders-shipping", "job-search").forEach {
+            assertEquals(it, EmailKeywords.toKeyword(EmailKeywords.toLabel(it)))
+        }
+    }
 }

@@ -847,6 +847,7 @@
     <string name="settings_tags_summary">Farbige Markierungen für Ihre E-Mails</string>
     <string name="settings_tags_section">Ihre Tags</string>
     <string name="settings_tags_empty">Noch keine Tags. Legen Sie einen an, um E-Mails zu markieren.</string>
+    <string name="settings_tags_empty_adoptable">Auf diesem Gerät sind noch keine Tags benannt. Die Tags, die bereits an Ihrer Post hängen, stehen unten bereit zur Übernahme.</string>
     <string name="settings_tags_add">Neuer Tag</string>
     <string name="settings_tags_new">Neuer Tag</string>
     <string name="settings_tags_edit">Tag bearbeiten</string>
@@ -861,6 +862,7 @@
     <string name="settings_tags_unknown_section">In Ihren E-Mails gefunden</string>
     <string name="settings_tags_unknown_note">Tags auf E-Mails, für die dieses Gerät keinen Namen und keine Farbe hat. Übernehmen Sie einen, um beides zu vergeben.</string>
     <string name="settings_tags_adopt">Übernehmen</string>
+    <string name="settings_tags_adopt_all">Alle %1$d übernehmen</string>
     <string name="read_receipt_subject">Gelesen: %1$s</string>
     <string name="read_receipt_body">Ihre Nachricht wurde auf dem Gerät des Empfängers angezeigt. Das ist keine Garantie dafür, dass sie gelesen oder verstanden wurde.</string>
 </resources>

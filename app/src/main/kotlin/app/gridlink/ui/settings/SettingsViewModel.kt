@@ -21,6 +21,7 @@ import app.gridlink.core.data.settings.SwipeAction
 import app.gridlink.core.data.settings.TagColor
 import app.gridlink.core.data.settings.ThemeMode
 import app.gridlink.core.data.settings.ThreadToolbarAction
+import app.gridlink.core.data.settings.adoptTags
 import app.gridlink.icon.AppIcons
 import app.gridlink.push.NewMailNotifier
 import app.gridlink.push.PushController
@@ -277,6 +278,29 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     existing + MailTag(keyword = keyword, label = label.trim(), color = color.name),
                 )
             }
+            refreshUndefinedTags()
+        }
+    }
+
+    /**
+     * Adopt every keyword currently listed as undefined, in one go.
+     *
+     * The reason this exists rather than leaving them to be adopted one at a time: a mailbox that
+     * is tagged by something OTHER than this device — a server-side rule, another client — arrives
+     * here with its whole vocabulary undefined at once, and ten dialogs to name ten tags is enough
+     * friction that the tags just stay grey. Colours come from [adoptTags]; the labels are un-slugged
+     * wire names, which every one of them can then be edited from.
+     *
+     * Reads [undefinedTags] rather than re-scanning, so what is adopted is exactly the list the
+     * reader was looking at when they tapped.
+     */
+    fun adoptAllMailTags() {
+        viewModelScope.launch {
+            val keywords = _undefinedTags.value
+            if (keywords.isEmpty()) return@launch
+            val existing = settings.mailTags.first()
+            val adopted = adoptTags(keywords, existing)
+            if (adopted.isNotEmpty()) settings.setMailTags(existing + adopted)
             refreshUndefinedTags()
         }
     }

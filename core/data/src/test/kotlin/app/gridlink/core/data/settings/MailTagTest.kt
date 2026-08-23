@@ -58,4 +58,50 @@ class MailTagTest {
         assertEquals(TagColor.entries.size, TagColor.entries.map { it.argb }.toSet().size)
         assertNotEquals(0, TagColor.entries.size)
     }
+
+    @Test fun `adopting many keywords keeps the colours the reader was already looking at`() {
+        // The dots on the message rows are forUnknown's derived colour. Adopting must not repaint
+        // them for the sake of tidiness, or the tag the reader just claimed changes under them.
+        val keywords = listOf("bills", "receipts")
+        val adopted = adoptTags(keywords, existing = emptyList())
+        assertEquals(keywords, adopted.map { it.keyword })
+        adopted.forEach { assertEquals(TagColor.forUnknown(it.keyword), it.tagColor) }
+    }
+
+    @Test fun `adopting never hands back two tags in the same colour while the palette holds out`() {
+        // forUnknown is a hash into eight entries, so a ten-tag vocabulary WILL collide. Identical
+        // dots are the one outcome that makes the whole feature useless.
+        val keywords = listOf(
+            "bills", "receipts", "orders-shipping", "accounts-security",
+            "health", "infra-alerts", "newsletters", "promotions",
+        )
+        val adopted = adoptTags(keywords, existing = emptyList())
+        assertEquals(keywords.size, adopted.size)
+        assertEquals(adopted.size, adopted.map { it.tagColor }.toSet().size)
+    }
+
+    @Test fun `adopting past the palette wraps instead of refusing`() {
+        val keywords = (1..TagColor.entries.size + 3).map { "tag$it" }
+        val adopted = adoptTags(keywords, existing = emptyList())
+        assertEquals(keywords.size, adopted.size)
+        // Every one is a real palette entry; only distinctness is given up, not the adoption.
+        adopted.forEach { assertTrue(it.tagColor in TagColor.entries) }
+    }
+
+    @Test fun `adopting skips keywords that already have a definition`() {
+        // Additive, always. A second definition for one wire name is the one thing that would make
+        // the tag manager show a tag whose colour disagrees with the chip on the message.
+        val existing = listOf(MailTag(keyword = "bills", label = "Bills", color = TagColor.RED.name))
+        val adopted = adoptTags(listOf("bills", "receipts"), existing)
+        assertEquals(listOf("receipts"), adopted.map { it.keyword })
+        assertNotEquals(TagColor.RED, adopted.single().tagColor)
+    }
+
+    @Test fun `an adopted tag arrives with a readable label, not the raw slug`() {
+        val adopted = adoptTags(listOf("orders-shipping"), existing = emptyList())
+        assertEquals("Orders shipping", adopted.single().label)
+        // 🔴 The KEYWORD is untouched. Adoption defines the tag that is on the mail; deriving a new
+        // keyword from the new label would define a lookalike no message carries.
+        assertEquals("orders-shipping", adopted.single().keyword)
+    }
 }

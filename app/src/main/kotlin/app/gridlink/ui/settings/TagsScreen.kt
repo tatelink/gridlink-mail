@@ -96,7 +96,16 @@ internal fun TagsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
             SettingsSection(stringResource(R.string.settings_tags_section)) {
                 if (tags.isEmpty()) {
                     Text(
-                        stringResource(R.string.settings_tags_empty),
+                        // Two empty states, because they are two different situations and only one
+                        // of them is actually empty. A mailbox already carrying keywords needs to be
+                        // told they are here to be claimed, or the reader types them all in again.
+                        stringResource(
+                            if (undefined.isEmpty()) {
+                                R.string.settings_tags_empty
+                            } else {
+                                R.string.settings_tags_empty_adoptable
+                            },
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -128,6 +137,20 @@ internal fun TagsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
+                    // Only past one. Beside a single "Adopt" it would be the same button twice.
+                    if (undefined.size > 1) {
+                        TextButton(
+                            onClick = { viewModel.adoptAllMailTags() },
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                        ) {
+                            Text(
+                                stringResource(
+                                    R.string.settings_tags_adopt_all,
+                                    undefined.size,
+                                ),
+                            )
+                        }
+                    }
                     undefined.forEach { keyword ->
                         Row(
                             modifier = Modifier
@@ -181,10 +204,11 @@ internal fun TagsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     adopting?.let { keyword ->
         TagEditorDialog(
             title = stringResource(R.string.settings_tags_new),
-            // Pre-filled with the wire name, which is usually already the word the reader wants and
-            // is at worst a sane starting point. ⚠️ The keyword is NOT re-derived from whatever they
-            // type: adoption must define the tag that is on the mail, not a lookalike.
-            initialLabel = keyword,
+            // Pre-filled with the wire name un-slugged, which is usually already the word the
+            // reader wants and is at worst a sane starting point. ⚠️ The keyword is NOT re-derived
+            // from whatever they type: adoption must define the tag that is on the mail, not a
+            // lookalike.
+            initialLabel = EmailKeywords.toLabel(keyword),
             initialColor = TagColor.forUnknown(keyword),
             keywordOverride = keyword,
             onDismiss = { adopting = null },

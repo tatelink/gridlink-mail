@@ -886,6 +886,7 @@
     <string name="settings_tags_summary">Colour-coded labels for your mail</string>
     <string name="settings_tags_section">Your tags</string>
     <string name="settings_tags_empty">No tags yet. Create one to start marking mail.</string>
+    <string name="settings_tags_empty_adoptable">No tags named on this device yet. The ones already on your mail are listed below, ready to adopt.</string>
     <string name="settings_tags_add">New tag</string>
     <string name="settings_tags_new">New tag</string>
     <string name="settings_tags_edit">Edit tag</string>
@@ -900,4 +901,5 @@
     <string name="settings_tags_unknown_section">Seen on your mail</string>
     <string name="settings_tags_unknown_note">Tags on mail here that this device has no name or colour for. Adopt one to give it both.</string>
     <string name="settings_tags_adopt">Adopt</string>
+    <string name="settings_tags_adopt_all">Adopt all %1$d</string>
 </resources>

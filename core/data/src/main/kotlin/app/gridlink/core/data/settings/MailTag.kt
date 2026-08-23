@@ -83,6 +83,50 @@ enum class TagColor(val argb: Long) {
 }
 
 /**
+ * Definitions for keywords already on the mail, several at a time.
+ *
+ * ## Why this is not just a loop over the one-at-a-time path
+ * Adopting one tag lets the reader pick its colour. Adopting ten cannot ask ten times, so the
+ * colours are chosen here, and the choice has to satisfy two things that pull against each other:
+ *
+ * - Each keyword is ALREADY drawing somewhere, as a dot on a message row and in this screen's own
+ *   list, in [TagColor.forUnknown]'s derived colour. Adopting it should not repaint it out from
+ *   under the reader, so that colour is the first preference.
+ * - [TagColor.forUnknown] is a hash into eight entries, so ten keywords will collide. Handing back
+ *   three identical dots is the exact outcome the palette exists to prevent.
+ *
+ * So: take the derived colour when it is still free, otherwise the first free entry, and once the
+ * palette is exhausted wrap round rather than refusing to adopt. Order is the caller's, which is
+ * the order the reader is looking at.
+ *
+ * Keywords already defined in [existing] are skipped rather than redefined — adopting is additive,
+ * and a second definition for the same wire name is the one thing that would make the manager lie.
+ *
+ * @return only the NEW definitions, for the caller to append.
+ */
+fun adoptTags(keywords: List<String>, existing: List<MailTag>): List<MailTag> {
+    val defined = existing.map { it.keyword }.toSet()
+    val taken = existing.map { it.tagColor }.toMutableSet()
+    val adopted = mutableListOf<MailTag>()
+    for (keyword in keywords) {
+        if (keyword in defined) continue
+        val derived = TagColor.forUnknown(keyword)
+        val color = when {
+            derived !in taken -> derived
+            taken.size < TagColor.entries.size -> TagColor.entries.first { it !in taken }
+            else -> TagColor.entries[(existing.size + adopted.size) % TagColor.entries.size]
+        }
+        taken += color
+        adopted += MailTag(
+            keyword = keyword,
+            label = EmailKeywords.toLabel(keyword),
+            color = color.name,
+        )
+    }
+    return adopted
+}
+
+/**
  * The user's tag definitions, as one DataStore string.
  *
  * A single JSON blob rather than a `stringSetPreferencesKey` of packed rows, because a set has no

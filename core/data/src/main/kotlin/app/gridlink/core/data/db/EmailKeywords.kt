@@ -70,6 +70,24 @@ object EmailKeywords {
         return slug.ifEmpty { null }
     }
 
+    /**
+     * A wire keyword -> the label to START a definition from, the loose inverse of [toKeyword].
+     *
+     * Loose because [toKeyword] is lossy: "Orders & Shipping" and "orders shipping" both slug to
+     * the same token, and neither the ampersand nor the original casing survives to be restored.
+     * So this makes no attempt to guess what was typed. It un-slugs to something a person would
+     * accept without editing ("orders-shipping" -> "Orders shipping") and leaves the editor open
+     * on it, which is the difference between adopting a tag and re-typing one.
+     *
+     * Sentence case, not title case: these are labels on a chip, and "Job Search" reads like a
+     * proper noun where "Job search" reads like the thing it is.
+     */
+    fun toLabel(keyword: String): String {
+        val words = keyword.split('-', '_').filter { it.isNotBlank() }
+        if (words.isEmpty()) return keyword
+        return words.joinToString(" ").replaceFirstChar { it.uppercase() }
+    }
+
     /** Canonical names → the column value. Empty encodes to null: nothing to store. */
     fun encode(keywords: Collection<String>): String? {
         val canonical = custom(keywords)

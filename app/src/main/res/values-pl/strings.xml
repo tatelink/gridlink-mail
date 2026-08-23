@@ -851,6 +851,7 @@
     <string name="settings_tags_summary">Kolorowe oznaczenia poczty</string>
     <string name="settings_tags_section">Twoje tagi</string>
     <string name="settings_tags_empty">Brak tagów. Utwórz pierwszy, aby oznaczać pocztę.</string>
+    <string name="settings_tags_empty_adoptable">Na tym urządzeniu nie nazwano jeszcze żadnych tagów. Te, które są już na Twojej poczcie, czekają poniżej do przejęcia.</string>
     <string name="settings_tags_add">Nowy tag</string>
     <string name="settings_tags_new">Nowy tag</string>
     <string name="settings_tags_edit">Edytuj tag</string>
@@ -865,6 +866,7 @@
     <string name="settings_tags_unknown_section">Znalezione w poczcie</string>
     <string name="settings_tags_unknown_note">Tagi na poczcie, dla których to urządzenie nie ma nazwy ani koloru. Przejmij tag, aby nadać mu oba.</string>
     <string name="settings_tags_adopt">Przejmij</string>
+    <string name="settings_tags_adopt_all">Przejmij wszystkie (%1$d)</string>
     <string name="read_receipt_subject">Przeczytano: %1$s</string>
     <string name="read_receipt_body">Twoja wiadomość została wyświetlona na urządzeniu odbiorcy. Nie gwarantuje to, że została przeczytana ani zrozumiana.</string>
 </resources>

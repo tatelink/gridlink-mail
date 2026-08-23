@@ -849,6 +849,7 @@
     <string name="settings_tags_summary">Contrassegni colorati per la posta</string>
     <string name="settings_tags_section">Le tue etichette</string>
     <string name="settings_tags_empty">Nessuna etichetta. Creane una per iniziare a contrassegnare la posta.</string>
+    <string name="settings_tags_empty_adoptable">Nessuna etichetta ancora nominata su questo dispositivo. Quelle già presenti sulla tua posta sono elencate qui sotto, pronte da adottare.</string>
     <string name="settings_tags_add">Nuova etichetta</string>
     <string name="settings_tags_new">Nuova etichetta</string>
     <string name="settings_tags_edit">Modifica etichetta</string>
@@ -863,6 +864,7 @@
     <string name="settings_tags_unknown_section">Viste nella tua posta</string>
     <string name="settings_tags_unknown_note">Etichette presenti sulla posta di cui questo dispositivo non ha né nome né colore. Adottane una per darle entrambi.</string>
     <string name="settings_tags_adopt">Adotta</string>
+    <string name="settings_tags_adopt_all">Adotta tutte (%1$d)</string>
     <string name="read_receipt_subject">Letto: %1$s</string>
     <string name="read_receipt_body">Il tuo messaggio è stato visualizzato sul dispositivo del destinatario. Questo non garantisce che sia stato letto o compreso.</string>
 </resources>

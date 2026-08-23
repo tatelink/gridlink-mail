@@ -849,6 +849,7 @@
     <string name="settings_tags_summary">Marcas de color para tu correo</string>
     <string name="settings_tags_section">Tus etiquetas</string>
     <string name="settings_tags_empty">Aún no hay etiquetas. Crea una para empezar a marcar correo.</string>
+    <string name="settings_tags_empty_adoptable">Aún no hay etiquetas con nombre en este dispositivo. Las que ya están en tu correo aparecen abajo, listas para adoptar.</string>
     <string name="settings_tags_add">Nueva etiqueta</string>
     <string name="settings_tags_new">Nueva etiqueta</string>
     <string name="settings_tags_edit">Editar etiqueta</string>
@@ -863,6 +864,7 @@
     <string name="settings_tags_unknown_section">Vistas en tu correo</string>
     <string name="settings_tags_unknown_note">Etiquetas en el correo para las que este dispositivo no tiene nombre ni color. Adopta una para darle ambos.</string>
     <string name="settings_tags_adopt">Adoptar</string>
+    <string name="settings_tags_adopt_all">Adoptar las %1$d</string>
     <string name="read_receipt_subject">Leído: %1$s</string>
     <string name="read_receipt_body">Tu mensaje se mostró en el dispositivo del destinatario. Esto no garantiza que se haya leído ni comprendido.</string>
 </resources>
