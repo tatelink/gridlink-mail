@@ -143,11 +143,13 @@ fun SettingsSection(title: String, content: @Composable () -> Unit) {
             title.uppercase(Locale.getDefault()),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.primary,
+            // Same cut as [GridlinkSectionLabel], for the same reason: settings is nothing but
+            // sections, so this is where the looseness added up fastest.
             modifier = Modifier.padding(
                 start = GridlinkSpacing.rowHorizontal,
                 end = GridlinkSpacing.rowHorizontal,
-                top = GridlinkSpacing.s20,
-                bottom = GridlinkSpacing.s8,
+                top = GridlinkSpacing.s12,
+                bottom = GridlinkSpacing.s4,
             ),
         )
         content()

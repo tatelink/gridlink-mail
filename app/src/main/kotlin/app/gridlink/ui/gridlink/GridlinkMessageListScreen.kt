@@ -1022,11 +1022,16 @@ fun GridlinkMessageListScreen(
             // its label on the same line the rows below start on. It used to be a scrolling row of
             // four chips that needed every dp of the 380dp list pane; one button does not, and the
             // inset stayed where it was because what it lines up with did not move.
+            //
+            // ⚠️ s8 above and below, not s12. The button is already 44dp of touch target with its
+            // own inner padding; the band around it was 68dp of panel spent on one control that is
+            // usually saying nothing but "Filter". The divider under it is what separates it from
+            // the list, so the gap does not have to.
             modifier = Modifier.padding(
                 start = GridlinkSpacing.s8,
                 end = GridlinkSpacing.s8,
-                top = GridlinkSpacing.s12,
-                bottom = GridlinkSpacing.s12,
+                top = GridlinkSpacing.s8,
+                bottom = GridlinkSpacing.s8,
             ),
             tagDefinitions = tagDefinitions,
         )

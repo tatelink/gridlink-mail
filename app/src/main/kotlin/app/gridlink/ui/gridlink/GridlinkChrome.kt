@@ -462,11 +462,17 @@ fun GridlinkSectionLabel(
         color = GridlinkTheme.colors.textSecondary,
         modifier = modifier
             .fillMaxWidth()
+            // ⚠️ s12 above, not s20. A section label is a word, and it was costing more than
+            // half a message row every time one appeared: on a phone showing AUTOMATED, TODAY,
+            // YESTERDAY and EARLIER that is a whole row of mail spent on four words. The label
+            // still reads as belonging to what follows it rather than to what came before,
+            // because the space below it is smaller than the space above it, which is the only
+            // thing that grouping needs: not the size of the gap, but the difference.
             .padding(
                 start = GridlinkSpacing.rowHorizontal + gutter,
                 end = GridlinkSpacing.rowHorizontal,
-                top = GridlinkSpacing.s20,
-                bottom = GridlinkSpacing.s8,
+                top = GridlinkSpacing.s12,
+                bottom = GridlinkSpacing.s4,
             ),
     )
 }
