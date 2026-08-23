@@ -39,6 +39,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.gridlink.core.data.contacts.ContactEdit
 import app.gridlink.core.jmap.model.ContactCardCustomField
@@ -142,18 +143,29 @@ fun GridlinkContactFormScreen(
     }
 
     // The picker hands back a Uri; the re-encode reads and compresses a possibly-huge image, so it
-    // runs off the main thread and the form simply shows the old state until it lands. GetContent
-    // rather than a permission dance: the SAF grants access to exactly the one picked document.
+    // runs off the main thread. GetContent rather than a permission dance: the SAF grants access to
+    // exactly the one picked document.
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // 🔴 Both of these exist because of Tate's *"trying to choose new photo not sticking, no
+    // change"*. The encode can take a visible moment on a large original and it can fail outright,
+    // and this row used to say nothing in either case, so a slow pick and a refused one looked
+    // identical to a tap that had missed. The tile reports that it is working, and reports when it
+    // gave up.
+    var encodingPhoto by remember { mutableStateOf(false) }
+    var photoError by remember { mutableStateOf<String?>(null) }
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        // A null uri is the reader backing out of the picker, which needs no comment.
         if (uri != null) {
+            photoError = null
+            encodingPhoto = true
             scope.launch {
                 val encoded = withContext(Dispatchers.Default) { gridlinkEncodeContactPhoto(context, uri) }
+                encodingPhoto = false
                 // A file that would not decode leaves the photo as it was: on a form, silently
                 // deleting the existing picture because the replacement was corrupt is worse than
-                // appearing to ignore the tap.
-                if (encoded != null) photo = encoded
+                // refusing it. Refusing it out loud is better than both.
+                if (encoded != null) photo = encoded else photoError = PHOTO_UNREADABLE
             }
         }
     }
@@ -243,7 +255,12 @@ fun GridlinkContactFormScreen(
         GridlinkContactPhotoRow(
             photo = photo,
             onPick = { photoPicker.launch("image/*") },
-            onRemove = { photo = null },
+            onRemove = {
+                photo = null
+                photoError = null
+            },
+            busy = encodingPhoto,
+            error = photoError,
         )
 
         // 🔴 No dividers anywhere below: in the contained language each field is its own box, so
@@ -536,6 +553,10 @@ private fun GridlinkContactPhotoRow(
     onPick: () -> Unit,
     onRemove: () -> Unit,
     modifier: Modifier = Modifier,
+    /** An image is being read and re-encoded right now. Holds the tile until it lands. */
+    busy: Boolean = false,
+    /** Why the last pick produced no photo, or null. Sits under the caption, in the alert colour. */
+    error: String? = null,
 ) {
     val colors = GridlinkTheme.colors
     val bitmap = rememberGridlinkContactPhoto(photo)
@@ -558,7 +579,9 @@ private fun GridlinkContactPhotoRow(
                 .clip(GridlinkContactPhotoShape)
                 .background(colors.fieldFill)
                 .border(GridlinkDimens.hairline, colors.surfaceBorder, GridlinkContactPhotoShape)
-                .clickable(onClick = onPick),
+                // Deaf while the last pick is still encoding: a second launch would race a second
+                // coroutine onto the same `photo`, and whichever finished last would win.
+                .clickable(enabled = !busy, onClick = onPick),
             contentAlignment = Alignment.Center,
         ) {
             if (bitmap != null) {
@@ -583,16 +606,29 @@ private fun GridlinkContactPhotoRow(
         }
         Spacer(Modifier.height(GridlinkSpacing.s12))
         Text(
-            text = if (photo == null) "Add photo" else "Replace photo",
+            text = when {
+                busy -> "Reading image…"
+                photo == null -> "Add photo"
+                else -> "Replace photo"
+            },
             style = GridlinkType.body,
             // Placeholder grey while empty, exactly as the text rows read before they are typed
             // into; primary once there is a picture to replace.
             color = if (photo == null) colors.textSecondary else colors.textPrimary,
             modifier = Modifier
                 .clip(GridlinkFieldBoxShape)
-                .clickable(onClick = onPick)
+                .clickable(enabled = !busy, onClick = onPick)
                 .padding(horizontal = GridlinkSpacing.s12, vertical = GridlinkSpacing.s8),
         )
+        if (error != null) {
+            Text(
+                text = error,
+                style = GridlinkType.metadata,
+                color = colors.attention,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = GridlinkSpacing.s8),
+            )
+        }
         if (photo != null) {
             Text(
                 text = "Remove",
@@ -606,3 +642,12 @@ private fun GridlinkContactPhotoRow(
         }
     }
 }
+
+/**
+ * What the tile says when a picked file produced no photo.
+ *
+ * Deliberately about the FILE and not about the app: the decode is two decoders deep
+ * ([gridlinkEncodeContactPhoto]) before it gives up, so by the time this shows, the image really is
+ * one this device cannot read. Naming the next move ("try another") is the only useful half.
+ */
+private const val PHOTO_UNREADABLE = "That image couldn’t be read. Try a different one."

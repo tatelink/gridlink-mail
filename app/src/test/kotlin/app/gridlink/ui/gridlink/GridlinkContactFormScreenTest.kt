@@ -14,6 +14,7 @@ import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import app.gridlink.core.data.contacts.ContactEdit
 import app.gridlink.core.jmap.model.ContactCardCustomField
+import app.gridlink.core.jmap.model.ContactCardPhoto
 import app.gridlink.ui.theme.GridlinkMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -240,6 +241,39 @@ class GridlinkContactFormScreenTest {
         rule.onNodeWithText("Deleting this contact.").assertExists()
     }
 
+    @Test
+    fun aCardWithNoPicture_offersToAddOne_andHasNothingToRemove() {
+        show()
+        rule.onNodeWithText("Add photo").performScrollTo().assertExists()
+        rule.onNodeWithText("Remove").assertDoesNotExist()
+        rule.onNodeWithContentDescription("Contact photo").assertDoesNotExist()
+    }
+
+    @Test
+    fun aCardWithAPicture_offersToReplaceIt_andRemoveClearsItFromTheEdit() {
+        show(initial = ContactEdit(given = "Ada", photo = ContactCardPhoto("image/png", PIXEL)))
+        rule.onNodeWithText("Replace photo").performScrollTo().assertExists()
+        rule.onNodeWithText("Add photo").assertDoesNotExist()
+
+        // 🔴 Remove has to reach the EDIT, not just the tile: a photo dropped only from the
+        // preview would be silently restored by the next save, since the card write only carries
+        // the groups the edit says changed ([ContactEdit.touchedSince]).
+        rule.onNodeWithText("Remove").performScrollTo().performClick()
+        rule.onNodeWithText("Add photo").assertExists()
+        save().performClick()
+        assertEquals(1, saved.size)
+        assertEquals(null, saved.single().photo)
+    }
+
+    @Test
+    fun anUntouchedPicture_survivesASave() {
+        val photo = ContactCardPhoto("image/png", PIXEL)
+        show(initial = ContactEdit(given = "Ada", photo = photo))
+        field(FAMILY).performTextInput("Lovelace")
+        save().performClick()
+        assertEquals(photo, saved.single().photo)
+    }
+
     private companion object {
         const val HINT_FILE = "A contact needs a name or a company to file under."
         const val DELETE_ROW = "Delete contact"
@@ -253,5 +287,20 @@ class GridlinkContactFormScreenTest {
         const val CUSTOM_LABEL = 6
         const val CUSTOM_VALUE = 7
         const val NOTE = 8
+
+        /**
+         * A photo's payload: one real, valid, 1x1 PNG.
+         *
+         * 🔴 Real because it is really decoded. `rememberGridlinkContactPhoto` goes through
+         * `BitmapFactory.decodeByteArray`, and Robolectric backs THAT with ImageIO rather than
+         * faking it, so malformed bytes here throw instead of quietly producing a placeholder.
+         *
+         * ⚠️ The picker's own busy and unreadable states are not driven from these tests. Reaching
+         * them needs a decode that FAILS, and the uri path (`decodeStream`) is the half Robolectric
+         * does shadow: it hands back a fabricated bitmap for any input at all, plain text included.
+         * That path has to be watched on a device.
+         */
+        const val PIXEL =
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
     }
 }

@@ -12,7 +12,6 @@
     <ID>CyclomaticComplexMethod:ConnectScreen.kt$@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class) @Composable fun ConnectScreen( onConnected: () -&gt; Unit, /** * Where the frame's back control goes. Required rather than defaulted, because this screen is * now drawn in [GridlinkDetailFrame] and that frame always has a way out — a control that goes * nowhere would be worse than the Material top bar it replaced. Both callers have a real answer: * settings pops the entry, and the first-run advanced branch returns to the Gridlink setup form. */ onBack: () -&gt; Unit, firstRun: Boolean = false, viewModel: ConnectViewModel = viewModel(), )</ID>
     <ID>CyclomaticComplexMethod:EmailHtmlDocument.kt$private fun copyMarkup(s: String, start: Int, out: StringBuilder): Int</ID>
     <ID>CyclomaticComplexMethod:EmailHtmlDocument.kt$private fun emojiClusterEnd(s: String, i: Int): Int</ID>
-    <ID>CyclomaticComplexMethod:GridlinkContactPhoto.kt$fun gridlinkEncodeContactPhoto(context: Context, uri: Uri): ContactCardPhoto?</ID>
     <ID>CyclomaticComplexMethod:GridlinkFormatting.kt$fun formattedHtml(body: GridlinkBody): String</ID>
     <ID>CyclomaticComplexMethod:GridlinkFormatting.kt$fun remapSpans(spans: List&lt;GridlinkSpan&gt;, before: String, after: String): List&lt;GridlinkSpan&gt;</ID>
     <ID>CyclomaticComplexMethod:GridlinkFormatting.kt$private fun inlineHtml(text: String, spans: List&lt;GridlinkSpan&gt;, from: Int, to: Int): String</ID>
@@ -341,7 +340,6 @@
     <ID>ParameterListWrapping:AccountEditorSaveTest.kt$AccountEditorSaveTest$( username: String = "alex@example.org", imapHost: String = "imap.example.org", imapPort: String = "993", smtpHost: String = "smtp.example.org", smtpPort: String = "587", )</ID>
     <ID>PropertyWrapping:SettingsScreenHonestyTest.kt$SettingsScreenHonestyTest.Companion$val SUBTITLE = Regex("&lt;string name=\"settings_conversation_subtitle\"&gt;(.*?)&lt;/string&gt;", RegexOption.DOT_MATCHES_ALL)</ID>
     <ID>ReturnCount:ConnectivityWatcher.kt$fun hasUsableNetwork(context: Context): Boolean</ID>
-    <ID>ReturnCount:GridlinkContactPhoto.kt$fun gridlinkEncodeContactPhoto(context: Context, uri: Uri): ContactCardPhoto?</ID>
     <ID>ReturnCount:GridlinkFormatting.kt$fun continueList(body: GridlinkBody, caret: Int): GridlinkBodyEdit?</ID>
     <ID>ReturnCount:GridlinkFormattingParse.kt$FormattedHtmlParser$fun parse(): GridlinkBody?</ID>
     <ID>ReturnCount:GridlinkFormattingParse.kt$FormattedHtmlParser$private fun inline(end: String, onBreak: (() -&gt; Unit)? = null): Boolean</ID>

@@ -1,9 +1,13 @@
 package app.gridlink.ui.gridlink
 
+import android.content.ContentResolver
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.net.Uri
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.ImageBitmap
@@ -29,40 +33,26 @@ import java.io.ByteArrayOutputStream
  * a card; only the picture is refused.
  */
 
-/** [uri] scaled to fit [GRIDLINK_PHOTO_MAX_EDGE] and re-encoded as JPEG. Blocking: call off main. */
+/**
+ * [uri] scaled to fit [GRIDLINK_PHOTO_MAX_EDGE] and re-encoded as JPEG. Blocking: call off main.
+ *
+ * ## 🔴 Two decoders, and the newer one goes first
+ * [BitmapFactory] refuses formats the platform itself can read. The one that matters here is HEIF:
+ * a Samsung phone shooting in "high efficiency" writes `.heic`, the gallery hands back a perfectly
+ * good `content://` uri for it, and `decodeStream` answers null. That is indistinguishable, from
+ * here, from a corrupt file — and the caller's honest response to "could not read it" is to leave
+ * the old photo alone, so picking a photo appeared to do nothing at all.
+ *
+ * [ImageDecoder] (API 28) reads everything the platform supports, HEIF and AVIF included, and
+ * resamples during the decode rather than after it. [BitmapFactory] stays as the fallback because
+ * this app runs back to API 26, where [ImageDecoder] does not exist.
+ */
 fun gridlinkEncodeContactPhoto(context: Context, uri: Uri): ContactCardPhoto? {
-    val resolver = context.contentResolver
-    // Bounds first, so a 100-megapixel original never materialises in memory: inSampleSize gets
-    // the decode within 2x of the target, and the exact scale below finishes the job.
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    try {
-        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: return null
-    } catch (_: Exception) {
-        return null
-    }
-    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-
-    var sample = 1
-    while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= GRIDLINK_PHOTO_MAX_EDGE) sample *= 2
-    val options = BitmapFactory.Options().apply { inSampleSize = sample }
-    val decoded = try {
-        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) } ?: return null
-    } catch (_: Exception) {
-        return null
-    }
-
-    val longEdge = maxOf(decoded.width, decoded.height)
-    val scaled = if (longEdge > GRIDLINK_PHOTO_MAX_EDGE) {
-        val ratio = GRIDLINK_PHOTO_MAX_EDGE.toFloat() / longEdge
-        Bitmap.createScaledBitmap(
-            decoded,
-            (decoded.width * ratio).toInt().coerceAtLeast(1),
-            (decoded.height * ratio).toInt().coerceAtLeast(1),
-            true,
-        ).also { if (it !== decoded) decoded.recycle() }
+    val scaled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        decodeScaledWithImageDecoder(context, uri) ?: decodeScaledWithBitmapFactory(context, uri)
     } else {
-        decoded
-    }
+        decodeScaledWithBitmapFactory(context, uri)
+    } ?: return null
 
     val bytes = ByteArrayOutputStream().use { out ->
         scaled.compress(Bitmap.CompressFormat.JPEG, GRIDLINK_PHOTO_JPEG_QUALITY, out)
@@ -70,6 +60,66 @@ fun gridlinkEncodeContactPhoto(context: Context, uri: Uri): ContactCardPhoto? {
     }
     scaled.recycle()
     return ContactCardPhoto("image/jpeg", java.util.Base64.getEncoder().encodeToString(bytes))
+}
+
+/** [uri] decoded already at target size, or null when the platform cannot read it either. */
+@RequiresApi(Build.VERSION_CODES.P)
+private fun decodeScaledWithImageDecoder(context: Context, uri: Uri): Bitmap? = try {
+    ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { decoder, info, _ ->
+        // 🔴 Software, and not the default. ImageDecoder hands back a HARDWARE bitmap when it can,
+        // and a hardware bitmap has no pixels in this process: `compress` on one fails. The whole
+        // point of decoding here is to read the pixels back out.
+        decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+        val longEdge = maxOf(info.size.width, info.size.height)
+        if (longEdge > GRIDLINK_PHOTO_MAX_EDGE) {
+            val ratio = GRIDLINK_PHOTO_MAX_EDGE.toFloat() / longEdge
+            decoder.setTargetSize(
+                (info.size.width * ratio).toInt().coerceAtLeast(1),
+                (info.size.height * ratio).toInt().coerceAtLeast(1),
+            )
+        }
+    }
+} catch (_: Exception) {
+    null
+}
+
+/** The API 26/27 path, and the fallback for anything [ImageDecoder] would not take. */
+private fun decodeScaledWithBitmapFactory(context: Context, uri: Uri): Bitmap? {
+    val resolver = context.contentResolver
+    // Bounds first, so a 100-megapixel original never materialises in memory: inSampleSize gets
+    // the decode within 2x of the target, and the exact scale below finishes the job.
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    decodeStream(resolver, uri, bounds)
+    // Covers a uri that would not open as well as one that opened and held nothing readable: a
+    // bounds pass hands back no bitmap either way, so the measurements are the only evidence.
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+    var sample = 1
+    while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= GRIDLINK_PHOTO_MAX_EDGE) sample *= 2
+    val options = BitmapFactory.Options().apply { inSampleSize = sample }
+    val decoded = decodeStream(resolver, uri, options) ?: return null
+
+    val longEdge = maxOf(decoded.width, decoded.height)
+    if (longEdge <= GRIDLINK_PHOTO_MAX_EDGE) return decoded
+    val ratio = GRIDLINK_PHOTO_MAX_EDGE.toFloat() / longEdge
+    return Bitmap.createScaledBitmap(
+        decoded,
+        (decoded.width * ratio).toInt().coerceAtLeast(1),
+        (decoded.height * ratio).toInt().coerceAtLeast(1),
+        true,
+    ).also { if (it !== decoded) decoded.recycle() }
+}
+
+/**
+ * One pass of [uri] through [BitmapFactory], reading [options] and writing its results back into it.
+ *
+ * Null for a uri that will not open (the provider is gone, the grant has lapsed) as much as for
+ * bytes that will not parse, because the caller treats those the same: it has no photo either way.
+ */
+private fun decodeStream(resolver: ContentResolver, uri: Uri, options: BitmapFactory.Options): Bitmap? = try {
+    resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+} catch (_: Exception) {
+    null
 }
 
 /**
