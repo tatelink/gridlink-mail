@@ -13,6 +13,7 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -57,6 +58,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Feedback
 import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LocalCafe
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
@@ -167,8 +169,11 @@ import app.gridlink.ui.gridlink.GridlinkDetailFrame
 import app.gridlink.ui.navigateOnce
 import app.gridlink.ui.rememberLeaveOnce
 import app.gridlink.ui.rememberMotionEnabled
+import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMaterialSkin
+import app.gridlink.ui.theme.GridlinkRadii
 import app.gridlink.ui.theme.GridlinkSpacing
+import app.gridlink.ui.theme.GridlinkTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -513,39 +518,99 @@ private fun SettingsHub(
 /**
  * The tip jar, drawn as a card rather than a row so it reads as an offer instead of a setting.
  *
- * 🔴 Why a [Surface] in `secondaryContainer` and not the accent: the accent is this app's
- * "act on your mail" colour (send, confirm, the nav pill), and spending it here would put a
- * donation ask at the same visual weight as the send button. The container tone is one step off the
- * page and still the only coloured block on the screen, which is enough to be the first thing an
- * eye lands on without claiming to be the most important thing in the app.
+ * 🔴 2026-08-22, Tate: *"Buy me a coffee needs to look nicer."* What it was: a flat slab of
+ * `secondaryContainer` (which this skin answers with the *selected row* wash), no edge, a small
+ * black heart, and a stock filled [Button], the only piece of undressed Material 3 on a screen
+ * where every other control is drawn in the app's own language. It read as a banner someone dropped
+ * in. What it is now is the app's own card: a raised panel with a hairline, a badge, a type
+ * hierarchy and a pill, all built out of [app.gridlink.ui.theme.GridlinkColors] roles.
  *
- * The button carries the label and the destination; the heart is decorative and unlabelled, so
+ * ⚠️ The ring, the badge and the pill are [app.gridlink.ui.theme.GridlinkColors.accent] and NOT
+ * `accentWarm`, and the pill deliberately carries no glow. Warm-plus-glow is this app's one *verb*
+ * treatment (Send, Save, the compose circle), and a donation ask wearing it would claim to be a
+ * mail action. Accent without the halo is the half-step that exists for exactly this: unmissable,
+ * clearly tappable, clearly not part of the mail.
+ *
+ * The pill carries the label and the destination; the heart is decorative and unlabelled, so
  * a screen reader announces the offer once rather than reciting an icon first.
  */
 @Composable
 private fun SupportCard(onSupport: () -> Unit) {
+    val colors = GridlinkTheme.colors
+    val cardShape = RoundedCornerShape(GridlinkRadii.card)
+    val pillShape = RoundedCornerShape(GridlinkRadii.pill)
     Surface(
         Modifier.fillMaxWidth().padding(horizontal = GridlinkSpacing.s16, vertical = GridlinkSpacing.s12),
-        shape = RoundedCornerShape(GridlinkSpacing.s16),
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        shape = cardShape,
+        // The raised panel, not a wash. 🔴 The old `secondaryContainer` maps to `selection` here,
+        // so the card was painted in the colour that means "this row is open" on every list in the
+        // app: a state colour spent as decoration. Lift plus an accent hairline says "card" without
+        // borrowing a meaning.
+        color = colors.surfaceRaised,
+        contentColor = colors.textPrimary,
+        border = BorderStroke(GridlinkDimens.hairline, colors.accent.copy(alpha = SUPPORT_RING_ALPHA)),
     ) {
         Column(Modifier.padding(GridlinkSpacing.s20)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Favorite, contentDescription = null, Modifier.size(GridlinkSpacing.s20))
+                // A badge rather than a loose glyph. The heart on its own was 20dp of near-black
+                // ink beside a title, which is where the card looked cheapest; a washed circle
+                // gives the block one thing for an eye to land on.
+                Box(
+                    Modifier.size(GridlinkSpacing.s40).clip(CircleShape).background(colors.fieldLabelFill),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.Favorite,
+                        contentDescription = null,
+                        Modifier.size(GridlinkSpacing.s20),
+                        tint = colors.accent,
+                    )
+                }
                 Spacer(Modifier.width(GridlinkSpacing.s12))
                 Text(stringResource(R.string.settings_about_support), style = MaterialTheme.typography.titleMedium)
             }
-            Spacer(Modifier.height(GridlinkSpacing.s8))
+            Spacer(Modifier.height(GridlinkSpacing.s12))
             Text(
                 stringResource(R.string.settings_support_card_body),
                 style = MaterialTheme.typography.bodyMedium,
+                // The second rank. One ink for the title and the paragraph is what let three
+                // separate things read as a single undifferentiated block of text.
+                color = colors.textSecondary,
             )
-            Spacer(Modifier.height(GridlinkSpacing.s16))
-            Button(onSupport) { Text(stringResource(R.string.settings_about_support_summary)) }
+            Spacer(Modifier.height(GridlinkSpacing.s20))
+            Row(
+                Modifier
+                    .clip(pillShape)
+                    .background(colors.accent)
+                    .clickable(role = Role.Button, onClick = onSupport)
+                    .padding(horizontal = GridlinkSpacing.s20, vertical = GridlinkSpacing.s12),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Filled.LocalCafe,
+                    contentDescription = null,
+                    Modifier.size(GridlinkSpacing.s20),
+                    tint = colors.onAccent,
+                )
+                Spacer(Modifier.width(GridlinkSpacing.s8))
+                Text(
+                    stringResource(R.string.settings_about_support_summary),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = colors.onAccent,
+                )
+            }
         }
     }
 }
+
+/**
+ * How much accent the support card's hairline gets.
+ *
+ * Enough that the ring reads as deliberate on Day's white glass, little enough that it stays a ring
+ * and not an outline. ⚠️ Much above half it starts competing with the pill inside it, and the
+ * card reads as two controls stacked.
+ */
+private const val SUPPORT_RING_ALPHA = 0.35f
 
 /** What Gridlink is a fork of, credited in About. 🔴 The one About link that is not a dead end. */
 private const val UPSTREAM_URL = "https://codeberg.org/emon/sterna-mail"
