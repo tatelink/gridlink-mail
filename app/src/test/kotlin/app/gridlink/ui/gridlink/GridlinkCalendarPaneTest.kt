@@ -1,9 +1,13 @@
 package app.gridlink.ui.gridlink
 
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToIndex
 import app.gridlink.ui.theme.GridlinkMode
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -87,8 +91,46 @@ class GridlinkCalendarPaneTest {
         assertFalse(paneIsAgenda())
     }
 
+    /**
+     * Tate: *"as agenda is scrolled thru, highlighted calendar date should chsnge on left."*
+     *
+     * 🔴 The traffic used to run one way. Tapping a day scrolled the pane's agenda to it, but
+     * scrolling that agenda told the grid nothing, so reading a week back in the pane left the
+     * month still marking the day last tapped and the two halves of the screen disagreed about
+     * which day was being looked at.
+     *
+     * The sample's today is 30 July 2026, so the agenda's four-week window opens at Thursday 23
+     * July and the list is parked a third of the way down on today. Scrolling it back to its first
+     * row is therefore a move of exactly one week, and 23 is a number this month grid draws once.
+     */
+    @Test
+    fun scrollingThePaneAgenda_movesTheGridsSelection() {
+        show(openEvent = null)
+        rule.waitForIdle()
+        rule.onNodeWithText(WINDOW_START_NUMBER).assertIsNotSelected()
+
+        // The agenda is the only scrolling thing in two panes: the month grid is a fixed six rows
+        // and does not scroll, and the drawer is closed.
+        rule.onNode(hasScrollAction()).performScrollToIndex(0)
+        rule.waitForIdle()
+
+        rule.onNodeWithText(WINDOW_START_NUMBER).assertIsSelected()
+        rule.onNodeWithText(NEXT_DAY_NUMBER).assertIsNotSelected()
+    }
+
     private companion object {
         /** [GridlinkCalendarAgendaPane]'s frame title, and nothing else on the screen says it. */
         const val AGENDA = "Agenda"
+
+        /**
+         * 23 July 2026: a week back from the sample's today, and the first row of the agenda.
+         *
+         * ⚠️ The grid runs 28 June to 8 August, so 1..8 and 28..30 are each drawn TWICE and would
+         * match two nodes. Everything asserted on here is inside 9..27, where a number is unique.
+         */
+        const val WINDOW_START_NUMBER = "23"
+
+        /** The day after it, as the control: one day is selected, not the neighbourhood. */
+        const val NEXT_DAY_NUMBER = "24"
     }
 }

@@ -2503,6 +2503,10 @@ fun GridlinkRoot(
                                     date = day,
                                     onOpenEvent = { openEventId = it.id },
                                     currentId = openEventId,
+                                    // Straight onto the day, with none of the open-event
+                                    // housekeeping [onSelectDate] does: this pane is only ever
+                                    // drawn while `current == null`, so there is no card to close.
+                                    onScrollToDay = { calendarDay = it },
                                 )
 
                                 current == null -> GridlinkThreadPlaceholder(label = paneLabel)
@@ -2790,6 +2794,9 @@ fun GridlinkRoot(
                             },
                             // Same rule as the other two lists: only in two panes, or the marked block
                             // sits under a full-screen card and just looks stuck.
+                            // The other half of that traffic: the pane's own scrolling, coming
+                            // back so the grid marks the day being read. See [calendarDay].
+                            paneDate = calendarDay,
                             currentId = if (twoPane) openEventId else null,
                             onOpenEvent = { event ->
                                 openEventId = event.id

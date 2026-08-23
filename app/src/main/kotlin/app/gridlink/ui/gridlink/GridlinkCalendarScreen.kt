@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +47,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -151,6 +154,20 @@ fun GridlinkCalendarScreen(
      * the tablet one.
      */
     forceSplit: Boolean? = null,
+    /**
+     * The day the reading pane is showing, when the pane is the one that moved it.
+     *
+     * 🔴 The return leg of [onSelectDate]. Tate: *"as agenda is scrolled thru, highlighted
+     * calendar date should chsnge on left."* The pane runs an agenda through the selected day, and
+     * scrolling that agenda is as much a way of choosing a day as tapping the grid is, so the
+     * selection follows it. Null on one pane and before the pane has reported, where the grid is
+     * the only thing choosing and there is nothing to follow.
+     *
+     * ⚠️ Reading this back after sending it out is deliberate and it does not loop: the sync below
+     * fires only on a value the grid does not already hold, and reporting that same value out again
+     * lands on a state that is already equal.
+     */
+    paneDate: LocalDate? = null,
 ) {
     // 🔴 The book, not [GridlinkSampleTree], and `book` is a remember KEY below rather than only a
     // source. Without it there the filtered list is cached against the range alone, so an event saved
@@ -205,6 +222,19 @@ fun GridlinkCalendarScreen(
     // rather than waiting for a day to be tapped before it has anything to say.
     val reportDate = rememberUpdatedState(onSelectDate)
     LaunchedEffect(selectedDate) { reportDate.value(selectedDate) }
+    // The pane scrolled somewhere the grid is not marking, so the grid goes there.
+    //
+    // 🔴 The MONTH moves with it, not only the disc. The agenda's window is four weeks around
+    // today, so it crosses a month boundary twice in every one of them; without this, scrolling
+    // into the next month would move a selection onto a day the grid is not drawing, and the answer
+    // to "which day am I reading" would be a highlight that is nowhere on screen. [anchor] is where
+    // the view is pointed, so pointing it at the day is the whole of it.
+    LaunchedEffect(paneDate) {
+        val day = paneDate ?: return@LaunchedEffect
+        if (day == selectedDate) return@LaunchedEffect
+        selectedDate = day
+        if (YearMonth.from(day) != YearMonth.from(anchor)) anchor = day
+    }
 
     // The agenda ignores the anchor and always centres on today. It has no steppers and no paging
     // swipe, so the anchor could only reach it as a leftover from whichever view you were last
@@ -1005,6 +1035,8 @@ internal fun GridlinkCalendarAgendaPane(
     date: LocalDate,
     onOpenEvent: (GridlinkEvent) -> Unit,
     currentId: String?,
+    /** The day scrolled to, on its way back to the month grid's selection. See [GridlinkAgendaView]. */
+    onScrollToDay: (LocalDate) -> Unit = {},
 ) {
     val book = LocalGridlinkBook.current
     val today = book.today
@@ -1032,6 +1064,7 @@ internal fun GridlinkCalendarAgendaPane(
             // Only inside the window. Page the month to next March and the agenda holds its four
             // weeks rather than scrolling to an end and pretending that is March.
             anchor = date.coerceIn(range.first, range.second),
+            onScrollToDay = onScrollToDay,
         )
     }
 }
@@ -1094,6 +1127,11 @@ private fun GridlinkDayCell(
             .padding(DAY_TILE_GAP)
             .clip(DAY_TILE_SHAPE)
             .clickable(onClick = onClick)
+            // The disc says which day is picked, and a disc is not a thing a screen reader can
+            // read. This is the same fact in the one place the accessibility tree keeps it, and it
+            // is also what lets a test hold the grid to following the agenda's scroll rather than
+            // taking a screenshot's word for it.
+            .semantics { selected = isSelected }
             .then(if (detailed) Modifier.padding(DETAILED_CELL_INSET) else Modifier),
         // 🔴 Centred when it is a number in a box, start-aligned when it is a number over a list.
         // Centred names would leave every chip's coloured bar at a different x and the column would
@@ -1714,6 +1752,18 @@ private fun GridlinkAgendaView(
      * the grid when this is the month's side pane, where changing it SCROLLS rather than reloads.
      */
     anchor: LocalDate = today,
+    /**
+     * The day the reader has scrolled to, reported out as the list moves under them.
+     *
+     * 🔴 This is the return leg of [anchor], and it is the whole of Tate's *"as agenda is
+     * scrolled thru, highlighted calendar date should chsnge on left."* The tap already travelled
+     * one way (grid day -> this list scrolls to it); without this the traffic was one way only, so
+     * reading three days forward in the pane left the month beside it still marking the day you
+     * had last tapped, and the two halves of the screen disagreed about what you were looking at.
+     *
+     * Default no-op: the full-screen agenda has no grid beside it to steer.
+     */
+    onScrollToDay: (LocalDate) -> Unit = {},
 ) {
     val colors = GridlinkTheme.colors
     val mode = GridlinkTheme.mode
@@ -1750,12 +1800,57 @@ private fun GridlinkAgendaView(
             index
         }
     }
+    // Which day each row belongs to, so the top of the list can be named without asking the items.
+    //
+    // 🔴 The same arithmetic [anchorIndex] does, in the other direction, and the two have to stay
+    // in step: a rule, then a heading, then the day's rows or its one "Nothing scheduled" line. If
+    // one of them ever learns about a row the other does not, a tap would scroll somewhere the
+    // report then contradicts, and the grid and the list would argue with each other every gesture.
+    //
+    // ⚠️ The rule belongs to the day BELOW it, which is the day it introduces. It is drawn as part
+    // of arriving at that day, so a list stopped on the rule is a list showing that day.
+    val dayByIndex = remember(byDay) {
+        buildList {
+            byDay.forEachIndexed { dayIndex, (date, dayEvents) ->
+                if (dayIndex > 0) add(date)
+                add(date)
+                repeat(maxOf(dayEvents.size, 1)) { add(date) }
+            }
+        }
+    }
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = anchorIndex)
+    val topDay by remember(dayByIndex, listState) {
+        derivedStateOf { dayByIndex.getOrNull(listState.firstVisibleItemIndex) }
+    }
+
+    /**
+     * True only while the scroll below is running, and it is what stops the two ends of this
+     * feeding each other.
+     *
+     * 🔴 An animated scroll passes THROUGH every day between here and the anchor. Report those and
+     * the grid's selection would flicker across a week per tap, and worse: each report moves the
+     * anchor, which restarts the effect, which then finds itself already on the reported day and
+     * gives up. The tap would land a day or two short of where it was aimed, at random.
+     */
+    var settling by remember { mutableStateOf(false) }
+    val report = rememberUpdatedState(onScrollToDay)
+    LaunchedEffect(topDay) { if (!settling) topDay?.let { report.value(it) } }
     // 🔴 Animated, and deliberately not a jump. In the side pane this fires on every day tapped in
     // the grid, and a list that teleports gives no clue whether it moved forward or back; the slide
     // is what tells you the tap went a week on rather than reloading the panel. Harmless on the
     // full-screen agenda, where the anchor never changes after the first composition.
-    LaunchedEffect(anchorIndex) { listState.animateScrollToItem(anchorIndex) }
+    //
+    // ⚠️ Nothing to do when the list is already showing the day being asked for, which is the
+    // ordinary case now that scrolling sets it: the day arrived here FROM this list.
+    LaunchedEffect(anchorIndex) {
+        if (anchor == topDay) return@LaunchedEffect
+        settling = true
+        try {
+            listState.animateScrollToItem(anchorIndex)
+        } finally {
+            settling = false
+        }
+    }
 
     LazyColumn(
         state = listState,
