@@ -1449,53 +1449,58 @@ private fun ImageAllowlistScreen(viewModel: SettingsViewModel, onBack: () -> Uni
                 }
             }
         }
-    }
-    if (showAddSender) {
-        var sender by remember { mutableStateOf("") }
-        val focusRequester = remember { FocusRequester() }
-        // Focus is asked for from the field's first placement, not a LaunchedEffect: the effect can
-        // run before the dialog window has laid the field out, and a FocusRequester with nothing
-        // attached yet throws. Same fix as the tag editor.
-        var focusRequested by remember { mutableStateOf(false) }
-        fun submit() {
-            if (sender.isNotBlank()) {
-                viewModel.setImageAllowed(sender, true)
-                showAddSender = false
-            }
-        }
-        AlertDialog(
-            onDismissRequest = { showAddSender = false },
-            title = { Text(stringResource(R.string.settings_image_allowlist_add)) },
-            text = {
-                OutlinedTextField(
-                    value = sender,
-                    onValueChange = { sender = it },
-                    singleLine = true,
-                    placeholder = { Text(stringResource(R.string.settings_image_allowlist_hint)) },
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { submit() }),
-                    modifier = Modifier
-                        .focusRequester(focusRequester)
-                        .onGloballyPositioned {
-                            if (!focusRequested) {
-                                focusRequested = true
-                                focusRequester.requestFocus()
-                            }
-                        },
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = { submit() },
-                    enabled = sender.isNotBlank(),
-                ) { Text(stringResource(R.string.settings_save)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddSender = false }) {
-                    Text(stringResource(R.string.settings_cancel))
+        // 🔴 INSIDE the scaffold, not beside it. DetailScaffold is what applies
+        // GridlinkMaterialSkin, and a dialog hoisted out to be a sibling of it composes under
+        // the DEFAULT MaterialTheme instead: stock M3 purple buttons on a lilac sheet, in an
+        // app that has no purple in it. Compose dialogs inherit composition locals from where
+        // they are CALLED, so the call has to be in here.
+        if (showAddSender) {
+            var sender by remember { mutableStateOf("") }
+            val focusRequester = remember { FocusRequester() }
+            // Focus is asked for from the field's first placement, not a LaunchedEffect: the effect can
+            // run before the dialog window has laid the field out, and a FocusRequester with nothing
+            // attached yet throws. Same fix as the tag editor.
+            var focusRequested by remember { mutableStateOf(false) }
+            fun submit() {
+                if (sender.isNotBlank()) {
+                    viewModel.setImageAllowed(sender, true)
+                    showAddSender = false
                 }
-            },
-        )
+            }
+            AlertDialog(
+                onDismissRequest = { showAddSender = false },
+                title = { Text(stringResource(R.string.settings_image_allowlist_add)) },
+                text = {
+                    OutlinedTextField(
+                        value = sender,
+                        onValueChange = { sender = it },
+                        singleLine = true,
+                        placeholder = { Text(stringResource(R.string.settings_image_allowlist_hint)) },
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { submit() }),
+                        modifier = Modifier
+                            .focusRequester(focusRequester)
+                            .onGloballyPositioned {
+                                if (!focusRequested) {
+                                    focusRequested = true
+                                    focusRequester.requestFocus()
+                                }
+                            },
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = { submit() },
+                        enabled = sender.isNotBlank(),
+                    ) { Text(stringResource(R.string.settings_save)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showAddSender = false }) {
+                        Text(stringResource(R.string.settings_cancel))
+                    }
+                },
+            )
+        }
     }
 }
 
@@ -1550,26 +1555,31 @@ private fun StorageScreen(
                 }
             }
         }
-    }
-    if (confirm) {
-        AlertDialog(
-            onDismissRequest = { confirm = false },
-            title = { Text(stringResource(R.string.settings_clear_cache_dialog_title)) },
-            text = {
-                Text(stringResource(R.string.settings_clear_cache_dialog_body))
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirm = false
-                        viewModel.clearCache()
-                    },
-                ) { Text(stringResource(R.string.settings_clear), color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirm = false }) { Text(stringResource(R.string.settings_cancel)) }
-            },
-        )
+        // 🔴 INSIDE the scaffold, not beside it. DetailScaffold is what applies
+        // GridlinkMaterialSkin, and a dialog hoisted out to be a sibling of it composes under
+        // the DEFAULT MaterialTheme instead: stock M3 purple buttons on a lilac sheet, in an
+        // app that has no purple in it. Compose dialogs inherit composition locals from where
+        // they are CALLED, so the call has to be in here.
+        if (confirm) {
+            AlertDialog(
+                onDismissRequest = { confirm = false },
+                title = { Text(stringResource(R.string.settings_clear_cache_dialog_title)) },
+                text = {
+                    Text(stringResource(R.string.settings_clear_cache_dialog_body))
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            confirm = false
+                            viewModel.clearCache()
+                        },
+                    ) { Text(stringResource(R.string.settings_clear), color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirm = false }) { Text(stringResource(R.string.settings_cancel)) }
+                },
+            )
+        }
     }
 }
 
