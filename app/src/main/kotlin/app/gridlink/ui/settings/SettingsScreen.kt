@@ -793,6 +793,7 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val swipeLeftFar by viewModel.swipeLeftFar.collectAsStateWithLifecycle()
     val conversationView by viewModel.conversationView.collectAsStateWithLifecycle()
     val messageTextSize by viewModel.messageTextSize.collectAsStateWithLifecycle()
+    val markReadOnOpen by viewModel.markReadOnOpen.collectAsStateWithLifecycle()
     val markReadOnDelete by viewModel.markReadOnDelete.collectAsStateWithLifecycle()
     val markReadOnArchive by viewModel.markReadOnArchive.collectAsStateWithLifecycle()
     val markReadOnMove by viewModel.markReadOnMove.collectAsStateWithLifecycle()
@@ -840,18 +841,27 @@ private fun ReadingScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     optionLabel = { textSizeLabel(context, it) },
                     onSelect = viewModel::setMessageTextSize,
                 )
+                // 🔴 OPENING is first because it is the case the row's own name implies, and
+                // until 2026-08-23 it was the one case the row did not offer: the open path passed a
+                // hardcoded `markRead = true`, so the setting listed three filing gestures and did
+                // the obvious fourth behind the reader's back. Tate's note was "mark as read when
+                // needs to be more polished"; the missing option was most of what made it read as
+                // unfinished. It ships ON, so nothing changes for anyone who never opens this row.
                 SettingMultiChoiceRow(
                     title = stringResource(R.string.settings_mark_read_title),
-                    options = listOf(MarkReadOn.MOVE, MarkReadOn.DELETE, MarkReadOn.ARCHIVE),
+                    options = listOf(MarkReadOn.OPEN, MarkReadOn.MOVE, MarkReadOn.DELETE, MarkReadOn.ARCHIVE),
                     checked = buildSet {
+                        if (markReadOnOpen) add(MarkReadOn.OPEN)
                         if (markReadOnDelete) add(MarkReadOn.DELETE)
                         if (markReadOnArchive) add(MarkReadOn.ARCHIVE)
                         if (markReadOnMove) add(MarkReadOn.MOVE)
                     },
                     optionLabel = { markReadLabel(context, it) },
                     noneLabel = stringResource(R.string.settings_mark_read_never),
+                    hint = stringResource(R.string.settings_mark_read_hint),
                     onCheckedChange = { option, on ->
                         when (option) {
+                            MarkReadOn.OPEN -> viewModel.setMarkReadOnOpen(on)
                             MarkReadOn.DELETE -> viewModel.setMarkReadOnDelete(on)
                             MarkReadOn.ARCHIVE -> viewModel.setMarkReadOnArchive(on)
                             MarkReadOn.MOVE -> viewModel.setMarkReadOnMove(on)
@@ -992,9 +1002,10 @@ private fun swipeLabel(context: Context, action: SwipeAction): String = when (ac
 
 /** The three independent cases of the "Mark as read when" group — each one its own
  *  preference, none of them constraining the others (Codeberg #67). */
-private enum class MarkReadOn { DELETE, ARCHIVE, MOVE }
+private enum class MarkReadOn { OPEN, DELETE, ARCHIVE, MOVE }
 
 private fun markReadLabel(context: Context, on: MarkReadOn): String = when (on) {
+    MarkReadOn.OPEN -> context.getString(R.string.settings_mark_read_opening)
     MarkReadOn.DELETE -> context.getString(R.string.settings_mark_read_deleting)
     MarkReadOn.ARCHIVE -> context.getString(R.string.settings_mark_read_archiving)
     MarkReadOn.MOVE -> context.getString(R.string.settings_mark_read_moving)

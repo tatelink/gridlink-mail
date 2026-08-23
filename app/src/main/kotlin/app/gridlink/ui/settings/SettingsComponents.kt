@@ -318,6 +318,16 @@ fun <T> SettingChoiceRow(
  * Multi-choice row: independent options, each ticked on its own (none of them enables or
  * disables another). Summarises the ticked ones — [noneLabel] when none — and opens a
  * [SettingMultiChoiceDialog] of checkboxes when tapped.
+ *
+ * 🔴 Why the summary joins on a MIDDLE DOT and its single-choice sibling does not: this row is
+ * laid out identically to [SettingChoiceRow], so on a screen full of them nothing says that this
+ * one takes several answers until the dialog is already open. A comma list reads as prose, and
+ * prose reads as one answer that happens to be wordy. The dot reads as a set. It is a small tell,
+ * and it is deliberately the whole of the change on the row itself: an accent chip or a count
+ * badge here would make a rarely-touched setting the loudest thing in its section.
+ *
+ * [hint] is the other half, and it goes in the dialog rather than under the row, because that is
+ * where the reader is when the question is live. See [SettingMultiChoiceDialog].
  */
 @Composable
 fun <T> SettingMultiChoiceRow(
@@ -327,6 +337,7 @@ fun <T> SettingMultiChoiceRow(
     optionLabel: (T) -> String,
     noneLabel: String,
     onCheckedChange: (T, Boolean) -> Unit,
+    hint: String? = null,
 ) {
     var showDialog by remember { mutableStateOf(false) }
     Row(
@@ -342,7 +353,9 @@ fun <T> SettingMultiChoiceRow(
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
             Text(
-                options.filter { it in checked }.joinToString { optionLabel(it) }.ifEmpty { noneLabel },
+                options.filter { it in checked }
+                    .joinToString(MULTI_CHOICE_SEPARATOR) { optionLabel(it) }
+                    .ifEmpty { noneLabel },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -356,11 +369,18 @@ fun <T> SettingMultiChoiceRow(
             optionLabel = optionLabel,
             onCheckedChange = onCheckedChange,
             onDismiss = { showDialog = false },
+            hint = hint,
         )
     }
 }
 
-/** Multi-choice M3 dialog with checkbox options; each toggle applies immediately. */
+/**
+ * Multi-choice M3 dialog with checkbox options; each toggle applies immediately.
+ *
+ * [hint] is one quiet line above the list saying that several answers are allowed. Checkboxes
+ * already imply it to anyone who reads controls for a living; this is for everyone else, and it
+ * costs one line in the one place where the reader is looking at the question.
+ */
 @Composable
 fun <T> SettingMultiChoiceDialog(
     title: String,
@@ -369,12 +389,21 @@ fun <T> SettingMultiChoiceDialog(
     optionLabel: (T) -> String,
     onCheckedChange: (T, Boolean) -> Unit,
     onDismiss: () -> Unit,
+    hint: String? = null,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             Column {
+                if (hint != null) {
+                    Text(
+                        hint,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
                 options.forEach { option ->
                     val isChecked = option in checked
                     Row(
@@ -401,6 +430,15 @@ fun <T> SettingMultiChoiceDialog(
         },
     )
 }
+
+/**
+ * What separates the ticked options in a [SettingMultiChoiceRow]'s summary.
+ *
+ * A middle dot, spaced, because it is already this app's separator for independent facts that
+ * belong to one thing (see the account row below). ⚠️ Not a comma: a comma list is prose, and a
+ * reader skimming a settings screen takes prose for a single wordy value.
+ */
+private const val MULTI_CHOICE_SEPARATOR = " · "
 
 /**
  * Account list row: monogram · label · email, with a check on the current one.

@@ -1486,6 +1486,12 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
      * repository does it in the same call. 🔴 This is also why the list does NOT separately report a
      * tap as [GridlinkMailAction.MARK_READ]: two writes for one gesture would race, and the loser
      * would be an unread flag flickering back on.
+     *
+     * ⚠️ The mark is now the reader's call
+     * ([app.gridlink.core.data.settings.SettingsRepository.markReadOnOpen], on by default) rather
+     * than a hardcoded `true`. It is read here, per open, and not hoisted into a cached field: the
+     * setting can change while a message is on screen, and the value that should decide is the one
+     * in force at the tap.
      */
     fun open(rowKey: String) {
         // 🔴 A ROW key, not a message id: in the unified inbox it names the account too, and the
@@ -1503,7 +1509,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         openReceipt = null
         openJob = viewModelScope.launch {
             val body = try {
-                repo.openMessage(credentials, emailId, markRead = true)
+                repo.openMessage(credentials, emailId, markRead = settings.markReadOnOpen.first())
             } catch (c: CancellationException) {
                 throw c
             } catch (t: Throwable) {

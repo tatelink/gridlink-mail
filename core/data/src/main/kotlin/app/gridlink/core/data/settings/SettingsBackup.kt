@@ -50,6 +50,7 @@ data class SettingsBackup(
     val bundleAutomated: Boolean? = null,
     /** [MessageTextSize] name. */
     val messageTextSize: String? = null,
+    val markReadOnOpen: Boolean? = null,
     val markReadOnDelete: Boolean? = null,
     val markReadOnArchive: Boolean? = null,
     val markReadOnMove: Boolean? = null,
@@ -89,7 +90,8 @@ data class SettingsBackup(
             stripTracking != null || confirmLinks != null || imageAllowlist != null ||
             quietHoursEnabled != null || quietHoursStart != null || quietHoursEnd != null ||
             pushAllAccounts != null || language != null || conversationView != null ||
-            messageTextSize != null || markReadOnDelete != null || accounts != null
+            messageTextSize != null || markReadOnOpen != null || markReadOnDelete != null ||
+            accounts != null
 }
 
 /** JSON (de)serialization for [SettingsBackup] export/import files. */

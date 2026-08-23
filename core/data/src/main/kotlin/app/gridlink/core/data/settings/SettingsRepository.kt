@@ -367,6 +367,26 @@ class SettingsRepository(
         dataStore.edit { it[KEY_BUNDLE_AUTOMATED] = enabled }
     }
 
+    /**
+     * Mark a message as read when it is OPENED.
+     *
+     * 🔴 On by default, and it is the only one of these four that is. The other three are
+     * opt-in because deleting, archiving and moving are filing gestures that say nothing about
+     * whether the mail was read; opening it is the gesture that means exactly that, and every mail
+     * client in existence marks read on open. Shipping this off by default would change behaviour
+     * for everyone who already has the app rather than offering them a choice they did not have.
+     *
+     * ⚠️ Why it exists at all: until 2026-08-23 the open path passed a hardcoded
+     * `markRead = true`, so a setting called "Mark as read when" listed three cases and silently
+     * did the fourth unconditionally. Tate's note was "mark as read when needs to be more
+     * polished"; the missing option was most of what made it read as unfinished.
+     */
+    val markReadOnOpen: Flow<Boolean> = dataStore.data.map { it[KEY_MARK_READ_ON_OPEN] ?: true }
+
+    suspend fun setMarkReadOnOpen(enabled: Boolean) {
+        dataStore.edit { it[KEY_MARK_READ_ON_OPEN] = enabled }
+    }
+
     /** Mark a message as read when deleting it, so Trash doesn't accumulate unread
      *  badges (off by default — deletion doesn't touch flags unless opted in). */
     val markReadOnDelete: Flow<Boolean> = dataStore.data.map { it[KEY_MARK_READ_ON_DELETE] ?: false }
@@ -709,6 +729,7 @@ class SettingsRepository(
         threadToolbarActions = threadToolbarActions.first().map { it.name },
         bundleAutomated = bundleAutomated.first(),
         messageTextSize = messageTextSize.first().name,
+        markReadOnOpen = markReadOnOpen.first(),
         markReadOnDelete = markReadOnDelete.first(),
         markReadOnArchive = markReadOnArchive.first(),
         markReadOnMove = markReadOnMove.first(),
@@ -756,6 +777,7 @@ class SettingsRepository(
         }
         backup.bundleAutomated?.let { setBundleAutomated(it) }
         backup.messageTextSize?.let { v -> runCatching { MessageTextSize.valueOf(v) }.getOrNull()?.let { setMessageTextSize(it) } }
+        backup.markReadOnOpen?.let { setMarkReadOnOpen(it) }
         backup.markReadOnDelete?.let { setMarkReadOnDelete(it) }
         backup.markReadOnArchive?.let { setMarkReadOnArchive(it) }
         backup.markReadOnMove?.let { setMarkReadOnMove(it) }
@@ -830,6 +852,7 @@ class SettingsRepository(
         private val KEY_UNIFIED_INBOX = booleanPreferencesKey("unified_inbox")
         private val KEY_THREAD_TOOLBAR = stringSetPreferencesKey("thread_toolbar_actions")
         private val KEY_BUNDLE_AUTOMATED = booleanPreferencesKey("bundle_automated")
+        private val KEY_MARK_READ_ON_OPEN = booleanPreferencesKey("mark_read_on_open")
         private val KEY_MARK_READ_ON_DELETE = booleanPreferencesKey("mark_read_on_delete")
         private val KEY_MARK_READ_ON_ARCHIVE = booleanPreferencesKey("mark_read_on_archive")
         private val KEY_MARK_READ_ON_MOVE = booleanPreferencesKey("mark_read_on_move")

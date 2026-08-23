@@ -410,7 +410,12 @@ class SettingsScreenTest {
         rule.onNodeWithText("Text size").assertExists()
         rule.onNodeWithText("Normal").assertExists()
         rule.onNodeWithText("Mark as read when").assertExists()
-        rule.onNodeWithText("never").assertExists()
+        // 🔴 "opening it", not "Never". This is the one of the four that ships ON, because
+        // opening a message is what marking it read MEANS; the other three are filing gestures that
+        // say nothing about whether it was read. If this assertion ever flips back to "Never",
+        // someone has defaulted the setting off and quietly changed behaviour for every existing
+        // install rather than offering a choice.
+        rule.onNodeWithText("opening it").assertExists()
 
         rule.onNodeWithText("SWIPE ACTIONS").assertExists()
         rule.onNodeWithText("Swipe right").assertExists()
@@ -443,6 +448,10 @@ class SettingsScreenTest {
     fun reading_markAsReadWhen_namesTheChosenMoments_inTheListsOrder() {
         show(route = "reading")
         row("Mark as read when").performClick()
+        // The dialog says out loud that it takes more than one answer. The row cannot: it is laid
+        // out exactly like the single-choice rows above it.
+        rule.onNodeWithText("Pick any that apply.").assertExists()
+        checkOption("opening it").assertIsOn()
         checkOption("moving to another folder").assertIsOff()
         checkOption("deleting").performClick()
         checkOption("archiving").performClick()
@@ -450,8 +459,23 @@ class SettingsScreenTest {
             runCatching { checkOption("archiving").assertIsOn() }.isSuccess
         }
         rule.onNodeWithText("OK").performClick()
-        waitForText("deleting, archiving")
-        rule.onNodeWithText("never").assertDoesNotExist()
+        // ⚠️ Middle dots, and in the LIST's order rather than the tapping order. A comma list
+        // here reads as one wordy value; the dots are what say "several independent answers".
+        waitForText("opening it \u00b7 deleting \u00b7 archiving")
+        rule.onNodeWithText("Never").assertDoesNotExist()
+    }
+
+    @Test
+    fun reading_markAsReadWhen_saysNever_onlyWhenEveryMomentIsOff() {
+        show(route = "reading")
+        row("Mark as read when").performClick()
+        // The only box on by default, so clearing it clears the row.
+        checkOption("opening it").performClick()
+        waitFor {
+            runCatching { checkOption("opening it").assertIsOff() }.isSuccess
+        }
+        rule.onNodeWithText("OK").performClick()
+        waitForText("Never")
     }
 
     @Test

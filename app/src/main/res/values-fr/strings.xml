@@ -797,10 +797,12 @@
     <string name="compose_contacts_priming_enable">Activer</string>
     <string name="compose_contacts_priming_not_now">Pas maintenant</string>
     <string name="settings_mark_read_title">Marquer comme lu lors de</string>
+    <string name="settings_mark_read_opening">l’ouverture</string>
     <string name="settings_mark_read_deleting">la suppression</string>
     <string name="settings_mark_read_archiving">l’archivage</string>
     <string name="settings_mark_read_moving">un déplacement vers un autre dossier</string>
-    <string name="settings_mark_read_never">jamais</string>
+    <string name="settings_mark_read_never">Jamais</string>
+    <string name="settings_mark_read_hint">Cochez ce qui s’applique.</string>
     <string name="settings_about_section">À propos</string>
     <string name="settings_about_version">Version</string>
     <string name="settings_about_source">Code source</string>

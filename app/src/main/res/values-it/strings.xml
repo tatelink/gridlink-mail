@@ -794,10 +794,12 @@
     <string name="compose_contacts_priming_enable">Attiva</string>
     <string name="compose_contacts_priming_not_now">Non ora</string>
     <string name="settings_mark_read_title">Segna come letto in caso di</string>
+    <string name="settings_mark_read_opening">apertura</string>
     <string name="settings_mark_read_deleting">eliminazione</string>
     <string name="settings_mark_read_archiving">archiviazione</string>
     <string name="settings_mark_read_moving">spostamento in un\'altra cartella</string>
-    <string name="settings_mark_read_never">mai</string>
+    <string name="settings_mark_read_never">Mai</string>
+    <string name="settings_mark_read_hint">Seleziona quelle che vuoi.</string>
     <string name="settings_about_section">Informazioni</string>
     <string name="settings_about_version">Versione</string>
     <string name="settings_about_source">Codice sorgente</string>

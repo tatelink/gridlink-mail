@@ -545,6 +545,24 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { settings.setBundleAutomated(enabled) }
     }
 
+    /**
+     * ⚠️ `initialValue = true`, unlike its three neighbours.
+     *
+     * Not a copy-paste slip: the repository's default is on, and a `false` here would flash the
+     * row through "Never" for the frames before DataStore answers. The initial value of a
+     * [stateIn] is what the UI draws before the flow emits, so it has to agree with the default
+     * rather than with the type's zero.
+     */
+    val markReadOnOpen = settings.markReadOnOpen.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = true,
+    )
+
+    fun setMarkReadOnOpen(enabled: Boolean) {
+        viewModelScope.launch { settings.setMarkReadOnOpen(enabled) }
+    }
+
     val markReadOnDelete = settings.markReadOnDelete.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),

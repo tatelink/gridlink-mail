@@ -798,10 +798,12 @@
     <string name="compose_contacts_priming_enable">Włącz</string>
     <string name="compose_contacts_priming_not_now">Nie teraz</string>
     <string name="settings_mark_read_title">Oznacz jako przeczytane przy</string>
+    <string name="settings_mark_read_opening">otwieraniu</string>
     <string name="settings_mark_read_deleting">usuwaniu</string>
     <string name="settings_mark_read_archiving">archiwizowaniu</string>
     <string name="settings_mark_read_moving">przenoszeniu do innego folderu</string>
-    <string name="settings_mark_read_never">nigdy</string>
+    <string name="settings_mark_read_never">Nigdy</string>
+    <string name="settings_mark_read_hint">Zaznacz dowolne opcje.</string>
     <string name="settings_about_section">O aplikacji</string>
     <string name="settings_about_version">Wersja</string>
     <string name="settings_about_source">Kod źródłowy</string>

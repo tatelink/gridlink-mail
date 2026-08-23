@@ -795,10 +795,12 @@
     <string name="compose_contacts_priming_enable">Inschakelen</string>
     <string name="compose_contacts_priming_not_now">Niet nu</string>
     <string name="settings_mark_read_title">Als gelezen markeren bij</string>
+    <string name="settings_mark_read_opening">openen</string>
     <string name="settings_mark_read_deleting">verwijderen</string>
     <string name="settings_mark_read_archiving">archiveren</string>
     <string name="settings_mark_read_moving">verplaatsen naar een andere map</string>
-    <string name="settings_mark_read_never">nooit</string>
+    <string name="settings_mark_read_never">Nooit</string>
+    <string name="settings_mark_read_hint">Kies wat van toepassing is.</string>
     <string name="settings_about_section">Over</string>
     <string name="settings_about_version">Versie</string>
     <string name="settings_about_source">Broncode</string>

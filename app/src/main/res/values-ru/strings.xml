@@ -801,10 +801,12 @@
     <string name="compose_contacts_priming_enable">Включить</string>
     <string name="compose_contacts_priming_not_now">Не сейчас</string>
     <string name="settings_mark_read_title">Отмечать прочитанным при</string>
+    <string name="settings_mark_read_opening">открытии</string>
     <string name="settings_mark_read_deleting">удалении</string>
     <string name="settings_mark_read_archiving">архивировании</string>
     <string name="settings_mark_read_moving">перемещении в другую папку</string>
-    <string name="settings_mark_read_never">никогда</string>
+    <string name="settings_mark_read_never">Никогда</string>
+    <string name="settings_mark_read_hint">Выберите любые варианты.</string>
     <string name="settings_about_section">О приложении</string>
     <string name="settings_about_version">Версия</string>
     <string name="settings_about_source">Исходный код</string>
