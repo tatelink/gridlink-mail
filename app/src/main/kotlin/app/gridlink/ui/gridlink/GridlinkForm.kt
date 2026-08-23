@@ -52,6 +52,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -153,6 +154,13 @@ fun GridlinkFormScreen(
     // `enabled = false` rather than skipping the call: BackHandler is a composable, and one that
     // appears and disappears with a nullable would break the rule against conditional composition.
     BackHandler(enabled = onClose != null) { onClose?.invoke() }
+    // How much of the window the keyboard is currently holding.
+    //
+    // 🔴 Read HERE, above the column, and not down beside the spacer that uses it. The column's own
+    // `windowInsetsPadding` CONSUMES the keyboard for everything composed under it, so the same read
+    // one level lower answers zero on every frame and the spacer never moves.
+    val density = LocalDensity.current
+    val keyboard = with(density) { WindowInsets.ime.getBottom(density).toDp() }
     val body: @Composable () -> Unit = {
         Column(
             modifier = Modifier
@@ -170,7 +178,20 @@ fun GridlinkFormScreen(
             if (embedded) {
                 // The detail frame's paneFloor spacer, so the form's glass starts on the same line
                 // as the list column's panel beside it. See [LocalGridlinkPaneHeaderHeight].
-                val paneFloor = LocalGridlinkPaneHeaderHeight.current
+                //
+                // 🔴 Minus the keyboard, because on the Fold's inner screen that alignment was
+                // costing the form most of what it had left. Unfolded with the keys up, the pane's
+                // ~100dp of chrome-height spacer and the baseline row between them took more of the
+                // window than the fields did, and one text box was all that fit. Tate's words:
+                // *"unfolded mode, keyboard covers so much space when trying to add calendar event
+                // or contact. card should occupy all vertical space."*
+                //
+                // Subtracting rather than switching on a visible/hidden flag is what keeps this
+                // silent: the ime inset animates, so the glass slides up in step with the keys
+                // instead of popping a chrome row's worth the instant they appear, and it comes
+                // back the same way. Lining up with the column beside it is worth something while
+                // the reader can see both. It is worth nothing under a keyboard.
+                val paneFloor = (LocalGridlinkPaneHeaderHeight.current - keyboard).coerceAtLeast(0.dp)
                 if (paneFloor > 0.dp) {
                     Spacer(Modifier.height(paneFloor))
                 }
