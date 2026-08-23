@@ -95,6 +95,8 @@ fun GridlinkHomeHost(
     onOpenSettings: () -> Unit,
     /** Settings again, but landing on the tag manager: the tag picker's "Manage tags" row. */
     onManageTags: () -> Unit = onOpenSettings,
+    /** Settings again, landing on the account list: the menu's Accounts row. */
+    onOpenAccounts: () -> Unit = onOpenSettings,
     /** A `mailto:` link or a share, parsed by the activity. Null when nothing is waiting. */
     pendingMailto: MailtoDraft? = null,
     onMailtoConsumed: () -> Unit = {},
@@ -289,6 +291,7 @@ fun GridlinkHomeHost(
     // row would keep calling back into a composition that had moved on.
     val openSettings by rememberUpdatedState(onOpenSettings)
     val manageTags by rememberUpdatedState(onManageTags)
+    val openAccounts by rememberUpdatedState(onOpenAccounts)
     // 🔴 menuCounts joins the remember keys: the config is rebuilt when a count changes or the
     // drawer keeps saying yesterday's number over today's Drafts.
     // 🔴 `unified` joins the remember keys for menuCounts' reason: the pair carries a live unread
@@ -304,10 +307,16 @@ fun GridlinkHomeHost(
             menuCounts = menuCounts,
             onSelectMenu = { item ->
                 when (item) {
-                    // Accounts management lives inside upstream's settings screen, so both rows
-                    // land there for now. Marked rather than merged: they are different questions
-                    // and Gridlink will eventually answer the first one itself.
-                    GridlinkMenuItem.SETTINGS, GridlinkMenuItem.ACCOUNTS -> openSettings()
+                    // Both rows land in upstream's settings screen, because that is still where
+                    // accounts are managed, but they no longer land in the SAME PLACE. Settings
+                    // opens the hub; Accounts opens the account list. They were one branch until
+                    // 2026-08-23, and Tate read the result exactly as the duplicate it was:
+                    // "menu, accounts just takes mw to settings page. remove? oe chsnge funxtion."
+                    // A row that says "2 accounts" and then hands you the same page as the row
+                    // above it has not earned its slot. Deep-linking is what makes it a different
+                    // question rather than a differently-iconed copy of its neighbour.
+                    GridlinkMenuItem.SETTINGS -> openSettings()
+                    GridlinkMenuItem.ACCOUNTS -> openAccounts()
                     // Routed by the scaffold via [GridlinkChromeState.routeMenu], not from here:
                     // this config lives ABOVE the scaffold and cannot reach its navigation state.
                     GridlinkMenuItem.SCHEDULED, GridlinkMenuItem.SNOOZED, GridlinkMenuItem.DRAFTS -> Unit

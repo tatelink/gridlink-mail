@@ -239,8 +239,9 @@ fun AppNavHost(
                 // saveable so the hand-off survives an unfold.
                 var settingsOpen by rememberSaveable { mutableStateOf(false) }
                 // Which settings screen to land on. Null is the hub; "tags" is the tag picker's
-                // "Manage tags" row, which would otherwise dump the reader at the top of settings
-                // to hunt for a screen they had just asked for by name. Saveable alongside the flag
+                // "Manage tags" row and "accounts" is the menu's Accounts row, either of which
+                // would otherwise dump the reader at the top of settings to hunt for a screen they
+                // had just asked for by name. Saveable alongside the flag
                 // so an unfold does not bounce them back to the hub.
                 var settingsStart by rememberSaveable { mutableStateOf<String?>(null) }
                 // System Back closes settings instead of leaving the app, which is what the
@@ -298,6 +299,7 @@ fun AppNavHost(
                         accounts = accounts,
                         onOpenSettings = { settingsStart = null; settingsOpen = true },
                         onManageTags = { settingsStart = "tags"; settingsOpen = true },
+                        onOpenAccounts = { settingsStart = "accounts"; settingsOpen = true },
                         pendingMailto = pendingMailto,
                         onMailtoConsumed = onMailtoConsumed,
                         pendingEmailOpen = pendingEmailOpen.takeIf { switchTo == null },
