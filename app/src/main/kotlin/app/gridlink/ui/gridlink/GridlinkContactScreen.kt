@@ -2,7 +2,6 @@ package app.gridlink.ui.gridlink
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,19 +18,23 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Label
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.outlined.Business
+import androidx.compose.material.icons.outlined.Call
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Email
+import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -178,30 +181,49 @@ fun GridlinkContactScreen(
             // them, so the row appears only when it adds something the header has not said.
             val fields = buildList {
                 contact.allEmails.forEach { address ->
-                    add(GridlinkContactField("Email", address) { onWrite(contact.copy(email = address)) })
+                    add(
+                        GridlinkContactField("Email", address, Icons.Outlined.Email) {
+                            onWrite(contact.copy(email = address))
+                        },
+                    )
                 }
                 contact.phones.forEach { number ->
-                    add(GridlinkContactField("Phone", number) { leaveOnce { gridlinkDial(context, number) } })
+                    add(
+                        GridlinkContactField("Phone", number, Icons.Outlined.Call) {
+                            leaveOnce { gridlinkDial(context, number) }
+                        },
+                    )
                 }
                 // Same map handoff as an event's Where row, same `geo:` reasoning. Read-only
                 // display: the edit form has no address field, and ADR belongs to no
                 // ContactCardGroup, so a patched card keeps its ADR lines byte-for-byte.
                 contact.addresses.forEach { place ->
-                    add(GridlinkContactField("Address", place) { leaveOnce { openMap(context, place) } })
+                    add(
+                        GridlinkContactField("Address", place, Icons.Outlined.Place) {
+                            leaveOnce { openMap(context, place) }
+                        },
+                    )
                 }
                 if (contact.company.isNotBlank() && contact.company != contact.role) {
-                    add(GridlinkContactField("Company", contact.company, null))
+                    add(GridlinkContactField("Company", contact.company, Icons.Outlined.Business, onClick = null))
                 }
-                // User-defined fields, after the built-ins: the label is the user's own word for
-                // the value, so it renders exactly as typed, in the same caption slot "Email" uses.
+                // User-defined fields, after the built-ins. These are the ONLY rows that still
+                // write their label out: the label is the user's own word for the value, and no
+                // glyph can stand in for "Case portal ID" the way an envelope stands in for Email.
                 contact.customFields.forEach { field ->
-                    add(GridlinkContactField(field.label, field.value, null))
+                    add(
+                        GridlinkContactField(
+                            label = field.label,
+                            value = field.value,
+                            icon = Icons.AutoMirrored.Outlined.Label,
+                            spellsItsLabel = true,
+                            onClick = null,
+                        ),
+                    )
                 }
             }
             if (fields.isNotEmpty()) {
                 GridlinkSectionLabel(text = "Details")
-                // No divider between rows: each field is its own contained box now, and the boxes'
-                // margins do the separating, the same language as the contact form.
                 fields.forEach { field ->
                     GridlinkContactFieldRow(field)
                 }
@@ -455,20 +477,48 @@ private const val HERO_EMAIL_ALPHA = 0.72f
 private const val HERO_NAME_FULL = 16
 private const val HERO_NAME_MID = 26
 
-/** One field on the card: what it is, what it says, and what tapping it does (null: nothing). */
+/**
+ * One field on the card: what it is, what it says, which glyph stands for it, and what tapping it
+ * does (null: nothing).
+ *
+ * [label] is carried even on the rows that do not write it out, because it is the glyph's
+ * `contentDescription`: a screen reader still hears "Email" on exactly the rows a sighted reader
+ * sees an envelope on.
+ */
 private class GridlinkContactField(
     val label: String,
     val value: String,
+    val icon: ImageVector,
+    /** True when [label] has to be READ, because no glyph can stand in for the reader's own word. */
+    val spellsItsLabel: Boolean = false,
     val onClick: (() -> Unit)?,
 )
 
 /**
- * One field on the card: its name in a caption, the value under it, both inside one
- * [GridlinkFieldBoxShape] box with a hairline border.
+ * One fact on the card: a glyph, then the value.
  *
- * Deliberately the same object the form's rows are, since 2026-08-16 — reading a contact and
- * editing one are two states of the same card, and they used to disagree about where a label goes.
- * When the field does something on tap (write, dial), the whole box is the target.
+ * ## 🔴 Not a field box, and that is the whole point
+ * This row used to be a deliberate copy of the form's [GridlinkFieldFrame] - same rounded box, same
+ * fill, same hairline border, same caption above the value - on the reasoning that reading a
+ * contact and editing one are two states of one card and should not disagree about where a label
+ * goes. What that produced was a card that is pixel for pixel a form nobody can type in, and Tate
+ * read it exactly that way: "contact profile card l9oks editable even in display mode"
+ * (2026-08-22).
+ *
+ * A fill and a border drawn around a value are an invitation to type, so a read-only card cannot
+ * borrow them just to mean "here is a value". What separates the two states now is the whole
+ * treatment: display is glyphed facts sitting on the panel, edit is boxed fields. The two still do
+ * not disagree about where the label goes, because in display there is no caption to place - the
+ * glyph IS the label.
+ *
+ * That is the grammar the event card has always used ([GridlinkEventFact]), down to the 16dp glyph
+ * and its optical nudge, so this app's two read-only cards are now one idea rather than two. It
+ * follows that card's rule about never saying a thing twice, too: an envelope beside an address
+ * does not need the word "Email" under it, so only a custom field, whose label is the reader's own
+ * word, spells itself out ([GridlinkContactField.spellsItsLabel]).
+ *
+ * When the field does something on tap (write, dial, map) the whole row is the target, and the
+ * click sits before the padding so that target covers the row's breathing room too.
  */
 @Composable
 private fun GridlinkContactFieldRow(
@@ -476,34 +526,26 @@ private fun GridlinkContactFieldRow(
     modifier: Modifier = Modifier,
 ) {
     val colors = GridlinkTheme.colors
-    Column(
+    Row(
         modifier = modifier
             .fillMaxWidth()
+            .let { if (field.onClick != null) it.clickable(onClick = field.onClick) else it }
             .padding(
-                horizontal = GridlinkSpacing.rowHorizontal,
-                vertical = GridlinkSpacing.s8,
+                start = GridlinkSpacing.rowHorizontal,
+                end = GridlinkSpacing.rowHorizontal,
+                bottom = GridlinkSpacing.s16,
             ),
+        verticalAlignment = Alignment.Top,
     ) {
-        Column(
+        Icon(
+            imageVector = field.icon,
+            contentDescription = field.label,
+            tint = colors.textSecondary,
             modifier = Modifier
-                .fillMaxWidth()
-                .clip(GridlinkFieldBoxShape)
-                .background(colors.fieldFill)
-                .border(GridlinkDimens.hairline, colors.fieldBorder, GridlinkFieldBoxShape)
-                .let { if (field.onClick != null) it.clickable(onClick = field.onClick) else it }
-                .padding(
-                    horizontal = GridlinkSpacing.s16,
-                    vertical = GridlinkSpacing.s12,
-                ),
-        ) {
-            Text(
-                text = field.label,
-                style = GridlinkType.fieldLabel,
-                color = colors.textSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(GridlinkSpacing.s4))
+                .padding(top = CONTACT_GLYPH_NUDGE)
+                .size(CONTACT_GLYPH_SIZE),
+        )
+        Column(modifier = Modifier.padding(start = GridlinkSpacing.s12)) {
             Text(
                 text = field.value,
                 style = GridlinkType.body,
@@ -511,9 +553,23 @@ private fun GridlinkContactFieldRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (field.spellsItsLabel) {
+                Text(
+                    text = field.label,
+                    style = GridlinkType.metadata,
+                    color = colors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = GridlinkSpacing.s4),
+                )
+            }
         }
     }
 }
+
+/** Optically aligned to the first line of body text rather than to the row's box. */
+private val CONTACT_GLYPH_NUDGE = 2.dp
+private val CONTACT_GLYPH_SIZE = 16.dp
 
 /**
  * One message on a contact card.

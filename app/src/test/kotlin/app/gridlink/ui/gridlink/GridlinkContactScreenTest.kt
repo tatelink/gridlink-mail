@@ -138,7 +138,8 @@ class GridlinkContactScreenTest {
         )
         rule.onAllNodesWithText("Verdant").assertCountEquals(2)
         rule.onNodeWithText("Pest control").assertExists()
-        rule.onAllNodesWithText("Company").assertCountEquals(0)
+        // The label is the glyph's description now, so that is where its absence has to be read.
+        rule.onAllNodesWithContentDescription("Company").assertCountEquals(0)
     }
 
     // ---- the pill and the accent button --------------------------------------------------------
@@ -174,13 +175,16 @@ class GridlinkContactScreenTest {
         )
         // The section heading is uppercased content.
         rule.onNodeWithText("DETAILS").assertExists()
-        rule.onAllNodesWithText("Email").assertCountEquals(2)
+        // A built-in field names itself through its glyph, not in writing: the row draws an
+        // envelope, a handset, a pin, a building, and the word rides on the contentDescription so a
+        // screen reader still hears it. Only a custom field spells its label out on screen.
+        rule.onAllNodesWithContentDescription("Email").assertCountEquals(2)
         rule.onNodeWithText("dara.loxwell@personal.test").assertExists()
-        rule.onNodeWithText("Phone").assertExists()
+        rule.onNodeWithContentDescription("Phone").assertExists()
         rule.onNodeWithText("+1 704 555 0142").assertExists()
-        rule.onNodeWithText("Address").assertExists()
+        rule.onNodeWithContentDescription("Address").assertExists()
         rule.onNodeWithText("4021 Willowmere Rd, Charlotte NC").assertExists()
-        rule.onNodeWithText("Company").assertExists()
+        rule.onNodeWithContentDescription("Company").assertExists()
         rule.onNodeWithText("Ridgeline Foods").assertExists().assertHasNoClickAction()
         rule.onNodeWithText("Birthday").assertExists()
         rule.onNodeWithText("June 3").assertExists().assertHasNoClickAction()
@@ -201,7 +205,7 @@ class GridlinkContactScreenTest {
             ),
         )
         rule.onAllNodesWithText("DETAILS").assertCountEquals(0)
-        rule.onAllNodesWithText("Company").assertCountEquals(0)
+        rule.onAllNodesWithContentDescription("Company").assertCountEquals(0)
         rule.onNodeWithText("NOTE").assertExists()
         rule.onNodeWithText("Prefers a text first.").assertExists()
         // Nobody has written from a card built by hand, and that is stated, not flagged.
