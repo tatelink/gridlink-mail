@@ -2,6 +2,8 @@ package app.gridlink.ui.theme
 
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SwitchColors
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -130,6 +132,64 @@ private fun gridlinkColorScheme(colors: GridlinkColors, mode: GridlinkMode) =
             scrim = colors.scrim,
         )
     }
+
+/**
+ * A switch whose OFF position reads as a position rather than as a refusal.
+ *
+ * ## 🔴 The one control the skin could not hand over for free
+ * Everything else in this file works by moving values so the stock M3 controls come out right
+ * without being touched. The switch is where that broke, and it broke because of what M3 asks for
+ * rather than because the mapping is wrong: an unchecked switch draws its thumb AND its outline in
+ * `outline`, and its track in `surfaceContainerHighest`. This palette answers those two with
+ * [GridlinkColors.surfaceBorder] and [GridlinkColors.surfaceRaised], which on the Day glass are
+ * white at 0.70 and white at 0.72 — the same colour to the eye. So an OFF switch was a pale blob on
+ * a pale panel, which is also very close to how M3 draws a DISABLED one, and Tate read the whole
+ * settings screen as half greyed out: "settings toggles, OFF appears unavailable" (2026-08-22).
+ *
+ * The fix is not a darker hairline. It is that OFF has to be drawn in ink the reader can see, so
+ * the two states are one control in two positions:
+ *
+ * - **OFF** takes [GridlinkColors.textSecondary] for the thumb, the same ink a subtitle is set in,
+ *   on the quiet [GridlinkColors.fieldFill] track. Solid knob, pale channel, defined edge.
+ * - **ON** keeps the accent track and its light knob, which was never the part that read wrong.
+ * - **Disabled** is then free to be what it says: both positions drop to a fraction of their own
+ *   colour, so a disabled switch is dimmer than either live state instead of matching one of them.
+ *
+ * ⚠️ Apply this at every [androidx.compose.material3.Switch] in the app. A bare one inherits the
+ * defaults and brings the bug back on that row alone, which is worse than having it everywhere,
+ * because then the screen disagrees with itself about what OFF looks like.
+ */
+@Composable
+fun gridlinkSwitchColors(): SwitchColors {
+    val colors = GridlinkTheme.colors
+    return SwitchDefaults.colors(
+        checkedThumbColor = colors.onAccent,
+        checkedTrackColor = colors.accent,
+        checkedBorderColor = Color.Transparent,
+        uncheckedThumbColor = colors.textSecondary,
+        uncheckedTrackColor = colors.fieldFill,
+        uncheckedBorderColor = colors.textSecondary.copy(alpha = OFF_BORDER_ALPHA),
+        disabledCheckedThumbColor = colors.onAccent.copy(alpha = DISABLED_INK_ALPHA),
+        disabledCheckedTrackColor = colors.accent.copy(alpha = DISABLED_FILL_ALPHA),
+        disabledCheckedBorderColor = Color.Transparent,
+        disabledUncheckedThumbColor = colors.textSecondary.copy(alpha = DISABLED_INK_ALPHA),
+        disabledUncheckedTrackColor = colors.fieldFill.copy(alpha = DISABLED_FILL_ALPHA),
+        disabledUncheckedBorderColor = colors.textSecondary.copy(alpha = DISABLED_HAIRLINE_ALPHA),
+    )
+}
+
+/** Quiet enough not to compete with the thumb, present enough to close the pill. */
+private const val OFF_BORDER_ALPHA = 0.45f
+
+/**
+ * The disabled ramp. Held well under the live states on purpose: the whole complaint was two things
+ * looking alike, so a disabled switch that merely tints toward OFF would trade one confusion for
+ * another. The row's title and subtitle dim to 0.38 alongside it, so this never carries the message
+ * on its own.
+ */
+private const val DISABLED_INK_ALPHA = 0.32f
+private const val DISABLED_FILL_ALPHA = 0.20f
+private const val DISABLED_HAIRLINE_ALPHA = 0.16f
 
 /**
  * Material's type scale in Outfit.

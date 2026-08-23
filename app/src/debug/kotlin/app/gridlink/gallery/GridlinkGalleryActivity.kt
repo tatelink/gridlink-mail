@@ -32,6 +32,7 @@ import app.gridlink.ui.gridlink.GridlinkUndoFrame
 import app.gridlink.ui.gridlink.gridlinkSampleChromeConfig
 import app.gridlink.ui.gridlink.gridlinkSampleLastSyncedAt
 import app.gridlink.ui.gridlink.mayReparent
+import app.gridlink.ui.settings.SettingsScreen
 import app.gridlink.ui.theme.GridlinkMode
 
 /**
@@ -562,6 +563,23 @@ class GridlinkGalleryActivity : ComponentActivity() {
                     "the single-pane list, or leave it off to measure the real width."
             )
         }
+        // Settings, which is otherwise unreachable here: the shipping route into it is the mail
+        // UI's menu, and that needs a signed-in account. So a harness that cannot open settings
+        // means every settings change has to be checked against a real mailbox, which is the one
+        // thing this activity exists to avoid.
+        //   am start -n .../GridlinkGalleryActivity --es settings hub
+        //   am start -n .../GridlinkGalleryActivity --es settings reading --es mode night
+        //
+        // The value is the inner route to land on, `hub` for the top. Validated against the real
+        // list for the reason the `selected` ids are: a typo that quietly lands on the hub produces
+        // a screenshot of the wrong screen, and a wrong picture is worse than a crash.
+        val settings = intent?.getStringExtra("settings")?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        if (settings != null) {
+            require(settings == "hub" || settings in SETTINGS_ROUTES) {
+                "settings='$settings' is not a settings screen. Use 'hub' or one of " +
+                    SETTINGS_ROUTES.joinToString()
+            }
+        }
         // 🔴 The real outbox, not a harness stub. This activity is currently the ONLY way into the
         // Gridlink screens — the shipping icon still opens upstream's UI — so a gallery holding a
         // pretend sender would mean send is still theatre everywhere it can actually be tapped.
@@ -617,10 +635,25 @@ class GridlinkGalleryActivity : ComponentActivity() {
                 initialFolderId = mailboxId,
                 initialOpenFraction = openAt,
                 forceTwoPane = forceTwoPane,
+                settingsRoute = settings,
             )
         }
     }
 }
+
+/**
+ * The inner routes [SettingsScreen] knows, for validating `--es settings`.
+ *
+ * ⚠️ A hand-kept copy of that screen's NavHost, because those routes are string literals inside it
+ * with nothing to read them off. A route added there and not here is rejected by the harness, which
+ * is the safe direction to fail in: the message names every route it does know.
+ * `addAccount` and `account/{id}` are left out on purpose — one is a form with no content to look
+ * at and the other needs an id.
+ */
+private val SETTINGS_ROUTES = listOf(
+    "accounts", "appearance", "reading", "notifications", "vacation",
+    "filters", "tags", "privacy", "storage", "license", "backup",
+)
 
 @Composable
 private fun GridlinkGallery(
@@ -656,6 +689,8 @@ private fun GridlinkGallery(
     initialFolderId: String? = null,
     initialOpenFraction: Float = 1f,
     forceTwoPane: Boolean? = null,
+    /** An inner settings route to open instead of the mail UI, `hub` for the top, null for neither. */
+    settingsRoute: String? = null,
 ) {
     // 🔴 The gallery no longer owns the palette, it seeds it. Day / Night / OLED is a real app
     // setting now, living in GridlinkApp and reachable from the menu panel's Appearance track, so a
@@ -679,6 +714,12 @@ private fun GridlinkGallery(
         config = gridlinkSampleChromeConfig(),
         initialLastSyncedAt = gridlinkSampleLastSyncedAt(),
     ) {
+        if (settingsRoute != null) {
+            // Back is a no-op rather than a finish(): the harness has nowhere to go back TO, and a
+            // stray tap closing the activity mid-capture is a lost screenshot.
+            SettingsScreen(onBack = {}, initialRoute = settingsRoute.takeIf { it != "hub" })
+            return@GridlinkApp
+        }
         GridlinkRoot(
             sender = sender,
             attacher = attacher,

@@ -49,6 +49,7 @@ import app.gridlink.R
 import app.gridlink.ui.components.Monogram
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkSpacing
+import app.gridlink.ui.theme.gridlinkSwitchColors
 import java.util.Locale
 
 /**
@@ -199,7 +200,12 @@ fun SettingSwitch(
             }
         }
         Spacer(Modifier.width(GridlinkSpacing.s16))
-        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled,
+            colors = gridlinkSwitchColors(),
+        )
     }
 }
 

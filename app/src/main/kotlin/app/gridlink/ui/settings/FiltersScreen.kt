@@ -44,6 +44,7 @@ import app.gridlink.R
 import app.gridlink.core.data.filter.FilterRule
 import app.gridlink.core.data.filter.RuleField
 import app.gridlink.core.data.filter.RuleMatch
+import app.gridlink.ui.theme.gridlinkSwitchColors
 
 /**
  * Server-side filter rules (JMAP Sieve) for the current account. Rules are
@@ -275,7 +276,7 @@ private fun RuleRow(rule: FilterRule, onToggle: (Boolean) -> Unit, onEdit: () ->
             )
         }
         Spacer(Modifier.width(16.dp))
-        Switch(checked = rule.enabled, onCheckedChange = onToggle)
+        Switch(checked = rule.enabled, onCheckedChange = onToggle, colors = gridlinkSwitchColors())
     }
 }
 
@@ -374,7 +375,7 @@ private fun ActionSwitch(label: String, checked: Boolean, onChange: (Boolean) ->
     ) {
         Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         Spacer(Modifier.width(16.dp))
-        Switch(checked = checked, onCheckedChange = onChange)
+        Switch(checked = checked, onCheckedChange = onChange, colors = gridlinkSwitchColors())
     }
 }
 
