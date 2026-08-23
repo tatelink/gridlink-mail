@@ -2771,7 +2771,23 @@ fun GridlinkRoot(
                             initialDate = calendarStart,
                             sidePane = readingPane,
                             // What the pane lists while no event is open. See [calendarDay].
-                            onSelectDate = { calendarDay = it },
+                            onSelectDate = { day ->
+                                // 🔴 Picking a DIFFERENT day closes the open appointment, and that
+                                // is the whole fix for Tate's *"choosing another date on left pane
+                                // doesnt chsnge right pane, original event stays up."* The pane
+                                // shows `detail` whenever there is one, so with an event open the
+                                // month grid could move under it all day and the card beside it
+                                // never changed: the tap looked ignored. Closing it lets the pane
+                                // fall through to that day's agenda, which is what the reader was
+                                // asking to see by tapping a day.
+                                //
+                                // Guarded on a day already being held, because this is reported on
+                                // ARRIVAL as well as on taps ([GridlinkCalendarScreen.onSelectDate]).
+                                // Without the guard, opening the app straight onto an appointment
+                                // would have the calendar's first report close it in the same frame.
+                                if (calendarDay != null && day != calendarDay) openEventId = null
+                                calendarDay = day
+                            },
                             // Same rule as the other two lists: only in two panes, or the marked block
                             // sits under a full-screen card and just looks stuck.
                             currentId = if (twoPane) openEventId else null,
