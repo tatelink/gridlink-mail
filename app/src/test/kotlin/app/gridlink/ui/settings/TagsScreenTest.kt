@@ -17,10 +17,15 @@ import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import app.gridlink.GridlinkApplication
 import app.gridlink.TestGridlinkApplication
+import app.gridlink.core.data.db.EmailEntity
+import app.gridlink.core.data.db.EmailKeywords
+import app.gridlink.core.data.db.GridlinkDatabase
 import app.gridlink.ui.gridlink.GridlinkApp
 import app.gridlink.ui.theme.GridlinkMode
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -34,7 +39,8 @@ import org.robolectric.annotation.Config
  * round-trip here with no server. What is held: the empty state, the editor's wire-name preview and
  * its Save gate, a created tag appearing with its keyword underneath, a rename keeping the keyword,
  * Delete asking first and saying what it does not do, and Back. The "Seen on your mail" section
- * needs cached mail on an account and stays out of reach on a fresh install, which is asserted.
+ * needs cached mail on an account, so those tests seed one plus a keyword-bearing message: it is
+ * out of reach on a fresh install (asserted), and past that the adopt-all path is driven end to end.
  * JVM-hosted under Robolectric, no device.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -61,6 +67,56 @@ class TagsScreenTest {
     fun startWithNoTags() {
         val app: GridlinkApplication = ApplicationProvider.getApplicationContext()
         runBlocking { app.container.settingsRepository.setMailTags(emptyList()) }
+        app.container.accountStore.clear()
+    }
+
+    @After
+    fun closeSeedDb() {
+        if (seeded) seedDb.close()
+    }
+
+    /**
+     * An account with mail on it, carrying [keywords] that nothing here has a definition for.
+     *
+     * The "Seen on your mail" section is the one part of this screen that is not local-only: it is
+     * a scan of the CACHED message table for the current account, so it cannot be reached without
+     * both. A second handle on the container's database file is how the other screen tests seed
+     * that cache, and it is opened lazily so the tests that do not need it pay nothing.
+     */
+    private fun seedTaggedMail(vararg keywords: String) {
+        val app: GridlinkApplication = ApplicationProvider.getApplicationContext()
+        val accountId = app.container.accountStore.add(
+            server = "http://127.0.0.1:9", username = "avery@example.invalid",
+            password = "hunter2", accountName = "Avery",
+        )
+        seeded = true
+        runBlocking {
+            seedDb.emailDao().upsertAll(
+                keywords.mapIndexed { i, keyword ->
+                    EmailEntity(
+                        id = "m$i",
+                        accountId = accountId,
+                        mailboxId = "inbox",
+                        threadId = "t$i",
+                        subject = "Message $i",
+                        preview = "",
+                        receivedAt = "2026-08-23T12:00:00Z",
+                        fromName = "Avery",
+                        fromEmail = "avery@example.invalid",
+                        seen = false,
+                        flagged = false,
+                        hasAttachment = false,
+                        sortKey = i.toLong(),
+                        keywordsJson = EmailKeywords.encode(listOf(keyword)),
+                    )
+                },
+            )
+        }
+    }
+
+    private var seeded = false
+    private val seedDb: GridlinkDatabase by lazy {
+        GridlinkDatabase.build(ApplicationProvider.getApplicationContext())
     }
 
     private fun show() {
@@ -99,7 +155,7 @@ class TagsScreenTest {
         rule.onNodeWithText("No tags yet. Create one to start marking mail.").assertExists()
         rule.onNodeWithText("New tag").assertExists()
         rule.onNodeWithText("Tag names travel with your mail", substring = true).assertExists()
-        rule.onNodeWithText("Seen on your mail").assertDoesNotExist()
+        rule.onNodeWithText("SEEN ON YOUR MAIL").assertDoesNotExist()
     }
 
     @Test
@@ -186,5 +242,46 @@ class TagsScreenTest {
         show()
         rule.onNodeWithContentDescription("Back").performClick()
         assertEquals(1, backs)
+    }
+
+    @Test
+    fun keywordsOnTheMail_areOfferedForAdoption_andSayTheScreenIsNotEmpty() {
+        // 🔴 The complaint this answers: with nothing defined, the screen used to read "No tags
+        // yet", which says the app cannot see the tags sitting on the mailbox when it can.
+        seedTaggedMail("orders-shipping", "job-search")
+        show()
+        waitForText("SEEN ON YOUR MAIL")
+        rule.onNodeWithText("No tags yet. Create one to start marking mail.").assertDoesNotExist()
+        rule.onNodeWithText("The ones already on your mail are listed below", substring = true)
+            .assertExists()
+        // Listed under their WIRE names, which is what the mail actually carries.
+        rule.onNodeWithText("orders-shipping").assertExists()
+        rule.onNodeWithText("job-search").assertExists()
+    }
+
+    @Test
+    fun adoptAll_namesEveryUndefinedKeyword_inOneTap() {
+        seedTaggedMail("orders-shipping", "job-search")
+        show()
+        waitForText("Adopt all 2")
+        rule.onNodeWithText("Adopt all 2").performClick()
+        // Un-slugged labels, and the wire name kept underneath: adoption defines the tag that is
+        // ON the mail, never a lookalike derived back from the new label.
+        waitForText("Orders shipping")
+        rule.onNodeWithText("Job search").assertExists()
+        rule.onNodeWithText("Sent to the server as orders-shipping").assertExists()
+        rule.onNodeWithText("Sent to the server as job-search").assertExists()
+        // Nothing left undefined, so the section goes.
+        waitForText("SEEN ON YOUR MAIL", present = false)
+    }
+
+    @Test
+    fun adoptAll_doesNotOfferItselfForASingleTag() {
+        // Beside one row's own "Adopt" it would be the same button twice.
+        seedTaggedMail("bills")
+        show()
+        waitForText("SEEN ON YOUR MAIL")
+        rule.onNodeWithText("bills").assertExists()
+        assertTrue(rule.onAllNodesWithText("Adopt all 1").fetchSemanticsNodes().isEmpty())
     }
 }
