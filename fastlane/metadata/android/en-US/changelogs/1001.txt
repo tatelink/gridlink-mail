@@ -1,0 +1,11 @@
+Gridlink Mail 1.0.0. The interface is finished; this is the release it was heading for.
+
+- Reading: choose whether opening a message marks it read, or leave that to the swipe and the button.
+- Filters can now ask about more than one thing at a time, and act on more than one.
+- Mail tags are read from the server itself, so tags made in another client show up here.
+- Contacts read as facts, not as a form nobody can type in, and can be deleted from the edit screen.
+- Calendar: tapping a day takes the reading pane back, and scrolling the agenda moves the month grid with it.
+- Off switches are drawn in ink, so an off setting stops reading as an unavailable one.
+- Attachments open and save against the message's own account, and photos in the formats phones actually shoot.
+- Forms keep their pane when the keyboard is up, instead of being squeezed into the last inch of the screen.
+- Around 700 new tests covering every screen.

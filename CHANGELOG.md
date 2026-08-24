@@ -11,6 +11,80 @@ here.
 
 Fork point: upstream Sterna Mail `main` at v1.4.6.
 
+## [1.0.0] - 2026-08-23
+
+Feature complete. The version says so.
+
+0.1.0 was published while the front end was still being argued about, and the six days since are
+that argument settled: every screen the fork drew has now been used, criticised and rebuilt, the
+audit's test gap is closed, and there is nothing queued. Development continues, but not toward
+this shape.
+
+🔴 This does **not** supersede the `v0.1.0` tag for F-Droid. That tag is what merge request
+!46061 builds and what its reproducible build was verified against, and it is deliberately left
+where it is. The recipe checks tags, so `v1.0.0` is picked up on its own once the request merges.
+
+### Added
+
+- **Marking read is the reader's choice.** A Reading setting decides whether opening a message
+  marks it read; with it off, only the swipe and the toolbar button do. The swipe, the button and
+  the selection action all keep working either way.
+- **Filter rules can ask about more than one thing.** A rule now takes several conditions and
+  several actions instead of one of each, with an any/all choice between them.
+- **Mail tags are read from the server.** Settings asks the server what keywords it actually
+  keeps, so a tag made in another client is offered here by name instead of never appearing.
+  IMAP answers from `PERMANENTFLAGS`; JMAP has no such method, so it sweeps the mail and says
+  when the sweep was cut short rather than reporting a short list as the whole truth.
+- **Adopt every unnamed tag at once**, instead of one row at a time.
+- **Delete a contact from the edit form**, which previously had no way out but Back.
+- **Allowed senders (remote images) live on their own screen**, so a list that grows for years
+  stops burying the settings under it.
+- **The Accounts row in the menu lands on the accounts list**, not on the settings page the
+  reader was already looking at.
+
+### Changed
+
+- **Off switches are drawn in ink.** An off toggle used to render at the same weight as a
+  disabled one, so a setting the reader had turned off read as one they were not allowed to
+  touch.
+- **A contact reads as facts, not as a form.** The viewer no longer draws field boxes around
+  values nobody can type into.
+- **The panel spends less of itself on saying nothing.** Borders stay, the padding inside them
+  goes, which is most of a line of mail back on every screen.
+- **The tip jar is drawn in the app's own language**, having been the one card still wearing
+  stock Material.
+- **Scrolling the agenda moves the month grid's selection with it**, and tapping a day takes the
+  reading pane back.
+- **A form keeps its pane when the keyboard is up.** Unfolded, the keyboard used to leave the
+  event and contact forms an inch tall.
+- **Attachments open and save against the message's own account**, and retry once when the
+  server has moved the blob.
+- **A missing body says why** instead of drawing a blank page.
+- **Photos in the formats phones actually shoot** are read, and the ones that cannot be read say
+  so.
+- **The first launch asks for the account before the server**, and calendar and contact sync
+  start switched on, as that screen had always claimed.
+- **Notifications are asked for once**, and only once there is mail to notify about; when
+  Android is blocking them, the app says so.
+
+### Fixed
+
+- The typed mail password no longer travels in the saved-state `Bundle`.
+- A disabled button stays in the accessibility tree.
+- Push reads its delivery mode off a warm mirror instead of blocking the main thread.
+- The stale toolbar selection, the squeezed Connect pill, the contacts sort landing off the top,
+  and the tag editor that would not take focus on its first layout.
+- System bars are contrasted against the surface actually painted behind them.
+
+### Internal
+
+- **The audit's test gap is closed**: around 700 new tests across fifteen batches, every screen
+  and view model driven on the JVM under Robolectric against the real stores. 2447 tests.
+- `tools/testmail`, a seeder for a disposable test mailbox, so live testing stops needing a real
+  one.
+- The sample corpus is re-themed off the mailbox it came from, and the store screenshots are
+  re-shot on it.
+
 ## [0.1.0] - 2026-08-17
 
 The first published release of this fork, covering everything written between 2026-08-01 and
@@ -173,7 +247,11 @@ should be reported to upstream first (see `SECURITY.md`).
 Gridlink numbers its own releases and does not continue Sterna's line.
 
 The fork previously shipped upstream's `versionName = "1.4.6"` / `versionCode = 166`, which are
-Sterna's numbers for a different application id. That is now `0.1.0` / `1000`.
+Sterna's numbers for a different application id. That became `0.1.0` / `1000`, and is now
+`1.0.0` / `1001`.
+
+1.0.0 is a decision rather than an arrival. The feature set was declared finished on 2026-08-23,
+so the number says finished; it does not claim the code is older or more exercised than it is.
 
 `versionCode` starts at 1000 rather than 1 deliberately. It has to stay strictly above upstream's
 166, because the production build is tracked by Obtainium and Android refuses to install a lower

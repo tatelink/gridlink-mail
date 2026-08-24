@@ -32,11 +32,21 @@ android {
         // versionCode starts at 1000, not 1: it must stay strictly above upstream's 166 or the
         // existing Obtainium-tracked install refuses the upgrade (Android rejects a downgrade),
         // and the round number leaves headroom to renumber without colliding.
-        versionCode = 1000
-        versionName = "0.1.0"
+        //
+        // 🔴 1.0.0 is a statement, not a milestone that arrived on its own: Tate called the
+        // feature set finished on 2026-08-23, so the version says finished. 0.1.0 shipped a
+        // front end still being argued about; everything since is the argument settled.
+        //
+        // 🔴 DO NOT move the `v0.1.0` tag to make this the "current" release. F-Droid MR
+        // !46061 pins `commit: v0.1.0` by name and its reproducible build has been verified
+        // against it; moving it invalidates that for the third time. The recipe sets
+        // `UpdateCheckMode: Tags`, so a NEW `v1.0.0` tag is picked up on its own once the MR
+        // merges, and no second merge request is needed.
+        versionCode = 1001
+        versionName = "1.0.0"
         // Shown on the Settings About row. Bump alongside versionCode/versionName at each
         // release (a static literal, so builds stay reproducible — never derive from clock).
-        buildConfigField("String", "VERSION_DATE", "\"2026-08-08\"")
+        buildConfigField("String", "VERSION_DATE", "\"2026-08-23\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // The launcher/settings/notification label. Substituted verbatim into the manifest,
         // so without -PtestApp the merged manifest still reads android:label="@string/app_name"
