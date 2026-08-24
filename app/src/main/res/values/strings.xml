@@ -937,6 +937,12 @@
     <string name="settings_tags_note">Tag names travel with your mail, so other apps see them too. Colours are kept on this device and in your settings backup.</string>
     <string name="settings_tags_unknown_section">Seen on your mail</string>
     <string name="settings_tags_unknown_note">Tags on mail here that this device has no name or colour for. Adopt one to give it both.</string>
+    <string name="settings_tags_unknown_none">Nothing unnamed in the mail on this device.</string>
+    <string name="settings_tags_server_check">Check the server</string>
+    <string name="settings_tags_server_checking">Asking the server…</string>
+    <string name="settings_tags_server_done">Checked the whole mailbox.</string>
+    <string name="settings_tags_server_partial">Only part of the mailbox could be read, so there may be more tags than these.</string>
+    <string name="settings_tags_server_failed">Could not reach the server. This list is only from mail on this device.</string>
     <string name="settings_tags_adopt">Adopt</string>
     <string name="settings_tags_adopt_all">Adopt all %1$d</string>
 </resources>

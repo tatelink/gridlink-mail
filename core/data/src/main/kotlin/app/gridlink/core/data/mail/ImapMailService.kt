@@ -324,6 +324,53 @@ class ImapMailService(
     suspend fun listImapFolders(credentials: AccountCredentials) =
         withSession(credentials) { it.listFolders() }
 
+    /**
+     * Every keyword the server itself names, by SELECTing each folder and reading its
+     * PERMANENTFLAGS (see [ImapMailboxStatus.permanentKeywords]).
+     *
+     * ## Why this is the cheap side of the feature
+     * One connection, one LIST, then one SELECT per folder, and no message is fetched at all. The
+     * server is stating what it keeps rather than being interrogated about it, which is what makes
+     * this affordable enough to offer in Settings. JMAP has nothing equivalent and has to read the
+     * mail instead ([app.gridlink.core.jmap.JmapClient.sweepKeywords]).
+     *
+     * ## What [ServerKeywords.complete] means here
+     * False when ANY folder failed to answer: either the SELECT was refused (an unselectable
+     * `\Noselect` parent, a folder the account cannot open) or it returned no PERMANENTFLAGS at
+     * all. A server that never sends PERMANENTFLAGS therefore returns an empty, incomplete answer
+     * rather than the claim that the mailbox has no tags.
+     *
+     * A refused SELECT is swallowed per folder rather than failing the call: one unopenable folder
+     * in a mailbox of twenty should cost the reader that folder's tags, not the whole answer.
+     *
+     * ⚠️ Leaves the connection with the LAST folder selected. Safe because every other operation
+     * on this service selects the folder it means to act on first, and enforced by nothing but
+     * that habit.
+     */
+    suspend fun serverKeywords(credentials: AccountCredentials): ServerKeywords {
+        val found = sortedSetOf<String>()
+        var everyFolderAnswered = true
+        val observed = mutableMapOf<String, Long>()
+        withSession(credentials) { session ->
+            session.listFolders().forEach { folder ->
+                val status = runCatching { session.select(folder.path) }.getOrNull()
+                val keywords = status?.permanentKeywords
+                if (keywords == null) {
+                    everyFolderAnswered = false
+                } else {
+                    found += keywords
+                }
+                if (status != null) observed[folder.path] = status.uidValidity
+            }
+        }
+        // Outside the session block, which cannot suspend. These are discovery reads in the sense
+        // [reconcileNumbering] documents: nothing was held against the numbering beforehand, but
+        // this is still the first thing that may see it change, and a body cache keyed to the old
+        // numbering has to be dropped by SOMETHING.
+        observed.forEach { (path, uidValidity) -> reconcileNumbering(credentials.id, path, uidValidity) }
+        return ServerKeywords(found.toList(), complete = everyFolderAnswered)
+    }
+
     /** Close and forget an account's pooled connection (e.g. on sign-out). */
     suspend fun disconnect(accountId: String) {
         val pooled = pool.remove(accountId) ?: return

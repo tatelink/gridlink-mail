@@ -36,6 +36,36 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/**
+ * What the tag manager knows about the last time it asked the SERVER what keywords exist.
+ *
+ * This is a separate idea from the list of undefined tags, and has to be, because the two answer
+ * different questions. The list says what we know; this says how hard we looked for it. A reader
+ * deciding whether "no unknown tags" means their mailbox is clean or means nobody has checked is
+ * asking about THIS, and there is no way to encode it in an empty list.
+ */
+sealed interface ServerTagCheck {
+    /** Nobody has asked yet this visit. The list on screen is the offline cache scan. */
+    data object Idle : ServerTagCheck
+
+    /** A request is in flight. On JMAP this can be several seconds of paging; say so. */
+    data object Running : ServerTagCheck
+
+    /**
+     * The server answered.
+     *
+     * @param complete whether the WHOLE mailbox was covered. False is not an error: a JMAP sweep
+     *   that hit its ceiling, or an IMAP folder that would not open or would not state its flags,
+     *   both give a real answer that is missing an unknown amount. The screen must show the
+     *   difference, because "we found none" and "we found none in the part we read" are the same
+     *   sentence to a reader who is only shown the first half.
+     */
+    data class Done(val complete: Boolean) : ServerTagCheck
+
+    /** The request failed outright: offline, refused, or the account would not load. */
+    data object Failed : ServerTagCheck
+}
+
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
     private val store = application.container.accountStore
     private val appLock = application.container.appLock
@@ -260,6 +290,59 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 .getOrDefault(emptyList())
                 .filterNot { it in defined }
                 .sorted()
+            // The list just became the cache's answer again, so any note about what the server
+            // said no longer describes it. See [serverTagCheck].
+            _serverTagCheck.value = ServerTagCheck.Idle
+        }
+    }
+
+    /**
+     * The last answer from [checkServerTags], for the line under the unknown-tags section.
+     *
+     * Reset to [ServerTagCheck.Idle] whenever the cache scan re-runs, because the two lists are
+     * merged into one and a stale "asked the server" note beside a freshly rescanned list would be
+     * claiming coverage the current list does not have.
+     */
+    private val _serverTagCheck = MutableStateFlow<ServerTagCheck>(ServerTagCheck.Idle)
+    val serverTagCheck = _serverTagCheck.asStateFlow()
+
+    /**
+     * Ask the server which keywords exist, and fold anything new into [undefinedTags].
+     *
+     * ## Why this is a button and not something the screen does on its own
+     * [refreshUndefinedTags] is a Room query: instant, offline, free, so it runs on every visit.
+     * This is a network call whose cost depends on the protocol and the size of the mailbox — on
+     * JMAP it reads every message id in the account (see `JmapClient.sweepKeywords`) — and a
+     * settings screen that spends that on being opened would be spending it mostly on people who
+     * came to change the theme.
+     *
+     * ## Merged, never replaced
+     * The server's answer is added to what the cache scan found, not swapped in. Both are partial
+     * in different directions: the cache knows only the synced window but knows it exactly, and on
+     * IMAP the server states a folder's vocabulary without saying whether anything still carries
+     * it. Neither is a superset, so dropping either loses real tags.
+     */
+    fun checkServerTags() {
+        if (_serverTagCheck.value == ServerTagCheck.Running) return
+        _serverTagCheck.value = ServerTagCheck.Running
+        viewModelScope.launch {
+            val accountId = store.currentId()
+            if (accountId == null) {
+                _serverTagCheck.value = ServerTagCheck.Failed
+                return@launch
+            }
+            val answer = runCatching { mail.serverKeywords(accountId) }.getOrNull()
+            if (answer == null) {
+                _serverTagCheck.value = ServerTagCheck.Failed
+                return@launch
+            }
+            val defined = settings.mailTags.first().map { it.keyword }.toSet()
+            val merged = (_undefinedTags.value + answer.keywords)
+                .filterNot { it in defined }
+                .distinct()
+                .sorted()
+            _undefinedTags.value = merged
+            _serverTagCheck.value = ServerTagCheck.Done(answer.complete)
         }
     }
 

@@ -903,6 +903,12 @@
     <string name="settings_tags_note">Les noms d’étiquettes suivent vos messages, les autres applications les voient donc aussi. Les couleurs restent sur cet appareil et dans votre sauvegarde de réglages.</string>
     <string name="settings_tags_unknown_section">Vues dans vos messages</string>
     <string name="settings_tags_unknown_note">Étiquettes présentes sur vos messages dont cet appareil ne connaît ni le nom ni la couleur. Adoptez-en une pour lui donner les deux.</string>
+    <string name="settings_tags_unknown_none">Rien d’anonyme dans les messages présents sur cet appareil.</string>
+    <string name="settings_tags_server_check">Interroger le serveur</string>
+    <string name="settings_tags_server_checking">Interrogation du serveur…</string>
+    <string name="settings_tags_server_done">Toute la boîte aux lettres a été vérifiée.</string>
+    <string name="settings_tags_server_partial">Seule une partie de la boîte aux lettres a pu être lue : il peut donc y avoir d’autres étiquettes.</string>
+    <string name="settings_tags_server_failed">Serveur injoignable. Cette liste provient uniquement des messages présents sur cet appareil.</string>
     <string name="settings_tags_adopt">Adopter</string>
     <string name="settings_tags_adopt_all">Adopter les %1$d</string>
     <string name="read_receipt_subject">Lu : %1$s</string>

@@ -907,6 +907,12 @@
     <string name="settings_tags_note">Названия тегов хранятся вместе с письмами, поэтому их видят и другие приложения. Цвета остаются на этом устройстве и в резервной копии настроек.</string>
     <string name="settings_tags_unknown_section">Встречаются в почте</string>
     <string name="settings_tags_unknown_note">Теги на письмах, для которых у этого устройства нет ни имени, ни цвета. Примите тег, чтобы задать и то, и другое.</string>
+    <string name="settings_tags_unknown_none">В почте на этом устройстве нет безымянных тегов.</string>
+    <string name="settings_tags_server_check">Спросить сервер</string>
+    <string name="settings_tags_server_checking">Запрос к серверу…</string>
+    <string name="settings_tags_server_done">Проверен весь почтовый ящик.</string>
+    <string name="settings_tags_server_partial">Удалось прочитать только часть ящика, поэтому тегов может быть больше.</string>
+    <string name="settings_tags_server_failed">Не удалось связаться с сервером. Этот список только из почты на этом устройстве.</string>
     <string name="settings_tags_adopt">Принять</string>
     <string name="settings_tags_adopt_all">Принять все (%1$d)</string>
     <string name="read_receipt_subject">Прочитано: %1$s</string>

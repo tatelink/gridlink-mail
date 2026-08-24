@@ -495,7 +495,9 @@ class ImapSession(private var socket: Socket) : Closeable {
         var uidValidity = 0L
         var uidNext = 0L
         var highestModSeq = 0L
+        var permanentKeywords: List<String>? = null
         for (resp in result.untagged) {
+            permanentFlagsIn(resp)?.let { permanentKeywords = it }
             // * <n> EXISTS  |  * OK [UIDVALIDITY n] ...  |  * OK [UIDNEXT n] ...
             if (resp.getOrNull(2) == "EXISTS") exists = (resp.getOrNull(1) as? String)?.toIntOrNull() ?: exists
             val flat = resp.joinToString(" ") { it?.toString() ?: "NIL" }
@@ -510,7 +512,28 @@ class ImapSession(private var socket: Socket) : Closeable {
         ) {
             throw ImapUidValidityChanged(path, expectedUidValidity, uidValidity)
         }
-        return ImapMailboxStatus(exists, uidValidity, uidNext, highestModSeq)
+        return ImapMailboxStatus(exists, uidValidity, uidNext, highestModSeq, permanentKeywords)
+    }
+
+    /**
+     * The keywords out of `* OK [PERMANENTFLAGS (\Answered \Seen \* holiday)]`, or null when this
+     * response is not that one.
+     *
+     * Read by TOKEN POSITION, not off the flattened line the other SELECT fields use: the parser
+     * turns `(\Seen holiday)` into a real list, so flattening it produces `[\Seen, holiday]` and a
+     * regex over that would be matching the punctuation of `toString` rather than the protocol.
+     * `[PERMANENTFLAGS` arrives as one atom because `[` is not a delimiter in IMAP, hence the
+     * `contains` rather than an equality test.
+     *
+     * What is dropped: anything starting with a backslash. The system flags are not tags, and `\*`
+     * is the server saying the folder accepts keywords it has not seen yet — the opposite of a
+     * vocabulary entry, and the thing most likely to be mistaken for one.
+     */
+    private fun permanentFlagsIn(resp: List<Any?>): List<String>? {
+        val at = resp.indexOfFirst { (it as? String)?.contains("PERMANENTFLAGS", ignoreCase = true) == true }
+        if (at < 0) return null
+        val flags = resp.getOrNull(at + 1) as? List<*> ?: return null
+        return flags.filterIsInstance<String>().filterNot { it.startsWith("\\") }
     }
 
     /**

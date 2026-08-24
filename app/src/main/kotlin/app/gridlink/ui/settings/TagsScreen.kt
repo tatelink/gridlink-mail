@@ -80,6 +80,7 @@ import app.gridlink.core.data.settings.TagColor
 internal fun TagsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val tags by viewModel.mailTags.collectAsStateWithLifecycle()
     val undefined by viewModel.undefinedTags.collectAsStateWithLifecycle()
+    val serverCheck by viewModel.serverTagCheck.collectAsStateWithLifecycle()
     // Once per visit. The scan is a LIKE over the cached message table and nothing on this screen
     // changes its answer except adopting, which re-runs it itself.
     LaunchedEffect(Unit) { viewModel.refreshUndefinedTags() }
@@ -129,14 +130,25 @@ internal fun TagsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 ) { Text(stringResource(R.string.settings_tags_add)) }
             }
 
-            if (undefined.isNotEmpty()) {
+            // ⚠️ Shown even when the list is empty, which is the opposite of the usual rule for a
+            // section with nothing in it. An empty list here has two completely different meanings
+            // — the mailbox has no unnamed tags, or nobody has looked past the mail on this device
+            // — and hiding the section hides the only control that tells them apart.
+            run {
                 SettingsSection(stringResource(R.string.settings_tags_unknown_section)) {
                     Text(
-                        stringResource(R.string.settings_tags_unknown_note),
+                        stringResource(
+                            if (undefined.isEmpty()) {
+                                R.string.settings_tags_unknown_none
+                            } else {
+                                R.string.settings_tags_unknown_note
+                            },
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
+                    ServerTagCheckRow(state = serverCheck, onCheck = { viewModel.checkServerTags() })
                     // Only past one. Beside a single "Adopt" it would be the same button twice.
                     if (undefined.size > 1) {
                         TextButton(
@@ -258,6 +270,59 @@ internal fun TagsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
 }
 
 /** One defined tag: its colour, its label, and the wire name underneath. Tap to edit. */
+/**
+ * The "ask the server what tags exist" control, and the sentence about what the last answer covered.
+ *
+ * ## Why the button exists at all
+ * Everything else on this screen is instant and offline. This one is not: on IMAP it opens every
+ * folder to read its PERMANENTFLAGS, and on JMAP, which has no way to ask, it reads the keywords off
+ * every message id in the account. That is worth doing when someone wants it and not worth doing to
+ * everyone who opened Settings, so it is a tap rather than a side effect of arriving.
+ *
+ * ## 🔴 Why the sentence matters more than the button
+ * The dangerous outcome here is not a slow check, it is a confident empty list. A reader who taps
+ * this, sees nothing appear, and is told nothing else will conclude their mailbox has no other tags
+ * — when what actually happened may be that a JMAP sweep stopped at its ceiling, or an IMAP folder
+ * refused to open, or the server never states its flags at all. So [ServerTagCheck.Done] carries
+ * whether the whole mailbox was covered, and the partial case says so in plain words instead of
+ * being rounded up to success.
+ */
+@Composable
+private fun ServerTagCheckRow(state: ServerTagCheck, onCheck: () -> Unit) {
+    TextButton(
+        onClick = onCheck,
+        enabled = state != ServerTagCheck.Running,
+        modifier = Modifier.padding(horizontal = 8.dp),
+    ) {
+        Text(
+            stringResource(
+                if (state == ServerTagCheck.Running) {
+                    R.string.settings_tags_server_checking
+                } else {
+                    R.string.settings_tags_server_check
+                },
+            ),
+        )
+    }
+    val note = when (state) {
+        // Idle says nothing on purpose. The line above the button already tells the reader where
+        // the current list came from, and a second line saying "not checked yet" would be the
+        // screen narrating its own state rather than telling them anything new.
+        ServerTagCheck.Idle, ServerTagCheck.Running -> null
+        ServerTagCheck.Failed -> R.string.settings_tags_server_failed
+        is ServerTagCheck.Done ->
+            if (state.complete) R.string.settings_tags_server_done else R.string.settings_tags_server_partial
+    }
+    if (note != null) {
+        Text(
+            stringResource(note),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+    }
+}
+
 @Composable
 private fun TagRow(label: String, color: Color, subtitle: String, onClick: () -> Unit) {
     Row(

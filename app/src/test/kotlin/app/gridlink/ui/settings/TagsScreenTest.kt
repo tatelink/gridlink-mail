@@ -155,7 +155,29 @@ class TagsScreenTest {
         rule.onNodeWithText("No tags yet. Create one to start marking mail.").assertExists()
         rule.onNodeWithText("New tag").assertExists()
         rule.onNodeWithText("Tag names travel with your mail", substring = true).assertExists()
-        rule.onNodeWithText("SEEN ON YOUR MAIL").assertDoesNotExist()
+        // ⚠️ The section stays even with nothing in it, and this is the case that proves why. An
+        // empty list here means either "the mailbox has no unnamed tags" or "nobody has looked past
+        // the mail on this device", and hiding the section hides the only control that tells them
+        // apart. So the header is present, it says which of the two this is, and the way to find
+        // out is on screen rather than absent.
+        rule.onNodeWithText("SEEN ON YOUR MAIL").assertExists()
+        rule.onNodeWithText("Nothing unnamed in the mail on this device.").assertExists()
+        rule.onNodeWithText("Check the server").assertExists()
+    }
+
+    /**
+     * The server check reports a failure as a failure.
+     *
+     * With no account signed in there is nothing to ask, which is the cheapest way to reach the
+     * path that matters: what the screen says when the answer did not arrive. The wrong behaviour
+     * would be silence, because a reader who taps a button, sees the list stay empty and is told
+     * nothing concludes the server confirmed there is nothing there.
+     */
+    @Test
+    fun serverCheck_thatCannotRun_saysSoRatherThanLookingLikeAnEmptyAnswer() {
+        show()
+        rule.onNodeWithText("Check the server").performClick()
+        waitForText("Could not reach the server. This list is only from mail on this device.")
     }
 
     @Test
@@ -250,7 +272,9 @@ class TagsScreenTest {
         // yet", which says the app cannot see the tags sitting on the mailbox when it can.
         seedTaggedMail("orders-shipping", "job-search")
         show()
-        waitForText("SEEN ON YOUR MAIL")
+        // Waits on a keyword rather than the header: the header is there from the first frame now,
+        // so it no longer says anything about whether the scan has landed.
+        waitForText("orders-shipping")
         rule.onNodeWithText("No tags yet. Create one to start marking mail.").assertDoesNotExist()
         rule.onNodeWithText("The ones already on your mail are listed below", substring = true)
             .assertExists()
@@ -271,8 +295,10 @@ class TagsScreenTest {
         rule.onNodeWithText("Job search").assertExists()
         rule.onNodeWithText("Sent to the server as orders-shipping").assertExists()
         rule.onNodeWithText("Sent to the server as job-search").assertExists()
-        // Nothing left undefined, so the section goes.
-        waitForText("SEEN ON YOUR MAIL", present = false)
+        // Nothing left undefined, so the section empties out. It does not go: the check that would
+        // find more is in it.
+        waitForText("Nothing unnamed in the mail on this device.")
+        rule.onNodeWithText("orders-shipping").assertDoesNotExist()
     }
 
     @Test
@@ -280,8 +306,7 @@ class TagsScreenTest {
         // Beside one row's own "Adopt" it would be the same button twice.
         seedTaggedMail("bills")
         show()
-        waitForText("SEEN ON YOUR MAIL")
-        rule.onNodeWithText("bills").assertExists()
+        waitForText("bills")
         assertTrue(rule.onAllNodesWithText("Adopt all 1").fetchSemanticsNodes().isEmpty())
     }
 }

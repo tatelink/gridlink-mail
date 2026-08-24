@@ -21,6 +21,7 @@ import app.gridlink.core.jmap.model.JmapCalendar
 import app.gridlink.core.jmap.model.JmapCalendarEvent
 import app.gridlink.core.jmap.model.JmapContactCard
 import app.gridlink.core.jmap.model.JmapSession
+import app.gridlink.core.jmap.model.KeywordSweep
 import app.gridlink.core.jmap.model.Mailbox
 import app.gridlink.core.jmap.model.PushSubscription
 import app.gridlink.core.jmap.model.Quota
@@ -482,6 +483,96 @@ class JmapClient internal constructor(
         val args = methodResponseArgs(body, "Email/get")
         args["notFound"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }?.toSet()
             ?: emptySet()
+    }
+
+    /**
+     * Every keyword anywhere in the account, read by sweeping the mail itself.
+     *
+     * ## 🔴 Why a sweep, when IMAP just asks
+     * There is no method for this. RFC 8621 models a keyword as a key on `Email/keywords` and
+     * nothing else: no object, no `/get`, no place the set of them is written down. IMAP has
+     * `PERMANENTFLAGS` on SELECT, which is the server stating a folder's vocabulary in one round
+     * trip; JMAP's nearest equivalent is `Email/query` with `hasKeyword`, which answers "who has
+     * THIS one" and so needs the answer before it can be asked. So the only honest way to know
+     * what tags exist here is to look at the mail, and the only question left is how much of it.
+     *
+     * ## What this costs, and what it does about it
+     * `Email/query` with no filter over the whole account, paged, each page back-referenced into
+     * an `Email/get` asking for [KEYWORD_SWEEP_PROPERTIES] and nothing else. Ids and keywords
+     * only: no envelopes, no previews, no bodies. It is still a read of every message id in the
+     * account, which is why it is [maxMessages]-bounded and why nothing calls it on a timer.
+     *
+     * ## ⚠️ [KeywordSweep.complete] is the part that must not be dropped
+     * A sweep that hit the cap has seen the newest [maxMessages] messages and no others, so a
+     * keyword living only on older mail is missing from the result. Reported as complete, that
+     * becomes "your mailbox does not have that tag" — which is exactly the false negative this
+     * whole method exists to remove. A caller that cannot show the difference should not sweep.
+     */
+    suspend fun sweepKeywords(
+        session: JmapSession,
+        accountId: String,
+        auth: JmapAuth,
+        maxMessages: Int = KEYWORD_SWEEP_MAX,
+        pageSize: Int = KEYWORD_SWEEP_PAGE,
+    ): KeywordSweep = withContext(Dispatchers.IO) {
+        val found = sortedSetOf<String>()
+        var position = 0
+        while (position < maxMessages) {
+            val limit = minOf(pageSize, maxMessages - position)
+            val payload = buildJsonObject {
+                putJsonArray("using") {
+                    add(Jmap.CORE_CAPABILITY)
+                    add(Jmap.MAIL_CAPABILITY)
+                }
+                putJsonArray("methodCalls") {
+                    addJsonArray {
+                        add("Email/query")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            // No filter and no sort: every message in the account, in whatever
+                            // order the server finds cheapest. Sorting by receivedAt would make
+                            // the pages stable but cost the server an ordering it does not need,
+                            // and a sweep does not care which message a keyword came from.
+                            put("collapseThreads", false)
+                            put("position", position)
+                            put("limit", limit)
+                        }
+                        add("q0")
+                    }
+                    addJsonArray {
+                        add("Email/get")
+                        addJsonObject {
+                            put("accountId", accountId)
+                            putJsonObject("#ids") {
+                                put("resultOf", "q0")
+                                put("name", "Email/query")
+                                put("path", "/ids")
+                            }
+                            putJsonArray("properties") { KEYWORD_SWEEP_PROPERTIES.forEach { add(it) } }
+                        }
+                        add("g0")
+                    }
+                }
+            }
+            val body = postJmap(session, auth, payload)
+            val page = methodResponseArgs(body, "Email/get")["list"] as? JsonArray ?: JsonArray(emptyList())
+            page.forEach { entry ->
+                (entry.jsonObject["keywords"] as? JsonObject)?.keys?.forEach { keyword ->
+                    // `$seen`, `$flagged` and friends are the system set under another name
+                    // (RFC 8621 §4.1.1); they are state the reader already sees as a dot or a
+                    // star, not tags anyone would want to name. Same rule as IMAP's backslash.
+                    if (!keyword.startsWith("$")) found.add(keyword)
+                }
+            }
+            val ids = methodResponseArgs(body, "Email/query")["ids"] as? JsonArray
+            val returned = ids?.size ?: 0
+            // Short page = the end of the mailbox, and the sweep is complete by exhaustion. An
+            // empty one says the same thing; both have to end the loop or a server that ignores
+            // `position` would spin here until the cap.
+            if (returned < limit) return@withContext KeywordSweep(found.toList(), complete = true)
+            position += returned
+        }
+        KeywordSweep(found.toList(), complete = false)
     }
 
     /**
@@ -2826,6 +2917,33 @@ class JmapClient internal constructor(
     companion object {
         /** How often the server should ping the EventSource connection, in seconds. */
         private const val PING_SECONDS = 90L
+
+        /**
+         * The two properties [sweepKeywords] asks for, and the reason it is affordable at all.
+         *
+         * `id` is not used for anything; it is there because a JMAP `Email/get` with a properties
+         * list that omits it still returns it (RFC 8621 4.1.1 makes id always-present), so naming
+         * it is documentation rather than a request. `keywords` is the whole point.
+         */
+        private val KEYWORD_SWEEP_PROPERTIES: List<String> = listOf("id", "keywords")
+
+        /**
+         * Messages per sweep page. Larger than a list page because nothing here is drawn: the
+         * response is one small object per message, so the round trips dominate the bytes.
+         */
+        private const val KEYWORD_SWEEP_PAGE = 500
+
+        /**
+         * The ceiling on one sweep, in messages.
+         *
+         * A number, because the alternative is a settings screen that walks a 200 000-message
+         * archive on a phone and looks frozen while it does. 20 000 is roughly forty round trips
+         * at [KEYWORD_SWEEP_PAGE], which is a few seconds on a normal connection, and it covers
+         * any mailbox a person actually tags by hand. Past it the sweep stops and SAYS it stopped
+         * (see [KeywordSweep.complete]), which is the difference between an incomplete answer and
+         * a wrong one.
+         */
+        private const val KEYWORD_SWEEP_MAX = 20_000
 
         /** RFC 8620 §3.6.1 request-level limit error (e.g. Stalwart's maxConcurrentRequests). */
         private const val JMAP_ERROR_LIMIT = "urn:ietf:params:jmap:error:limit"

@@ -16,6 +16,21 @@ data class EmailPage(
     val total: Int? = null,
 )
 
+/**
+ * What a keyword sweep found, and whether it got to the end.
+ *
+ * 🔴 [complete] is not a detail. JMAP has no way to ask which keywords exist, so the answer is
+ * assembled by reading mail, and a bounded read can only report what it reached. A caller that
+ * shows [keywords] without showing [complete] is telling the reader "this is your vocabulary"
+ * when the honest sentence is "this is what we found in the first N messages".
+ */
+data class KeywordSweep(
+    /** Distinct non-system keywords, sorted, from every message the sweep reached. */
+    val keywords: List<String>,
+    /** True when the sweep reached the end of the mailbox rather than its own ceiling. */
+    val complete: Boolean,
+)
+
 /** Ids-only page of an `Email/query` (no `Email/get`) — for resolving bulk-action targets. */
 data class EmailIdPage(
     val ids: List<String>,

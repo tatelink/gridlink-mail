@@ -3042,6 +3042,27 @@ class MailRepository(
     /** Every tag present on [accountId]'s cached mail, most-used first — see [EmailDao.tagsInUse]. */
     suspend fun tagsInUse(accountId: String): List<String> = emailDao.tagsInUse(accountId)
 
+    /**
+     * Ask the SERVER which keywords exist, rather than inferring it from what happens to be cached.
+     *
+     * See [ServerKeywords] for why this is worth a network call and why the two protocols get
+     * there so differently: IMAP is told by PERMANENTFLAGS, JMAP has to sweep the mail.
+     *
+     * ⚠️ Slow by nature and not called on any schedule. This is the settings screen asking on the
+     * reader's behalf, once, because they tapped something.
+     *
+     * An account that cannot be loaded answers [ServerKeywords.UNANSWERED] rather than throwing:
+     * the caller already has the cached list on screen, and "we could not ask" is a footnote to
+     * that, not a failure of the screen.
+     */
+    suspend fun serverKeywords(accountId: String): ServerKeywords {
+        val credentials = accountStore.credentials(accountId) ?: return ServerKeywords.UNANSWERED
+        if (credentials.protocol == MailProtocol.IMAP) return imap.serverKeywords(credentials)
+        val ctx = connect(credentials)
+        val sweep = client.sweepKeywords(ctx.session, ctx.accountId, ctx.auth)
+        return ServerKeywords(sweep.keywords, sweep.complete)
+    }
+
     /** Source (mailbox path, UID) for an IMAP message id, or null if not parseable. */
     private fun imapTarget(emailId: String): Pair<String, Long>? {
         val mb = ImapMailService.mailboxOf(emailId) ?: return null

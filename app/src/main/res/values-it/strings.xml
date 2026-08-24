@@ -900,6 +900,12 @@
     <string name="settings_tags_note">I nomi delle etichette viaggiano con la posta, quindi anche le altre app li vedono. I colori restano su questo dispositivo e nel backup delle impostazioni.</string>
     <string name="settings_tags_unknown_section">Viste nella tua posta</string>
     <string name="settings_tags_unknown_note">Etichette presenti sulla posta di cui questo dispositivo non ha né nome né colore. Adottane una per darle entrambi.</string>
+    <string name="settings_tags_unknown_none">Nulla senza nome nella posta su questo dispositivo.</string>
+    <string name="settings_tags_server_check">Interroga il server</string>
+    <string name="settings_tags_server_checking">Interrogazione del server…</string>
+    <string name="settings_tags_server_done">È stata controllata l’intera casella.</string>
+    <string name="settings_tags_server_partial">È stato possibile leggere solo una parte della casella, quindi potrebbero esserci altre etichette.</string>
+    <string name="settings_tags_server_failed">Server non raggiungibile. Questo elenco proviene solo dalla posta su questo dispositivo.</string>
     <string name="settings_tags_adopt">Adotta</string>
     <string name="settings_tags_adopt_all">Adotta tutte (%1$d)</string>
     <string name="read_receipt_subject">Letto: %1$s</string>

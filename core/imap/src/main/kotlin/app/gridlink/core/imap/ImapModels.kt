@@ -110,6 +110,25 @@ data class ImapMailboxStatus(
      * that happens to compare.
      */
     val highestModSeq: Long = 0L,
+    /**
+     * The KEYWORDS this folder will keep, from `* OK [PERMANENTFLAGS (...)]` (RFC 9051 §7.3.2),
+     * with the system flags and the `\*` marker stripped out.
+     *
+     * This is the one thing in either protocol that answers "what tags exist here" without
+     * reading every message: the server is stating its own vocabulary for the folder. JMAP has
+     * no equivalent, which is why [app.gridlink.core.data.mail.MailRepository] has to sweep
+     * there and can only select here.
+     *
+     * 🔴 NULL and EMPTY are different answers and the difference is the whole point. Null is the
+     * server saying nothing: PERMANENTFLAGS is optional, and a folder that omits it has told us
+     * nothing about its tags, so treating that as "no tags" reports a tagged mailbox as untagged.
+     * Empty is the server listing its vocabulary and that vocabulary being the system flags alone,
+     * which is a real and common answer for a folder nobody has tagged.
+     *
+     * A server that sends only `\*` also lands on empty: that marker means "invent what you like
+     * here", which is permission rather than a vocabulary entry.
+     */
+    val permanentKeywords: List<String>? = null,
 )
 
 /**

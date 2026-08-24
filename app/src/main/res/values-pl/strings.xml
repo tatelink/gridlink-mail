@@ -904,6 +904,12 @@
     <string name="settings_tags_note">Nazwy tagów podróżują z pocztą, więc widzą je też inne aplikacje. Kolory pozostają na tym urządzeniu i w kopii ustawień.</string>
     <string name="settings_tags_unknown_section">Znalezione w poczcie</string>
     <string name="settings_tags_unknown_note">Tagi na poczcie, dla których to urządzenie nie ma nazwy ani koloru. Przejmij tag, aby nadać mu oba.</string>
+    <string name="settings_tags_unknown_none">Nic bez nazwy w poczcie na tym urządzeniu.</string>
+    <string name="settings_tags_server_check">Sprawdź serwer</string>
+    <string name="settings_tags_server_checking">Odpytywanie serwera…</string>
+    <string name="settings_tags_server_done">Sprawdzono całą skrzynkę.</string>
+    <string name="settings_tags_server_partial">Udało się odczytać tylko część skrzynki, więc tagów może być więcej.</string>
+    <string name="settings_tags_server_failed">Nie udało się połączyć z serwerem. Ta lista pochodzi tylko z poczty na tym urządzeniu.</string>
     <string name="settings_tags_adopt">Przejmij</string>
     <string name="settings_tags_adopt_all">Przejmij wszystkie (%1$d)</string>
     <string name="read_receipt_subject">Przeczytano: %1$s</string>

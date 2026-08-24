@@ -900,6 +900,12 @@
     <string name="settings_tags_note">Los nombres de las etiquetas viajan con tu correo, así que otras apps también las ven. Los colores se guardan en este dispositivo y en tu copia de ajustes.</string>
     <string name="settings_tags_unknown_section">Vistas en tu correo</string>
     <string name="settings_tags_unknown_note">Etiquetas en el correo para las que este dispositivo no tiene nombre ni color. Adopta una para darle ambos.</string>
+    <string name="settings_tags_unknown_none">No hay nada sin nombre en el correo de este dispositivo.</string>
+    <string name="settings_tags_server_check">Consultar el servidor</string>
+    <string name="settings_tags_server_checking">Consultando el servidor…</string>
+    <string name="settings_tags_server_done">Se ha revisado todo el buzón.</string>
+    <string name="settings_tags_server_partial">Solo se pudo leer parte del buzón, así que puede haber más etiquetas que estas.</string>
+    <string name="settings_tags_server_failed">No se pudo contactar con el servidor. Esta lista procede solo del correo de este dispositivo.</string>
     <string name="settings_tags_adopt">Adoptar</string>
     <string name="settings_tags_adopt_all">Adoptar las %1$d</string>
     <string name="read_receipt_subject">Leído: %1$s</string>

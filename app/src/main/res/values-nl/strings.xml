@@ -901,6 +901,12 @@
     <string name="settings_tags_note">Labelnamen reizen mee met uw e-mail, dus andere apps zien ze ook. Kleuren blijven op dit apparaat en in uw instellingenback-up.</string>
     <string name="settings_tags_unknown_section">Gezien in uw e-mail</string>
     <string name="settings_tags_unknown_note">Labels op e-mail waarvoor dit apparaat geen naam of kleur heeft. Adopteer er een om beide te geven.</string>
+    <string name="settings_tags_unknown_none">Niets naamloos in de e-mail op dit apparaat.</string>
+    <string name="settings_tags_server_check">Server raadplegen</string>
+    <string name="settings_tags_server_checking">Server wordt geraadpleegd…</string>
+    <string name="settings_tags_server_done">De hele mailbox is gecontroleerd.</string>
+    <string name="settings_tags_server_partial">Slechts een deel van de mailbox kon worden gelezen, dus er kunnen meer labels zijn dan deze.</string>
+    <string name="settings_tags_server_failed">Server niet bereikbaar. Deze lijst komt alleen uit de e-mail op dit apparaat.</string>
     <string name="settings_tags_adopt">Adopteren</string>
     <string name="settings_tags_adopt_all">Alle %1$d adopteren</string>
     <string name="read_receipt_subject">Gelezen: %1$s</string>

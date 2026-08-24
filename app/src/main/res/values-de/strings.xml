@@ -898,6 +898,12 @@
     <string name="settings_tags_note">Tag-Namen werden mit Ihren E-Mails synchronisiert, andere Apps sehen sie also ebenfalls. Farben bleiben auf diesem Gerät und in Ihrer Einstellungssicherung.</string>
     <string name="settings_tags_unknown_section">In Ihren E-Mails gefunden</string>
     <string name="settings_tags_unknown_note">Tags auf E-Mails, für die dieses Gerät keinen Namen und keine Farbe hat. Übernehmen Sie einen, um beides zu vergeben.</string>
+    <string name="settings_tags_unknown_none">Nichts Unbenanntes in der E-Mail auf diesem Gerät.</string>
+    <string name="settings_tags_server_check">Server abfragen</string>
+    <string name="settings_tags_server_checking">Server wird abgefragt…</string>
+    <string name="settings_tags_server_done">Das gesamte Postfach wurde geprüft.</string>
+    <string name="settings_tags_server_partial">Nur ein Teil des Postfachs konnte gelesen werden, es kann also mehr Tags geben als diese.</string>
+    <string name="settings_tags_server_failed">Server nicht erreichbar. Diese Liste stammt nur aus der E-Mail auf diesem Gerät.</string>
     <string name="settings_tags_adopt">Übernehmen</string>
     <string name="settings_tags_adopt_all">Alle %1$d übernehmen</string>
     <string name="read_receipt_subject">Gelesen: %1$s</string>
