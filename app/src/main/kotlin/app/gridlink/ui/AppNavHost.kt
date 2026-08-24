@@ -48,14 +48,17 @@ import app.gridlink.MailtoDraft
 import app.gridlink.R
 import app.gridlink.container
 import app.gridlink.core.data.account.StoredAccount
+import app.gridlink.core.data.settings.GridlinkPalette
 import app.gridlink.push.PushController
 import app.gridlink.security.LockScreen
 import app.gridlink.ui.connect.ConnectScreen
 import app.gridlink.ui.connect.GridlinkSetupHost
 import app.gridlink.ui.gridlink.GridlinkDestination
+import app.gridlink.ui.gridlink.rememberGridlinkMode
 import app.gridlink.ui.home.GridlinkHomeHost
 import app.gridlink.ui.onboarding.WelcomeScreen
 import app.gridlink.ui.settings.SettingsScreen
+import app.gridlink.ui.theme.ProvideGridlinkTokens
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -167,6 +170,8 @@ fun AppNavHost(
     // a DataStore collector alive for the whole session to decide nothing. The view model keeps the
     // property and the setter: they are what putting the welcome back would use.
     val appLock = (LocalContext.current.applicationContext as Application).container.appLock
+    // The palette store. Read lazily by the settings branch below; see the note there.
+    val settings = (LocalContext.current.applicationContext as Application).container.settingsRepository
     val locked by appLock.locked.collectAsStateWithLifecycle()
 
     // Preview-only gate: force the welcome at startup regardless of RootState/hasSeenWelcome,
@@ -257,12 +262,42 @@ fun AppNavHost(
                     }
                 }
                 if (settingsOpen) {
-                    SettingsScreen(
-                        onBack = { settingsOpen = false },
-                        onAccountsChanged = viewModel::refresh,
-                        initialAccountId = null,
-                        initialRoute = settingsStart,
-                    )
+                    // 🔴 Settings is a SIBLING of the home host, not a child of it, and the home
+                    // host is where `GridlinkApp` provides the palette. So for as long as this
+                    // branch stood bare, every settings screen read [LocalGridlinkColors] and
+                    // [LocalGridlinkMode] at their STATIC DEFAULTS — Night, always, whatever the
+                    // reader had chosen. Tate, 2026-08-23, on AUTO resolving to OLED: *"the
+                    // settings page doesnt seem to follow the auto, day, night, oled theme"*, and
+                    // *"the entire settings panel, all submenus too"*. All of them, because a
+                    // composition local defaults once for the whole subtree under it.
+                    //
+                    // ⚠️ Why the defaults hid this for so long: they are Night, and two of the four
+                    // palettes are dark. Night looks merely a little off against OLED and correct
+                    // against itself, so the bug only screamed in Day — and it was Day that nobody
+                    // was running. A local whose default is a plausible value fails quietly.
+                    //
+                    // The mode is resolved from the STORED palette rather than read off the chrome:
+                    // [LocalGridlinkChrome] is published inside the home host, which is the branch
+                    // that is not composed right now. [rememberGridlinkMode] is the one shared rule
+                    // so this cannot drift from what the mail UI decided. Settings replaces the
+                    // whole screen, so it owns the system bars while it is up and hands them back
+                    // on the way out, which is [ProvideGridlinkTokens]'s default.
+                    // Collected HERE rather than beside `appLock` at the top of the host, for
+                    // the same reason hasSeenWelcome is not collected up there: a subscription
+                    // opened at the top lives for the whole session, and this one is needed only
+                    // while settings is actually on screen. Opening settings is a deliberate tap
+                    // long after launch, so DataStore has answered by the time this composes and
+                    // the AUTO seed is not a palette anyone sees.
+                    val palette by settings.gridlinkPalette
+                        .collectAsStateWithLifecycle(initialValue = GridlinkPalette.AUTO)
+                    ProvideGridlinkTokens(mode = rememberGridlinkMode(palette)) {
+                        SettingsScreen(
+                            onBack = { settingsOpen = false },
+                            onAccountsChanged = viewModel::refresh,
+                            initialAccountId = null,
+                            initialRoute = settingsStart,
+                        )
+                    }
                 } else {
                     // A notification names the account its message belongs to, and the app may be
                     // sitting on a different one. Resolve that first: null means "already the right

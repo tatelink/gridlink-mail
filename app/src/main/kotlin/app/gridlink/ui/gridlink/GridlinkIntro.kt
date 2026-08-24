@@ -26,26 +26,27 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-// ⚠️ Aliased because `androidx.compose.ui.util.lerp` (Float) is imported below under the same
-// simple name, and Kotlin treats two same-named imports as a conflict rather than an overload set.
-import androidx.compose.ui.graphics.lerp as lerpColor
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
 import app.gridlink.core.data.settings.GridlinkPalette
 import app.gridlink.ui.theme.GridlinkMode
-import app.gridlink.ui.theme.gridlinkModeAt
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import java.time.ZonedDateTime
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.pow
 import kotlin.math.sin
+import androidx.compose.ui.graphics.lerp as lerpColor
+
+// ⚠️ `lerpColor` above is `androidx.compose.ui.graphics.lerp` under an alias, because
+// `androidx.compose.ui.util.lerp` (Float) is imported under the same simple name and Kotlin treats
+// two same-named imports as a conflict rather than an overload set. It sits last, and this note
+// sits outside the import block, because that is where the import ordering rule wants both.
 
 /**
  * The Gridlink mark assembling itself, and the launch overlay that plays it.
@@ -639,10 +640,14 @@ private const val GRIDLINK_INTRO_SKIP_FADE_MS = 110
  * 🔴 This resolves the mode the same way `GridlinkChromeState` does when it is born, and the two
  * agreeing is load-bearing: the overlay sits above the whole nav host, so a disagreement means the
  * intro plays Night and then the app underneath paints Day, one frame after the fade completes.
- * Both sides now run [gridlinkModeAt] against the same clock and honour the same stored pin, which
- * is what keeps them agreeing. That used to be a warning here that the day the override was
- * persisted this would flash the wrong palette at everyone who pinned one; [palette] is that day
- * arriving, and is why the parameter is not optional.
+ * Both sides run the same clock and honour the same stored pin, which is what keeps them agreeing.
+ * That used to be a warning here that the day the override was persisted this would flash the wrong
+ * palette at everyone who pinned one; [palette] is that day arriving, and is why the parameter is
+ * not optional.
+ *
+ * ⚠️ A thin alias over [rememberGridlinkMode], kept for the name at the call site. The two lines it
+ * used to hold now live there, because settings needs the same answer and two copies of a rule
+ * nothing cross-checks is how the palettes drift apart in the first place.
  *
  * ⚠️ Keyed on [palette], so it re-resolves when the stored value lands. The caller collects with a
  * default of [GridlinkPalette.AUTO] rather than holding the overlay back, unlike the app
@@ -650,9 +655,7 @@ private const val GRIDLINK_INTRO_SKIP_FADE_MS = 110
  * launch behind a disk read to be certain about it would cost more than the rare wrong first frame.
  */
 @Composable
-fun rememberGridlinkIntroMode(palette: GridlinkPalette): GridlinkMode = remember(palette) {
-    palette.toModeOverride() ?: gridlinkModeAt(ZonedDateTime.now())
-}
+fun rememberGridlinkIntroMode(palette: GridlinkPalette): GridlinkMode = rememberGridlinkMode(palette)
 
 /**
  * The launch screen: the app's own backdrop, with the mark assembling itself on it, fading out onto

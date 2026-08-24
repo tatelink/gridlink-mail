@@ -6,6 +6,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -468,6 +469,30 @@ fun GridlinkPalette.toModeOverride(): GridlinkMode? = when (this) {
     GridlinkPalette.DAY -> GridlinkMode.DAY
     GridlinkPalette.NIGHT -> GridlinkMode.NIGHT
     GridlinkPalette.OLED -> GridlinkMode.OLED
+}
+
+/**
+ * The palette a subtree should paint in, for the subtrees that are NOT under the chrome.
+ *
+ * 🔴 There is exactly one rule for turning a stored [GridlinkPalette] into a real
+ * [GridlinkMode], and this is it: an explicit pin wins, and AUTO asks the sun. Every second
+ * resolution in the app goes through here rather than restating the two lines, because the failure
+ * mode of restating them is silent — two subtrees each look internally consistent and disagree with
+ * each other, and nothing type-checks that away. [rememberGridlinkIntroMode] and the settings
+ * subtree in `AppNavHost` are the two callers.
+ *
+ * ⚠️ This is NOT how the mail UI gets its palette. That comes from
+ * [GridlinkChromeState.mode], which resolves the same way but is held in a `rememberSaveable`
+ * holder so the drawer's pill can move it without a round trip through DataStore. Callers of this
+ * function are the screens that sit outside that holder's reach.
+ *
+ * ⚠️ Keyed on [palette] only, so an AUTO subtree that outlives dusk keeps the rung it
+ * opened in rather than changing colour under the reader. That matches the chrome, which freezes
+ * its `autoMode` when the holder is born, and it is the reason the two agree in practice.
+ */
+@Composable
+fun rememberGridlinkMode(palette: GridlinkPalette): GridlinkMode = remember(palette) {
+    palette.toModeOverride() ?: gridlinkModeAt(ZonedDateTime.now())
 }
 
 /** The inverse of [toModeOverride]: what to write down when the user taps a pill. */
