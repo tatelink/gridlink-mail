@@ -159,7 +159,21 @@ class JmapClient internal constructor(
     /**
      * Fetch the most recent emails in a mailbox: a batched Email/query +
      * Email/get, where Email/get back-references the query result (RFC 8620 §3.7).
+     *
+     * 🔴 [limit] is what the caller WANTS, not what goes on the wire. The chained get returns one
+     * object per id the query matched, so a page bigger than the server's `maxObjectsInGet`
+     * (RFC 8620 §2) is refused wholesale with a method-level `requestTooLarge` — no partial page,
+     * no rows, just a throw. Tate's Archive read as an EMPTY FOLDER for a day because of exactly
+     * that: an ALL sync window asks for 1000, Stalwart hands back 500, opening the folder threw,
+     * and a failed fetch and a genuinely empty mailbox look identical on screen.
+     *
+     * So the page is clamped to [JmapSession.maxObjectsInGet] when the server advertises one, and
+     * halved-and-retried when a server refuses anyway (advertising nothing, or advertising a value
+     * it does not honour). Fewer messages per page is a smaller window; a throw is no window at all.
+     * Callers page by ANCHOR off the last id returned, so a short page costs a round trip, never a
+     * skipped message.
      */
+    @Suppress("LongParameterList")
     suspend fun queryEmailsPage(
         session: JmapSession,
         accountId: String,
@@ -175,6 +189,36 @@ class JmapClient internal constructor(
         // Only unread messages (notKeyword $seen) — lets "Mark all read" resolve its
         // targets server-side instead of from the cached window.
         unseenOnly: Boolean = false,
+    ): EmailPage {
+        var page = session.maxObjectsInGet()?.coerceAtMost(limit) ?: limit
+        while (true) {
+            try {
+                return queryEmailsPageOnce(
+                    session, accountId, mailboxId, page, auth,
+                    position, calculateTotal, anchorId, anchorOffset, unseenOnly,
+                )
+            } catch (e: JmapException) {
+                // Only this one error is a page-size problem, and only while there is still room
+                // to shrink. Anything else (or a server refusing even [MIN_EMAIL_PAGE]) is a real
+                // failure and must reach the caller rather than loop.
+                if (e.errorType != "requestTooLarge" || page <= MIN_EMAIL_PAGE) throw e
+                page = (page / 2).coerceAtLeast(MIN_EMAIL_PAGE)
+            }
+        }
+    }
+
+    @Suppress("LongParameterList")
+    private suspend fun queryEmailsPageOnce(
+        session: JmapSession,
+        accountId: String,
+        mailboxId: String,
+        limit: Int,
+        auth: JmapAuth,
+        position: Int,
+        calculateTotal: Boolean,
+        anchorId: String?,
+        anchorOffset: Int,
+        unseenOnly: Boolean,
     ): EmailPage = withContext(Dispatchers.IO) {
         val payload = buildJsonObject {
             putJsonArray("using") {
@@ -2917,6 +2961,16 @@ class JmapClient internal constructor(
     companion object {
         /** How often the server should ping the EventSource connection, in seconds. */
         private const val PING_SECONDS = 90L
+
+        /**
+         * The floor [queryEmailsPage] will shrink a refused page to before giving up and throwing.
+         *
+         * Ten is not a tuned number, it is a "this is not about page size" line. A server that
+         * refuses ten ids in one `Email/get` is refusing for some other reason, and halving on
+         * down would turn one honest error into a handful of pointless round trips before
+         * reporting the same failure.
+         */
+        private const val MIN_EMAIL_PAGE = 10
 
         /**
          * The two properties [sweepKeywords] asks for, and the reason it is affordable at all.

@@ -72,6 +72,17 @@ data class GridlinkOpenFolder(
      * hundred messages.
      */
     val loading: Boolean = false,
+    /**
+     * True when the fetch for this mailbox came back an ERROR rather than a list.
+     *
+     * 🔴 The whole point is that [messages] is then empty for a reason the list cannot see, and
+     * "Nothing in Archive" over a folder holding hundreds of messages is the app asserting
+     * something it does not know. That is not hypothetical: a JMAP `requestTooLarge` on the
+     * Archive page read as an empty Archive for a day, and nothing on screen said otherwise.
+     * A failed fetch still counts as fetched ([loading] stays false) — a skeleton that never
+     * resolves is worse — so this is the only thing that separates the two.
+     */
+    val failed: Boolean = false,
 )
 
 /**

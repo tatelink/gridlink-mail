@@ -220,7 +220,15 @@ fun GridlinkFolderMailScreen(
                 // Named, not generic. "Nothing to read" is the inbox's sentence and it is about the
                 // account; in a mailbox the useful fact is which mailbox is empty, because the panel
                 // and the tree beside it are both on screen and only one of them is being talked about.
-                headline = "Nothing in ${folder.name}",
+                //
+                // 🔴 And only when the fetch actually came back. An error leaves the same empty list,
+                // and calling that "Nothing in Archive" is the app stating a fact about the server's
+                // mailbox on the strength of a request that failed. See [GridlinkOpenFolder.failed].
+                headline = if (current?.failed == true) {
+                    "Couldn't load ${folder.name}"
+                } else {
+                    "Nothing in ${folder.name}"
+                },
             )
         } else {
             LazyColumn(

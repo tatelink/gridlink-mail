@@ -240,6 +240,16 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
      */
     private val folderFetched = MutableStateFlow<Set<String>>(emptySet())
 
+    /**
+     * Mailboxes whose last fetch this session came back an ERROR.
+     *
+     * A strict subset of [folderFetched], and the reason it is separate: that set says the server
+     * was asked, this one says the answer was not a list of mail. Without it an outright failure
+     * and a genuinely empty mailbox are the same empty list, which is how a JMAP `requestTooLarge`
+     * on the Archive page read as an empty Archive. See [GridlinkOpenFolder.failed].
+     */
+    private val folderFailed = MutableStateFlow<Set<String>>(emptySet())
+
     /** The in-flight fetch for the open mailbox, so tapping a second folder abandons the first. */
     private var folderJob: Job? = null
 
@@ -303,6 +313,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         folderJob?.cancel()
         openFolderId.value = null
         folderFetched.value = emptySet()
+        folderFailed.value = emptySet()
         folderPrimed.value = false
         // A search is a question asked OF an account. Results from the old one under a pill the
         // new one owns would be mail the new mailbox cannot even open.
@@ -995,7 +1006,8 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 repo.observeMailboxWindow(w.accountId, w.mailboxId, w.limit, MailFilter.none),
                 folderFetched,
                 outgoingFolderIds,
-            ) { emails, fetched, outgoing ->
+                folderFailed,
+            ) { emails, fetched, outgoing, failed ->
                 val zone = ZoneId.systemDefault()
                 val today = LocalDate.now(zone)
                 // A property of the open mailbox, not of any message in it: in Sent and Drafts the
@@ -1019,6 +1031,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                         ).copy(section = GridlinkMailMapping.section(email, zone, today))
                     },
                     loading = emails.isEmpty() && w.mailboxId !in fetched,
+                    failed = emails.isEmpty() && w.mailboxId in failed,
                 )
             }
         }
@@ -1263,12 +1276,20 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 // fetched IS the inbox and its id has to be learned; calling it here would re-point
                 // the account's inbox at whatever folder the user just tapped, and the Inbox tab
                 // would quietly start showing Trash.
+
+                // Cleared only on the path that actually returned mail, and set below on the path
+                // that did not, so the two can never both be true and a folder that recovers stops
+                // claiming it is broken.
+                folderFailed.value = folderFailed.value - id
             } catch (c: CancellationException) {
                 // Rethrown for [sync]'s reason, and with the same consequence: the fetch is NOT
                 // marked done, so the mailbox still reads as unlooked-at if it is opened again.
                 throw c
             } catch (t: Throwable) {
                 Log.w(TAG, "folder fetch failed", t)
+                // 🔴 The list is about to show nothing, and this is the only thing that stops it
+                // calling that emptiness a fact about the mailbox. See [folderFailed].
+                folderFailed.value = folderFailed.value + id
             }
             // Both paths, success and failure. See [folderFetched]: a skeleton that never resolves
             // is worse than an empty list on a network that is not working, and the chip says so.

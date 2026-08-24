@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 
 /**
  * The JMAP Session resource (RFC 8620 §2): capabilities and the URLs/accounts
@@ -61,6 +62,22 @@ data class JmapSession(
         primaryAccounts[Jmap.CALENDARS_CAPABILITY]
             ?: accounts.entries.firstOrNull { Jmap.CALENDARS_CAPABILITY in it.value.accountCapabilities }?.key
             ?: mailAccountId()
+
+    /**
+     * The most objects the server will hand back from ONE `Foo/get` (RFC 8620 §2,
+     * `maxObjectsInGet`), or null when the core capability omits it.
+     *
+     * 🔴 Load-bearing, not a statistic. A `Foo/get` asking for more than this is answered with a
+     * method-level `requestTooLarge` and NOTHING else — the whole call fails, including a get
+     * back-referenced off a query in the same request. That is how Tate's Archive read as an empty
+     * folder for a day: the sync window asks for 1000, Stalwart returns 500, so opening the folder
+     * threw, the view had no rows to show, and "fetch failed" and "there is no mail here" look
+     * identical on screen. See [JmapClient.queryEmailsPage], which clamps its page to this.
+     */
+    fun maxObjectsInGet(): Int? =
+        (capabilities[Jmap.CORE_CAPABILITY]?.get("maxObjectsInGet") as? JsonPrimitive)
+            ?.intOrNull
+            ?.takeIf { it > 0 }
 
     /**
      * The server's VAPID application key (RFC 9749), when advertised — passed to the
