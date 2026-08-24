@@ -9,7 +9,12 @@ which requires a modified work to carry prominent notices stating that it was ch
 dates of those changes. Upstream's own history is preserved in the git log and is not repeated
 here.
 
-Fork point: upstream Sterna Mail `main` at v1.4.6.
+Fork point: upstream Sterna Mail `main` at v1.4.6, commit `7e908319`.
+
+The SHA is written out because the `v1.4.6` tag is Sterna's, not this fork's. Upstream's
+release tags were inherited by the fork's remote and have been removed from it, so that the
+repository advertises Gridlink's own releases and not another project's. Every commit they
+pointed at is still in the history; only the labels are gone, and upstream keeps its own.
 
 ## [1.0.0] - 2026-08-23
 
