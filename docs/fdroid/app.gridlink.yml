@@ -13,7 +13,8 @@ AutoName: Gridlink Mail
 
 RepoType: git
 Repo: https://github.com/tatelink/gridlink-mail.git
-Binaries: https://github.com/tatelink/gridlink-mail/releases/download/v%v/gridlink-mail-%v.apk
+Binaries: 
+  https://github.com/tatelink/gridlink-mail/releases/download/v%v/gridlink-mail-%v.apk
 
 Builds:
   - versionName: 1.0.0
