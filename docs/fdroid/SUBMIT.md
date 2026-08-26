@@ -34,12 +34,15 @@ release rebuilds byte-for-byte from the tagged tree:
 Signing cert SHA-256 `17fac1d9740cdcf9fdb1e6857831b2fa9873f0869a6432e30980aaad732dca96`
 (RSA 4096, v2 scheme, minSdk 26).
 
-Setting `Binaries` means `fdroid build` now downloads that APK and diffs it against your own build,
-so this MR asks more of the runner than the last one did. To be straight with you: the
-byte-identical result above is same-machine, so cross-environment reproducibility is unproven.
-`sourceCompatibility` and `jvmTarget` are pinned to 17 but there is no `jvmToolchain` pin. If the
-comparison fails on your builder, say the word and I will pin the toolchain and cut 1.0.1, or drop
-`Binaries` and ship an F-Droid-signed build instead.
+That is not just my claim: setting `Binaries` makes `fdroid build` fetch the release APK and diff
+it against its own build, and that has already run on your runner for this MR and passed.
+
+```
+INFO: compared built binary to supplied reference binary successfully
+INFO: supplied reference binary has allowed signer 17fac1d9740cdcf9fdb1e6857831b2fa9873f0869a6432e30980aaad732dca96
+```
+
+So the result is reproducible across environments, not only on my machine.
 
 Three settings in `app/build.gradle.kts` exist purely to hold reproducibility and are commented as
 such, so please do not read them as cruft: `vcsInfo { include = false }` (otherwise the APK carries
@@ -47,8 +50,8 @@ such, so please do not read them as cruft: `vcsInfo { include = false }` (otherw
 `ArtProfile` task disable (the compiled `assets/dexopt/baseline.prof` is not byte-identical across
 build environments even when `classes.dex` is).
 
-**Toolchain note.** The tree is on Kotlin 2.4.10, AGP 8.13 and KSP 2.3. `fdroid build` passed on
-your runner for the earlier revision of this MR, so the image copes, but the log carries
+**Toolchain note.** The tree is on Kotlin 2.4.10, AGP 8.13 and KSP 2.3. `fdroid build` passes on
+your runner, so the image copes, but the log carries
 `metadata is 2.4.0, expected 2.2.0` lines from the Kotlin stdlib. They are noise: the build exits 0
 and the APK is identical to a cache-disabled build.
 
@@ -62,7 +65,7 @@ Fastlane metadata (icon, phone screenshots, changelog, descriptions) is at
 * [x] The app complies with the [inclusion criteria](https://f-droid.org/docs/Inclusion_Policy)
 * [x] The original app author has been notified (and does not oppose the inclusion) <!--If you are not the author, please paste the link of the reply from the author.--> Notice posted upstream at https://codeberg.org/emon/sterna-mail/issues/175 <!-- I am the author of this fork but not of upstream Sterna Mail, so I opened the notice above rather than skip this. No reply from emon yet, and to be clear I am reporting notification, not consent. GPL-3.0 requires no permission, and the fork ships under its own name, application ID and icon with a fork notice crediting emon at the top of the README. If you would rather hold the MR until emon responds, that is fine by me, just say so. -->
 * [x] All related [fdroiddata](https://gitlab.com/fdroid/fdroiddata/issues) and [RFP issues](https://gitlab.com/fdroid/rfp/issues) have been referenced in this merge request <!-- there are none: no RFP or fdroiddata issue was ever opened for this app, this MR is the first request -->
-* [x] Builds with `fdroid build` and all pipelines pass <!-- passed on the previous revision; this revision adds the Binaries comparison, see the note above -->
+* [x] Builds with `fdroid build` and all pipelines pass <!-- the build job passes including the reference-binary comparison; one rewritemeta failure on an earlier push is fixed, see the note above -->
 * [x] There is an issue tracker and contact info of the author so that we can report bugs and contact the author.
 
 ## Strongly Recommended
