@@ -27,7 +27,31 @@ better-tested, actively maintained app and you should go get it.
 
 ## Download & install
 
-There is no store listing. Build it yourself: see [CONTRIBUTING.md](CONTRIBUTING.md).
+**Signed APK:** grab the latest from
+[Releases](https://github.com/tatelink/gridlink-mail/releases). Android will warn you about
+installing outside a store; that is expected for a sideloaded app.
+
+Verify what you installed before you trust it:
+
+```
+apksigner verify --print-certs gridlink-mail-1.0.0.apk
+```
+
+The signing certificate SHA-256 is:
+
+```
+17:FA:C1:D9:74:0C:DC:F9:FD:B1:E6:85:78:31:B2:FA:98:73:F0:86:9A:64:32:E3:09:80:AA:AD:73:2D:CA:96
+```
+
+The release APK is reproducible: a clean build from the matching tag produces a byte-identical
+file, so you do not have to take my word for what is in it. See
+[CONTRIBUTING.md](CONTRIBUTING.md) to rebuild it and compare.
+
+**F-Droid:** submitted and under review
+([fdroiddata!46061](https://gitlab.com/fdroid/fdroiddata/-/merge_requests/46061)). Not available
+there yet. This section will say so when it is.
+
+**From source:** see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Why JMAP?
 
