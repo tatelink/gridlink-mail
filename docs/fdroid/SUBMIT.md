@@ -1,64 +1,58 @@
-# Filing the submission
+### Gridlink Mail (`app.gridlink`)
 
-Everything below is ready to use. The only step that is not automatable is the account, because
-account creation and password entry are done by a human by policy, not by tooling.
+A fork of **[Sterna Mail](https://codeberg.org/emon/sterna-mail)** (`app.sterna`, already in
+F-Droid) by emon, GPL-3.0. The fork keeps emon's mail engine, sync layer and OpenPGP support and
+replaces the front end and the setup flow; it also adds CalDAV calendar and CardDAV contacts in the
+same app. The fork notice and attribution are at the top of the README.
 
-## Step 1, the account (yours to do)
+- Source: https://github.com/tatelink/gridlink-mail
+- Licence: GPL-3.0-only
+- Version: 1.0.0 (versionCode 1001), commit `8b166926236b922ea469857547716c1467fca475` (tag `v1.0.0`)
 
-1. Go to <https://gitlab.com/users/sign_up>.
-2. Use **hello@eightpointlabs.com**, not a personal address. It is the address
-   `SECURITY.md` points at, so a packager who replies reaches the project rather
-   than a person, and it can be filtered or retired without touching anyone's mail.
-3. Suggested username: `tatelink`, to match the GitHub org. Take whatever is free.
-4. GitLab sends a confirmation mail and may show a captcha. Both need a human.
+**No proprietary dependencies.** No Play Services, no Firebase, no ML Kit, no analytics. Push is
+UnifiedPush. The only tracked binary is `gradle/wrapper/gradle-wrapper.jar`.
 
-## Step 2, a token (yours to do, one click)
+**Reproducible build, verified against the published binary.** The APK attached to the GitHub
+release rebuilds byte-for-byte from the tagged tree:
 
-<https://gitlab.com/-/user_settings/personal_access_tokens>, create a token with scope **`api`**.
-That single scope covers forking, pushing and opening a merge request.
+```
+3ca4b25dc6a9d91f353624e8078073482caeb17076982b9bcac707eb5f418575  gridlink-mail-1.0.0.apk (release asset)
+3ca4b25dc6a9d91f353624e8078073482caeb17076982b9bcac707eb5f418575  app-release.apk (clean rebuild from 8b16692)
+```
 
-Store it beside the other credentials rather than pasting it around.
+`Binaries` and `AllowedAPKSigningKeys` are now set, so you can publish my signature and users can
+move between an F-Droid install and a direct install. Signing cert SHA-256
+`17fac1d9740cdcf9fdb1e6857831b2fa9873f0869a6432e30980aaad732dca96` (RSA 4096, v2 scheme, minSdk 26).
 
-## Step 3, the merge request (automatable once the token exists)
+Three settings in `app/build.gradle.kts` exist purely to hold reproducibility and are commented as
+such, so please do not read them as cruft: `vcsInfo { include = false }` (otherwise the APK carries
+`META-INF/version-control-info.textproto`), `dependenciesInfo { includeInApk = false }`, and the
+`ArtProfile` task disable (the compiled `assets/dexopt/baseline.prof` is not byte-identical across
+build environments even when `classes.dex` is).
 
-Prefer this over the RFP issue. An RFP asks a volunteer to package the app and then waits; a merge
-request is packaging it, and the recipe in `app.gridlink.yml` is already known to build here.
+**Toolchain note.** The tree is on Kotlin 2.4.10, AGP 8.13 and KSP 2.3. `fdroid build` passed on
+your runner for the earlier revision of this MR, so the image copes, but the log carries
+`metadata is 2.4.0, expected 2.2.0` lines from the Kotlin stdlib. They are noise: the build exits 0
+and the APK is identical to a cache-disabled build.
 
-The mechanical steps, all `api`-scope calls:
+Fastlane metadata (icon, phone screenshots, changelog, descriptions) is at
+`fastlane/metadata/android/en-US/` and is present at the tag.
 
-1. Fork <https://gitlab.com/fdroid/fdroiddata>.
-2. Add `metadata/app.gridlink.yml` (copy of the file beside this one) on a branch.
-3. Open a merge request against `master` with the description below.
+## Required
 
-## Merge request description, paste as-is
+* [x] The app complies with the [inclusion criteria](https://f-droid.org/docs/Inclusion_Policy)
+* [ ] The original app author has been notified (and does not oppose the inclusion)
+* [x] All related [fdroiddata](https://gitlab.com/fdroid/fdroiddata/issues) and [RFP issues](https://gitlab.com/fdroid/rfp/issues) have been referenced in this merge request <!-- there are none: no RFP or fdroiddata issue was ever opened for this app, this MR is the first request -->
+* [x] Builds with `fdroid build` and all pipelines pass
+* [x] There is an issue tracker and contact info of the author so that we can report bugs and contact the author.
 
-> ### Gridlink Mail (`app.gridlink`)
->
-> A fork of Thunderbird for Android / K-9 Mail, adding JMAP support alongside IMAP, plus CalDAV
-> calendar and CardDAV contacts in the same app.
->
-> - Source: https://github.com/tatelink/gridlink-mail
-> - Licence: GPL-3.0-only
-> - Version: 0.1.0 (versionCode 1000), tagged `v0.1.0`
->
-> **No proprietary dependencies.** No Play Services, no Firebase, no ML Kit, no analytics. Push is
-> UnifiedPush.
->
-> **Reproducible.** Two clean `./gradlew :app:assembleRelease` runs from the `v0.1.0` tree produce
-> byte-identical APKs, `sha256 2b39fd579223e6f7f0e184536e2bc305c7fe1c5fc34595da2f8604e51c970e89`.
-> Happy to add `AllowedAPKSigningKeys` once you have built it and matched, so an F-Droid install and
-> a direct install are interchangeable.
->
-> **One thing to flag before you build it.** The tree is on Kotlin 2.4.10, AGP 8.13 and KSP 2.3,
-> which is likely newer than the build image. It compiles and exits 0 here, but emits
-> `Module was compiled with an incompatible version of Kotlin ... metadata is 2.4.0, expected 2.2.0`
-> for the internal modules and kotlin-stdlib. If the build fails on your side, that is the first
-> place to look, and I will pin versions to whatever the image carries.
->
-> Fastlane metadata (icon, four phone screenshots, changelog) is at
-> `fastlane/metadata/android/en-US/`.
+## Strongly Recommended
 
-## Fallback, the RFP issue
+* [x] The upstream app source code repo contains the app metadata in a Fastlane folder structure
+* [x] Releases are tagged and auto update is enabled
 
-If the merge request is turned away, <https://gitlab.com/fdroid/rfp/-/issues/new> with the
-"Request For Packaging" template. Same description works.
+## Suggested
+
+* [x] External repos are added as git submodules instead of srclibs <!-- n/a: no submodules and no srclibs, every dependency comes from Maven -->
+* [x] Enable [Reproducible Builds](https://f-droid.org/docs/Reproducible_Builds)
+* [ ] Multiple apks for native code <!-- n/a: the only native code is androidx.graphics.path and datastore_shared_counter, ~60 KB of .so across all four ABIs in a 6.2 MB universal APK, so a split would save nothing worth the complexity -->
