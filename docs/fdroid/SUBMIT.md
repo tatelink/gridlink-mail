@@ -24,6 +24,13 @@ release rebuilds byte-for-byte from the tagged tree:
 move between an F-Droid install and a direct install. Signing cert SHA-256
 `17fac1d9740cdcf9fdb1e6857831b2fa9873f0869a6432e30980aaad732dca96` (RSA 4096, v2 scheme, minSdk 26).
 
+Setting `Binaries` means `fdroid build` now downloads that APK and diffs it against your own
+build, so this MR is asking more of the runner than the last one did. To be straight with you: the
+byte-identical result above is same-machine, so cross-environment reproducibility is unproven.
+`sourceCompatibility` and `jvmTarget` are pinned to 17 but there is no `jvmToolchain` pin. If the
+comparison fails on your builder, say the word and I will pin the toolchain and cut 1.0.1, or drop
+`Binaries` and ship an F-Droid-signed build instead.
+
 Three settings in `app/build.gradle.kts` exist purely to hold reproducibility and are commented as
 such, so please do not read them as cruft: `vcsInfo { include = false }` (otherwise the APK carries
 `META-INF/version-control-info.textproto`), `dependenciesInfo { includeInApk = false }`, and the
@@ -43,7 +50,7 @@ Fastlane metadata (icon, phone screenshots, changelog, descriptions) is at
 * [x] The app complies with the [inclusion criteria](https://f-droid.org/docs/Inclusion_Policy)
 * [ ] The original app author has been notified (and does not oppose the inclusion)
 * [x] All related [fdroiddata](https://gitlab.com/fdroid/fdroiddata/issues) and [RFP issues](https://gitlab.com/fdroid/rfp/issues) have been referenced in this merge request <!-- there are none: no RFP or fdroiddata issue was ever opened for this app, this MR is the first request -->
-* [x] Builds with `fdroid build` and all pipelines pass
+* [x] Builds with `fdroid build` and all pipelines pass <!-- passed on the previous revision; this revision adds the Binaries comparison, see the note above -->
 * [x] There is an issue tracker and contact info of the author so that we can report bugs and contact the author.
 
 ## Strongly Recommended
