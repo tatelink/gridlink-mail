@@ -1,4 +1,4 @@
-Gridlink Mail 1.0.1. Two fixes, nothing new to learn.
+Gridlink Mail 2.0.0. Two fixes, nothing new to learn. (The jump from 1.0.0 is housekeeping: it keeps Gridlink's version numbers from colliding with the project it was forked from.)
 
 - Syncing no longer asks the server for more mail per batch than it is willing to hand back, so large folders fill in reliably.
 - Settings is drawn with the same palette as the rest of the app instead of its own.
