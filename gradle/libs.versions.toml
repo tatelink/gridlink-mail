@@ -36,11 +36,12 @@ unifiedpush = "3.3.3"
 # Android ships a stripped org.bouncycastle of its own under the provider name "BC", and the
 # verifier deliberately names no provider at all so the platform's crypto does the work. See
 # SmimeVerifier.
-# 1.84, not 1.81.1: two moderate advisories land on the older pair (an LDAP injection in
+# 1.85 closes the two 1.84 advisories (a name-constraints bypass and a nesting-depth reset).
+# Past 1.81.1: two moderate advisories land on the older pair (an LDAP injection in
 # bcprov's X509LDAPCertStore and a risky algorithm in bcpkix). Neither is on a path this app
 # walks — it opens no LDAP store and holds no private key — but taking the fix is free, and an
 # advisory left standing on the default branch trains everyone to ignore the next one.
-bouncycastle = "1.84"
+bouncycastle = "1.85"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
