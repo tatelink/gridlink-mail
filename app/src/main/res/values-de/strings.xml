@@ -327,6 +327,8 @@
     <string name="settings_filters_summary">Serverseitige Regeln (Sieve)</string>
     <string name="settings_filters_screen_title">Filter</string>
     <string name="settings_filters_unsupported">Dein Mailserver unterstützt keine Filterregeln.</string>
+    <string name="settings_filters_sieve_unreachable">Gridlink konnte den Filterdienst des Servers nicht erreichen (ManageSieve, Port 4190).</string>
+    <string name="settings_filters_sieve_insecure">Gridlink konnte sich nicht über eine sichere Verbindung beim Filterdienst des Servers anmelden und hat dein Passwort deshalb nicht gesendet.</string>
     <string name="settings_filters_empty">Noch keine Regeln. Füge eine hinzu, um eingehende Mails auf dem Server zu filtern.</string>
     <string name="settings_filters_add">Regel hinzufügen</string>
     <string name="settings_filters_saved">Filter gespeichert</string>

@@ -7,6 +7,7 @@ import app.gridlink.container
 import app.gridlink.core.data.filter.FilterRule
 import app.gridlink.core.data.mail.FilterRulesState
 import app.gridlink.core.data.settings.MailTag
+import app.gridlink.core.imap.ManageSieveException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
@@ -19,6 +20,8 @@ data class FiltersUiState(
     val loading: Boolean = true,
     val noAccount: Boolean = false,
     val supported: Boolean = true,
+    /** Which sentence a failed ManageSieve call gets; null for every other failure. */
+    val errorSieveKind: ManageSieveException.Kind? = null,
     val foreignActive: Boolean = false,
     val accountLabel: String = "",
     val rules: List<FilterRule> = emptyList(),
@@ -53,7 +56,7 @@ data class FiltersUiState(
 )
 
 /**
- * Drives the server-side filter rules (JMAP Sieve) for the current account.
+ * Drives the server-side filter rules (Sieve, over JMAP or ManageSieve) for the current account.
  * Rules are edited locally and pushed to the server in one Save (compile →
  * validate → activate). Every read/write is a network round-trip.
  */
@@ -109,13 +112,7 @@ class FiltersViewModel(application: Application) : AndroidViewModel(application)
                     }
                 }
             } catch (t: Throwable) {
-                _state.update {
-                    it.copy(
-                        loading = false,
-                        errorKind = FiltersError.LOAD,
-                        errorDetail = t.message ?: t.javaClass.simpleName,
-                    )
-                }
+                _state.update { filtersFailedState(it.copy(loading = false), FiltersError.LOAD, t) }
             }
         }
     }
@@ -156,14 +153,18 @@ class FiltersViewModel(application: Application) : AndroidViewModel(application)
                 serverRules = rules
                 _state.update { it.copy(saving = false, savedTick = it.savedTick + 1, dirty = false) }
             } catch (t: Throwable) {
-                _state.update {
-                    it.copy(
-                        saving = false,
-                        errorKind = FiltersError.SAVE,
-                        errorDetail = t.message ?: t.javaClass.simpleName,
-                    )
-                }
+                _state.update { filtersFailedState(it.copy(saving = false), FiltersError.SAVE, t) }
             }
         }
     }
+}
+
+/** [state] after a failed load or save. A refusal shows the server's own words when it gave some. */
+internal fun filtersFailedState(state: FiltersUiState, kind: FiltersError, failure: Throwable): FiltersUiState {
+    val sieve = failure as? ManageSieveException
+    return state.copy(
+        errorKind = kind,
+        errorSieveKind = sieve?.kind,
+        errorDetail = sieve?.serverText ?: failure.message ?: failure.javaClass.simpleName,
+    )
 }

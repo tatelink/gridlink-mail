@@ -327,6 +327,8 @@
     <string name="settings_filters_summary">Правила на стороне сервера (Sieve)</string>
     <string name="settings_filters_screen_title">Фильтры</string>
     <string name="settings_filters_unsupported">Ваш почтовый сервер не поддерживает правила фильтрации.</string>
+    <string name="settings_filters_sieve_unreachable">Gridlink не удалось связаться со службой фильтров сервера (ManageSieve, порт 4190).</string>
+    <string name="settings_filters_sieve_insecure">Gridlink не удалось войти в службу фильтров сервера по защищённому соединению, поэтому ваш пароль не был отправлен.</string>
     <string name="settings_filters_empty">Пока нет правил. Добавьте правило, чтобы фильтровать входящую почту на сервере.</string>
     <string name="settings_filters_add">Добавить правило</string>
     <string name="settings_filters_saved">Фильтры сохранены</string>

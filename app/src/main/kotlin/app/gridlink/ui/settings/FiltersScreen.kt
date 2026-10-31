@@ -2,6 +2,7 @@ package app.gridlink.ui.settings
 
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -50,6 +51,7 @@ import app.gridlink.core.data.filter.RuleField
 import app.gridlink.core.data.filter.RuleMatch
 import app.gridlink.core.data.filter.RuleMatchMode
 import app.gridlink.core.data.settings.MailTag
+import app.gridlink.core.imap.ManageSieveException
 import app.gridlink.ui.theme.gridlinkSwitchColors
 
 /**
@@ -143,7 +145,7 @@ internal fun FiltersScreenContent(
                 state.noAccount -> FiltersNote(stringResource(R.string.settings_vacation_no_account))
                 !state.supported -> FiltersNote(stringResource(R.string.settings_filters_unsupported))
                 state.errorKind == FiltersError.LOAD -> FiltersNote(
-                    stringResource(R.string.settings_vacation_load_error, state.errorDetail),
+                    filtersErrorText(state, R.string.settings_vacation_load_error),
                     onRetry = onLoad,
                 )
                 else -> FiltersList(
@@ -230,7 +232,7 @@ private fun FiltersList(
 
         if (state.errorKind == FiltersError.SAVE) {
             Text(
-                stringResource(R.string.settings_vacation_save_error, state.errorDetail),
+                filtersErrorText(state, R.string.settings_vacation_save_error),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -613,3 +615,11 @@ private fun modeLabel(context: Context, mode: RuleMatchMode): String = context.g
         RuleMatchMode.ANY -> R.string.settings_filter_mode_any
     },
 )
+
+/** A failure of the filter service itself says what it is; anything else keeps the plain sentence. */
+@Composable
+private fun filtersErrorText(state: FiltersUiState, @StringRes fallback: Int): String = when (state.errorSieveKind) {
+    ManageSieveException.Kind.UNREACHABLE -> stringResource(R.string.settings_filters_sieve_unreachable)
+    ManageSieveException.Kind.INSECURE -> stringResource(R.string.settings_filters_sieve_insecure)
+    ManageSieveException.Kind.REFUSED, null -> stringResource(fallback, state.errorDetail)
+}

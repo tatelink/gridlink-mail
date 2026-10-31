@@ -207,7 +207,7 @@ The categories further down list the full feature set; this is the order of work
 
 - ✅ ⭐ Vacation responder / auto-reply — JMAP `VacationResponse` (RFC 8621); per-account, server-side, Settings → Vacation responder (enable + subject + message + optional date range), IMAP/no-capability gated
 - ✅ On-device storage usage + Clear cache (Settings → Storage); ✅ server mailbox quota via JMAP `Quota` (RFC 9425) shown in Settings → Storage when supported
-- ✅ Server-side filters/rules where the server supports `SieveScript` (RFC 9661) — form-based rule builder (condition → move/mark-read/star), compiled to Sieve and round-tripped via a JSON metadata comment
+- ✅ Server-side filters/rules where the server supports `SieveScript` (RFC 9661), or ManageSieve (RFC 5804, port 4190, mandatory STARTTLS) on an IMAP account — form-based rule builder (condition → move/mark-read/star), compiled to Sieve and round-tripped via a JSON metadata comment
 - ✅ Calendar invite (`.ics`) preview — a `text/calendar` part is detected (captured on
   IMAP even without a filename; JMAP lists it already), the first `VEVENT` is parsed by a
   small dependency-free iCalendar reader (timezones, all-day, recurrence, `DURATION`), and

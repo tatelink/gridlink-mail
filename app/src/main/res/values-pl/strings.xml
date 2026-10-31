@@ -327,6 +327,8 @@
     <string name="settings_filters_summary">Reguły po stronie serwera (Sieve)</string>
     <string name="settings_filters_screen_title">Filtry</string>
     <string name="settings_filters_unsupported">Twój serwer poczty nie obsługuje reguł filtrowania.</string>
+    <string name="settings_filters_sieve_unreachable">Gridlink nie mogła połączyć się z usługą filtrów serwera (ManageSieve, port 4190).</string>
+    <string name="settings_filters_sieve_insecure">Gridlink nie mogła zalogować się do usługi filtrów serwera przez bezpieczne połączenie, więc nie wysłała Twojego hasła.</string>
     <string name="settings_filters_empty">Brak reguł. Dodaj regułę, aby filtrować przychodzącą pocztę na serwerze.</string>
     <string name="settings_filters_add">Dodaj regułę</string>
     <string name="settings_filters_saved">Filtry zapisane</string>

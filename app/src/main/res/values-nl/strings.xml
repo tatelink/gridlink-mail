@@ -327,6 +327,8 @@
     <string name="settings_filters_summary">Serverregels (Sieve)</string>
     <string name="settings_filters_screen_title">Filters</string>
     <string name="settings_filters_unsupported">Je mailserver ondersteunt geen filterregels.</string>
+    <string name="settings_filters_sieve_unreachable">Gridlink kon de filterdienst van de server niet bereiken (ManageSieve, poort 4190).</string>
+    <string name="settings_filters_sieve_insecure">Gridlink kon niet via een beveiligde verbinding inloggen bij de filterdienst van de server en heeft je wachtwoord daarom niet verstuurd.</string>
     <string name="settings_filters_empty">Nog geen regels. Voeg er een toe om inkomende e-mail op de server te filteren.</string>
     <string name="settings_filters_add">Regel toevoegen</string>
     <string name="settings_filters_saved">Filters opgeslagen</string>

@@ -833,6 +833,8 @@ class MailRepository(
      * never reaches the network by omission; the app wires the real one in `DataFactory`.
      */
     private val srvResolver: SrvResolver = SrvResolver.None,
+    /** Serves an IMAP account's filters; JMAP accounts use their own session instead. */
+    private val sieve: SieveConnector = ManageSieveConnector(),
 ) {
     /**
      * Schedules the WorkManager job that delivers an outbox item. Set by the app layer at
@@ -5896,11 +5898,11 @@ class MailRepository(
 
     /**
      * Load the account's Gridlink-managed filter rules (server-side Sieve).
-     * [FilterRulesState.Unsupported] for IMAP accounts and JMAP servers without
-     * the sieve capability.
+     * [FilterRulesState.Unsupported] for an IMAP account on OAuth or without an IMAP host, and for
+     * JMAP servers without the sieve capability. A failed ManageSieve read throws.
      */
     suspend fun loadFilterRules(credentials: AccountCredentials): FilterRulesState {
-        if (credentials.protocol == MailProtocol.IMAP) return FilterRulesState.Unsupported
+        if (credentials.protocol == MailProtocol.IMAP) return loadFilterRulesBySieve(credentials)
         val ctx = connect(credentials)
         if (!ctx.session.capabilities.containsKey(app.gridlink.core.jmap.Jmap.SIEVE_CAPABILITY)) {
             return FilterRulesState.Unsupported
@@ -5924,6 +5926,17 @@ class MailRepository(
      * the Gridlink-managed script. Throws if the server rejects the script.
      */
     suspend fun saveFilterRules(credentials: AccountCredentials, rules: List<FilterRule>) {
+        if (credentials.protocol == MailProtocol.IMAP) {
+            val sieveHost = manageSieveHost(credentials)
+                ?: error("Server-side filters are not available for this account")
+            val script = SieveCodec.generate(rules)
+            sieveSession(sieveHost, credentials) {
+                checkScript(script)
+                putScript(SieveCodec.SCRIPT_NAME, script)
+                setActive(SieveCodec.SCRIPT_NAME)
+            }
+            return
+        }
         val ctx = connect(credentials)
         val script = SieveCodec.generate(rules)
         val blob = client.uploadBlob(
@@ -5938,6 +5951,32 @@ class MailRepository(
             ctx.session, ctx.accountId, SieveCodec.SCRIPT_NAME, blob.blobId, existing?.id, ctx.auth,
         )
     }
+
+    /** [loadFilterRules] over ManageSieve: one listing, then the managed script by name, as on JMAP. */
+    private suspend fun loadFilterRulesBySieve(credentials: AccountCredentials): FilterRulesState {
+        val sieveHost = manageSieveHost(credentials) ?: return FilterRulesState.Unsupported
+        return sieveSession(sieveHost, credentials) {
+            val scripts = listScripts()
+            val managed = scripts.firstOrNull { it.name == SieveCodec.SCRIPT_NAME }
+            FilterRulesState.Loaded(
+                managed?.let { SieveCodec.parseRules(getScript(it.name)) }.orEmpty(),
+                scripts.any { it.isActive && it.name != SieveCodec.SCRIPT_NAME },
+            )
+        }
+    }
+
+    /** [sieveHost] comes from [manageSieveHost]; the login is the one the IMAP session signs in with. */
+    private suspend fun <T> sieveSession(
+        sieveHost: String,
+        credentials: AccountCredentials,
+        block: SieveScripts.() -> T,
+    ): T = sieve.session(
+        sieveHost,
+        app.gridlink.core.imap.MANAGESIEVE_PORT,
+        credentials.loginName,
+        credentials.password,
+        block,
+    )
 
     /** Establish (or reuse) a session + mailbox-role map for the credentials. */
     private suspend fun connect(credentials: AccountCredentials): Context {

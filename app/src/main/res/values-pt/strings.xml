@@ -327,6 +327,8 @@
     <string name="settings_filters_summary">Regras no servidor (Sieve)</string>
     <string name="settings_filters_screen_title">Filtros</string>
     <string name="settings_filters_unsupported">O seu servidor de e-mail não suporta regras de filtro.</string>
+    <string name="settings_filters_sieve_unreachable">O Gridlink não conseguiu se conectar ao serviço de filtros do servidor (ManageSieve, porta 4190).</string>
+    <string name="settings_filters_sieve_insecure">O Gridlink não conseguiu entrar no serviço de filtros do servidor por uma conexão segura, portanto não enviou sua senha.</string>
     <string name="settings_filters_empty">Ainda não há regras. Adicione uma para filtrar o correio recebido no servidor.</string>
     <string name="settings_filters_add">Adicionar regra</string>
     <string name="settings_filters_saved">Filtros guardados</string>

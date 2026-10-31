@@ -440,6 +440,8 @@
     <string name="settings_filters_summary">Server-side rules (Sieve)</string>
     <string name="settings_filters_screen_title">Filters</string>
     <string name="settings_filters_unsupported">Your mail server doesn\'t support filter rules.</string>
+    <string name="settings_filters_sieve_unreachable">Gridlink couldn\'t reach the server\'s filter service (ManageSieve, port 4190).</string>
+    <string name="settings_filters_sieve_insecure">Gridlink couldn\'t sign in to the server\'s filter service over a secure connection, so it didn\'t send your password.</string>
     <string name="settings_filters_empty">No rules yet. Add one to filter incoming mail on the server.</string>
     <string name="settings_filters_add">Add rule</string>
     <string name="settings_filters_saved">Filters saved</string>

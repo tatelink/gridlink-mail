@@ -327,6 +327,8 @@
     <string name="settings_filters_summary">Regole lato server (Sieve)</string>
     <string name="settings_filters_screen_title">Filtri</string>
     <string name="settings_filters_unsupported">Il tuo server di posta non supporta le regole di filtro.</string>
+    <string name="settings_filters_sieve_unreachable">Gridlink non è riuscita a raggiungere il servizio dei filtri del server (ManageSieve, porta 4190).</string>
+    <string name="settings_filters_sieve_insecure">Gridlink non è riuscita ad accedere al servizio dei filtri del server tramite una connessione sicura, quindi non ha inviato la tua password.</string>
     <string name="settings_filters_empty">Nessuna regola. Aggiungine una per filtrare la posta in arrivo sul server.</string>
     <string name="settings_filters_add">Aggiungi regola</string>
     <string name="settings_filters_saved">Filtri salvati</string>

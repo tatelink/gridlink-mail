@@ -327,6 +327,8 @@
     <string name="settings_filters_summary">Règles côté serveur (Sieve)</string>
     <string name="settings_filters_screen_title">Filtres</string>
     <string name="settings_filters_unsupported">Votre serveur de messagerie ne prend pas en charge les règles de filtrage.</string>
+    <string name="settings_filters_sieve_unreachable">Gridlink n\'a pas pu joindre le service de filtrage du serveur (ManageSieve, port 4190).</string>
+    <string name="settings_filters_sieve_insecure">Gridlink n\'a pas pu se connecter au service de filtrage du serveur par une connexion sécurisée, et ne lui a donc pas envoyé votre mot de passe.</string>
     <string name="settings_filters_empty">Aucune règle pour l\'instant. Ajoutez-en une pour filtrer le courrier entrant sur le serveur.</string>
     <string name="settings_filters_add">Ajouter une règle</string>
     <string name="settings_filters_saved">Filtres enregistrés</string>
