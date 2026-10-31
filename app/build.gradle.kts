@@ -190,6 +190,8 @@ android {
             // carry the same OSGi manifest path. Nothing on Android reads it, and three copies of a
             // file that cannot be told apart is a packaging clash rather than a real conflict.
             excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+            // 1.85 adds the same licence to all three jars. Keep one copy, since the notice must ship.
+            pickFirsts += "META-INF/LICENSE.md"
         }
     }
 }
