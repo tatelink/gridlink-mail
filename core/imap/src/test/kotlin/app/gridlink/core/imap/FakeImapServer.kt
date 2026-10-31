@@ -13,8 +13,42 @@ import java.util.Collections
  * end on the JVM: what SELECT/SEARCH/FETCH commands actually leave the client, in what order,
  * and how many of them. [responder] is handed the tag and the command line (tag stripped) and
  * returns the complete raw response, tagged line included.
+ *
+ * [responder] alone is strictly request/response, which cannot express the failure of #156: a
+ * server that answers, goes quiet, and then GOES AWAY while the client is still waiting on it.
+ * [cutAfter] is that server, and it is the same hook, in the same shape, as [FakeSmtpServer]'s.
  */
 internal class FakeImapServer(
+    /**
+     * Write these lines and then **stop answering, for good** — the IMAP twin of
+     * [FakeSmtpServer]'s hook of the same name, and the one thing [responder] cannot express: a
+     * responder always answers the line it was given and goes back to waiting for the next one.
+     *
+     * Called with the line as [commands] records it (tag stripped), or [GREETING] for the server
+     * banner, which no command of the client precedes. An empty list cuts before a single byte is
+     * written.
+     *
+     * The cut is a half-close (`shutdownOutput`): the client gets its EOF, and whatever it writes
+     * afterwards is still received and recorded in [commands], tag stripped exactly as the serve
+     * loop records it — that is the witness of a client still talking to a server that has already
+     * gone (the `DONE` of an IDLE, the `LOGOUT` of a close). ⛔ Tag stripped and not verbatim for a
+     * reason: [issued] hides credentials by matching `LOGIN` at the START of the line, and a line
+     * kept as `a1 LOGIN tester secret` would walk straight past that filter into a failure message.
+     * Wait for these lines with [awaitDone].
+     */
+    private val cutAfter: (String) -> List<String>? = { null },
+    /**
+     * The silence between the last line [cutAfter] writes and the half-close: the server that
+     * answers `+ idling`, says nothing for a while, and only then goes away. Without it the EOF
+     * treads on the heels of the continuation and the client is never actually parked in a read,
+     * which is the state the IDLE defect lives in.
+     */
+    private val cutDelayMs: Long = 0,
+    /**
+     * ⛔ LAST on purpose, and it must stay last: every existing call site writes
+     * `FakeImapServer { tag, line -> … }`, and a trailing lambda binds to the LAST parameter.
+     * Moving it up compiles nowhere.
+     */
     private val responder: (tag: String, line: String) -> String,
 ) : Closeable {
 
@@ -31,11 +65,20 @@ internal class FakeImapServer(
         password = "secret",
     )
 
+    /**
+     * The accepted connection, so [close] can end it. Interrupting the serving thread does NOT
+     * unblock a socket read, and a cut session spends its last seconds in one.
+     */
+    @Volatile
+    private var accepted: java.net.Socket? = null
+
     private val thread = Thread(::serve, "fake-imap").apply { isDaemon = true; start() }
 
+    @Suppress("LongMethod", "CyclomaticComplexMethod")
     private fun serve() {
         runCatching {
             server.accept().use { socket ->
+                accepted = socket
                 // Asymmetric on purpose. READING is UTF-8 because that is what the client writes
                 // (a `UID SEARCH CHARSET UTF-8 SUBJECT "école"` really does go out as UTF-8, and
                 // a test asserts on that line as text). WRITING is ISO-8859-1 so a scripted
@@ -46,6 +89,28 @@ internal class FakeImapServer(
                 // non-ASCII character in a response (the Cyrillic ones travel in modified UTF-7).
                 val reader = BufferedReader(InputStreamReader(socket.inputStream, Charsets.UTF_8))
                 val writer = OutputStreamWriter(socket.outputStream, Charsets.ISO_8859_1)
+
+                /**
+                 * Honour [cutAfter] for [trigger]: write the partial response, go quiet for
+                 * [cutDelayMs], half-close, then keep recording whatever the client still writes
+                 * until it goes quiet ([QUIET_MS]) or closes. True when the session was cut and
+                 * the serve loop must end.
+                 */
+                fun cut(trigger: String): Boolean {
+                    val partial = cutAfter(trigger) ?: return false
+                    partial.forEach { writer.write("$it\r\n") }
+                    writer.flush()
+                    if (cutDelayMs > 0) Thread.sleep(cutDelayMs)
+                    runCatching { socket.shutdownOutput() }
+                    runCatching { socket.soTimeout = QUIET_MS }
+                    while (true) {
+                        val after = runCatching { reader.readLine() }.getOrNull() ?: break
+                        commands.add(after.substringAfter(' ')) // tag stripped, as above: see [cutAfter]
+                    }
+                    return true
+                }
+
+                if (cut(GREETING)) return@use
                 writer.write("* OK fake IMAP ready\r\n")
                 writer.flush()
                 while (true) {
@@ -53,6 +118,7 @@ internal class FakeImapServer(
                     val tag = raw.substringBefore(' ')
                     val line = raw.substringAfter(' ')
                     commands.add(line)
+                    if (cut(line)) break
                     writer.write(responder(tag, line))
                     writer.flush()
                     if (line.startsWith("LOGOUT")) break
@@ -67,9 +133,35 @@ internal class FakeImapServer(
     /** Command lines received so far, excluding the LOGIN (whose arguments are credentials). */
     fun issued(): List<String> = commands.toList().filterNot { it.startsWith("LOGIN") }
 
+    /**
+     * Block until the served connection is finished. After a cut this is what makes an assertion
+     * on [commands] race-free: the client keeps writing for a moment after the EOF, and a test
+     * that read the list before the server had taken those lines in would call that silence a pass.
+     *
+     * A join that merely EXPIRES would hand the test a list still being mutated, silently: fail.
+     */
+    fun awaitDone(timeoutMs: Long = 10_000) {
+        thread.join(timeoutMs)
+        check(!thread.isAlive) {
+            "the fake server was still serving after ${timeoutMs}ms — the assertions below would " +
+                "have read a list still being written; commands so far: ${commands.toList()}"
+        }
+    }
+
     override fun close() {
         runCatching { server.close() }
+        // The accepted socket too: closing the LISTENING socket leaves an established connection
+        // untouched, and a cut session's serving thread is parked on a read of it.
+        runCatching { accepted?.close() }
         thread.interrupt()
+    }
+
+    companion object {
+        /** [cutAfter] trigger for the server banner, which no command of the client precedes. */
+        const val GREETING = "<greeting>"
+
+        /** How long a cut connection keeps listening for a client that has not noticed yet. */
+        private const val QUIET_MS = 1_500
     }
 }
 

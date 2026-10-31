@@ -2,9 +2,12 @@ package app.gridlink.core.imap
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayInputStream
+import java.io.InputStream
+import java.io.SequenceInputStream
 
 class ImapParserTest {
     private fun parse(raw: String): List<Any?> =
@@ -100,16 +103,95 @@ class ImapParserTest {
         assertEquals("é日", String(literal.toByteArray(Charsets.ISO_8859_1), Charsets.UTF_8))
     }
 
+    /**
+     * A hostile server announces a literal past [MAX_LITERAL]. The parser must REFUSE IT WITHOUT
+     * ALLOCATING IT, drain it, and LEAVE THE STREAM IN PHASE — the next response must still be
+     * readable, or one absurd `{n}` desynchronises the connection for good.
+     *
+     * The stream deliberately does NOT end here: the oversize data is GENERATED as it is read (a
+     * 33 MiB array in the fixture would be the very allocation under test), the response closes
+     * normally, and another response follows. So the end-of-stream guard of #156 is out of scope,
+     * and what is asserted is the old contract, whole: empty section, connection still in sync.
+     *
+     * The non-allocation witness is that this test TERMINATES: a parser that buffered the
+     * announced size would die of OutOfMemoryError before reaching any assertion.
+     */
     @Test
     fun oversizeLiteralIsRefusedNotAllocated() {
-        // A hostile server announces a 2 GB literal. The parser must not allocate it; it
-        // returns the section as empty and stays in sync (no OOM, no crash).
-        val r = parse("* 1 FETCH (BODY[] {2000000000}\r\nignored)\r\n")
+        // One byte past the parser's 32 MiB cap. The cap is a private const, so the figure is
+        // written out here: raising it must break this test, which is the point.
+        val declared = 32 * 1024 * 1024 + 1
+        val parser = ImapParser(
+            streamOf(
+                "* 1 FETCH (BODY[] {$declared}\r\n",
+                generated(declared),
+                ")\r\n* 2 OK still in sync\r\n",
+            ),
+        )
+
+        val r = parser.readResponse()
+
         @Suppress("UNCHECKED_CAST")
         val args = r[3] as List<Any?>
         assertEquals("BODY[]", args[0])
         assertEquals("", args[1])
+        // The half that was worth as much as the refusal: the drain stopped exactly at the end of
+        // the announced data, so the response after it is still there.
+        assertEquals(listOf("*", "2", "OK", "still", "in", "sync"), parser.readResponse())
     }
+
+    /**
+     * The other half of [MAX_LITERAL]: what is UNDER the cap comes back WHOLE. 100 000 bytes is a
+     * plain message body, and it is the only assertion that fails if the cap is lowered — an
+     * oversize fixture stays "oversize" whatever the cap becomes, so it can never see that.
+     */
+    @Test
+    fun literalUnderTheCapComesBackWhole() {
+        val size = 100_000
+        val parser = ImapParser(streamOf("* 1 FETCH (BODY[] {$size}\r\n", generated(size), ")\r\n"))
+
+        @Suppress("UNCHECKED_CAST")
+        val args = parser.readResponse()[3] as List<Any?>
+
+        assertEquals(size, (args[1] as String).length)
+    }
+
+    /** And an oversize literal the peer never finishes sending is the #156 case: it throws. */
+    @Test
+    fun oversizeLiteralFollowedByAClosedPeerThrows() {
+        val raw = "* 1 FETCH (BODY[] {2000000000}\r\nignored)\r\n".toByteArray(Charsets.UTF_8)
+
+        val error = assertThrows(ImapException::class.java) {
+            ImapParser(ByteArrayInputStream(raw)).readResponse()
+        }
+
+        assertEquals("Connection closed", error.message)
+    }
+
+    /** `size` bytes of `x`, made up as they are read — never held anywhere. */
+    private fun generated(size: Int): InputStream = object : InputStream() {
+        private var left = size
+        override fun read(): Int = if (left-- > 0) 'x'.code else -1
+        override fun read(b: ByteArray, off: Int, len: Int): Int {
+            if (left <= 0) return -1
+            val n = minOf(len, left)
+            java.util.Arrays.fill(b, off, off + n, 'x'.code.toByte())
+            left -= n
+            return n
+        }
+    }
+
+    /** Head, body, tail as one stream, the head and tail written as text. */
+    private fun streamOf(head: String, body: InputStream, tail: String): InputStream =
+        SequenceInputStream(
+            java.util.Collections.enumeration(
+                listOf(
+                    ByteArrayInputStream(head.toByteArray(Charsets.ISO_8859_1)),
+                    body,
+                    ByteArrayInputStream(tail.toByteArray(Charsets.ISO_8859_1)),
+                ),
+            ),
+        )
 
     @Test
     fun parsesNestedEnvelopeAddresses() {
@@ -161,5 +243,12 @@ class ImapParserTest {
 
         assertEquals(hostile, firstFrom[2])
         assertEquals("example.com", firstFrom[3])
+    }
+
+    /** A stray `)` carries nothing: it is consumed, so the parser moves on rather than rereading it. */
+    @Test(timeout = 5_000)
+    fun aStrayClosingParenthesisDoesNotStopTheParser() {
+        val parser = ImapParser(ByteArrayInputStream(") * 1 EXISTS\r\n".toByteArray(Charsets.UTF_8)))
+        assertEquals(listOf("*", "1", "EXISTS"), parser.readResponse())
     }
 }

@@ -46,15 +46,36 @@ internal class ImapParser(private val input: InputStream) {
      * discarded as they go, and an atom past the cap is skipped byte by byte without ever being
      * built. A `UID SEARCH` over a 200 000-message folder otherwise materialises 200 000 boxed
      * atoms before the caller can throw the surplus away, on devices as old as an S7 (#99).
+     *
+     * ⛔ THE END OF THE STREAM IS A FAILURE, NOT AN ANSWER (#156). `-1` used to return `tokens`
+     * like the two line endings do, so a closed peer and a blank line both came back as
+     * `emptyList()` and no caller could tell them apart — not by a field, not by a nullable, not
+     * by an exception. The `while (true)` loops of [ImapSession] then re-read a finished stream
+     * forever: two accounts in IDLE burned a core each, 419 mAh, the SoC at 91 °C. So EOF throws,
+     * here and only here, which is the guard no caller can forget; `socket.isClosed` cannot state
+     * it (it means "WE closed"), and a read timeout cannot either (a closed peer answers `-1` at
+     * once — it is not mute).
+     *
+     * ⭐ A blank line stays a blank line: a lone CRLF still returns `emptyList()`. Two cases are
+     * separated here, neither is removed.
+     *
+     * ⭐ No sub-reader guards EOF itself. None of them loops on `-1` — each returns what it has —
+     * and their partial result always comes back through this loop, which sees the `-1` on the
+     * next turn and throws before anything truncated reaches a caller.
+     *
+     * @throws ImapException when the peer has closed, wherever the EOF falls: at the start of a
+     *   line, or inside a list, a quoted string or a literal.
      */
     fun readResponse(maxTokens: Int = Int.MAX_VALUE): List<Any?> {
         val tokens = mutableListOf<Any?>()
         while (true) {
             when (peek()) {
-                -1 -> return tokens
+                -1 -> throw ImapException("Connection closed")
                 '\r'.code -> { read(); if (peek() == '\n'.code) read(); return tokens }
                 '\n'.code -> { read(); return tokens }
                 ' '.code -> read()
+                // `readAtom` returns on `)` without consuming it: the loop would turn forever.
+                ')'.code -> read()
                 else -> if (tokens.size < maxTokens) tokens.add(readToken()) else skipToken()
             }
         }
