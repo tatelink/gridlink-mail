@@ -496,14 +496,15 @@
     <string name="settings_clear_account_cache">Vaciar la caché de esta cuenta</string>
     <string name="settings_pgp_section">Cifrado OpenPGP</string>
     <string name="settings_pgp_enable_title">Usar OpenPGP</string>
-    <string name="settings_pgp_enable_subtitle">Firmar, cifrar y leer mensajes con OpenKeychain</string>
+    <string name="settings_pgp_enable_subtitle">Firmar, cifrar y leer mensajes con %1$s</string>
+    <string name="settings_pgp_provider_title">Aplicación OpenPGP</string>
     <string name="settings_pgp_key_title">Tu ID de clave</string>
     <string name="settings_pgp_key_none">Ninguna clave seleccionada</string>
     <string name="settings_pgp_choose_key">Elegir clave</string>
     <string name="settings_pgp_encrypt_default_title">Cifrar por defecto</string>
     <string name="settings_pgp_encrypt_default_subtitle">Los mensajes nuevos empiezan cifrados cuando todos los destinatarios tienen clave, y sin cifrar si falta alguna</string>
-    <string name="settings_pgp_missing_help">Gridlink usa la aplicación OpenKeychain para gestionar claves y cifrar mensajes. Instálala para activar OpenPGP.</string>
-    <string name="settings_pgp_provider_required">Sin efecto: se necesita OpenKeychain</string>
+    <string name="settings_pgp_missing_help">Gridlink usa una aplicación OpenPGP para gestionar claves y cifrar mensajes. Instala una para activar OpenPGP.</string>
+    <string name="settings_pgp_provider_required">Sin efecto: se necesita una aplicación OpenPGP</string>
     <string name="settings_pgp_install">Obtener OpenKeychain</string>
     <string name="settings_pgp_error">Error del proveedor OpenPGP</string>
     <string name="message_pgp_encrypted_title">Mensaje cifrado</string>
@@ -511,7 +512,7 @@
     <string name="message_pgp_unlock">Desbloquear</string>
     <string name="message_pgp_verify">Verificar</string>
     <string name="message_pgp_decrypted">Mensaje cifrado</string>
-    <string name="message_pgp_no_provider">OpenKeychain no está instalado</string>
+    <string name="message_pgp_no_provider">No hay ninguna aplicación OpenPGP instalada</string>
     <string name="message_pgp_sig_valid">Firma válida de %1$s</string>
     <string name="message_pgp_sig_unconfirmed">Firma de una clave sin confirmar (%1$s)</string>
     <string name="message_pgp_sig_missing_key">No se puede comprobar la firma (clave no disponible)</string>

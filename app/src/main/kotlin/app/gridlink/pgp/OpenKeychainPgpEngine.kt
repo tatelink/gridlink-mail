@@ -7,10 +7,9 @@ import app.gridlink.core.data.pgp.PgpEngine
 import app.gridlink.core.data.pgp.PgpResult
 import app.gridlink.core.data.pgp.PgpSignature
 import app.gridlink.core.data.pgp.PgpSignatureState
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
-import kotlin.coroutines.resume
+import app.gridlink.core.data.settings.SettingsRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -22,31 +21,40 @@ import org.openintents.openpgp.OpenPgpError
 import org.openintents.openpgp.OpenPgpSignatureResult
 import org.openintents.openpgp.util.OpenPgpApi
 import org.openintents.openpgp.util.OpenPgpServiceConnection
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import kotlin.coroutines.resume
 
 /**
- * [PgpEngine] backed by the OpenKeychain app over the openpgp-api bound service.
+ * [PgpEngine] backed by an installed OpenPGP provider over the openpgp-api bound service; which
+ * package that is comes from [PgpProviders], the only place naming any.
  * Binds lazily on first use and keeps the connection for the process lifetime.
  * All calls run on IO; OpenKeychain's own UI (passphrase, key chooser) surfaces
  * as [PgpResult.UserInteractionRequired] per the openpgp-api contract.
  */
-class OpenKeychainPgpEngine(context: Context) : PgpEngine {
+class OpenKeychainPgpEngine(
+    context: Context,
+    private val settings: SettingsRepository,
+) : PgpEngine {
 
     private val appContext = context.applicationContext
     private val bindMutex = Mutex()
     private var connection: OpenPgpServiceConnection? = null
 
-    private fun providerInstalled(): Boolean = PROVIDERS.any { pkg ->
-        runCatching { appContext.packageManager.getPackageInfo(pkg, 0) }.isSuccess
-    }
+    /** The package [connection] is bound to; null when nothing is bound. Reused connections are
+     *  only ever reused for THIS package — see [PgpProviders.bindingReusable]. */
+    private var boundPackage: String? = null
 
-    private fun installedProvider(): String? = PROVIDERS.firstOrNull { pkg ->
-        runCatching { appContext.packageManager.getPackageInfo(pkg, 0) }.isSuccess
-    }
-
-    /** Bind (once) and return the service, or null when unavailable. */
+    /** Bind (once per provider) and return the service, or null when unavailable. */
     private suspend fun service(): IOpenPgpService2? = bindMutex.withLock {
+        val chosen = settings.pgpProvider.first()
+        val pkg = PgpProviders.resolve(PgpProviders.installed(appContext), chosen) ?: return null
+        if (!PgpProviders.bindingReusable(boundPackage, pkg)) {
+            connection?.unbindFromService()
+            connection = null
+            boundPackage = null
+        }
         connection?.takeIf { it.isBound }?.let { return it.service }
-        val pkg = installedProvider() ?: return null
         val bound = withTimeoutOrNull(BIND_TIMEOUT_MS) {
             suspendCancellableCoroutine { cont ->
                 val conn = OpenPgpServiceConnection(
@@ -63,15 +71,24 @@ class OpenKeychainPgpEngine(context: Context) : PgpEngine {
                     },
                 )
                 connection = conn
+                boundPackage = pkg
                 conn.bindToService()
             }
         }
-        if (bound == null) connection = null
+        // boundPackage describes connection, so it goes when connection goes: leaving it naming a
+        // package that was never bound makes the reuse guard reason on a binding that never was.
+        if (bound == null) {
+            connection = null
+            boundPackage = null
+        }
         bound
     }
 
+    // The bind attempt IS the availability test. There used to be a package-manager probe in front
+    // of it, over a literal list of OpenKeychain packages: it answered false on a device whose
+    // provider was something else, while service() would happily have bound it.
     override suspend fun isAvailable(): Boolean =
-        providerInstalled() && withContext(Dispatchers.IO) { service() != null }
+        withContext(Dispatchers.IO) { service() != null }
 
     /** Run [intent] through the provider, streaming [input] in and collecting output. */
     private suspend fun execute(
@@ -242,10 +259,6 @@ class OpenKeychainPgpEngine(context: Context) : PgpEngine {
     }
 
     private companion object {
-        val PROVIDERS = listOf(
-            "org.sufficientlysecure.keychain",
-            "org.sufficientlysecure.keychain.debug",
-        )
         const val BIND_TIMEOUT_MS = 5_000L
     }
 }

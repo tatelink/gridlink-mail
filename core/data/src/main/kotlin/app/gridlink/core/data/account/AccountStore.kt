@@ -586,6 +586,16 @@ class AccountStore(context: Context) {
         )
     }
 
+    /**
+     * Drop the stored OpenPGP signing key of EVERY account, keeping their other PGP settings.
+     * Called when the user switches OpenPGP app: see [withoutPgpSignKeys] for why all of them and
+     * why only the key.
+     */
+    @Synchronized
+    fun clearPgpSignKeys() {
+        saveAccounts(withoutPgpSignKeys(accounts()))
+    }
+
     /** Remove an account; if it was current, fall back to another (or none). */
     @Synchronized
     fun remove(id: String) {

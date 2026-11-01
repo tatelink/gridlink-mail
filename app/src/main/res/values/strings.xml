@@ -616,14 +616,15 @@
     <string name="settings_clear_account_cache">Clear this account\'s cache</string>
     <string name="settings_pgp_section">OpenPGP encryption</string>
     <string name="settings_pgp_enable_title">Use OpenPGP</string>
-    <string name="settings_pgp_enable_subtitle">Sign, encrypt and read mail with OpenKeychain</string>
+    <string name="settings_pgp_enable_subtitle">Sign, encrypt and read mail with %1$s</string>
+    <string name="settings_pgp_provider_title">OpenPGP app</string>
     <string name="settings_pgp_key_title">Your Key ID</string>
     <string name="settings_pgp_key_none">No key selected</string>
     <string name="settings_pgp_choose_key">Choose key</string>
     <string name="settings_pgp_encrypt_default_title">Encrypt by default</string>
     <string name="settings_pgp_encrypt_default_subtitle">New messages start encrypted when every recipient has a key, and unencrypted when one is missing</string>
-    <string name="settings_pgp_missing_help">Gridlink uses the OpenKeychain app to manage keys and encrypt messages. Install it to enable OpenPGP.</string>
-    <string name="settings_pgp_provider_required">Not in effect: OpenKeychain required</string>
+    <string name="settings_pgp_missing_help">Gridlink uses an OpenPGP app to manage keys and encrypt messages. Install one to enable OpenPGP.</string>
+    <string name="settings_pgp_provider_required">Not in effect: an OpenPGP app is required</string>
     <string name="settings_pgp_install">Get OpenKeychain</string>
     <string name="settings_pgp_error">OpenPGP provider error</string>
     <string name="message_pgp_encrypted_title">Encrypted message</string>
@@ -631,7 +632,7 @@
     <string name="message_pgp_unlock">Unlock</string>
     <string name="message_pgp_verify">Verify</string>
     <string name="message_pgp_decrypted">Encrypted message</string>
-    <string name="message_pgp_no_provider">OpenKeychain is not installed</string>
+    <string name="message_pgp_no_provider">No OpenPGP app installed</string>
     <string name="message_pgp_sig_valid">Valid signature from %1$s</string>
     <string name="message_pgp_sig_unconfirmed">Signature from an unconfirmed key (%1$s)</string>
     <string name="message_pgp_sig_missing_key">Signature can\'t be checked (key not available)</string>

@@ -176,6 +176,7 @@ import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.openintents.openpgp.util.OpenPgpProviderUtil
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -2766,6 +2767,8 @@ private fun PgpAccountSection(
     val leaveOnce = rememberLeaveOnce()
     val pgpAvailable by viewModel.pgpAvailable.collectAsStateWithLifecycle()
     val pgpSetup by viewModel.pgpSetup.collectAsStateWithLifecycle()
+    val pgpProviders by viewModel.pgpProviders.collectAsStateWithLifecycle()
+    val pgpProviderInUse by viewModel.pgpProviderInUse.collectAsStateWithLifecycle()
     // Observe the LIVE account so the switches/key reflect changes made by the
     // async key chooser and setPgp; the passed-in [account] is a one-shot snapshot.
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
@@ -2801,15 +2804,43 @@ private fun PgpAccountSection(
         // OFF (#35). Without a provider they only allow turning things off.
     }
 
+    // Only when there is something to pick. With one provider it is taken without being asked
+    // about, and a row offering a choice of one is noise; with none, the explainer above already
+    // says what to do (#151).
+    //
+    // ⛔ No fallback for a null provider-in-use, deliberately: `?: pgpProviders.first()` would
+    // name and tick a provider chosen by the sort order while the engine binds another one, which
+    // is the row saying something false. The two states are published together, so a null here
+    // means nothing is resolved yet; showing no row at all until then is the honest answer.
+    val pgpInUse = pgpProviderInUse
+    if (pgpProviders.size >= 2 && pgpInUse != null) {
+        SettingChoiceRow(
+            title = stringResource(R.string.settings_pgp_provider_title),
+            options = pgpProviders,
+            selected = pgpInUse,
+            optionLabel = { pkg -> pgpProviderLabel(context, pkg) },
+            onSelect = { viewModel.setPgpProvider(it) },
+        )
+    }
+
+    // ⛔ REMEMBERED ON THE PACKAGE. Reading a provider's own name is a package-manager query plus
+    // the loading of a third-party APK's resources; called bare in the subtitle below it would run
+    // on the main thread on EVERY recomposition, where the same query is deliberately kept off it
+    // in the view model. Keyed on the package, it costs one query per change of provider.
+    val pgpInUseLabel = remember(pgpInUse) { pgpInUse?.let { pgpProviderLabel(context, it) } }
+
     SettingSwitch(
         title = stringResource(R.string.settings_pgp_enable_title),
-        subtitle = stringResource(
-            if (pgpAvailable) {
-                R.string.settings_pgp_enable_subtitle
-            } else {
-                R.string.settings_pgp_provider_required
-            },
-        ),
+        // The provider row appears only from two installed apps on, so with a single one this
+        // subtitle is the only place the app in use is named — hence the argument (#151).
+        subtitle = if (pgpAvailable) {
+            stringResource(
+                R.string.settings_pgp_enable_subtitle,
+                pgpSubtitleProviderName(pgpInUseLabel),
+            )
+        } else {
+            stringResource(R.string.settings_pgp_provider_required)
+        },
         checked = liveAccount.pgpEnabled,
         enabled = pgpAvailable || liveAccount.pgpEnabled,
         onCheckedChange = { enabled ->
@@ -2873,7 +2904,49 @@ private fun PgpAccountSection(
     }
 }
 
-private const val OPENKEYCHAIN_FDROID_URL =
+/**
+ * The OpenPGP app's own name, as it calls itself in the launcher, decided by
+ * [pgpProviderDisplayName] — a package-manager round trip, so call it through a `remember`.
+ */
+private fun pgpProviderLabel(context: Context, packageName: String): String =
+    pgpProviderDisplayName(
+        OpenPgpProviderUtil.getOpenPgpProviderName(context.packageManager, packageName),
+        packageName,
+    )
+
+/**
+ * ⛔ THE FALLBACK THAT ACTUALLY SHIPS. What an OpenPGP app is called on screen — in the provider
+ * row and in the "Use OpenPGP" subtitle — when it declares no name of its own.
+ *
+ * The answer is its PACKAGE NAME. "Sign, encrypt and read mail with org.sufficientlysecure.keychain"
+ * is ugly, and it is TRUE: it is the app that is bound, named by its only other name, which is what
+ * the system itself falls back to. ⛔ Never a hard-coded app name here — `?: "OpenKeychain"` would
+ * put one particular app back onto the screen of someone signing with another one, which is the
+ * whole defect this change removes (#151), and it would look like a tidy-up.
+ */
+internal fun pgpProviderDisplayName(declaredName: String?, packageName: String): String =
+    declaredName ?: packageName
+
+/**
+ * What the "Use OpenPGP" subtitle says mail is signed, encrypted and read WITH. The row of
+ * providers only appears from two installed apps on, so with a single one this subtitle is the
+ * only place on screen that names the app actually in use (#151).
+ *
+ * ⚠ [label] IS NEVER NULL IN PRODUCTION, and this function's own fallback therefore guards a state
+ * the app does not produce: `pgpProviderLabel` always returns something (see
+ * [pgpProviderDisplayName]), and `refreshPgpAvailable` publishes the provider in use together with
+ * `pgpAvailable`, which is what gates this branch. It exists because the type is nullable and an
+ * answer is owed; "OpenPGP" names the standard, which stays true whichever app is bound. The
+ * fallback that readers actually meet is the one above, not this one.
+ */
+internal fun pgpSubtitleProviderName(label: String?): String = label ?: "OpenPGP"
+
+/**
+ * ⛔ HELD TOGETHER WITH `settings_pgp_install`, which names OpenKeychain in all nine languages.
+ * The button is allowed to name one app precisely because it opens that app's page; change either
+ * side alone and the button promises one thing and delivers another.
+ */
+internal const val OPENKEYCHAIN_FDROID_URL =
     "https://f-droid.org/packages/org.sufficientlysecure.keychain/"
 
 /**

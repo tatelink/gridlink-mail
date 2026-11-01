@@ -498,14 +498,15 @@
     <string name="settings_clear_account_cache">Очистить кеш этого аккаунта</string>
     <string name="settings_pgp_section">Шифрование OpenPGP</string>
     <string name="settings_pgp_enable_title">Использовать OpenPGP</string>
-    <string name="settings_pgp_enable_subtitle">Подписывать, шифровать и читать письма через OpenKeychain</string>
+    <string name="settings_pgp_enable_subtitle">Подписывать, шифровать и читать письма через %1$s</string>
+    <string name="settings_pgp_provider_title">Приложение OpenPGP</string>
     <string name="settings_pgp_key_title">Ваш идентификатор ключа</string>
     <string name="settings_pgp_key_none">Ключ не выбран</string>
     <string name="settings_pgp_choose_key">Выбрать ключ</string>
     <string name="settings_pgp_encrypt_default_title">Шифровать по умолчанию</string>
     <string name="settings_pgp_encrypt_default_subtitle">Новые письма начинаются зашифрованными, когда у каждого получателя есть ключ, и незашифрованными, если ключа нет</string>
-    <string name="settings_pgp_missing_help">Gridlink использует приложение OpenKeychain для управления ключами и шифрования писем. Установите его, чтобы включить OpenPGP.</string>
-    <string name="settings_pgp_provider_required">Не действует: требуется OpenKeychain</string>
+    <string name="settings_pgp_missing_help">Gridlink использует стороннее приложение OpenPGP для управления ключами и шифрования писем. Установите такое приложение, чтобы включить OpenPGP.</string>
+    <string name="settings_pgp_provider_required">Не действует: требуется приложение OpenPGP</string>
     <string name="settings_pgp_install">Установить OpenKeychain</string>
     <string name="settings_pgp_error">Ошибка провайдера OpenPGP</string>
     <string name="message_pgp_encrypted_title">Зашифрованное письмо</string>
@@ -513,7 +514,7 @@
     <string name="message_pgp_unlock">Расшифровать</string>
     <string name="message_pgp_verify">Проверить</string>
     <string name="message_pgp_decrypted">Зашифрованное письмо</string>
-    <string name="message_pgp_no_provider">OpenKeychain не установлен</string>
+    <string name="message_pgp_no_provider">Приложение OpenPGP не установлено</string>
     <string name="message_pgp_sig_valid">Действительная подпись от %1$s</string>
     <string name="message_pgp_sig_unconfirmed">Подпись неподтверждённого ключа (%1$s)</string>
     <string name="message_pgp_sig_missing_key">Подпись нельзя проверить (ключ недоступен)</string>

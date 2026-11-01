@@ -451,6 +451,20 @@ class SettingsRepository(
         dataStore.edit { it[KEY_SIGNATURE_DELIMITER] = enabled }
     }
 
+    /** The OpenPGP app the user picked, by package name; `null` = no choice expressed, which is
+     *  every user upgrading into this build (#151). null is NOT "no provider": it means the app
+     *  decides, and the decision is `PgpProviders.resolve`. Only ever set from the Settings row
+     *  that appears when two or more providers are installed — with one, there is nothing to pick.
+     *
+     *  ⛔ Deliberately absent from [SettingsBackup]: a package name is a fact about ONE device.
+     *  Restored onto a phone that does not have that app, it would name a provider that cannot be
+     *  bound, and the honest answer there is to let discovery decide again. */
+    val pgpProvider: Flow<String?> = dataStore.data.map { it[KEY_PGP_PROVIDER] }
+
+    suspend fun setPgpProvider(packageName: String) {
+        dataStore.edit { it[KEY_PGP_PROVIDER] = packageName }
+    }
+
     /** Reading text size for the message body. */
     val messageTextSize: Flow<MessageTextSize> = dataStore.data.map { prefs ->
         prefs[KEY_MESSAGE_TEXT_SIZE]?.let { runCatching { MessageTextSize.valueOf(it) }.getOrNull() }
@@ -860,6 +874,7 @@ class SettingsRepository(
         private val KEY_SIGNATURE_ON_REPLIES = booleanPreferencesKey("signature_on_replies")
         private val KEY_SIGNATURE_BELOW_QUOTE = booleanPreferencesKey("signature_below_quote")
         private val KEY_SIGNATURE_DELIMITER = booleanPreferencesKey("signature_delimiter")
+        private val KEY_PGP_PROVIDER = stringPreferencesKey("pgp_provider")
         private val KEY_MESSAGE_TEXT_SIZE = stringPreferencesKey("message_text_size")
         private val KEY_CONTACT_SUGGESTIONS = booleanPreferencesKey("contact_suggestions")
         private val KEY_SYSTEM_ACCOUNT_MIRROR = booleanPreferencesKey("system_account_mirror")

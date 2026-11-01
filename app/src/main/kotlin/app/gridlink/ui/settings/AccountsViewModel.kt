@@ -17,17 +17,21 @@ import app.gridlink.core.data.account.SyncWindow
 import app.gridlink.core.data.mail.OAuthDeniedException
 import app.gridlink.core.data.mail.OAuthProvider
 import app.gridlink.core.data.pgp.PgpResult
+import app.gridlink.pgp.PgpProviders
 import app.gridlink.push.NewMailNotifier
 import app.gridlink.push.PushController
 import app.gridlink.ui.connect.oauthFailureMessage
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Backs the Accounts list and per-account detail screens in Settings. */
 class AccountsViewModel(application: Application) : AndroidViewModel(application) {
@@ -316,8 +320,68 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
     private val _pgpSetup = MutableStateFlow<PgpSetup>(PgpSetup.Idle)
     val pgpSetup = _pgpSetup.asStateFlow()
 
+    /** The OpenPGP apps installed right now. Refreshed on entering the screen, never cached for
+     *  the process lifetime: providers are installed and removed while the app lives. */
+    private val _pgpProviders = MutableStateFlow<List<String>>(emptyList())
+    val pgpProviders = _pgpProviders.asStateFlow()
+
+    /** The one Gridlink will actually bind — the stored choice while it is still installed, the
+     *  default otherwise ([PgpProviders.resolve]). It is what the row must show: naming the stored
+     *  choice instead would keep printing an app that was uninstalled. */
+    private val _pgpProviderInUse = MutableStateFlow<String?>(null)
+    val pgpProviderInUse = _pgpProviderInUse.asStateFlow()
+
+    /**
+     * ⛔ Both values are computed FIRST and published together, with no suspension between the two
+     * assignments. Publishing the list before resolving the choice opens a frame where the row is
+     * drawn (two providers) with nothing in use — and a tap in that frame used to read "in use =
+     * nothing", which is not a provider anyone can be switching away from.
+     *
+     * ⛔ The package-manager query runs on IO: `queryIntentServices` is a binder round trip to
+     * `system_server`, and `viewModelScope` is the main thread.
+     *
+     * ⭐ The last line writes down the provider in use when nothing was written down yet, so a
+     * device with a single OpenPGP app does not silently change provider the day a second one is
+     * installed ([PgpProviders.providerToPin]). It settles after one pass — the second visit finds
+     * a stored value and writes nothing — and it clears no signing key: the provider it records is
+     * the one already in use, which is not a switch of keyring.
+     */
     fun refreshPgpAvailable() {
-        viewModelScope.launch { _pgpAvailable.value = pgp.isAvailable() }
+        viewModelScope.launch {
+            val installed = withContext(Dispatchers.IO) { PgpProviders.installed(getApplication()) }
+            val stored = settings.pgpProvider.first()
+            val inUse = PgpProviders.resolve(installed, stored)
+            _pgpProviders.value = installed
+            _pgpProviderInUse.value = inUse
+            _pgpAvailable.value = pgp.isAvailable()
+            PgpProviders.providerToPin(stored, inUse)?.let { settings.setPgpProvider(it) }
+        }
+    }
+
+    /**
+     * Persist [packageName] as the OpenPGP app to use, and — only when that is a real switch of
+     * keyring ([PgpProviders.switchErasesKeys]) — drop every account's signing key.
+     *
+     * ⛔ What is in use is re-read HERE, from storage, never taken from [_pgpProviderInUse]: that
+     * one is screen state, and a tap can land before it holds anything. Reading it would then say
+     * "nothing in use", and the keys of every account would be destroyed for a choice that changed
+     * nothing.
+     *
+     * ⭐ The choice is written BEFORE the keys are cleared (WYSIWYG): between the two writes what
+     * the screen shows must already be what the app uses, never the reverse.
+     */
+    fun setPgpProvider(packageName: String) {
+        viewModelScope.launch {
+            val installed = withContext(Dispatchers.IO) { PgpProviders.installed(getApplication()) }
+            val inUse = PgpProviders.resolve(installed, settings.pgpProvider.first())
+            settings.setPgpProvider(packageName)
+            _pgpProviderInUse.value = packageName
+            if (PgpProviders.switchErasesKeys(inUse, packageName)) {
+                store.clearPgpSignKeys()
+                refresh()
+            }
+            _pgpAvailable.value = pgp.isAvailable()
+        }
     }
 
     fun clearPgpSetup() { _pgpSetup.value = PgpSetup.Idle }
