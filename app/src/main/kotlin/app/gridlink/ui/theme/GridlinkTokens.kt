@@ -624,7 +624,8 @@ private fun gridlinkDarkPreset(
     textSecondary = secondary,
     accent = accent,
     onAccent = onAccent,
-    accentWarm = attention,
+    // The compose button. Night's gold would sit beside this accent as a second theme colour.
+    accentWarm = accent,
     onAccentWarm = onAccent,
     attention = attention,
     caution = attention,
@@ -714,6 +715,8 @@ val GridlinkSandColors: GridlinkColors by lazy {
         textSecondary = Color(0xFF5F4F3D),
         accent = accent,
         onAccent = Color(0xFFFFFFFF),
+        accentWarm = accent,
+        onAccentWarm = Color(0xFFFFFFFF),
         attention = Color(0xFFA53A12),
         caution = Color(0xFFA53A12),
         selection = accent.copy(alpha = 0.14f),
