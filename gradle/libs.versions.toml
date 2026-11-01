@@ -4,7 +4,7 @@
 # Bumping any one of the four alone fails the build, so a Dependabot PR that touches one is either
 # taken with the rest or closed.
 # ⛔ androidx core-ktx stays at 1.15.0: 1.19 wants AGP 9.1 and compileSdk 37, which is its own job.
-agp = "8.13.2"
+agp = "9.5.0"
 kotlin = "2.4.10"
 coreKtx = "1.15.0"
 lifecycle = "2.8.7"

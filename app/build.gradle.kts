@@ -19,7 +19,7 @@ val testApp = providers.gradleProperty("testApp").isPresent
 
 android {
     namespace = "app.gridlink"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "app.gridlink"
@@ -170,6 +170,7 @@ android {
     }
 
     buildFeatures {
+        resValues = true
         compose = true
         buildConfig = true
     }
