@@ -42,7 +42,7 @@ class SystemBarsAppearanceTest {
     }
 
     /** Exactly one rung paints light. A new rung must make a deliberate choice, not inherit one. */
-    @Test fun dayIsTheOnlyLightSurface() {
-        assertEquals(listOf(GridlinkMode.DAY), GridlinkMode.entries.filter { it.isLightSurface })
+    @Test fun dayAndSandAreTheOnlyLightSurfaces() {
+        assertEquals(listOf(GridlinkMode.DAY, GridlinkMode.SAND), GridlinkMode.entries.filter { it.isLightSurface })
     }
 }
