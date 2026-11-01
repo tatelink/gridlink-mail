@@ -1,0 +1,9 @@
+Gridlink Mail 2.1.0.
+
+- Filter rules now work on IMAP accounts, on servers with ManageSieve.
+- Fixes a battery drain when an IMAP server dropped the connection.
+- Switch accounts by tapping the address at the top of the menu.
+- New colour presets in the menu: Graphite, Deep Blue, Ember, Forest and Sand.
+- Set how see-through the home-screen widgets are.
+- Import contacts from a .vcf file.
+- Works with PGPony and other OpenPGP apps as well as OpenKeychain.
