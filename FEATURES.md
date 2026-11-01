@@ -36,7 +36,7 @@ The categories further down list the full feature set; this is the order of work
 - ✅ Snooze a message until later
 
 **Tier 3 — privacy & JMAP-native power** *(done)*
-- ✅ OpenPGP (via OpenKeychain) — read + send, both protocols
+- ✅ OpenPGP (via OpenKeychain, PGPony or another installed provider) — read + send, both protocols
 - ✅ ⭐ Vacation responder (JMAP `VacationResponse`)
 - ✅ Tracking-param stripping (utm_*, fbclid, gclid… removed from tapped links); ✅ per-sender image allowlist; ✅ link confirmation
 - ✅ Server-side Sieve filters/rules (form-based rule builder); ✅ server `Quota` display
@@ -154,6 +154,9 @@ The categories further down list the full feature set; this is the order of work
 - 🔜 **Gmail / Google OAuth2 + XOAUTH2** *(planned)* — the XOAUTH2 plumbing above (IMAP + SMTP) is provider-agnostic and reusable; what is missing is a Google OAuth provider (Google client id + endpoints + the `https://mail.google.com/` scope). The real blocker is **Google's verification for restricted Gmail scopes** (a recurring third-party security assessment), not the code. Until then Gmail works with an **app-specific password**, like Yahoo/iCloud/Fastmail.
 - ✅ Per-account colour coding (picker in account settings; tints the account avatar + the unified-inbox account chip)
 - ✅ **Contacts and calendars as a real Android account** (Settings → Privacy and security → System contacts and calendar; **off by default**) — registers an `AccountManager` account per mail login and runs two sync adapters that fetch over CardDAV/CalDAV and then publish the cache into `ContactsContract` / `CalendarContract`, so caller ID, the system Calendar app, widgets and any people picker see them. **Read-only** (`CAL_ACCESS_READ` / `RAW_CONTACT_IS_READ_ONLY`): edits made in other apps are not pushed back to the server. Only accounts whose contact/calendar sync is already on are published. The authenticator holds no credential and issues no auth tokens, so no other app can ask the system for a way into the mailbox. Turning the switch off unregisters the account, which is what deletes the rows. Recurrence is passed through as `RRULE` + `DURATION` (never `DTEND`), all-day events are written at midnight UTC, and a detached override is anchored to the master's occurrence, not its own moved start — all unit-tested in `CalendarMirrorTimesTest`.
+- ✅ Import contacts from a .vcf file (Contacts → Import), skipping anyone already in the address book
+- ✅ Switch account by tapping the address at the top of the menu
+- ✅ Home-screen widget background opacity, 0 to 100% (Settings → Appearance)
 - ✅ Settings export / import — app preferences (appearance, reading, notifications, privacy, language) to/from a JSON file via the Storage Access Framework (Settings → Backup); accounts and passwords are excluded (device-bound encryption)
 
 ## Sync, push & notifications
@@ -178,7 +181,7 @@ The categories further down list the full feature set; this is the order of work
 
 ## Encryption
 
-- ✅ OpenPGP via OpenKeychain: read (decrypt + verify signatures) and send
+- ✅ OpenPGP via OpenKeychain, PGPony or another installed provider: read (decrypt + verify signatures) and send
   (sign and/or encrypt, PGP/MIME) on both JMAP and IMAP/SMTP. Per-account setup
   in Settings; a lock toggle in the composer. Decrypted content is never written
   to disk (not cached, not search-indexed); the message subject is not encrypted.
