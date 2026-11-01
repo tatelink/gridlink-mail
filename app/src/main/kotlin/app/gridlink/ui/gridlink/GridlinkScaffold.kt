@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
@@ -63,7 +64,10 @@ import app.gridlink.ui.theme.GridlinkRadii
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
@@ -1481,12 +1485,64 @@ fun GridlinkRoot(
 
     /** True while a contact save is on the wire — either form, they cannot both be open. */
     var savingContact by remember { mutableStateOf(false) }
+    val contactImportContext = LocalContext.current
+    var contactImportRunning by remember { mutableStateOf(false) }
+    var contactImportStatus by remember { mutableStateOf<String?>(null) }
 
     /** True while a contact delete is on the wire. Only the edit form can start one. */
     var deletingContact by remember { mutableStateOf(false) }
 
     /** Why the last contact save was refused, shown on the form that still holds the edit. */
     var saveContactError by remember { mutableStateOf<String?>(null) }
+
+    /**
+     * A .vcf file into this account's address book, one card at a time, through the same writer the
+     * form uses. Gives up once the server has refused several in a row, since an account with no
+     * address book would otherwise make one doomed request per card.
+     */
+    fun importContacts(uri: Uri, book: List<GridlinkContact>) {
+        if (contactImportRunning) return
+        contactImportRunning = true
+        contactImportStatus = "Reading the file\u2026"
+        scope.launch {
+            try {
+                val raw = withContext(Dispatchers.IO) { readContactFile(contactImportContext, uri) }
+                val plan = withContext(Dispatchers.Default) {
+                    planContactImport(
+                        raw,
+                        existingEmails = book.flatMapTo(HashSet()) { it.emails + it.email },
+                        existingNames = book.mapTo(HashSet()) { "${it.given} ${it.family}".trim() },
+                    )
+                }
+                var imported = 0
+                var failedInARow = 0
+                var firstError: String? = null
+                for ((index, edit) in plan.edits.withIndex()) {
+                    contactImportStatus = "Importing ${index + 1} of ${plan.edits.size}\u2026"
+                    val failure = runCatching { contactWriter.create(edit) }.getOrElse { t ->
+                        if (t is CancellationException) throw t
+                        t.message ?: "Couldn't save that contact."
+                    }
+                    if (failure == null) {
+                        imported++
+                        failedInARow = 0
+                        if (!contactWriter.echoesIntoContent) {
+                            addedContacts = addedContacts +
+                                gridlinkContactOf(edit, gridlinkNewId("contact", addedContacts.map { it.id }))
+                        }
+                    } else {
+                        if (firstError == null) firstError = failure
+                        if (++failedInARow >= CONTACT_IMPORT_MAX_FAILURES_IN_A_ROW) break
+                    }
+                }
+                contactImportStatus = contactImportSummary(imported, plan, plan.edits.size - imported, firstError)
+            } catch (e: IOException) {
+                contactImportStatus = e.message ?: "The file could not be read."
+            } finally {
+                contactImportRunning = false
+            }
+        }
+    }
 
     /** Save a new card: [saveEvent]'s exact contract, through [GridlinkContactWriter.create]. */
     fun saveContact(edit: ContactEdit) {
@@ -2826,6 +2882,8 @@ fun GridlinkRoot(
                             destination = destination,
                             onSelectDestination = { destination = it },
                             onCompose = { creating = GridlinkCreation.Contact },
+                            onImportContacts = ::importContacts,
+                            importStatus = contactImportStatus,
                             initialScrubLetter = initialScrubLetter,
                             sidePane = readingPane,
                             // Same rule as the inbox: only in two panes. In one, the marked row is

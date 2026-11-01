@@ -1,6 +1,9 @@
 package app.gridlink.ui.gridlink
 
 import android.content.Context
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -25,6 +28,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.FileUpload
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -106,6 +110,10 @@ fun GridlinkContactsScreen(
      * looks stuck, and the same defect was already fixed once in the message list.
      */
     currentId: String? = null,
+    /** Starts importing a .vcf file against the book it is handed. Null draws no Import pill. */
+    onImportContacts: ((Uri, List<GridlinkContact>) -> Unit)? = null,
+    /** What the running or finished import has to say for itself. */
+    importStatus: String? = null,
 ) {
     val book = LocalGridlinkBook.current
     val context = LocalContext.current
@@ -253,6 +261,24 @@ fun GridlinkContactsScreen(
             horizontalArrangement = Arrangement.Start,
         ) {
             sortPill()
+            if (onImportContacts != null) {
+                GridlinkImportPill(
+                    onPicked = { onImportContacts(it, book.contacts) },
+                    modifier = Modifier.padding(start = GridlinkSpacing.s8),
+                )
+            }
+            if (importStatus != null) {
+                Text(
+                    text = importStatus,
+                    style = GridlinkType.metadata,
+                    color = GridlinkTheme.colors.textSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .padding(start = GridlinkSpacing.s8)
+                        .align(Alignment.CenterVertically),
+                )
+            }
         }
         // The list's own top edge, so the pill reads as chrome belonging to the panel rather than
         // as a row of the book. Full width, unlike the row dividers, because nothing is indented
@@ -532,6 +558,35 @@ private fun GridlinkSortPill(
             color = colors.textSecondary,
             maxLines = 1,
         )
+    }
+}
+
+/** The sort pill's sibling. Any file type is allowed, as file managers label .vcf inconsistently. */
+@Composable
+private fun GridlinkImportPill(onPicked: (Uri) -> Unit, modifier: Modifier = Modifier) {
+    val colors = GridlinkTheme.colors
+    val shape = RoundedCornerShape(GridlinkRadii.pill)
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) onPicked(uri)
+    }
+    Row(
+        modifier = modifier
+            .height(SORT_PILL_HEIGHT)
+            .clip(shape)
+            .background(colors.surface.copy(alpha = 0.14f), shape)
+            .border(GridlinkDimens.hairline, colors.surfaceBorder.copy(alpha = 0.35f), shape)
+            .clickable { picker.launch(arrayOf("text/x-vcard", "text/vcard", "*/*")) }
+            .padding(horizontal = GridlinkSpacing.s12),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s8),
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.FileUpload,
+            contentDescription = null,
+            tint = colors.textSecondary,
+            modifier = Modifier.size(18.dp),
+        )
+        Text(text = "Import", style = GridlinkType.metadata, color = colors.textSecondary, maxLines = 1)
     }
 }
 
