@@ -511,6 +511,14 @@ fun GridlinkScaffold(
                         chrome.routeFolder(null)
                     },
                     unified = chrome.config.unifiedInbox,
+                    otherAccounts = chrome.config.otherAccounts,
+                    // Same order as the unified rows below, for the same reason: the list has to
+                    // be what the user is looking at when it changes to the other account.
+                    onSwitchAccount = {
+                        menuOpen = false
+                        chrome.config.onSwitchAccount(it)
+                        chrome.routeInbox()
+                    },
                     // Closes first, like every other row, then does BOTH halves: the preference
                     // switch and the trip back to the list. The switch alone would leave the user
                     // on whatever screen the drawer was opened over, watching a list they cannot

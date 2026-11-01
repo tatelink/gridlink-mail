@@ -29,6 +29,8 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.DoneAll
 import androidx.compose.material.icons.outlined.Drafts
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.icons.outlined.ManageAccounts
 import androidx.compose.material.icons.outlined.Menu
@@ -39,14 +41,20 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import app.gridlink.R
 import app.gridlink.ui.theme.GridlinkColors
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMode
@@ -501,8 +509,16 @@ fun GridlinkMenuPanel(
     unified: GridlinkUnifiedInbox? = null,
     /** True merges every account's inbox, false returns to the bound account's. */
     onSelectUnified: (Boolean) -> Unit = {},
+    /**
+     * The accounts the address row can switch to. Empty leaves the row a plain statement of who is
+     * signed in, with nothing to tap and no arrow promising otherwise.
+     */
+    otherAccounts: List<GridlinkMenuAccount> = emptyList(),
+    onSwitchAccount: (String) -> Unit = {},
 ) {
     val colors = GridlinkTheme.colors
+    // Not saved: the panel is composed only while it is open, so every opening starts collapsed.
+    var accountsOpen by remember { mutableStateOf(false) }
     // Frozen at the moment the sheet opens rather than read on every recomposition. The sheet is a
     // momentary object, so "4 min ago" cannot go stale while it is up, and picking a palette (which
     // recomposes everything in here) must not silently re-time the line underneath.
@@ -512,6 +528,16 @@ fun GridlinkMenuPanel(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(
+                    if (otherAccounts.isEmpty()) {
+                        Modifier
+                    } else {
+                        Modifier.clickable(
+                            onClickLabel = stringResource(R.string.inbox_switch_account),
+                            role = Role.Button,
+                        ) { accountsOpen = !accountsOpen }
+                    },
+                )
                 .padding(
                     start = GridlinkSpacing.chrome,
                     end = GridlinkSpacing.chrome,
@@ -526,7 +552,11 @@ fun GridlinkMenuPanel(
                 tint = colors.textSecondary,
                 modifier = Modifier.size(20.dp),
             )
-            Column(modifier = Modifier.padding(start = GridlinkSpacing.s12)) {
+            Column(
+                modifier = Modifier
+                    .padding(start = GridlinkSpacing.s12)
+                    .weight(1f),
+            ) {
                 // Blank means nobody has told the chrome who is signed in, and the row says nothing
                 // rather than reserving a line for an empty string. It cannot happen in a signed-in
                 // build (the host always passes one) but the default is empty on purpose now, so
@@ -555,6 +585,25 @@ fun GridlinkMenuPanel(
                         color = colors.textSecondary,
                     )
                 }
+            }
+            if (otherAccounts.isNotEmpty()) {
+                Icon(
+                    imageVector = if (accountsOpen) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                    contentDescription = null,
+                    tint = colors.textSecondary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+        if (accountsOpen) {
+            otherAccounts.forEach { other ->
+                GridlinkSheetAction(
+                    label = other.label,
+                    icon = Icons.Outlined.AlternateEmail,
+                    // The address only when the name hid it: two rows must never read the same.
+                    subline = other.address.takeIf { it != other.label },
+                    onClick = { onSwitchAccount(other.id) },
+                )
             }
         }
 
@@ -651,6 +700,10 @@ private fun MenuFolders(
         tint = GridlinkTheme.colors.textSecondary,
     )
 }
+
+/** An account the drawer's address row can switch to. See [GridlinkMenuPanel]. */
+@Immutable
+data class GridlinkMenuAccount(val id: String, val label: String, val address: String)
 
 /**
  * What the drawer needs to draw the merged-inbox pair, and nothing more.

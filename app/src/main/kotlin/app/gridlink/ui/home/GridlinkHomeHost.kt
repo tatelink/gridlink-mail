@@ -33,6 +33,7 @@ import app.gridlink.ui.gridlink.GridlinkComposeDraft
 import app.gridlink.ui.gridlink.GridlinkDestination
 import app.gridlink.ui.gridlink.GridlinkEvent
 import app.gridlink.ui.gridlink.GridlinkFileAttacher
+import app.gridlink.ui.gridlink.GridlinkMenuAccount
 import app.gridlink.ui.gridlink.GridlinkMenuItem
 import app.gridlink.ui.gridlink.GridlinkOpenRequest
 import app.gridlink.ui.gridlink.GridlinkOutboxSender
@@ -97,6 +98,8 @@ fun GridlinkHomeHost(
     onManageTags: () -> Unit = onOpenSettings,
     /** Settings again, landing on the account list: the menu's Accounts row. */
     onOpenAccounts: () -> Unit = onOpenSettings,
+    /** Makes another account current, from the drawer's address row. */
+    onSwitchAccount: (String) -> Unit = {},
     /** A `mailto:` link or a share, parsed by the activity. Null when nothing is waiting. */
     pendingMailto: MailtoDraft? = null,
     onMailtoConsumed: () -> Unit = {},
@@ -292,12 +295,20 @@ fun GridlinkHomeHost(
     val openSettings by rememberUpdatedState(onOpenSettings)
     val manageTags by rememberUpdatedState(onManageTags)
     val openAccounts by rememberUpdatedState(onOpenAccounts)
+    val switchAccount by rememberUpdatedState(onSwitchAccount)
+    // 🔴 Signed-in accounts only. An imported account with no credentials yet would break the inbox
+    // it was switched into, which is why the settings list refuses the same switch.
+    val otherAccounts = remember(accounts, accountId) {
+        accounts
+            .filter { it.id != accountId && application.container.accountStore.credentials(it.id) != null }
+            .map { GridlinkMenuAccount(it.id, it.label(), it.username) }
+    }
     // 🔴 menuCounts joins the remember keys: the config is rebuilt when a count changes or the
     // drawer keeps saying yesterday's number over today's Drafts.
     // 🔴 `unified` joins the remember keys for menuCounts' reason: the pair carries a live unread
     // sum and a live active flag, and a config held across a change would leave the drawer saying
     // yesterday's number, or worse, marking the wrong row as the one you are in.
-    val config = remember(address, accounts.size, menuCounts, unified, viewModel, davViewModel) {
+    val config = remember(address, accounts.size, otherAccounts, menuCounts, unified, viewModel, davViewModel) {
         GridlinkChromeConfig(
             account = address,
             accountCount = accounts.size,
@@ -347,6 +358,8 @@ fun GridlinkHomeHost(
             // same breath, because the row keys the list hands out change shape across the switch.
             // See [GridlinkMailViewModel.setUnified].
             onSelectUnified = viewModel::setUnified,
+            otherAccounts = otherAccounts,
+            onSwitchAccount = { switchAccount(it) },
         )
     }
 

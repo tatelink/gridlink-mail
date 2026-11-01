@@ -432,6 +432,10 @@ class GridlinkChromeConfig(
      * re-subscribe; nothing here waits for the disk.
      */
     val onSelectUnified: (Boolean) -> Unit = {},
+    /** The signed-in accounts the drawer can switch to, never the current one. */
+    val otherAccounts: List<GridlinkMenuAccount> = emptyList(),
+    /** Makes that account the current one. Called on the main thread from a tap. */
+    val onSwitchAccount: (String) -> Unit = {},
 )
 
 /**

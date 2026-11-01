@@ -335,6 +335,7 @@ fun AppNavHost(
                         onOpenSettings = { settingsStart = null; settingsOpen = true },
                         onManageTags = { settingsStart = "tags"; settingsOpen = true },
                         onOpenAccounts = { settingsStart = "accounts"; settingsOpen = true },
+                        onSwitchAccount = viewModel::switchAccount,
                         pendingMailto = pendingMailto,
                         onMailtoConsumed = onMailtoConsumed,
                         pendingEmailOpen = pendingEmailOpen.takeIf { switchTo == null },
