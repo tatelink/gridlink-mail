@@ -184,6 +184,26 @@ fun GridlinkContactsScreen(
         scope.launch { listState.scrollToItem(target) }
     }
 
+    // Shared with the empty panel, which is where someone starting a new address book needs it most.
+    val importControls: @Composable () -> Unit = {
+        if (onImportContacts != null) {
+            GridlinkImportPill(
+                onPicked = { onImportContacts(it, book.contacts) },
+                modifier = Modifier.padding(start = GridlinkSpacing.s8),
+            )
+        }
+        if (importStatus != null) {
+            Text(
+                text = importStatus,
+                style = GridlinkType.metadata,
+                color = GridlinkTheme.colors.textSecondary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = GridlinkSpacing.s8),
+            )
+        }
+    }
+
     // Hoisted so the belowHeader lambda below stays about layout, not about sorting.
     val sortPill: @Composable () -> Unit = {
         GridlinkSortPill(
@@ -237,13 +257,21 @@ fun GridlinkContactsScreen(
       // book nothing has read. While the read is out this draws the plain empty panel it always
       // did, which is honest and lasts one frame, since the read is Room and not the network.
       if (sections.isEmpty() && !book.contactsLoading) {
-        GridlinkEmptyContacts(
-            // Not "0 people", which the header already says one line up, and not a sync age either:
-            // this is the question the blank panel provokes, which is whether the app is broken or
-            // the book is genuinely empty.
-            subline = "Nothing in this address book",
-            onNewContact = onCompose,
-        )
+        Box(modifier = Modifier.fillMaxSize()) {
+            GridlinkEmptyContacts(
+                // Not "0 people", which the header already says one line up, and not a sync age either:
+                // this is the question the blank panel provokes, which is whether the app is broken or
+                // the book is genuinely empty.
+                subline = "Nothing in this address book",
+                onNewContact = onCompose,
+            )
+            Row(
+                modifier = Modifier.padding(top = GridlinkSpacing.s12),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                importControls()
+            }
+        }
       } else {
       Column(modifier = Modifier.fillMaxSize()) {
         // ⚠️ Pinned above the list, not scrolled with it. The pill is the one control that explains
@@ -259,26 +287,10 @@ fun GridlinkContactsScreen(
                 bottom = GridlinkSpacing.s12,
             ),
             horizontalArrangement = Arrangement.Start,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             sortPill()
-            if (onImportContacts != null) {
-                GridlinkImportPill(
-                    onPicked = { onImportContacts(it, book.contacts) },
-                    modifier = Modifier.padding(start = GridlinkSpacing.s8),
-                )
-            }
-            if (importStatus != null) {
-                Text(
-                    text = importStatus,
-                    style = GridlinkType.metadata,
-                    color = GridlinkTheme.colors.textSecondary,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .padding(start = GridlinkSpacing.s8)
-                        .align(Alignment.CenterVertically),
-                )
-            }
+            importControls()
         }
         // The list's own top edge, so the pill reads as chrome belonging to the panel rather than
         // as a row of the book. Full width, unlike the row dividers, because nothing is indented
