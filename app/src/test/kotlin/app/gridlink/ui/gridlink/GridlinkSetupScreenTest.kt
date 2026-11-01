@@ -21,6 +21,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.height
 import androidx.compose.ui.unit.width
@@ -237,15 +238,19 @@ class GridlinkSetupScreenTest {
     // Masking: KeyboardType.Password masks nothing by itself; the transformation does
     // ---------------------------------------------------------------------------------------------
 
+    private fun drawsText(text: String) =
+        SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString(text))
+
     @Test
     fun password_isMaskedUntilShowPasswordIsOn() {
         show()
         password().performTextInput("hunter2")
-        // The semantics carry what is drawn, and what is drawn is dots.
-        rule.onNodeWithText("hunter2").assertDoesNotExist()
+        // EditableText is what is drawn, and what is drawn is dots. Compose also keeps the raw value
+        // in InputText for test tools, which is why this does not search with onNodeWithText.
+        password().assert(drawsText("\u2022\u2022\u2022\u2022\u2022\u2022\u2022"))
 
         row("Show password").performClick()
-        rule.onNodeWithText("hunter2").assertExists()
+        password().assert(drawsText("hunter2"))
     }
 
     // ---------------------------------------------------------------------------------------------
