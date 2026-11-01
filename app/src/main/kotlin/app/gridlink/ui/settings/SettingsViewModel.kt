@@ -722,6 +722,20 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         initialValue = MessageTextSize.NORMAL,
     )
 
+    val widgetOpacity = settings.widgetOpacity.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = 100,
+    )
+
+    /** [onSaved] redraws the widgets, and has to wait for the write or they repaint the old value. */
+    fun setWidgetOpacity(percent: Int, onSaved: () -> Unit) {
+        viewModelScope.launch {
+            settings.setWidgetOpacity(percent)
+            onSaved()
+        }
+    }
+
     fun setMessageTextSize(size: MessageTextSize) {
         viewModelScope.launch { settings.setMessageTextSize(size) }
     }

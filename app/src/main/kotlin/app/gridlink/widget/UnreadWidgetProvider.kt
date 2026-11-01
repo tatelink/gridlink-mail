@@ -32,8 +32,13 @@ class UnreadWidgetProvider : AppWidgetProvider() {
                 val snapshot = runCatching { GridlinkWidgets.readerFor(appContext).snapshot(limit = 1) }
                     .onFailure { Log.w(TAG, "unread snapshot failed; drawing the unknown state", it) }
                     .getOrDefault(UNREADABLE)
+                val alpha = GridlinkWidgets.backgroundAlpha(appContext)
                 widgetIds.forEach { id ->
-                    runCatching { manager.updateAppWidget(id, buildViews(appContext, snapshot)) }
+                    runCatching {
+                        val views = buildViews(appContext, snapshot)
+                        views.setInt(R.id.widget_background, "setImageAlpha", alpha)
+                        manager.updateAppWidget(id, views)
+                    }
                         .onFailure { Log.w(TAG, "unread widget $id update failed", it) }
                 }
             } finally {

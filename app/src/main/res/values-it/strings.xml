@@ -234,6 +234,8 @@
     <string name="settings_backup_imported_accounts">Importato. I nuovi account richiedono una password: aprine ciascuno in Account per accedere.</string>
     <string name="settings_backup_failed">Operazione non riuscita — controlla il file e riprova</string>
     <string name="settings_appearance_screen_title">Aspetto</string>
+    <string name="settings_widgets_section">Widget della schermata Home</string>
+    <string name="settings_widget_opacity_title">Sfondo del widget: %1$d%%</string>
     <string name="settings_language_section">Lingua</string>
     <string name="settings_language_title">Lingua dell\'app</string>
     <string name="settings_language_system">Predefinita di sistema</string>

@@ -322,6 +322,8 @@
     <string name="settings_backup_imported_accounts">Imported. New accounts need a password — open each under Accounts to sign in.</string>
     <string name="settings_backup_failed">Couldn\'t complete — check the file and try again</string>
     <string name="settings_appearance_screen_title">Appearance</string>
+    <string name="settings_widgets_section">Home-screen widgets</string>
+    <string name="settings_widget_opacity_title">Widget background: %1$d%%</string>
     <string name="settings_language_section">Language</string>
     <string name="settings_language_title">App language</string>
     <string name="settings_language_system">System default</string>

@@ -6,11 +6,24 @@
   set of view types (no ConstraintLayout, no custom views), which is why this is nested
   LinearLayouts rather than the flatter tree it would otherwise be.
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- A view of its own so RemoteViews can fade the card and leave the text alone. The alpha
+         comes from the Appearance setting, see GridlinkWidgets.backgroundAlpha. -->
+    <ImageView
+        android:id="@+id/widget_background"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:scaleType="fitXY"
+        android:src="@drawable/widget_card" />
+
+<LinearLayout
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@drawable/widget_card"
     android:padding="12dp">
 
     <!-- Header. Tapping it opens the app at the inbox; the two buttons take their own taps. -->
@@ -109,3 +122,4 @@
         android:textColor="@color/widget_on_card_dim"
         android:textSize="13sp" />
 </LinearLayout>
+</FrameLayout>

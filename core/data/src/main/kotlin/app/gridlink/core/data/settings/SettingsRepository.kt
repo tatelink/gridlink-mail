@@ -461,6 +461,13 @@ class SettingsRepository(
      *  bound, and the honest answer there is to let discovery decide again. */
     val pgpProvider: Flow<String?> = dataStore.data.map { it[KEY_PGP_PROVIDER] }
 
+    /** How solid the home-screen widgets' card is, 0 (clear) to 100 (the app's default). */
+    val widgetOpacity: Flow<Int> = dataStore.data.map { it[KEY_WIDGET_OPACITY] ?: WIDGET_OPACITY_DEFAULT }
+
+    suspend fun setWidgetOpacity(percent: Int) {
+        dataStore.edit { it[KEY_WIDGET_OPACITY] = percent.coerceIn(0, WIDGET_OPACITY_DEFAULT) }
+    }
+
     suspend fun setPgpProvider(packageName: String) {
         dataStore.edit { it[KEY_PGP_PROVIDER] = packageName }
     }
@@ -743,6 +750,7 @@ class SettingsRepository(
         threadToolbarActions = threadToolbarActions.first().map { it.name },
         bundleAutomated = bundleAutomated.first(),
         messageTextSize = messageTextSize.first().name,
+        widgetOpacity = widgetOpacity.first(),
         markReadOnOpen = markReadOnOpen.first(),
         markReadOnDelete = markReadOnDelete.first(),
         markReadOnArchive = markReadOnArchive.first(),
@@ -791,6 +799,7 @@ class SettingsRepository(
         }
         backup.bundleAutomated?.let { setBundleAutomated(it) }
         backup.messageTextSize?.let { v -> runCatching { MessageTextSize.valueOf(v) }.getOrNull()?.let { setMessageTextSize(it) } }
+        backup.widgetOpacity?.let { setWidgetOpacity(it) }
         backup.markReadOnOpen?.let { setMarkReadOnOpen(it) }
         backup.markReadOnDelete?.let { setMarkReadOnDelete(it) }
         backup.markReadOnArchive?.let { setMarkReadOnArchive(it) }
@@ -875,6 +884,8 @@ class SettingsRepository(
         private val KEY_SIGNATURE_BELOW_QUOTE = booleanPreferencesKey("signature_below_quote")
         private val KEY_SIGNATURE_DELIMITER = booleanPreferencesKey("signature_delimiter")
         private val KEY_PGP_PROVIDER = stringPreferencesKey("pgp_provider")
+        private val KEY_WIDGET_OPACITY = intPreferencesKey("widget_opacity")
+        private const val WIDGET_OPACITY_DEFAULT = 100
         private val KEY_MESSAGE_TEXT_SIZE = stringPreferencesKey("message_text_size")
         private val KEY_CONTACT_SUGGESTIONS = booleanPreferencesKey("contact_suggestions")
         private val KEY_SYSTEM_ACCOUNT_MIRROR = booleanPreferencesKey("system_account_mirror")

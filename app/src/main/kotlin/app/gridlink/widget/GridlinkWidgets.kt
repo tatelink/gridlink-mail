@@ -13,6 +13,7 @@ import app.gridlink.container
 import app.gridlink.core.data.calendar.WidgetAgendaReader
 import app.gridlink.core.data.mail.WidgetInboxReader
 import app.gridlink.ui.gridlink.GridlinkDestination
+import kotlinx.coroutines.flow.first
 
 /**
  * The bits both widgets share: how they are woken, and the intents they hand the launcher.
@@ -23,6 +24,8 @@ import app.gridlink.ui.gridlink.GridlinkDestination
  * database and the server.
  */
 object GridlinkWidgets {
+    private const val FULL_PERCENT = 100
+    private const val OPAQUE_ALPHA = 255
 
     /** The refresh button. Handled by [InboxWidgetProvider]; broadcast, so no activity opens. */
     internal const val ACTION_REFRESH = "app.gridlink.widget.REFRESH"
@@ -79,6 +82,14 @@ object GridlinkWidgets {
     /** The container, reached the same way every other `:app` component reaches it. */
     internal fun readerFor(context: Context): WidgetInboxReader =
         (context.applicationContext as Application).container.widgetInboxReader
+
+    /** The card's alpha from the Appearance setting. A failed read draws it solid, the default. */
+    internal suspend fun backgroundAlpha(context: Context): Int {
+        val percent = runCatching {
+            (context.applicationContext as Application).container.settingsRepository.widgetOpacity.first()
+        }.getOrDefault(FULL_PERCENT)
+        return percent * OPAQUE_ALPHA / FULL_PERCENT
+    }
 
     /** The agenda widget's half of the same container. Cache-only, like the inbox reader. */
     internal fun agendaReaderFor(context: Context): WidgetAgendaReader =

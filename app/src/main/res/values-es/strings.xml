@@ -234,6 +234,8 @@
     <string name="settings_backup_imported_accounts">Importado. Las cuentas nuevas necesitan una contraseña: abre cada una en Cuentas para iniciar sesión.</string>
     <string name="settings_backup_failed">No se pudo completar — comprueba el archivo e inténtalo de nuevo</string>
     <string name="settings_appearance_screen_title">Apariencia</string>
+    <string name="settings_widgets_section">Widgets de la pantalla de inicio</string>
+    <string name="settings_widget_opacity_title">Fondo del widget: %1$d%%</string>
     <string name="settings_language_section">Idioma</string>
     <string name="settings_language_title">Idioma de la aplicación</string>
     <string name="settings_language_system">Predeterminado del sistema</string>

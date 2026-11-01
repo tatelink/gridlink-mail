@@ -234,6 +234,8 @@
     <string name="settings_backup_imported_accounts">Importé. Les nouveaux comptes ont besoin d\'un mot de passe : ouvrez chacun dans Comptes pour vous connecter.</string>
     <string name="settings_backup_failed">Impossible de terminer — vérifiez le fichier et réessayez</string>
     <string name="settings_appearance_screen_title">Apparence</string>
+    <string name="settings_widgets_section">Widgets de l\'écran d\'accueil</string>
+    <string name="settings_widget_opacity_title">Arrière-plan du widget : %1$d%%</string>
     <string name="settings_language_section">Langue</string>
     <string name="settings_language_title">Langue de l\'application</string>
     <string name="settings_language_system">Par défaut du système</string>

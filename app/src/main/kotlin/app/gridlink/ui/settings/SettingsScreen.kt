@@ -82,6 +82,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -174,6 +175,7 @@ import app.gridlink.ui.theme.GridlinkMaterialSkin
 import app.gridlink.ui.theme.GridlinkRadii
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
+import app.gridlink.widget.GridlinkWidgets
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.openintents.openpgp.util.OpenPgpProviderUtil
@@ -181,6 +183,7 @@ import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import kotlin.math.roundToInt
 import android.provider.Settings as AndroidSettings
 
 /**
@@ -655,6 +658,28 @@ private fun openUrl(context: android.content.Context, url: String): Boolean =
     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.isSuccess
 
 @Composable
+private fun WidgetOpacityRow(viewModel: SettingsViewModel) {
+    val context = LocalContext.current
+    val saved by viewModel.widgetOpacity.collectAsStateWithLifecycle()
+    // Written on release, not per frame: every write repaints every widget on the home screen.
+    var dragging by remember { mutableStateOf<Float?>(null) }
+    val shown = dragging ?: saved.toFloat()
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text(stringResource(R.string.settings_widget_opacity_title, shown.roundToInt()))
+        Slider(
+            value = shown,
+            onValueChange = { dragging = it },
+            onValueChangeFinished = {
+                dragging?.let { viewModel.setWidgetOpacity(it.roundToInt()) { GridlinkWidgets.refresh(context) } }
+                dragging = null
+            },
+            valueRange = 0f..100f,
+            steps = 19,
+        )
+    }
+}
+
+@Composable
 private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val density by viewModel.listDensity.collectAsStateWithLifecycle()
     val previewLines by viewModel.previewLines.collectAsStateWithLifecycle()
@@ -677,6 +702,9 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                         applyAppLanguage(it)
                     },
                 )
+            }
+            SettingsSection(stringResource(R.string.settings_widgets_section)) {
+                WidgetOpacityRow(viewModel)
             }
             // ⛔ There is no Theme section here, and there must not be one. It held
             // Auto/Light/Dark plus a Material You switch, both writing [ThemeMode] and

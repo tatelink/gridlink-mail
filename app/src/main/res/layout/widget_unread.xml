@@ -5,13 +5,26 @@
 
   The whole thing is one tap target that opens the inbox.
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- A view of its own so RemoteViews can fade the card and leave the text alone. The alpha
+         comes from the Appearance setting, see GridlinkWidgets.backgroundAlpha. -->
+    <ImageView
+        android:id="@+id/widget_background"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:scaleType="fitXY"
+        android:src="@drawable/widget_card" />
+
+<LinearLayout
     android:id="@+id/unread_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:gravity="center"
-    android:background="@drawable/widget_card"
     android:padding="10dp">
 
     <!-- Big enough to read from arm's length, which is the entire job of this widget. Its text is
@@ -38,3 +51,4 @@
         android:maxLines="1"
         android:ellipsize="end" />
 </LinearLayout>
+</FrameLayout>

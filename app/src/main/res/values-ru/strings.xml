@@ -234,6 +234,8 @@
     <string name="settings_backup_imported_accounts">Импортировано. Новым учётным записям нужен пароль — откройте каждую в разделе «Учётные записи», чтобы войти.</string>
     <string name="settings_backup_failed">Не удалось завершить — проверьте файл и попробуйте снова</string>
     <string name="settings_appearance_screen_title">Внешний вид</string>
+    <string name="settings_widgets_section">Виджеты главного экрана</string>
+    <string name="settings_widget_opacity_title">Фон виджета: %1$d%%</string>
     <string name="settings_language_section">Язык</string>
     <string name="settings_language_title">Язык приложения</string>
     <string name="settings_language_system">Системный</string>

@@ -234,6 +234,8 @@
     <string name="settings_backup_imported_accounts">Geïmporteerd. Nieuwe accounts hebben een wachtwoord nodig: open elk onder Accounts om in te loggen.</string>
     <string name="settings_backup_failed">Kon niet voltooien — controleer het bestand en probeer het opnieuw</string>
     <string name="settings_appearance_screen_title">Weergave</string>
+    <string name="settings_widgets_section">Widgets op het startscherm</string>
+    <string name="settings_widget_opacity_title">Widgetachtergrond: %1$d%%</string>
     <string name="settings_language_section">Taal</string>
     <string name="settings_language_title">App-taal</string>
     <string name="settings_language_system">Systeemstandaard</string>

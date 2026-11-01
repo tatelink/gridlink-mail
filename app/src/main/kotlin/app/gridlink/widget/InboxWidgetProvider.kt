@@ -74,8 +74,13 @@ class InboxWidgetProvider : AppWidgetProvider() {
                 val snapshot = runCatching { GridlinkWidgets.readerFor(appContext).snapshot() }
                     .onFailure { Log.w(TAG, "widget snapshot failed; drawing the unsynced state", it) }
                     .getOrDefault(UNREADABLE)
+                val alpha = GridlinkWidgets.backgroundAlpha(appContext)
                 widgetIds.forEach { id ->
-                    runCatching { manager.updateAppWidget(id, buildViews(appContext, id, snapshot)) }
+                    runCatching {
+                        val views = buildViews(appContext, id, snapshot)
+                        views.setInt(R.id.widget_background, "setImageAlpha", alpha)
+                        manager.updateAppWidget(id, views)
+                    }
                         .onFailure { Log.w(TAG, "widget $id update failed", it) }
                 }
             } finally {

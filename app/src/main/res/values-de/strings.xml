@@ -234,6 +234,8 @@
     <string name="settings_backup_imported_accounts">Importiert. Neue Konten brauchen ein Passwort – öffnen Sie jedes unter Konten, um sich anzumelden.</string>
     <string name="settings_backup_failed">Konnte nicht abgeschlossen werden — überprüfen Sie die Datei und versuchen Sie es erneut</string>
     <string name="settings_appearance_screen_title">Darstellung</string>
+    <string name="settings_widgets_section">Startbildschirm-Widgets</string>
+    <string name="settings_widget_opacity_title">Widget-Hintergrund: %1$d%%</string>
     <string name="settings_language_section">Sprache</string>
     <string name="settings_language_title">App-Sprache</string>
     <string name="settings_language_system">Systemstandard</string>
