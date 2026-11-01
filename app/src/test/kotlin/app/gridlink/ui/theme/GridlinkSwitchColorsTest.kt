@@ -52,11 +52,7 @@ class GridlinkSwitchColorsTest {
         return captured
     }
 
-    private fun paletteFor(mode: GridlinkMode) = when (mode) {
-        GridlinkMode.DAY -> GridlinkDayColors
-        GridlinkMode.NIGHT -> GridlinkNightColors
-        GridlinkMode.OLED -> GridlinkOledColors
-    }
+    private fun paletteFor(mode: GridlinkMode) = gridlinkColorsFor(mode)
 
     @Test
     fun offIsDrawnInInkRatherThanInASurface() {

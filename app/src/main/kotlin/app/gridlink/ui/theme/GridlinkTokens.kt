@@ -57,7 +57,26 @@ enum class GridlinkMode {
     DAY,
     NIGHT,
     OLED,
+
+    // The colour presets. Pinned by choice from the drawer, and never reached by the clock.
+    GRAPHITE,
+    DEEP_BLUE,
+    EMBER,
+    FOREST,
+    SAND,
 }
+
+/** The rungs the clock moves between, and the only ones the drawer's segmented track offers. */
+val GRIDLINK_LADDER_MODES = listOf(GridlinkMode.DAY, GridlinkMode.NIGHT, GridlinkMode.OLED)
+
+/** The colour presets, in the order the drawer's row of dots shows them. */
+val GRIDLINK_PRESET_MODES = listOf(
+    GridlinkMode.GRAPHITE,
+    GridlinkMode.DEEP_BLUE,
+    GridlinkMode.EMBER,
+    GridlinkMode.FOREST,
+    GridlinkMode.SAND,
+)
 
 /**
  * Whether this rung paints a LIGHT surface, which is what the system bar icons have to contrast
@@ -66,7 +85,7 @@ enum class GridlinkMode {
  * setting, which is a separate axis entirely. See [LocalGridlinkSurfaceOverride].
  */
 val GridlinkMode.isLightSurface: Boolean
-    get() = this == GridlinkMode.DAY
+    get() = this == GridlinkMode.DAY || this == GridlinkMode.SAND
 
 /**
  * Fallback automatic ladder, by local hour.
@@ -542,8 +561,13 @@ object GridlinkSenderBars {
     )
 
     fun forMode(mode: GridlinkMode): List<Color> = when (mode) {
-        GridlinkMode.DAY -> day
-        GridlinkMode.NIGHT -> night
+        GridlinkMode.DAY, GridlinkMode.SAND -> day
+        GridlinkMode.NIGHT,
+        GridlinkMode.GRAPHITE,
+        GridlinkMode.DEEP_BLUE,
+        GridlinkMode.EMBER,
+        GridlinkMode.FOREST,
+        -> night
         GridlinkMode.OLED -> oled
     }
 }
@@ -566,6 +590,139 @@ fun gridlinkColorsFor(mode: GridlinkMode): GridlinkColors = when (mode) {
     GridlinkMode.DAY -> GridlinkDayColors
     GridlinkMode.NIGHT -> GridlinkNightColors
     GridlinkMode.OLED -> GridlinkOledColors
+    GridlinkMode.GRAPHITE -> GridlinkGraphiteColors
+    GridlinkMode.DEEP_BLUE -> GridlinkDeepBlueColors
+    GridlinkMode.EMBER -> GridlinkEmberColors
+    GridlinkMode.FOREST -> GridlinkForestColors
+    GridlinkMode.SAND -> GridlinkSandColors
+}
+
+/**
+ * A dark preset is Night with its hue changed, so it inherits every decision Night made about
+ * glass, shadows and scrims and differs only in the colours the eye reads as the theme.
+ */
+@Suppress("LongParameterList")
+private fun gridlinkDarkPreset(
+    background: Color,
+    glow: Color,
+    surface: Color,
+    border: Color,
+    text: Color,
+    secondary: Color,
+    accent: Color,
+    onAccent: Color,
+    attention: Color,
+): GridlinkColors = GridlinkNightColors.copy(
+    background = background,
+    glow = glow.copy(alpha = 0.18f),
+    aurora = GridlinkNightColors.aurora.map { it.copy(color = glow.copy(alpha = it.color.alpha)) },
+    surface = surface.copy(alpha = 0.86f),
+    listSurface = surface.copy(alpha = 0.86f),
+    surfaceBorder = border.copy(alpha = 0.18f),
+    surfaceRaised = surface,
+    textPrimary = text,
+    textSecondary = secondary,
+    accent = accent,
+    onAccent = onAccent,
+    accentWarm = attention,
+    onAccentWarm = onAccent,
+    attention = attention,
+    caution = attention,
+    selection = accent.copy(alpha = 0.14f),
+    divider = border.copy(alpha = 0.12f),
+    fieldLabelFill = accent.copy(alpha = 0.16f),
+    fieldLabelText = accent,
+    fieldFill = surface,
+    fieldBorder = accent.copy(alpha = 0.40f),
+)
+
+/** Soft grey: neutral, for someone who wants the colour out of the way. */
+val GridlinkGraphiteColors: GridlinkColors by lazy {
+    gridlinkDarkPreset(
+        background = Color(0xFF16181C),
+        glow = Color(0xFF96A0AF),
+        surface = Color(0xFF202329),
+        border = Color(0xFFFFFFFF),
+        text = Color(0xFFF1F2F4),
+        secondary = Color(0xFFA3AAB4),
+        accent = Color(0xFF8FA3BF),
+        onAccent = Color(0xFF12151A),
+        attention = Color(0xFFE8B45C),
+    )
+}
+
+/** Dark blue: the closest to Night, with more colour in the page. */
+val GridlinkDeepBlueColors: GridlinkColors by lazy {
+    gridlinkDarkPreset(
+        background = Color(0xFF071A33),
+        glow = Color(0xFF2E78C8),
+        surface = Color(0xFF0A2240),
+        border = Color(0xFF78AAE6),
+        text = Color(0xFFEEF5FF),
+        secondary = Color(0xFF9CBBDE),
+        accent = Color(0xFF4AA3FF),
+        onAccent = Color(0xFF04121F),
+        attention = Color(0xFFFFC14D),
+    )
+}
+
+/** Warm dark. */
+val GridlinkEmberColors: GridlinkColors by lazy {
+    gridlinkDarkPreset(
+        background = Color(0xFF1B120C),
+        glow = Color(0xFFDC7832),
+        surface = Color(0xFF2A1B12),
+        border = Color(0xFFF0B482),
+        text = Color(0xFFF8EFE7),
+        secondary = Color(0xFFC6AC98),
+        accent = Color(0xFFF0883E),
+        onAccent = Color(0xFF1A0C02),
+        attention = Color(0xFFFFCF70),
+    )
+}
+
+/** Dark green. */
+val GridlinkForestColors: GridlinkColors by lazy {
+    gridlinkDarkPreset(
+        background = Color(0xFF0B1A14),
+        glow = Color(0xFF3CA06E),
+        surface = Color(0xFF0F261D),
+        border = Color(0xFF8CD2AA),
+        text = Color(0xFFEEF7F1),
+        secondary = Color(0xFF9ABCA9),
+        accent = Color(0xFF4CC38A),
+        onAccent = Color(0xFF05140D),
+        attention = Color(0xFFF2B84B),
+    )
+}
+
+private val SAND_ACCENT = Color(0xFF8E4A1A)
+private val SAND_INK = Color(0xFF2A2118)
+
+/** Warm beige: the one light preset, built on Day for the same reason the dark ones use Night. */
+val GridlinkSandColors: GridlinkColors by lazy {
+    val accent = SAND_ACCENT
+    val ink = SAND_INK
+    GridlinkDayColors.copy(
+        background = Color(0xFFD9C4A5),
+        gradient = listOf(Color(0xFFF1E7D6), Color(0xFFD9C4A5)),
+        surface = Color(0xFFFFFAF2).copy(alpha = 0.72f),
+        listSurface = Color(0xFFFFFAF2).copy(alpha = 0.72f),
+        surfaceBorder = Color(0xFF5A3C1E).copy(alpha = 0.18f),
+        surfaceRaised = Color(0xFFFFFAF2),
+        textPrimary = ink,
+        textSecondary = Color(0xFF5F4F3D),
+        accent = accent,
+        onAccent = Color(0xFFFFFFFF),
+        attention = Color(0xFFA53A12),
+        caution = Color(0xFFA53A12),
+        selection = accent.copy(alpha = 0.14f),
+        divider = Color(0xFF5A3C1E).copy(alpha = 0.14f),
+        fieldLabelFill = accent.copy(alpha = 0.14f),
+        fieldLabelText = accent,
+        fieldFill = Color(0xFFFFFAF2),
+        fieldBorder = accent.copy(alpha = 0.40f),
+    )
 }
 
 // ---------------------------------------------------------------------------------------------

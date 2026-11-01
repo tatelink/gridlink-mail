@@ -32,7 +32,7 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK }
  * the boundary. Persisted BY NAME, so an unknown value from a newer build reads back as AUTO
  * rather than throwing.
  */
-enum class GridlinkPalette { AUTO, DAY, NIGHT, OLED }
+enum class GridlinkPalette { AUTO, DAY, NIGHT, OLED, GRAPHITE, DEEP_BLUE, EMBER, FOREST, SAND }
 
 /**
  * Which launcher icon the app wears.

@@ -63,13 +63,13 @@ import app.gridlink.core.data.settings.ThreadToolbarAction
 import app.gridlink.ui.emailhtml.EmailRemoteContent
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 import app.gridlink.ui.theme.GridlinkDimens
-import app.gridlink.ui.theme.GridlinkMode
 import app.gridlink.ui.theme.GridlinkMotion
 import app.gridlink.ui.theme.GridlinkRadii
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
 import app.gridlink.ui.theme.gridlinkSenderBarColor
+import app.gridlink.ui.theme.isLightSurface
 
 /**
  * Reading one message. Brief deliverable §11.5.
@@ -444,7 +444,7 @@ fun GridlinkThreadScreen(
                     // reads through it. See [GridlinkMessageBody].
                     text = colors.textPrimary,
                     link = colors.accent,
-                    dark = mode != GridlinkMode.DAY,
+                    dark = !mode.isLightSurface,
                     plainText = message.bodyIsPlainText,
                     inlineImages = message.inlineImages,
                     modifier = Modifier

@@ -73,7 +73,7 @@ fun GridlinkMaterialSkin(content: @Composable () -> Unit) {
  * read against whatever the sheet is covering.
  */
 private fun gridlinkColorScheme(colors: GridlinkColors, mode: GridlinkMode) =
-    if (mode == GridlinkMode.DAY) {
+    if (mode.isLightSurface) {
         lightColorScheme(
             primary = colors.accent,
             onPrimary = colors.onAccent,

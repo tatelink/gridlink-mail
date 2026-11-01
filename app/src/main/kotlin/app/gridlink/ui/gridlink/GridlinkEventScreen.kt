@@ -56,6 +56,7 @@ import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
 import app.gridlink.ui.theme.gridlinkSenderBarColor
+import app.gridlink.ui.theme.isLightSurface
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -521,7 +522,7 @@ private fun GridlinkEventHtmlNotes(notes: String, modifier: Modifier = Modifier)
         blockRemote = true,
         text = colors.textPrimary,
         link = colors.accent,
-        dark = mode != GridlinkMode.DAY,
+        dark = !mode.isLightSurface,
         modifier = modifier
             .fillMaxWidth()
             .padding(

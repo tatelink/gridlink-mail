@@ -473,6 +473,11 @@ fun GridlinkPalette.toModeOverride(): GridlinkMode? = when (this) {
     GridlinkPalette.DAY -> GridlinkMode.DAY
     GridlinkPalette.NIGHT -> GridlinkMode.NIGHT
     GridlinkPalette.OLED -> GridlinkMode.OLED
+    GridlinkPalette.GRAPHITE -> GridlinkMode.GRAPHITE
+    GridlinkPalette.DEEP_BLUE -> GridlinkMode.DEEP_BLUE
+    GridlinkPalette.EMBER -> GridlinkMode.EMBER
+    GridlinkPalette.FOREST -> GridlinkMode.FOREST
+    GridlinkPalette.SAND -> GridlinkMode.SAND
 }
 
 /**
@@ -505,6 +510,11 @@ fun GridlinkMode?.toGridlinkPalette(): GridlinkPalette = when (this) {
     GridlinkMode.DAY -> GridlinkPalette.DAY
     GridlinkMode.NIGHT -> GridlinkPalette.NIGHT
     GridlinkMode.OLED -> GridlinkPalette.OLED
+    GridlinkMode.GRAPHITE -> GridlinkPalette.GRAPHITE
+    GridlinkMode.DEEP_BLUE -> GridlinkPalette.DEEP_BLUE
+    GridlinkMode.EMBER -> GridlinkPalette.EMBER
+    GridlinkMode.FOREST -> GridlinkPalette.FOREST
+    GridlinkMode.SAND -> GridlinkPalette.SAND
 }
 
 val LocalGridlinkChrome = staticCompositionLocalOf { GridlinkChromeState() }

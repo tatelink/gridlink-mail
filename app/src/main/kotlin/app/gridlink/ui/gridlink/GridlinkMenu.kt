@@ -52,9 +52,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.gridlink.R
+import app.gridlink.ui.theme.GRIDLINK_LADDER_MODES
+import app.gridlink.ui.theme.GRIDLINK_PRESET_MODES
 import app.gridlink.ui.theme.GridlinkColors
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMode
@@ -63,6 +68,7 @@ import app.gridlink.ui.theme.GridlinkRadii
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
+import app.gridlink.ui.theme.gridlinkColorsFor
 
 /**
  * The app's own row of chrome, above every screen, and the sheet the menu opens.
@@ -912,9 +918,9 @@ private fun GridlinkModeRow(
                 style = GridlinkType.senderName,
                 color = colors.textPrimary,
             )
-            if (followingClock) {
+            if (followingClock || mode in GRIDLINK_PRESET_MODES) {
                 Text(
-                    text = "Auto · ${mode.label}",
+                    text = if (followingClock) "Auto · ${mode.label}" else mode.label,
                     style = GridlinkType.metadata,
                     color = colors.textSecondary,
                 )
@@ -942,7 +948,7 @@ private fun GridlinkModeRow(
                 onClick = { onSelect(null) },
                 modifier = Modifier.weight(1f),
             )
-            GridlinkMode.entries.forEach { candidate ->
+            GRIDLINK_LADDER_MODES.forEach { candidate ->
                 ModeChoice(
                     label = candidate.label,
                     active = !followingClock && candidate == mode,
@@ -950,6 +956,55 @@ private fun GridlinkModeRow(
                     modifier = Modifier.weight(1f),
                 )
             }
+        }
+        Spacer(Modifier.height(GridlinkSpacing.s8))
+        // Under the track rather than in it: five more segments would not fit a phone-width panel.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp + GridlinkSpacing.s16),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            GRIDLINK_PRESET_MODES.forEach { preset ->
+                PresetDot(
+                    preset = preset,
+                    active = !followingClock && preset == mode,
+                    onClick = { onSelect(preset) },
+                )
+            }
+        }
+    }
+}
+
+/** The preset's page colour with its accent inside, so a dot previews both. */
+@Composable
+private fun PresetDot(preset: GridlinkMode, active: Boolean, onClick: () -> Unit) {
+    val colors = GridlinkTheme.colors
+    val swatch = gridlinkColorsFor(preset)
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .semantics {
+                contentDescription = "${preset.label} colour preset"
+                selected = active
+            }
+            .clickable(role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .background(swatch.background, CircleShape)
+                .border(
+                    width = if (active) 2.dp else GridlinkDimens.hairline,
+                    color = if (active) colors.textPrimary else colors.surfaceBorder,
+                    shape = CircleShape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(modifier = Modifier.size(14.dp).background(swatch.accent, CircleShape))
         }
     }
 }
@@ -962,6 +1017,11 @@ private val GridlinkMode.label: String
         GridlinkMode.DAY -> "Day"
         GridlinkMode.NIGHT -> "Night"
         GridlinkMode.OLED -> "OLED"
+        GridlinkMode.GRAPHITE -> "Graphite"
+        GridlinkMode.DEEP_BLUE -> "Deep Blue"
+        GridlinkMode.EMBER -> "Ember"
+        GridlinkMode.FOREST -> "Forest"
+        GridlinkMode.SAND -> "Sand"
     }
 
 @Composable

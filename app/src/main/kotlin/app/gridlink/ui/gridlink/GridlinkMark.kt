@@ -15,8 +15,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import app.gridlink.ui.theme.GridlinkMode
 import app.gridlink.ui.theme.GridlinkTheme
+import app.gridlink.ui.theme.isLightSurface
 
 /**
  * The Gridlink mark, drawn in Compose.
@@ -165,7 +165,7 @@ internal data class GridlinkMarkPalette(
  */
 @Composable
 internal fun gridlinkMarkPalette(): GridlinkMarkPalette {
-    val dark = GridlinkTheme.mode != GridlinkMode.DAY
+    val dark = !GridlinkTheme.mode.isLightSurface
     return GridlinkMarkPalette(
         grid = if (dark) Color(0xFF4C9AF5) else Color(0xFF1B5FCB),
         bloom = if (dark) Color(0xFFAEE0FF) else Color(0xFF4C9AF5),
