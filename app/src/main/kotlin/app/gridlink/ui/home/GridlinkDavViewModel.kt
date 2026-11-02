@@ -95,6 +95,14 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
     private val contactsPrimed = MutableStateFlow(false)
 
     /**
+     * The last sync's failure per tab, or null. Cleared by a sync that works and by a switch of
+     * account, so a complaint never outlives the server it was about.
+     */
+    private val calendarError = MutableStateFlow<String?>(null)
+
+    private val contactsError = MutableStateFlow<String?>(null)
+
+    /**
      * Point both tabs at [id], or leave them where they are.
      *
      * The guard is the whole method, for [GridlinkMailViewModel.bind]'s reason: this is called from a
@@ -107,6 +115,8 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
         anchor.value = LocalDate.now()
         calendarPrimed.value = false
         contactsPrimed.value = false
+        calendarError.value = null
+        contactsError.value = null
     }
 
     /**
@@ -137,12 +147,13 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
 
     /** The Calendar tab, as [app.gridlink.ui.gridlink.GridlinkRoot] takes it. */
     val calendar: StateFlow<GridlinkCalendarContent> =
-        combine(occurrences, calendarPrimed, anchor, ownDomain) { list, ready, today, domain ->
+        combine(occurrences, calendarPrimed, anchor, ownDomain, calendarError) { list, ready, today, domain, error ->
             GridlinkCalendarContent(
                 events = list.map { GridlinkDavMapping.event(it, domain) },
                 today = today,
                 loading = !ready,
                 window = today.minusDays(WINDOW_BACK_DAYS)..today.plusDays(WINDOW_FORWARD_DAYS),
+                error = error,
             )
         }.stateIn(
             scope = viewModelScope,
@@ -163,10 +174,11 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
 
     /** The Contacts tab, as [app.gridlink.ui.gridlink.GridlinkRoot] takes it. */
     val contacts: StateFlow<GridlinkContactContent> =
-        combine(cards, contactsPrimed) { rows, ready ->
+        combine(cards, contactsPrimed, contactsError) { rows, ready, error ->
             GridlinkContactContent(
                 contacts = rows.map(GridlinkDavMapping::contact),
                 loading = !ready,
+                error = error,
             )
         }.stateIn(
             scope = viewModelScope,
@@ -358,8 +370,8 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
         // A sync is the app's regular heartbeat, so it is also the moment to notice the date changed.
         anchor.value = LocalDate.now()
         try {
-            report("calendar", runCatching { repo.syncCalendars(id) })
-            report("contacts", runCatching { repo.syncContacts(id) })
+            calendarError.value = report("calendar", runCatching { repo.syncCalendars(id) })
+            contactsError.value = report("contacts", runCatching { repo.syncContacts(id) })
         } finally {
             calendarPrimed.value = true
             contactsPrimed.value = true
@@ -579,14 +591,22 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
      */
     private var writingAttachment = false
 
-    private fun report(what: String, result: Result<DavSyncOutcome>) {
+    /**
+     * Log the outcome and return what the screen should say about it: the failure sentence, or null
+     * when the sync worked.
+     *
+     * The sentence comes from the repository as written. It is already a user-facing line there
+     * (the same strings the event and contact forms show on a failed save), and the GMX case was
+     * precisely a failure whose explanation existed and never reached a screen.
+     */
+    private fun report(what: String, result: Result<DavSyncOutcome>): String? {
         val outcome = result.getOrElse { t ->
             // 🔴 Rethrown, not logged as a failure. Cancellation means the caller went away (the pull
             // gesture's scope left the composition), and recording that as a broken calendar would
             // put a permanent complaint in the log for a perfectly ordinary navigation.
             if (t is CancellationException) throw t
             Log.w(TAG, "$what sync threw", t)
-            return
+            return t.message?.takeIf { it.isNotBlank() } ?: "Sync failed"
         }
         if (outcome.succeeded) {
             Log.i(
@@ -597,6 +617,7 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
         } else {
             Log.w(TAG, "$what sync: ${outcome.error}")
         }
+        return outcome.error
     }
 
     private companion object {

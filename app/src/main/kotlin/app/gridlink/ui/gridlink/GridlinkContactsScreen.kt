@@ -247,7 +247,12 @@ fun GridlinkContactsScreen(
                 // while the first read is out, for the folder tree's reason as well: a count of
                 // zero is a claim that the account has nobody in it, which is a different thing
                 // from not having looked.
-                subline = if (book.contactsLoading) "Loading" else "${book.contacts.size} people and teams",
+                subline = when {
+                    book.contactsLoading -> "Loading"
+                    // Same rule as the calendar header: a failed sync outranks a count.
+                    book.contactsError != null -> book.contactsError
+                    else -> "${book.contacts.size} people and teams"
+                },
             )
         },
     ) {
@@ -262,7 +267,7 @@ fun GridlinkContactsScreen(
                 // Not "0 people", which the header already says one line up, and not a sync age either:
                 // this is the question the blank panel provokes, which is whether the app is broken or
                 // the book is genuinely empty.
-                subline = "Nothing in this address book",
+                subline = book.contactsError ?: "Nothing in this address book",
                 onNewContact = onCompose,
             )
             Row(

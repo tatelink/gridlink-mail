@@ -240,6 +240,15 @@ class GridlinkContactsScreenTest {
     }
 
     @Test
+    fun failedSync_saysWhy_inTheHeaderAndTheEmptyState() {
+        val why = "Nothing found at that address (404)."
+        show(book = GridlinkBook(addressBook = GridlinkContactContent(emptyList(), error = why)))
+        rule.onAllNodesWithText(why, substring = true).assertCountEquals(2)
+        rule.onNodeWithText("0 people and teams").assertDoesNotExist()
+        rule.onNodeWithText("Nothing in this address book", substring = true).assertDoesNotExist()
+    }
+
+    @Test
     fun loadingBook_saysLoading_andShowsNoEmptyState() {
         show(book = GridlinkBook(addressBook = GridlinkContactContent(emptyList(), loading = true)))
         rule.onNodeWithText("Loading").assertExists()

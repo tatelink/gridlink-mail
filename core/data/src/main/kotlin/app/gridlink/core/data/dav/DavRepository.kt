@@ -19,7 +19,10 @@ import app.gridlink.core.data.db.CalendarEventDao
 import app.gridlink.core.data.db.CalendarEventEntity
 import app.gridlink.core.data.db.DavCollectionDao
 import app.gridlink.core.data.db.DavCollectionEntity
+import app.gridlink.core.data.net.DavSrv
+import app.gridlink.core.data.net.SrvResolver
 import app.gridlink.core.dav.DavClient
+import app.gridlink.core.dav.DavCollection
 import app.gridlink.core.dav.DavCredentials
 import app.gridlink.core.dav.DavException
 import app.gridlink.core.dav.DavItem
@@ -132,6 +135,12 @@ class DavRepository(
     private val zone: () -> ZoneId = { ZoneId.systemDefault() },
     /** JMAP client for the contacts capability; null (tests, or a pure-DAV build) means DAV only. */
     private val jmap: JmapClient? = null,
+    /**
+     * DNS SRV lookups for CalDAV/CardDAV discovery (RFC 6764). Defaults to [SrvResolver.None] so a
+     * test or a preview never does DNS by accident; [app.gridlink.core.data.DataFactory] supplies
+     * the real one. Consulted only when the account has no explicit server to go to.
+     */
+    private val srvResolver: SrvResolver = SrvResolver.None,
 ) {
 
     // ---- Reads -------------------------------------------------------------------------------
@@ -1632,7 +1641,12 @@ class DavRepository(
      * half that starts posting refresh tokens at a server as if they were passwords.
      */
     private sealed interface Access {
-        data class Ready(val dav: DavCredentials, val server: String) : Access
+        /**
+         * [server] is where to talk to. [guessed] is true when nobody told us that: it is the
+         * address's own domain, used because neither the account's calendar/contacts server nor its
+         * mail server was set, and the thing to try DNS SRV against before believing it.
+         */
+        data class Ready(val dav: DavCredentials, val server: String, val guessed: Boolean) : Access
         data class Refused(val reason: String) : Access
     }
 
@@ -1649,29 +1663,78 @@ class DavRepository(
         // 🔴 A blank server is not a missing server. Accounts created through autodiscovery store it
         // blank on purpose ("work it out for me"), and DavClient would build `https://` out of that
         // and throw. The address the user typed is the one thing we always have.
-        val server = credentials.server.ifBlank { credentials.username.substringAfter('@', "") }
+        //
+        // The order is: the calendar/contacts server the user typed, then the mail server, then the
+        // address's domain. The first is the fix for providers whose calendars live somewhere mail
+        // does not (GMX: caldav.gmx.net), and it has to outrank the other two or typing it would
+        // change nothing.
+        val explicit = credentials.davServer.ifBlank { credentials.server }
+        val server = explicit.ifBlank { credentials.username.substringAfter('@', "") }
         if (server.isBlank()) {
             return Access.Refused("No server address is stored for this account")
         }
         // loginName for the credential, username above for the SERVER: the domain to talk to comes
         // from the address, and a login need not have one at all.
-        return Access.Ready(DavCredentials(credentials.loginName, credentials.password), server)
+        return Access.Ready(
+            DavCredentials(credentials.loginName, credentials.password),
+            server,
+            guessed = explicit.isBlank(),
+        )
+    }
+
+    /**
+     * Where to probe for [kind]'s well-known path, best first.
+     *
+     * An explicit server is the only candidate: the user (or the mail setup) named it, and a DNS
+     * record does not get to overrule a person. A guessed domain is asked for its SRV record first
+     * (RFC 6764) and tried as itself after, so a domain with no record behaves exactly as before.
+     */
+    private suspend fun discoveryCandidates(access: Access.Ready, kind: DavKind): List<String> {
+        if (!access.guessed) return listOf(access.server)
+        val name = when (kind) {
+            DavKind.CALENDAR -> DavSrv.caldavs(access.server)
+            DavKind.ADDRESS_BOOK -> DavSrv.carddavs(access.server)
+        }
+        // A resolver failure is a lookup that found nothing, not a reason to skip the guess.
+        val published = runCatching { srvResolver.lookup(name) }.getOrDefault(emptyList())
+        return DavSrv.candidates(published, access.server)
     }
 
     private suspend fun sync(accountId: String, kind: DavKind): DavSyncOutcome {
-        val (dav, server) = when (val access = access(accountId)) {
-            is Access.Refused -> return DavSyncOutcome(0, 0, 0, error = access.reason)
-            is Access.Ready -> access.dav to access.server
+        val access = when (val a = access(accountId)) {
+            is Access.Refused -> return DavSyncOutcome(0, 0, 0, error = a.reason)
+            is Access.Ready -> a
         }
+        val dav = access.dav
         val kindKey = when (kind) {
             DavKind.CALENDAR -> DavCollectionEntity.KIND_CALENDAR
             DavKind.ADDRESS_BOOK -> DavCollectionEntity.KIND_CONTACTS
         }
 
-        val discovered = try {
-            client.discover(server, dav, kind)
-        } catch (e: DavException) {
-            return DavSyncOutcome(0, 0, 0, error = describe(e))
+        // First candidate that answers wins; the error reported is the LAST one's, which for a
+        // guessed domain is the domain itself (the answer the user can reason about), not a stale
+        // SRV target they have never heard of.
+        var discovered: List<DavCollection>? = null
+        var discoveryError: String? = null
+        for (candidate in discoveryCandidates(access, kind)) {
+            try {
+                discovered = client.discover(candidate, dav, kind)
+                break
+            } catch (e: DavException) {
+                discoveryError = describe(e)
+            }
+        }
+        if (discovered == null) {
+            // Until now this failure went to the log and nowhere else, and the screen's only word
+            // on it was "No calendar found on the server yet. Sync first." (support, 2026-11-01).
+            // When the server was a guess, say what the user can do about it.
+            val hint = if (access.guessed) {
+                " If your provider keeps calendars and contacts on a separate server, enter it under" +
+                    " this account's settings."
+            } else {
+                ""
+            }
+            return DavSyncOutcome(0, 0, 0, error = (discoveryError ?: "Sync failed") + hint)
         }
         collectionDao.replaceDiscovered(
             accountId = accountId,

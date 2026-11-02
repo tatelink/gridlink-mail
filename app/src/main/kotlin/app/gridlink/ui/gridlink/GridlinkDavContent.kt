@@ -43,6 +43,17 @@ data class GridlinkCalendarContent(
      * would state that as a confident zero.
      */
     val window: ClosedRange<LocalDate>? = null,
+    /**
+     * Why the last calendar sync brought nothing back, as one sentence for the screen, or null when
+     * it worked (or was never asked for).
+     *
+     * 🔴 This used to go to the log and nowhere else. A GMX user whose domain redirects its
+     * well-known CalDAV path to a homepage saw an empty calendar and, on saving an event, "No
+     * calendar found on the server yet. Sync first." with nothing anywhere saying WHY the sync found
+     * nothing (support, 2026-11-01). The header owns saying it: it is the one line that already
+     * describes the state of the calendar, and a failure is a state.
+     */
+    val error: String? = null,
 ) {
     /** Whether [events] can be trusted to be complete for [date]. */
     fun covers(date: LocalDate): Boolean = window?.contains(date) ?: true
@@ -67,4 +78,6 @@ data class GridlinkContactContent(
     val contacts: List<GridlinkContact>,
     /** True before the contact cache has answered once. See [GridlinkCalendarContent.loading]. */
     val loading: Boolean = false,
+    /** Why the last contacts sync brought nothing back, or null. See [GridlinkCalendarContent.error]. */
+    val error: String? = null,
 )

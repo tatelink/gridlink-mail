@@ -271,6 +271,16 @@ class GridlinkCalendarScreenTest {
     }
 
     @Test
+    fun header_saysWhyTheSyncFailed_ratherThanCountingACacheNobodyCouldRefresh() {
+        // The GMX case (support, 2026-11-01): a failed discovery used to leave the header counting
+        // whatever was cached and the screen otherwise silent.
+        val why = "Nothing found at that address (404)."
+        show(book = GridlinkBook(calendar = GridlinkCalendarContent(EVENTS, TODAY, error = why)))
+        rule.onNodeWithText(why).assertExists()
+        rule.onNodeWithText("4 events").assertDoesNotExist()
+    }
+
+    @Test
     fun header_pagedPastTheFetchedWindow_saysNotSynced_andBackInsideItCountsAgain() {
         val window = LocalDate.of(2026, 8, 1)..LocalDate.of(2026, 8, 31)
         show(book = GridlinkBook(calendar = GridlinkCalendarContent(EVENTS, TODAY, window = window)))

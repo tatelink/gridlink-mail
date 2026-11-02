@@ -209,11 +209,13 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
         smtpHost: String? = null,
         smtpPort: Int? = null,
         smtpSecurity: ConnectionSecurity? = null,
+        davServer: String? = null,
     ) {
         store.updateAccount(
             id, server = server, username = username, accountName = accountName, signature = signature,
             imapHost = imapHost, imapPort = imapPort, imapSecurity = imapSecurity,
             smtpHost = smtpHost, smtpPort = smtpPort, smtpSecurity = smtpSecurity,
+            davServer = davServer,
         )
         if (identities != null) store.setIdentities(id, identities)
         store.setDefaultIdentity(id, defaultIdentityId)

@@ -177,3 +177,42 @@ data class ImapEndpoints(
     /** True when [smtpPort] is the implicit-TLS submission port; STARTTLS otherwise. */
     val smtpImplicitTls: Boolean,
 )
+
+/**
+ * DNS SRV for CalDAV and CardDAV (RFC 6764 §3), the lookup that runs before the app guesses that
+ * an address's calendars live on the address's own domain.
+ *
+ * The guess is right for a self-hosted server and wrong for a whole class of providers: GMX serves
+ * mail from `imap.gmx.net` and calendars from `caldav.gmx.net`, and `gmx.it/.well-known/caldav` is
+ * a redirect to its homepage. A domain that publishes `_caldavs._tcp` has told us where to look,
+ * and RFC 6764 says the well-known path is then probed on THAT host.
+ *
+ * ⛔ Only the TLS names are looked up. `_caldav._tcp` / `_carddav._tcp` mean cleartext, and the DAV
+ * client sends a password on every request, so a record pointing there is not an answer we can use.
+ */
+object DavSrv {
+
+    /** CalDAV over TLS (RFC 6764 §3). */
+    fun caldavs(domain: String): String = "_caldavs._tcp.$domain"
+
+    /** CardDAV over TLS (RFC 6764 §3). */
+    fun carddavs(domain: String): String = "_carddavs._tcp.$domain"
+
+    /** HTTPS, so 443 is the port a candidate need not mention. */
+    private const val HTTPS_PORT = 443
+
+    /**
+     * Servers to try discovery against, best first: what the domain published, then [fallback] (the
+     * domain itself, or whatever the account stored).
+     *
+     * 🔴 Same rule as [MailSrv.jmapCandidates]: SRV goes first and the guess is never dropped. A
+     * stale record must not take a working server away from a user who had it yesterday, so this can
+     * only ever lengthen the list.
+     */
+    fun candidates(
+        published: List<SrvRecord>,
+        fallback: String,
+        random: Random = Random.Default,
+    ): List<String> =
+        (SrvSelection.order(published, random).map { it.authority(HTTPS_PORT) } + fallback).distinct()
+}

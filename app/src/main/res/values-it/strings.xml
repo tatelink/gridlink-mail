@@ -447,6 +447,9 @@
     <string name="settings_smtp_port_label">Porta SMTP</string>
     <string name="settings_smtp_security_title">Sicurezza SMTP</string>
     <string name="settings_server_url_label">URL del server</string>
+    <string name="settings_dav_section">Calendario e contatti</string>
+    <string name="settings_dav_server_label">Server di calendario e contatti</string>
+    <string name="settings_dav_server_help">Lascia vuoto per usare il server di posta. Serve solo se il tuo provider tiene calendario e contatti a un indirizzo separato, ad esempio caldav.gmx.net per GMX.</string>
     <string name="settings_username_label">Nome utente</string>
     <string name="settings_password_label">Password (lascia vuoto per mantenere quella attuale)</string>
     <string name="settings_api_token_label">Token API (lascia vuoto per mantenere quello attuale)</string>

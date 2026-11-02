@@ -449,6 +449,9 @@
     <string name="settings_smtp_port_label">Порт SMTP</string>
     <string name="settings_smtp_security_title">Безопасность SMTP</string>
     <string name="settings_server_url_label">URL сервера</string>
+    <string name="settings_dav_section">Календарь и контакты</string>
+    <string name="settings_dav_server_label">Сервер календаря и контактов</string>
+    <string name="settings_dav_server_help">Оставьте пустым, чтобы использовать почтовый сервер. Нужно только если ваш провайдер хранит календарь и контакты по отдельному адресу, например caldav.gmx.net у GMX.</string>
     <string name="settings_username_label">Имя пользователя</string>
     <string name="settings_password_label">Пароль (оставьте пустым, чтобы сохранить текущий)</string>
     <string name="settings_api_token_label">Токен API (оставьте пустым, чтобы сохранить текущий)</string>

@@ -313,6 +313,10 @@ fun GridlinkCalendarScreen(
                 // miscount out loud; "events" is what every view can honestly say.
                 subline = when {
                     book.calendarLoading -> "Loading"
+                    // A sync that failed outranks a count, because the count is then a count of
+                    // whatever was cached before the server stopped answering, and "0 events" over
+                    // a calendar nobody could reach is the lie this line exists not to tell.
+                    book.calendarError != null -> book.calendarError
                     !countable -> "Not synced this far out"
                     inRange.size == 1 -> "1 event"
                     else -> "${inRange.size} events"

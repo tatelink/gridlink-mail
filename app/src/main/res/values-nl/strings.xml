@@ -447,6 +447,9 @@
     <string name="settings_smtp_port_label">SMTP-poort</string>
     <string name="settings_smtp_security_title">SMTP-beveiliging</string>
     <string name="settings_server_url_label">Server-URL</string>
+    <string name="settings_dav_section">Agenda en contacten</string>
+    <string name="settings_dav_server_label">Server voor agenda en contacten</string>
+    <string name="settings_dav_server_help">Laat leeg om de mailserver te gebruiken. Alleen nodig als je provider agenda en contacten op een apart adres bewaart, bijvoorbeeld caldav.gmx.net bij GMX.</string>
     <string name="settings_username_label">Gebruikersnaam</string>
     <string name="settings_password_label">Wachtwoord (leeg laten om huidige te behouden)</string>
     <string name="settings_api_token_label">API-token (leeg laten om huidige te behouden)</string>

@@ -567,6 +567,9 @@
     <string name="settings_smtp_port_label">SMTP port</string>
     <string name="settings_smtp_security_title">SMTP security</string>
     <string name="settings_server_url_label">Server URL</string>
+    <string name="settings_dav_section">Calendar and contacts</string>
+    <string name="settings_dav_server_label">Calendar and contacts server</string>
+    <string name="settings_dav_server_help">Leave blank to use the mail server. Only needed when your provider keeps calendars and contacts on a separate address, for example caldav.gmx.net for GMX.</string>
     <string name="settings_username_label">Username</string>
     <string name="settings_password_label">Password (leave blank to keep current)</string>
     <string name="settings_api_token_label">API token (leave blank to keep current)</string>

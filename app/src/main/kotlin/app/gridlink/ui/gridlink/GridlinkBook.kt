@@ -83,6 +83,12 @@ class GridlinkBook(
 
     val contactsLoading: Boolean = addressBook?.loading == true
 
+    /** The last calendar sync's failure, for the header to say; null when it worked. */
+    val calendarError: String? = calendar?.error
+
+    /** The last contacts sync's failure, for the header to say; null when it worked. */
+    val contactsError: String? = addressBook?.error
+
     /** The calendar with this run's additions and edits folded in. */
     val events: List<GridlinkEvent> =
         (calendar?.events ?: GridlinkSampleTree.events)

@@ -107,6 +107,19 @@ data class StoredAccount(
     val smtpHost: String = "",
     val smtpPort: Int = 587,
     val smtpSecurity: ConnectionSecurity = ConnectionSecurity.STARTTLS,
+    /**
+     * Where this account's calendars and address books live, when that is NOT where its mail
+     * lives. Blank (every record written before this field existed, and most accounts) means
+     * "work it out": the CalDAV/CardDAV well-known probe against the stored [server], or, failing
+     * that, the address's own domain, with a DNS SRV lookup tried first.
+     *
+     * Exists because the guess is wrong for a whole class of providers. GMX, for one, serves mail
+     * from `imap.gmx.net` but calendars from `caldav.gmx.net`, and `gmx.it/.well-known/caldav`
+     * redirects to its homepage; a user there had no field to type the right answer into, so the
+     * calendar stayed stuck at "No calendar found on the server yet" with no way out (support,
+     * 2026-11-01). A host or a URL; a bare host means HTTPS, as everywhere else in the DAV client.
+     */
+    val davServer: String = "",
     // OpenPGP (via the OpenKeychain provider). The key id is not a secret.
     val pgpEnabled: Boolean = false,
     val pgpSignKeyId: Long = 0L,

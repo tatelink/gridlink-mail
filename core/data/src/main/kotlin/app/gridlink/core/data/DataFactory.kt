@@ -76,6 +76,9 @@ object DataFactory {
             // than the single large response a DAV first sync can be, so mail's connection pool
             // is the right one for both.
             jmap = client,
+            // The same system-resolver SRV lookup mail discovery uses, for RFC 6764 CalDAV/CardDAV
+            // records. Only consulted when the account named no server of its own.
+            srvResolver = AndroidSrvResolver(),
         )
         return DataLayer(
             mailRepository = MailRepository(

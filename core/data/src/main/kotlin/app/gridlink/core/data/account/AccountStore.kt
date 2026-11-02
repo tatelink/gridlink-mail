@@ -65,6 +65,8 @@ data class AccountCredentials(
     val oauth: OAuthCredentials? = null,
     /** For API_TOKEN accounts [password] holds the token, sent as a Bearer header. */
     val authType: AuthType = AuthType.BASIC,
+    /** The user's explicit CalDAV/CardDAV server, or blank to discover one. See [StoredAccount.davServer]. */
+    val davServer: String = "",
     /**
      * The login name, when the server will not take the address as one. Null or blank means they
      * are the same thing, which is the case for most servers and every account created before this
@@ -363,12 +365,14 @@ class AccountStore(context: Context) {
         smtpHost: String? = null,
         smtpPort: Int? = null,
         smtpSecurity: ConnectionSecurity? = null,
+        davServer: String? = null,
     ) {
         saveAccounts(
             accounts().map {
                 if (it.id == id) {
                     it.copy(
                         server = server.trim(),
+                        davServer = davServer?.trim() ?: it.davServer,
                         username = username.trim(),
                         accountName = accountName.trim(),
                         signature = signature ?: it.signature,
@@ -643,6 +647,7 @@ class AccountStore(context: Context) {
         }
         return AccountCredentials(
             server = account.server,
+            davServer = account.davServer,
             username = account.username,
             // The login's, for the same reason its auth type is: a sub-account authenticates as
             // whoever its login authenticates as, and it has no credential of its own.

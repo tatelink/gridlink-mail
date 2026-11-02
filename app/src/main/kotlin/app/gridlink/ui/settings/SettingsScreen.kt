@@ -1947,6 +1947,7 @@ private fun AccountDetailScreen(
     var smtpHost by remember(accountId) { mutableStateOf(account.smtpHost) }
     var smtpPort by remember(accountId) { mutableStateOf(account.smtpPort.toString()) }
     var smtpSecurity by remember(accountId) { mutableStateOf(account.smtpSecurity) }
+    var davServer by remember(accountId) { mutableStateOf(account.davServer) }
     val cacheCount by viewModel.cacheCount.collectAsStateWithLifecycle()
     val connTest by viewModel.connTest.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -1987,6 +1988,7 @@ private fun AccountDetailScreen(
                 defaultIdentityId = fields.defaultIdentityId,
                 imapHost = imapHost, imapPort = imapPort.toIntOrNull(), imapSecurity = imapSecurity,
                 smtpHost = smtpHost, smtpPort = smtpPort.toIntOrNull(), smtpSecurity = smtpSecurity,
+                davServer = davServer,
             )
         } else {
             viewModel.save(
@@ -1994,6 +1996,7 @@ private fun AccountDetailScreen(
                 signature = fields.signature,
                 identities = fields.identities,
                 defaultIdentityId = fields.defaultIdentityId,
+                davServer = davServer,
             )
         }
         password = ""
@@ -2268,6 +2271,25 @@ private fun AccountDetailScreen(
                         isPassword = true,
                     )
                 }
+            }
+            // Optional, and blank for nearly everyone: the well-known probe against the mail
+            // server (or the address's domain) finds the calendars on its own. It exists for the
+            // providers where that guess is wrong, GMX being the one that reached support: mail on
+            // imap.gmx.net, calendars on caldav.gmx.net, and gmx.it redirecting the probe to its
+            // homepage. Shown for both protocols, because a JMAP server can delegate DAV too.
+            SettingsSection(stringResource(R.string.settings_dav_section)) {
+                Text(
+                    stringResource(R.string.settings_dav_server_help),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+                SettingTextField(
+                    label = stringResource(R.string.settings_dav_server_label),
+                    value = davServer,
+                    onValueChange = { davServer = it; markEdited() },
+                    keyboardType = KeyboardType.Uri,
+                )
             }
             SettingsSection(stringResource(R.string.settings_protocol_section)) {
                 Text(
