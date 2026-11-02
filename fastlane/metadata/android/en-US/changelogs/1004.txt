@@ -1,0 +1,5 @@
+Gridlink Mail 2.1.1.
+
+- Calendar and Contacts now say why a sync failed instead of staying blank.
+- New per-account setting: a separate calendar and contacts server, for providers such as GMX (caldav.gmx.net).
+- Calendar and contacts discovery checks the domain's DNS SRV records before guessing.
