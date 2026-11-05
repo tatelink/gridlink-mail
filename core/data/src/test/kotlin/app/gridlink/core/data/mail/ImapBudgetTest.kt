@@ -67,4 +67,14 @@ class ImapBudgetTest {
         assertTrue(ImapBudget.remaining(deadline, start) > 0)
         assertEquals(Int.MAX_VALUE, ImapBudget.remaining(deadline, start))
     }
+
+    @Test fun `a pooled call with no budget is still guarded against a silent peer`() {
+        // No budget used to mean a socket that blocks forever; a dead pooled connection then held
+        // the account's lock for good (field report 2026-11-05). The guard swaps in the stall bound.
+        assertEquals(ImapBudget.STALL_READ_MS, ImapBudget.guarded(ImapBudget.NO_BUDGET, ImapBudget.STALL_READ_MS))
+        assertEquals(ImapBudget.STALL_CONNECT_MS, ImapBudget.guarded(ImapBudget.NO_BUDGET, ImapBudget.STALL_CONNECT_MS))
+        assertTrue(ImapBudget.STALL_READ_MS > 0 && ImapBudget.STALL_CONNECT_MS > 0)
+        // A real budget is never widened by the guard.
+        assertEquals(4_000, ImapBudget.guarded(4_000, ImapBudget.STALL_READ_MS))
+    }
 }

@@ -106,6 +106,27 @@ internal object ImapBudget {
     /** No deadline. Also the socket value meaning "block", which is why they are one constant. */
     const val NO_BUDGET = 0
 
+    /**
+     * The connect bound for a pooled call with no budget of its own. Without it a connect to an
+     * unreachable server waits for the OS, minutes, while holding the account's pool lock.
+     */
+    const val STALL_CONNECT_MS = 30_000
+
+    /**
+     * The per-read bound for a pooled call with no budget of its own. Generous on purpose: it is
+     * not a deadline for the work, only the longest the server may go without sending a single
+     * byte. Without it a pooled connection that died silently (the phone changed network or slept
+     * and the NAT forgot it: no FIN, no RST) blocked its first read FOREVER while holding the
+     * account's pool lock, so every later sync, manual pull included, queued behind it until the
+     * process was killed. Field report 2026-11-05: Samsung S21 on Android 15, "works once or twice
+     * after a reboot, then nothing, not even a manual sync". With the bound, the dead read throws,
+     * [ImapMailService] drops the session and retries once on a fresh connection.
+     */
+    const val STALL_READ_MS = 120_000
+
+    /** [remaining] as a socket timeout, with [NO_BUDGET] replaced by [stallMs] so it never blocks forever. */
+    fun guarded(remaining: Int, stallMs: Int): Int = if (remaining == NO_BUDGET) stallMs else remaining
+
     /** The instant a call started at [nowMs] with [budgetMs] must be done, or [NO_BUDGET]. */
     fun deadline(budgetMs: Int, nowMs: Long): Long = if (budgetMs > 0) nowMs + budgetMs else NO_BUDGET.toLong()
 
@@ -189,12 +210,19 @@ class ImapMailService(
             // the reads: time spent connecting is not handed back to them, and a retry that has
             // run the budget out throws here instead of connecting again. Without a budget both
             // stay 0 — "block until the OS gives up", unchanged for every other caller.
+            // A call with no budget still gets the stall guards, so a silently dead connection
+            // cannot hold the pool lock forever (see [ImapBudget.STALL_READ_MS]).
             val session = pooled.session
-                ?: imapClient.connect(config, ImapBudget.remaining(deadline, System.currentTimeMillis()))
-                    .also { pooled.session = it }
+                ?: imapClient.connect(
+                    config,
+                    ImapBudget.guarded(ImapBudget.remaining(deadline, System.currentTimeMillis()), ImapBudget.STALL_CONNECT_MS),
+                ).also { pooled.session = it }
             // Outside the try: an exhausted budget is not a session error and must not cost a
             // close + reconnect on the way out.
-            val forReads = ImapBudget.remaining(deadline, System.currentTimeMillis())
+            val forReads = ImapBudget.guarded(
+                ImapBudget.remaining(deadline, System.currentTimeMillis()),
+                ImapBudget.STALL_READ_MS,
+            )
             try {
                 return session.withReadTimeout(forReads) { block(session) }
             } catch (cancelled: CancellationException) {
