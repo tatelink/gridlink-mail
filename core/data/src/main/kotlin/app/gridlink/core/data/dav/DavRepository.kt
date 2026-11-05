@@ -1760,8 +1760,16 @@ class DavRepository(
 
         for (collection in discovered) {
             val token = stored[collection.url]?.syncToken
+            // What this collection's cache already holds, for the client fallback that diffs a
+            // listing against it when the server has no sync-collection. Only server paths are
+            // DAV items: rows synced over JMAP share these tables under synthetic hrefs, and one
+            // of those in the map would read as an item the DAV server deleted.
+            val knownEtags = when (kind) {
+                DavKind.CALENDAR -> eventDao.etagsForCollection(accountId, collection.url)
+                DavKind.ADDRESS_BOOK -> contactDao.etagsForCollection(accountId, collection.url)
+            }.filter { it.href.startsWith("/") }.associate { it.href to it.etag }
             val result = try {
-                client.sync(collection.url, dav, kind, token)
+                client.sync(collection.url, dav, kind, token, knownEtags)
             } catch (e: DavException) {
                 // One unreadable calendar must not abandon the others: a shared collection the
                 // account has lost access to answers 403 forever, and the user's own calendar has

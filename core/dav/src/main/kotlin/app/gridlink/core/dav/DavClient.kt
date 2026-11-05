@@ -31,6 +31,8 @@ enum class DavKind(
     internal val dataProp: PropKey,
     internal val collectionType: String,
     internal val dataElement: String,
+    /** The REPORT element that fetches many items in one request (RFC 4791 §9.5, RFC 6352 §8.7). */
+    internal val multigetElement: String,
     /** The `Content-Type` a PUT into this kind of collection must carry. */
     internal val contentType: String,
 ) {
@@ -42,6 +44,7 @@ enum class DavKind(
         dataProp = PropKey.CALENDAR_DATA,
         collectionType = "urn:ietf:params:xml:ns:caldav|calendar",
         dataElement = "calendar-data",
+        multigetElement = "calendar-multiget",
         contentType = "text/calendar; charset=utf-8",
     ),
     ADDRESS_BOOK(
@@ -52,6 +55,7 @@ enum class DavKind(
         dataProp = PropKey.ADDRESS_DATA,
         collectionType = "urn:ietf:params:xml:ns:carddav|addressbook",
         dataElement = "address-data",
+        multigetElement = "addressbook-multiget",
         contentType = "text/vcard; charset=utf-8",
     ),
 }
@@ -262,12 +266,18 @@ class DavClient internal constructor(
      * for a first sync. A server that rejects the token (it expired, or the collection was rebuilt)
      * answers 403/409, which is not an error: it means "start over", and this retries once without
      * the token and marks the result [DavSyncResult.fullResync].
+     *
+     * [knownEtags] is what the caller already holds for this collection, href to etag. The
+     * sync-collection path does not need it (the server tracks the state), but the fallback for
+     * servers without RFC 6578 diffs against it, so a steady-state sync downloads only what
+     * changed instead of the whole collection again.
      */
     suspend fun sync(
         collectionUrl: String,
         credentials: DavCredentials,
         kind: DavKind,
         token: String?,
+        knownEtags: Map<String, String?> = emptyMap(),
     ): DavSyncResult = withContext(Dispatchers.IO) {
         val url = collectionUrl.toHttpUrlOrNull()
             ?: throw DavException("Bad collection URL: $collectionUrl")
@@ -277,8 +287,8 @@ class DavClient internal constructor(
             when {
                 // The REPORT itself was refused: this server does not implement sync-collection
                 // (RFC 6578 is optional, and a server that lacks it answers 400, 405 or 501).
-                // There is no token retry for that, so list the collection instead.
-                e.code in SYNC_REPORT_REFUSALS -> readByListing(url, credentials, kind)
+                // There is no token retry for that, so diff a listing against the cache instead.
+                e.code in SYNC_REPORT_REFUSALS -> readByDiff(url, credentials, kind, knownEtags)
                 // 403 with <valid-sync-token>, or a 409, is the server saying the token is no
                 // longer usable. RFC 6578 §3.2 makes recovering by re-syncing from scratch the
                 // expected client behaviour, so it is handled here rather than surfaced as a
@@ -287,7 +297,7 @@ class DavClient internal constructor(
                     read(url, credentials, kind, token = null, fullResync = true)
                 } catch (retry: DavException) {
                     if (retry.code in SYNC_REPORT_REFUSALS) {
-                        readByListing(url, credentials, kind)
+                        readByDiff(url, credentials, kind, knownEtags)
                     } else {
                         throw retry
                     }
@@ -685,20 +695,24 @@ class DavClient internal constructor(
     }
 
     /**
-     * Read a whole collection without the sync-collection REPORT: list it with PROPFIND, then
-     * GET each member.
+     * Read a collection without the sync-collection REPORT: list it with PROPFIND, diff the
+     * etags against [knownEtags], and download only what is new or changed.
      *
      * The fallback for servers that do not implement RFC 6578, which is a large and legitimate
-     * class (SmarterMail answers the REPORT 400). PROPFIND and GET are the floor every DAV
-     * server implements, so this works wherever discovery did. The price is bandwidth: the
-     * result is a full resync with no token, every item's body is downloaded, and the next sync
-     * tries the REPORT again first. The repository treats a full resync as the collection's
-     * complete contents, which is exactly what a listing is, so deletions still propagate.
+     * class (SmarterMail answers the REPORT 400). The listing is one request carrying no
+     * bodies, so a sync where nothing changed costs exactly that, however large the collection
+     * is. Downloads go through multiget in batches; a server that refuses multiget as well is
+     * served one GET per item, which is the floor every DAV server implements.
+     *
+     * The result is a delta, not a full resync: [DavSyncResult.removed] names the cached hrefs
+     * the listing no longer contains, and the token is null, so the next sync tries the REPORT
+     * again first in case the server has learned it since.
      */
-    private fun readByListing(
+    private fun readByDiff(
         url: HttpUrl,
         credentials: DavCredentials,
         kind: DavKind,
+        knownEtags: Map<String, String?>,
     ): DavSyncResult {
         val listing = propfind(
             url = url,
@@ -707,24 +721,65 @@ class DavClient internal constructor(
             props = listOf(PropKey.GET_ETAG),
             includeResourceType = true,
         )
-        val changed = ArrayList<DavItem>()
+        val onServer = LinkedHashMap<String, String?>()
         for (response in listing.responses) {
             // The listing names the collection itself and anything nested under it. Only plain
-            // members are items; a collection in the listing has no card or event body to GET.
+            // members are items; a collection in the listing has no card or event body to fetch.
             if (response.isType(COLLECTION_RESOURCE_TYPE)) continue
-            val (data, headerEtag) = getText(resolve(url, response.href), credentials)
-            changed += DavItem(
-                href = response.href,
-                etag = response.prop(PropKey.GET_ETAG)?.trim('"', ' ') ?: headerEtag,
-                data = data,
-            )
+            onServer[response.href] = response.prop(PropKey.GET_ETAG)?.trim('"', ' ')
+        }
+        val removed = knownEtags.keys.filter { it !in onServer }
+        val toFetch = onServer.filter { (href, etag) -> knownEtags[href] != etag }.keys.toList()
+        val changed = ArrayList<DavItem>()
+        for (batch in toFetch.chunked(MULTIGET_BATCH)) {
+            changed += fetchBatch(url, credentials, kind, batch)
         }
         return DavSyncResult(
             changed = changed,
-            removed = emptyList(),
+            removed = removed,
             token = null,
-            fullResync = true,
+            fullResync = false,
         )
+    }
+
+    /**
+     * Download [hrefs] of one collection in a single multiget REPORT.
+     *
+     * A server can implement multiget without sync-collection (it is the older mechanism), but
+     * one that refuses this REPORT too (400, 405, 501) gets plain GETs for the batch instead.
+     * Any other failure is the sync's failure and propagates.
+     */
+    private fun fetchBatch(
+        url: HttpUrl,
+        credentials: DavCredentials,
+        kind: DavKind,
+        hrefs: List<String>,
+    ): List<DavItem> {
+        val body = buildString {
+            append("""<?xml version="1.0" encoding="utf-8"?>""")
+            append("""<${kind.prefix}:${kind.multigetElement} xmlns:D="DAV:" xmlns:${kind.prefix}="${kind.namespace}">""")
+            append("<D:prop><D:getetag/><${kind.prefix}:${kind.dataElement}/></D:prop>")
+            hrefs.forEach { append("<D:href>").append(it.xmlEscaped()).append("</D:href>") }
+            append("</${kind.prefix}:${kind.multigetElement}>")
+        }
+        val result = try {
+            report(url, credentials, body)
+        } catch (e: DavException) {
+            if (e.code !in SYNC_REPORT_REFUSALS) throw e
+            return hrefs.map { href ->
+                val (data, headerEtag) = getText(resolve(url, href), credentials)
+                DavItem(href = href, etag = headerEtag, data = data)
+            }
+        }
+        return result.responses
+            .filter { !it.isRemoved }
+            .map { response ->
+                DavItem(
+                    href = response.href,
+                    etag = response.prop(PropKey.GET_ETAG)?.trim('"', ' '),
+                    data = response.prop(kind.dataProp),
+                )
+            }
     }
 
     /** GET one item's text and its etag, under the same redirect rules as every DAV call. */
@@ -1016,6 +1071,9 @@ class DavClient internal constructor(
 
         /** A member of a listing that is itself a collection, as [DavResponse.resourceTypes] spells it. */
         private const val COLLECTION_RESOURCE_TYPE = "DAV:|collection"
+
+        /** Items per multiget REPORT in the fallback sync: large enough to matter, small enough that a refused or truncated batch costs little. */
+        private const val MULTIGET_BATCH = 50
 
 
         /** The RFC 8607 §5.1 capability token, as it appears in a `DAV:` response header. */

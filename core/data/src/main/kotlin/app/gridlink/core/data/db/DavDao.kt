@@ -6,6 +6,9 @@ import androidx.room.Transaction
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
+/** One cached item's identity and version, for the DAV fallback sync's etag diff. */
+data class DavStoredEtag(val href: String, val etag: String?)
+
 @Dao
 interface DavCollectionDao {
 
@@ -81,6 +84,10 @@ interface CalendarEventDao {
      */
     @Query("SELECT * FROM calendar_events WHERE accountId = :accountId")
     suspend fun allForAccount(accountId: String): List<CalendarEventEntity>
+
+    /** Href and etag of everything cached for one collection, without the bodies. */
+    @Query("SELECT href, etag FROM calendar_events WHERE accountId = :accountId AND collectionUrl = :collectionUrl")
+    suspend fun etagsForCollection(accountId: String, collectionUrl: String): List<DavStoredEtag>
 
     /**
      * The row a server event would land on if this account already had it under another protocol.
@@ -161,6 +168,10 @@ interface AddressBookContactDao {
     /** Every cached card for an account, unsorted: the system-contacts mirror's whole input. */
     @Query("SELECT * FROM address_book_contacts WHERE accountId = :accountId")
     suspend fun allForAccount(accountId: String): List<AddressBookContactEntity>
+
+    /** Href and etag of everything cached for one collection, without the bodies. */
+    @Query("SELECT href, etag FROM address_book_contacts WHERE accountId = :accountId AND collectionUrl = :collectionUrl")
+    suspend fun etagsForCollection(accountId: String, collectionUrl: String): List<DavStoredEtag>
 
     /**
      * Find a card by its vCard UID — how a contact just written over JMAP is found again after
