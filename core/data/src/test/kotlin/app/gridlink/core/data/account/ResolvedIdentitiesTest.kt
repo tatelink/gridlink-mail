@@ -271,4 +271,24 @@ class ResolvedIdentitiesTest {
 
         assertEquals(listOf(manual), identities)
     }
+
+    @Test fun blankNameOnOwnAddress_sendsUnderTheAccountDisplayName() {
+        // Setup leaves the identity name blank; the account's Display name must reach the From.
+        val blankOwn = id("mine", "User@Example.test", name = "")
+        val blankAlias = id("alias", "alias@example.test", name = "")
+        val resolved = account(manual = listOf(blankOwn, blankAlias)).resolvedIdentities()
+        assertEquals("User", resolved.first { it.id == "mine" }.name)
+        assertEquals("", resolved.first { it.id == "alias" }.name)
+
+        // A blank server identity for the own address gets it too; an identity's own name wins.
+        val blankServer = account(server = listOf(id("srv", "user@example.test", name = " "))).resolvedIdentities()
+        assertEquals("User", blankServer.single().name)
+        val named = account(manual = listOf(id("mine", "user@example.test", name = "Chosen"))).resolvedIdentities()
+        assertEquals("Chosen", named.single().name)
+    }
+
+    @Test fun blankAccountName_leavesTheIdentityBlank() {
+        val acc = account(manual = listOf(id("mine", "user@example.test", name = ""))).copy(accountName = "  ")
+        assertEquals("", acc.resolvedIdentities().single().name)
+    }
 }

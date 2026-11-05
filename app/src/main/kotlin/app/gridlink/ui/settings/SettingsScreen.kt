@@ -2103,7 +2103,11 @@ private fun AccountDetailScreen(
                 SettingTextField(
                     label = stringResource(R.string.settings_display_name_label),
                     value = accountName,
-                    onValueChange = { accountName = it; markEdited() },
+                    onValueChange = {
+                        identities = mirrorAccountName(identities, username, accountName, it)
+                        accountName = it
+                        markEdited()
+                    },
                 )
             }
             SettingsSection(stringResource(R.string.settings_account_colour_section)) {

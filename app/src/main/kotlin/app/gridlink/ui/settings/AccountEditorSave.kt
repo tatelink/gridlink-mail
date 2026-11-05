@@ -68,3 +68,25 @@ internal fun canSaveAccount(
 } else {
     server.isNotBlank()
 }
+
+/**
+ * Carry an edit of the account's Display name into the identity for the account's own address,
+ * as long as that identity's name is still the one the account had (blank, or the old Display
+ * name): the editor seeds that identity from the Display name on first open, so without this the
+ * two drift apart and the From header keeps the stale (usually blank) name. A name the user typed
+ * into the identity itself differs from the old Display name and is left alone.
+ */
+internal fun mirrorAccountName(
+    identities: List<StoredIdentity>,
+    username: String,
+    oldName: String,
+    newName: String,
+): List<StoredIdentity> {
+    val own = username.trim()
+    if (own.isEmpty()) return identities
+    return identities.map { identity ->
+        val isOwn = identity.email.trim().equals(own, ignoreCase = true)
+        val untouched = identity.name.isBlank() || identity.name.trim() == oldName.trim()
+        if (isOwn && untouched) identity.copy(name = newName) else identity
+    }
+}

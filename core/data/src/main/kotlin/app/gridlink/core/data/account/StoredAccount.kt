@@ -165,6 +165,7 @@ data class StoredAccount(
     fun resolvedIdentities(): List<StoredIdentity> =
         (identities + serverIdentities)
             .distinctBy { it.email.trim().lowercase() }
+            .map { it.withAccountNameFallback() }
             .ifEmpty {
                 if (isLinked) {
                     // A delegated sub-account has no signature of its own to split: all we can
@@ -184,6 +185,21 @@ data class StoredAccount(
                     )
                 }
             }
+
+    /**
+     * An identity for this account's own address with no name of its own sends under the account's
+     * Display name. Without this the Display name field on the account screen never reached the
+     * From header: setup leaves the name blank, the editor seeds the account's identity from it the
+     * first time it opens, and from then on only the identity's own name was read, so recipients saw
+     * the bare address (support report 2026-11-04). A name set on the identity itself still wins,
+     * and other addresses are left alone. Skipped for a linked sub-account, whose [username] is the
+     * login's address and whose [accountName] is a mailbox label, not a person.
+     */
+    private fun StoredIdentity.withAccountNameFallback(): StoredIdentity {
+        if (isLinked || name.isNotBlank() || accountName.isBlank()) return this
+        if (!email.trim().equals(username.trim(), ignoreCase = true)) return this
+        return copy(name = accountName.trim())
+    }
 
     /**
      * The identity to pre-select when composing: the one matching [defaultIdentityId]; failing that

@@ -114,4 +114,22 @@ class AccountEditorSaveTest {
         assertTrue(canSaveAccount("alex@example.org", isImap = true, server = "",
             imapHost = "imap.example.org", imapPort = "993", smtpHost = "smtp.example.org", smtpPort = "587"))
     }
+
+    @Test fun displayNameEdit_reachesTheOwnIdentity_onlyWhileItIsUntouched() {
+        val own = StoredIdentity(id = "a", name = "", email = "Gintcho@Example.xyz")
+        val alias = StoredIdentity(id = "b", name = "", email = "alias@example.xyz")
+        val named = StoredIdentity(id = "c", name = "Dr. G. Kostov", email = "gintcho@example.xyz")
+
+        // Blank seed on the account's own address takes the new name; other addresses do not.
+        val out = mirrorAccountName(listOf(own, alias), "gintcho@example.xyz", "", "Gintcho Kostov")
+        assertEquals("Gintcho Kostov", out[0].name)
+        assertEquals("", out[1].name)
+
+        // A seed still holding the OLD Display name follows the edit too.
+        val stale = own.copy(name = "Old")
+        assertEquals("New", mirrorAccountName(listOf(stale), "gintcho@example.xyz", "Old", "New")[0].name)
+
+        // A name typed into the identity itself is never overwritten.
+        assertEquals("Dr. G. Kostov", mirrorAccountName(listOf(named), "gintcho@example.xyz", "", "X")[0].name)
+    }
 }
