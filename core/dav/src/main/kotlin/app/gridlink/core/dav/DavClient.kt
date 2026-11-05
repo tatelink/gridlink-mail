@@ -193,7 +193,11 @@ class DavClient internal constructor(
         // rather than walking the full chain on principle.
         val start = base.resolve(kind.wellKnown) ?: throw DavException("Bad server URL: $serverUrl")
 
-        val principalProps = propfind(
+        // The well-known hop usually redirects, and the hrefs in the answer are paths on the
+        // host that ANSWERED, not the host that was asked. Resolving them against `start` would
+        // send the rest of discovery back to the pre-redirect host, so every resolve below
+        // starts from the URL the previous response actually came from.
+        val (principalProps, answeredAt) = propfindTracked(
             url = start,
             credentials = credentials,
             depth = 0,
@@ -204,18 +208,23 @@ class DavClient internal constructor(
         }
 
         val homeFromPrincipal = principalProps.responses.firstNotNullOfOrNull { it.prop(kind.homeSet) }
+        var homeBase = answeredAt
         val home = when {
             homeFromPrincipal != null -> homeFromPrincipal
-            principal != null -> propfind(
-                url = resolve(start, principal),
-                credentials = credentials,
-                depth = 0,
-                props = listOf(kind.homeSet),
-            ).responses.firstNotNullOfOrNull { it.prop(kind.homeSet) }
+            principal != null -> {
+                val (principalAnswer, principalAt) = propfindTracked(
+                    url = resolve(answeredAt, principal),
+                    credentials = credentials,
+                    depth = 0,
+                    props = listOf(kind.homeSet),
+                )
+                homeBase = principalAt
+                principalAnswer.responses.firstNotNullOfOrNull { it.prop(kind.homeSet) }
+            }
             else -> null
         } ?: throw DavException("Server did not report a ${kind.name.lowercase()} home collection")
 
-        collections(resolve(start, home), credentials, kind)
+        collections(resolve(homeBase, home), credentials, kind)
     }
 
     /** List the collections directly inside [homeUrl]. */
@@ -313,7 +322,7 @@ class DavClient internal constructor(
             .header("If-None-Match", "*")
             .header("Authorization", credentials.authorizationHeader())
             .build()
-        http.newCall(request).execute().use { response ->
+        call(request).use { response ->
             if (response.code == 412) {
                 throw DavException("An item with that id already exists", 412)
             }
@@ -368,7 +377,7 @@ class DavClient internal constructor(
             }
             .header("Authorization", credentials.authorizationHeader())
             .build()
-        http.newCall(request).execute().use { response ->
+        call(request).use { response ->
             if (response.code == 412) {
                 throw DavException("This item changed on the server since the last sync", 412)
             }
@@ -410,7 +419,7 @@ class DavClient internal constructor(
             }
             .header("Authorization", credentials.authorizationHeader())
             .build()
-        http.newCall(request).execute().use { response ->
+        call(request).use { response ->
             if (response.code == 412) {
                 throw DavException("This item changed on the server since the last sync", 412)
             }
@@ -454,7 +463,11 @@ class DavClient internal constructor(
                 }
             }
             .build()
-        http.newCall(request).execute().use { response ->
+        // Stock okhttp following, not [call]: a URL out of an invitation is not the account's
+        // server, and okhttp dropping Authorization when a redirect changes host is the safe
+        // direction for it. The shared client has following off (see defaultHttpClient), so this
+        // opts back in for this call only.
+        http.newBuilder().followRedirects(true).build().newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw DavException(errorFor(response), response.code)
             val body = response.body ?: throw DavException("Empty attachment body", response.code)
             if (body.contentLength() > maxBytes) {
@@ -495,7 +508,7 @@ class DavClient internal constructor(
             .method("OPTIONS", null)
             .header("Authorization", credentials.authorizationHeader())
             .build()
-        http.newCall(request).execute().use { response ->
+        call(request).use { response ->
             if (!response.isSuccessful) return@use false
             // Every DAV: header on the response, not just the first: the header is repeatable and
             // a server is free to split its tokens across several of them.
@@ -543,7 +556,7 @@ class DavClient internal constructor(
             .header("Content-Disposition", "attachment;filename=\"${safeFileName(fileName)}\"")
             .header("Authorization", credentials.authorizationHeader())
             .build()
-        http.newCall(request).execute().use { response ->
+        call(request).use { response ->
             if (!response.isSuccessful) throw DavException(errorFor(response), response.code)
             // 🔴 The managed id is the whole point of the round trip: without it the attachment
             // cannot be removed or replaced later, so a server that answers 2xx without one has
@@ -577,7 +590,7 @@ class DavClient internal constructor(
             .post(ByteArray(0).toRequestBody(null))
             .header("Authorization", credentials.authorizationHeader())
             .build()
-        http.newCall(request).execute().use { response ->
+        call(request).use { response ->
             if (!response.isSuccessful) throw DavException(errorFor(response), response.code)
             response.header("ETag")?.trim('"', ' ')?.takeIf { it.isNotBlank() }
         }
@@ -668,7 +681,19 @@ class DavClient internal constructor(
         depth: Int,
         props: List<PropKey>,
         includeResourceType: Boolean = false,
-    ): MultiStatusResult {
+    ): MultiStatusResult = propfindTracked(url, credentials, depth, props, includeResourceType).first
+
+    /**
+     * [propfind], plus the URL the answer actually came from: after a redirect that is the
+     * redirect's target, and the hrefs in the answer are paths on that host (see [discover]).
+     */
+    private fun propfindTracked(
+        url: HttpUrl,
+        credentials: DavCredentials,
+        depth: Int,
+        props: List<PropKey>,
+        includeResourceType: Boolean = false,
+    ): Pair<MultiStatusResult, HttpUrl> {
         val namespaces = props.map { it.namespace }.toMutableSet()
         namespaces += "DAV:"
         val prefixes = namespaces.filter { it != "DAV:" }.withIndex().associate { (i, ns) ->
@@ -686,7 +711,7 @@ class DavClient internal constructor(
             }
             append("</D:prop></D:propfind>")
         }
-        return execute(
+        return executeTracked(
             Request.Builder()
                 .url(url)
                 .method("PROPFIND", body.toRequestBody(XML))
@@ -709,8 +734,64 @@ class DavClient internal constructor(
             .build(),
     )
 
-    private fun execute(request: Request): MultiStatusResult =
-        http.newCall(request).execute().use { response ->
+    /**
+     * Execute a DAV request, following redirects by hand.
+     *
+     * ## 🔴 okhttp must not follow these itself
+     * okhttp follows a redirect to a different host but drops the `Authorization` header on the
+     * way, as an anti-leak measure. Discovery is the one place that cannot live with that: the
+     * whole point of `/.well-known/carddav` is that it 301s to the host the collections really
+     * live on, and that hop crosses hosts by design (a domain redirecting to its provider's
+     * server). Letting okhttp follow it delivers an anonymous PROPFIND, the server answers 401,
+     * and the user is told their password is wrong when it is not. So the client is built with
+     * following off, and this loop re-issues the request with its headers intact.
+     *
+     * The guards okhttp provided are kept: at most [MAX_REDIRECTS] hops, and a hop that would
+     * downgrade https to http is not followed (the redirect response is handed back and the
+     * caller reports it as the failure it is), so the password never goes on the wire in clear.
+     * Method handling matches okhttp's: 303, and 301/302 for POST, become a bodyless GET; every
+     * other request is re-sent as it was, because PROPFIND and REPORT are the requests discovery
+     * is made of and a GET in their place is meaningless.
+     *
+     * [fetch] does not come through here: it addresses URLs out of strangers' invitations, and
+     * for those, losing the header on a host change is the safe direction.
+     */
+    private fun call(request: Request): Response {
+        var current = request
+        var hops = 0
+        while (true) {
+            val response = http.newCall(current).execute()
+            val location = response.header("Location")
+            if (response.code !in REDIRECT_CODES || location == null || hops == MAX_REDIRECTS) {
+                return response
+            }
+            val target = current.url.resolve(location)
+            if (target == null || (current.url.isHttps && !target.isHttps)) return response
+            response.close()
+            hops++
+            current = redirectRequest(current, target, response.code)
+        }
+    }
+
+    /** [request] re-addressed to [target] after a redirect with [code]. See [call]. */
+    private fun redirectRequest(request: Request, target: HttpUrl, code: Int): Request {
+        val builder = request.newBuilder().url(target)
+        val becomesGet = code == 303 || ((code == 301 || code == 302) && request.method == "POST")
+        if (becomesGet) {
+            builder.method("GET", null)
+            builder.removeHeader("Content-Type")
+            builder.removeHeader("Content-Length")
+        } else {
+            builder.method(request.method, request.body)
+        }
+        return builder.build()
+    }
+
+    private fun execute(request: Request): MultiStatusResult = executeTracked(request).first
+
+    /** [execute], plus the URL of the request that was ultimately answered. */
+    private fun executeTracked(request: Request): Pair<MultiStatusResult, HttpUrl> =
+        call(request).use { response ->
             if (!response.isSuccessful) throw DavException(errorFor(response), response.code)
             val stream = response.body?.byteStream()
                 ?: throw DavException("Empty response from ${request.url}", response.code)
@@ -720,7 +801,8 @@ class DavClient internal constructor(
             if (declared > MultiStatus.MAX_BODY_BYTES) {
                 throw DavException("Response too large ($declared bytes)", response.code)
             }
-            MultiStatus.parse(LimitedInputStream(stream, MultiStatus.MAX_BODY_BYTES))
+            MultiStatus.parse(LimitedInputStream(stream, MultiStatus.MAX_BODY_BYTES)) to
+                response.request.url
         }
 
     /**
@@ -849,6 +931,13 @@ class DavClient internal constructor(
         /** An item the server does not have. [delete] treats it as the outcome it asked for. */
         private const val HTTP_NOT_FOUND = 404
 
+        /** Redirect hops [call] follows before handing the last response back unfollowed. */
+        private const val MAX_REDIRECTS = 5
+
+        /** The statuses that carry a `Location` worth following. */
+        private val REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
+
+
         /** The RFC 8607 §5.1 capability token, as it appears in a `DAV:` response header. */
         internal const val MANAGED_ATTACHMENTS_TOKEN = "calendar-managed-attachments"
 
@@ -905,15 +994,18 @@ class DavClient internal constructor(
          * The HTTP client this was written against.
          *
          * Redirects must be followed: the whole point of `/.well-known/caldav` is that it 301s to
-         * wherever the collections really live. `followSslRedirects(false)` is what keeps that from
-         * becoming a credential leak, since okhttp re-attaches the Authorization header on a
-         * same-host redirect and an HTTPS→HTTP hop would put the password on the wire in clear.
+         * wherever the collections really live. They are followed by [call] rather than by okhttp,
+         * because okhttp drops the `Authorization` header when a redirect changes host and the
+         * well-known hop crosses hosts by design; both follow switches are therefore off here,
+         * and [call] keeps the one guard that mattered, refusing an HTTPS→HTTP downgrade so the
+         * password never goes on the wire in clear.
          *
          * The read timeout is generous because a first sync of a large calendar is one response.
          */
         internal fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
+            .followRedirects(false)
             .followSslRedirects(false)
             .build()
 
