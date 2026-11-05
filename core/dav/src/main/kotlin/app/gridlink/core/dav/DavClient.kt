@@ -274,14 +274,25 @@ class DavClient internal constructor(
         try {
             read(url, credentials, kind, token, fullResync = token == null)
         } catch (e: DavException) {
-            // 403 with <valid-sync-token>, or a 409, is the server saying the token is no longer
-            // usable. RFC 6578 §3.2 makes recovering by re-syncing from scratch the expected
-            // client behaviour, so it is handled here rather than surfaced as a failure the user
-            // could do nothing about.
-            if (token != null && (e.code == 403 || e.code == 409)) {
-                read(url, credentials, kind, token = null, fullResync = true)
-            } else {
-                throw e
+            when {
+                // The REPORT itself was refused: this server does not implement sync-collection
+                // (RFC 6578 is optional, and a server that lacks it answers 400, 405 or 501).
+                // There is no token retry for that, so list the collection instead.
+                e.code in SYNC_REPORT_REFUSALS -> readByListing(url, credentials, kind)
+                // 403 with <valid-sync-token>, or a 409, is the server saying the token is no
+                // longer usable. RFC 6578 §3.2 makes recovering by re-syncing from scratch the
+                // expected client behaviour, so it is handled here rather than surfaced as a
+                // failure the user could do nothing about.
+                token != null && (e.code == 403 || e.code == 409) -> try {
+                    read(url, credentials, kind, token = null, fullResync = true)
+                } catch (retry: DavException) {
+                    if (retry.code in SYNC_REPORT_REFUSALS) {
+                        readByListing(url, credentials, kind)
+                    } else {
+                        throw retry
+                    }
+                }
+                else -> throw e
             }
         }
     }
@@ -673,6 +684,66 @@ class DavClient internal constructor(
         )
     }
 
+    /**
+     * Read a whole collection without the sync-collection REPORT: list it with PROPFIND, then
+     * GET each member.
+     *
+     * The fallback for servers that do not implement RFC 6578, which is a large and legitimate
+     * class (SmarterMail answers the REPORT 400). PROPFIND and GET are the floor every DAV
+     * server implements, so this works wherever discovery did. The price is bandwidth: the
+     * result is a full resync with no token, every item's body is downloaded, and the next sync
+     * tries the REPORT again first. The repository treats a full resync as the collection's
+     * complete contents, which is exactly what a listing is, so deletions still propagate.
+     */
+    private fun readByListing(
+        url: HttpUrl,
+        credentials: DavCredentials,
+        kind: DavKind,
+    ): DavSyncResult {
+        val listing = propfind(
+            url = url,
+            credentials = credentials,
+            depth = 1,
+            props = listOf(PropKey.GET_ETAG),
+            includeResourceType = true,
+        )
+        val changed = ArrayList<DavItem>()
+        for (response in listing.responses) {
+            // The listing names the collection itself and anything nested under it. Only plain
+            // members are items; a collection in the listing has no card or event body to GET.
+            if (response.isType(COLLECTION_RESOURCE_TYPE)) continue
+            val (data, headerEtag) = getText(resolve(url, response.href), credentials)
+            changed += DavItem(
+                href = response.href,
+                etag = response.prop(PropKey.GET_ETAG)?.trim('"', ' ') ?: headerEtag,
+                data = data,
+            )
+        }
+        return DavSyncResult(
+            changed = changed,
+            removed = emptyList(),
+            token = null,
+            fullResync = true,
+        )
+    }
+
+    /** GET one item's text and its etag, under the same redirect rules as every DAV call. */
+    private fun getText(url: HttpUrl, credentials: DavCredentials): Pair<String, String?> {
+        val request = Request.Builder()
+            .url(url)
+            .get()
+            .header("Authorization", credentials.authorizationHeader())
+            .build()
+        call(request).use { response ->
+            if (!response.isSuccessful) throw DavException(errorFor(response), response.code)
+            val stream = response.body?.byteStream()
+                ?: throw DavException("Empty response from $url", response.code)
+            val bytes = LimitedInputStream(stream, MultiStatus.MAX_BODY_BYTES).readBytes()
+            val etag = response.header("ETag")?.trim('"', ' ')?.takeIf { it.isNotBlank() }
+            return String(bytes, Charsets.UTF_8) to etag
+        }
+    }
+
     // ---- Requests --------------------------------------------------------------------------
 
     private fun propfind(
@@ -936,6 +1007,15 @@ class DavClient internal constructor(
 
         /** The statuses that carry a `Location` worth following. */
         private val REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
+
+        /**
+         * The answers that mean "no sync-collection here" rather than "this sync failed":
+         * RFC 6578 is optional, and servers without it refuse the REPORT itself.
+         */
+        private val SYNC_REPORT_REFUSALS = setOf(400, 405, 501)
+
+        /** A member of a listing that is itself a collection, as [DavResponse.resourceTypes] spells it. */
+        private const val COLLECTION_RESOURCE_TYPE = "DAV:|collection"
 
 
         /** The RFC 8607 §5.1 capability token, as it appears in a `DAV:` response header. */
