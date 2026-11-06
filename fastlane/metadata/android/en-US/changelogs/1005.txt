@@ -1,0 +1,4 @@
+Gridlink Mail 2.1.2.
+
+- Fix: on some phones (seen on a Samsung S21 with Android 15), an IMAP account could stop receiving mail entirely until the phone was restarted, and even a manual refresh showed nothing. A connection that dies silently is now given up after two minutes and replaced.
+- Fix: the name set as the account's Display name now reaches the people you write to. Before, mail could go out with the address alone.
