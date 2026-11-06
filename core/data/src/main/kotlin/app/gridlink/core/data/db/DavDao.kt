@@ -6,6 +6,9 @@ import androidx.room.Transaction
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
+/** One cached item's identity and version, for the DAV fallback sync's etag diff. */
+data class DavStoredEtag(val href: String, val etag: String?)
+
 @Dao
 interface DavCollectionDao {
 
@@ -68,6 +71,27 @@ interface CalendarEventDao {
     )
     fun observeInRange(accountId: String, fromDay: Long, toDay: Long): Flow<List<CalendarEventEntity>>
 
+    /**
+     * The [observeInRange] set reduced to identities: which rows it would return, and the etag
+     * each was stored with.
+     *
+     * The full rows are heavy (every one carries its whole source file), and reading thousands
+     * of them as one Flow result dies partway on a real account: "Couldn't read row N, col 0
+     * from CursorWindow", at a different N each run, with nothing oversized in the table.
+     * Identities run to a few hundred bytes a row, so this read stays small, and because the
+     * etag is part of each row's identity here, a content edit re-emits just as a membership
+     * change does. The rows themselves are loaded with [byHrefs] in bounded slices.
+     */
+    @Query(
+        "SELECT href, etag FROM calendar_events WHERE accountId = :accountId AND cancelled = 0 AND (" +
+            "rrule IS NOT NULL OR (startDay <= :toDay AND COALESCE(endDay, startDay) >= :fromDay))",
+    )
+    fun observeRangeEtags(accountId: String, fromDay: Long, toDay: Long): Flow<List<DavStoredEtag>>
+
+    /** Full rows for the given hrefs of one account: the slice loader behind [observeRangeEtags]. */
+    @Query("SELECT * FROM calendar_events WHERE accountId = :accountId AND href IN (:hrefs)")
+    suspend fun byHrefs(accountId: String, hrefs: List<String>): List<CalendarEventEntity>
+
     @Query("SELECT * FROM calendar_events WHERE accountId = :accountId AND href = :href")
     suspend fun byHref(accountId: String, href: String): CalendarEventEntity?
 
@@ -81,6 +105,10 @@ interface CalendarEventDao {
      */
     @Query("SELECT * FROM calendar_events WHERE accountId = :accountId")
     suspend fun allForAccount(accountId: String): List<CalendarEventEntity>
+
+    /** Href and etag of everything cached for one collection, without the bodies. */
+    @Query("SELECT href, etag FROM calendar_events WHERE accountId = :accountId AND collectionUrl = :collectionUrl")
+    suspend fun etagsForCollection(accountId: String, collectionUrl: String): List<DavStoredEtag>
 
     /**
      * The row a server event would land on if this account already had it under another protocol.
@@ -161,6 +189,10 @@ interface AddressBookContactDao {
     /** Every cached card for an account, unsorted: the system-contacts mirror's whole input. */
     @Query("SELECT * FROM address_book_contacts WHERE accountId = :accountId")
     suspend fun allForAccount(accountId: String): List<AddressBookContactEntity>
+
+    /** Href and etag of everything cached for one collection, without the bodies. */
+    @Query("SELECT href, etag FROM address_book_contacts WHERE accountId = :accountId AND collectionUrl = :collectionUrl")
+    suspend fun etagsForCollection(accountId: String, collectionUrl: String): List<DavStoredEtag>
 
     /**
      * Find a card by its vCard UID — how a contact just written over JMAP is found again after

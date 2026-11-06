@@ -31,6 +31,8 @@ enum class DavKind(
     internal val dataProp: PropKey,
     internal val collectionType: String,
     internal val dataElement: String,
+    /** The REPORT element that fetches many items in one request (RFC 4791 §9.5, RFC 6352 §8.7). */
+    internal val multigetElement: String,
     /** The `Content-Type` a PUT into this kind of collection must carry. */
     internal val contentType: String,
 ) {
@@ -42,6 +44,7 @@ enum class DavKind(
         dataProp = PropKey.CALENDAR_DATA,
         collectionType = "urn:ietf:params:xml:ns:caldav|calendar",
         dataElement = "calendar-data",
+        multigetElement = "calendar-multiget",
         contentType = "text/calendar; charset=utf-8",
     ),
     ADDRESS_BOOK(
@@ -52,6 +55,7 @@ enum class DavKind(
         dataProp = PropKey.ADDRESS_DATA,
         collectionType = "urn:ietf:params:xml:ns:carddav|addressbook",
         dataElement = "address-data",
+        multigetElement = "addressbook-multiget",
         contentType = "text/vcard; charset=utf-8",
     ),
 }
@@ -193,7 +197,11 @@ class DavClient internal constructor(
         // rather than walking the full chain on principle.
         val start = base.resolve(kind.wellKnown) ?: throw DavException("Bad server URL: $serverUrl")
 
-        val principalProps = propfind(
+        // The well-known hop usually redirects, and the hrefs in the answer are paths on the
+        // host that ANSWERED, not the host that was asked. Resolving them against `start` would
+        // send the rest of discovery back to the pre-redirect host, so every resolve below
+        // starts from the URL the previous response actually came from.
+        val (principalProps, answeredAt) = propfindTracked(
             url = start,
             credentials = credentials,
             depth = 0,
@@ -204,18 +212,23 @@ class DavClient internal constructor(
         }
 
         val homeFromPrincipal = principalProps.responses.firstNotNullOfOrNull { it.prop(kind.homeSet) }
+        var homeBase = answeredAt
         val home = when {
             homeFromPrincipal != null -> homeFromPrincipal
-            principal != null -> propfind(
-                url = resolve(start, principal),
-                credentials = credentials,
-                depth = 0,
-                props = listOf(kind.homeSet),
-            ).responses.firstNotNullOfOrNull { it.prop(kind.homeSet) }
+            principal != null -> {
+                val (principalAnswer, principalAt) = propfindTracked(
+                    url = resolve(answeredAt, principal),
+                    credentials = credentials,
+                    depth = 0,
+                    props = listOf(kind.homeSet),
+                )
+                homeBase = principalAt
+                principalAnswer.responses.firstNotNullOfOrNull { it.prop(kind.homeSet) }
+            }
             else -> null
         } ?: throw DavException("Server did not report a ${kind.name.lowercase()} home collection")
 
-        collections(resolve(start, home), credentials, kind)
+        collections(resolve(homeBase, home), credentials, kind)
     }
 
     /** List the collections directly inside [homeUrl]. */
@@ -253,26 +266,43 @@ class DavClient internal constructor(
      * for a first sync. A server that rejects the token (it expired, or the collection was rebuilt)
      * answers 403/409, which is not an error: it means "start over", and this retries once without
      * the token and marks the result [DavSyncResult.fullResync].
+     *
+     * [knownEtags] is what the caller already holds for this collection, href to etag. The
+     * sync-collection path does not need it (the server tracks the state), but the fallback for
+     * servers without RFC 6578 diffs against it, so a steady-state sync downloads only what
+     * changed instead of the whole collection again.
      */
     suspend fun sync(
         collectionUrl: String,
         credentials: DavCredentials,
         kind: DavKind,
         token: String?,
+        knownEtags: Map<String, String?> = emptyMap(),
     ): DavSyncResult = withContext(Dispatchers.IO) {
         val url = collectionUrl.toHttpUrlOrNull()
             ?: throw DavException("Bad collection URL: $collectionUrl")
         try {
             read(url, credentials, kind, token, fullResync = token == null)
         } catch (e: DavException) {
-            // 403 with <valid-sync-token>, or a 409, is the server saying the token is no longer
-            // usable. RFC 6578 §3.2 makes recovering by re-syncing from scratch the expected
-            // client behaviour, so it is handled here rather than surfaced as a failure the user
-            // could do nothing about.
-            if (token != null && (e.code == 403 || e.code == 409)) {
-                read(url, credentials, kind, token = null, fullResync = true)
-            } else {
-                throw e
+            when {
+                // The REPORT itself was refused: this server does not implement sync-collection
+                // (RFC 6578 is optional, and a server that lacks it answers 400, 405 or 501).
+                // There is no token retry for that, so diff a listing against the cache instead.
+                e.code in SYNC_REPORT_REFUSALS -> readByDiff(url, credentials, kind, knownEtags)
+                // 403 with <valid-sync-token>, or a 409, is the server saying the token is no
+                // longer usable. RFC 6578 §3.2 makes recovering by re-syncing from scratch the
+                // expected client behaviour, so it is handled here rather than surfaced as a
+                // failure the user could do nothing about.
+                token != null && (e.code == 403 || e.code == 409) -> try {
+                    read(url, credentials, kind, token = null, fullResync = true)
+                } catch (retry: DavException) {
+                    if (retry.code in SYNC_REPORT_REFUSALS) {
+                        readByDiff(url, credentials, kind, knownEtags)
+                    } else {
+                        throw retry
+                    }
+                }
+                else -> throw e
             }
         }
     }
@@ -313,7 +343,7 @@ class DavClient internal constructor(
             .header("If-None-Match", "*")
             .header("Authorization", credentials.authorizationHeader())
             .build()
-        http.newCall(request).execute().use { response ->
+        call(request).use { response ->
             if (response.code == 412) {
                 throw DavException("An item with that id already exists", 412)
             }
@@ -368,7 +398,7 @@ class DavClient internal constructor(
             }
             .header("Authorization", credentials.authorizationHeader())
             .build()
-        http.newCall(request).execute().use { response ->
+        call(request).use { response ->
             if (response.code == 412) {
                 throw DavException("This item changed on the server since the last sync", 412)
             }
@@ -410,7 +440,7 @@ class DavClient internal constructor(
             }
             .header("Authorization", credentials.authorizationHeader())
             .build()
-        http.newCall(request).execute().use { response ->
+        call(request).use { response ->
             if (response.code == 412) {
                 throw DavException("This item changed on the server since the last sync", 412)
             }
@@ -454,7 +484,11 @@ class DavClient internal constructor(
                 }
             }
             .build()
-        http.newCall(request).execute().use { response ->
+        // Stock okhttp following, not [call]: a URL out of an invitation is not the account's
+        // server, and okhttp dropping Authorization when a redirect changes host is the safe
+        // direction for it. The shared client has following off (see defaultHttpClient), so this
+        // opts back in for this call only.
+        http.newBuilder().followRedirects(true).build().newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw DavException(errorFor(response), response.code)
             val body = response.body ?: throw DavException("Empty attachment body", response.code)
             if (body.contentLength() > maxBytes) {
@@ -495,7 +529,7 @@ class DavClient internal constructor(
             .method("OPTIONS", null)
             .header("Authorization", credentials.authorizationHeader())
             .build()
-        http.newCall(request).execute().use { response ->
+        call(request).use { response ->
             if (!response.isSuccessful) return@use false
             // Every DAV: header on the response, not just the first: the header is repeatable and
             // a server is free to split its tokens across several of them.
@@ -543,7 +577,7 @@ class DavClient internal constructor(
             .header("Content-Disposition", "attachment;filename=\"${safeFileName(fileName)}\"")
             .header("Authorization", credentials.authorizationHeader())
             .build()
-        http.newCall(request).execute().use { response ->
+        call(request).use { response ->
             if (!response.isSuccessful) throw DavException(errorFor(response), response.code)
             // 🔴 The managed id is the whole point of the round trip: without it the attachment
             // cannot be removed or replaced later, so a server that answers 2xx without one has
@@ -577,7 +611,7 @@ class DavClient internal constructor(
             .post(ByteArray(0).toRequestBody(null))
             .header("Authorization", credentials.authorizationHeader())
             .build()
-        http.newCall(request).execute().use { response ->
+        call(request).use { response ->
             if (!response.isSuccessful) throw DavException(errorFor(response), response.code)
             response.header("ETag")?.trim('"', ' ')?.takeIf { it.isNotBlank() }
         }
@@ -660,6 +694,111 @@ class DavClient internal constructor(
         )
     }
 
+    /**
+     * Read a collection without the sync-collection REPORT: list it with PROPFIND, diff the
+     * etags against [knownEtags], and download only what is new or changed.
+     *
+     * The fallback for servers that do not implement RFC 6578, which is a large and legitimate
+     * class (SmarterMail answers the REPORT 400). The listing is one request carrying no
+     * bodies, so a sync where nothing changed costs exactly that, however large the collection
+     * is. Downloads go through multiget in batches; a server that refuses multiget as well is
+     * served one GET per item, which is the floor every DAV server implements.
+     *
+     * The result is a delta, not a full resync: [DavSyncResult.removed] names the cached hrefs
+     * the listing no longer contains, and the token is null, so the next sync tries the REPORT
+     * again first in case the server has learned it since.
+     */
+    private fun readByDiff(
+        url: HttpUrl,
+        credentials: DavCredentials,
+        kind: DavKind,
+        knownEtags: Map<String, String?>,
+    ): DavSyncResult {
+        val listing = propfind(
+            url = url,
+            credentials = credentials,
+            depth = 1,
+            props = listOf(PropKey.GET_ETAG),
+            includeResourceType = true,
+        )
+        val onServer = LinkedHashMap<String, String?>()
+        for (response in listing.responses) {
+            // The listing names the collection itself and anything nested under it. Only plain
+            // members are items; a collection in the listing has no card or event body to fetch.
+            if (response.isType(COLLECTION_RESOURCE_TYPE)) continue
+            onServer[response.href] = response.prop(PropKey.GET_ETAG)?.trim('"', ' ')
+        }
+        val removed = knownEtags.keys.filter { it !in onServer }
+        val toFetch = onServer.filter { (href, etag) -> knownEtags[href] != etag }.keys.toList()
+        val changed = ArrayList<DavItem>()
+        for (batch in toFetch.chunked(MULTIGET_BATCH)) {
+            changed += fetchBatch(url, credentials, kind, batch)
+        }
+        return DavSyncResult(
+            changed = changed,
+            removed = removed,
+            token = null,
+            fullResync = false,
+        )
+    }
+
+    /**
+     * Download [hrefs] of one collection in a single multiget REPORT.
+     *
+     * A server can implement multiget without sync-collection (it is the older mechanism), but
+     * one that refuses this REPORT too (400, 405, 501) gets plain GETs for the batch instead.
+     * Any other failure is the sync's failure and propagates.
+     */
+    private fun fetchBatch(
+        url: HttpUrl,
+        credentials: DavCredentials,
+        kind: DavKind,
+        hrefs: List<String>,
+    ): List<DavItem> {
+        val body = buildString {
+            append("""<?xml version="1.0" encoding="utf-8"?>""")
+            append("""<${kind.prefix}:${kind.multigetElement} xmlns:D="DAV:" xmlns:${kind.prefix}="${kind.namespace}">""")
+            append("<D:prop><D:getetag/><${kind.prefix}:${kind.dataElement}/></D:prop>")
+            hrefs.forEach { append("<D:href>").append(it.xmlEscaped()).append("</D:href>") }
+            append("</${kind.prefix}:${kind.multigetElement}>")
+        }
+        val result = try {
+            report(url, credentials, body)
+        } catch (e: DavException) {
+            if (e.code !in SYNC_REPORT_REFUSALS) throw e
+            return hrefs.map { href ->
+                val (data, headerEtag) = getText(resolve(url, href), credentials)
+                DavItem(href = href, etag = headerEtag, data = data)
+            }
+        }
+        return result.responses
+            .filter { !it.isRemoved }
+            .map { response ->
+                DavItem(
+                    href = response.href,
+                    etag = response.prop(PropKey.GET_ETAG)?.trim('"', ' '),
+                    data = response.prop(kind.dataProp),
+                )
+            }
+    }
+
+    /** GET one item's text and its etag, under the same redirect rules as every DAV call. */
+    private fun getText(url: HttpUrl, credentials: DavCredentials): Pair<String, String?> {
+        val request = Request.Builder()
+            .url(url)
+            .get()
+            .header("Authorization", credentials.authorizationHeader())
+            .build()
+        call(request).use { response ->
+            if (!response.isSuccessful) throw DavException(errorFor(response), response.code)
+            val stream = response.body?.byteStream()
+                ?: throw DavException("Empty response from $url", response.code)
+            val bytes = LimitedInputStream(stream, MultiStatus.MAX_BODY_BYTES).readBytes()
+            val etag = response.header("ETag")?.trim('"', ' ')?.takeIf { it.isNotBlank() }
+            return String(bytes, Charsets.UTF_8) to etag
+        }
+    }
+
     // ---- Requests --------------------------------------------------------------------------
 
     private fun propfind(
@@ -668,7 +807,19 @@ class DavClient internal constructor(
         depth: Int,
         props: List<PropKey>,
         includeResourceType: Boolean = false,
-    ): MultiStatusResult {
+    ): MultiStatusResult = propfindTracked(url, credentials, depth, props, includeResourceType).first
+
+    /**
+     * [propfind], plus the URL the answer actually came from: after a redirect that is the
+     * redirect's target, and the hrefs in the answer are paths on that host (see [discover]).
+     */
+    private fun propfindTracked(
+        url: HttpUrl,
+        credentials: DavCredentials,
+        depth: Int,
+        props: List<PropKey>,
+        includeResourceType: Boolean = false,
+    ): Pair<MultiStatusResult, HttpUrl> {
         val namespaces = props.map { it.namespace }.toMutableSet()
         namespaces += "DAV:"
         val prefixes = namespaces.filter { it != "DAV:" }.withIndex().associate { (i, ns) ->
@@ -686,7 +837,7 @@ class DavClient internal constructor(
             }
             append("</D:prop></D:propfind>")
         }
-        return execute(
+        return executeTracked(
             Request.Builder()
                 .url(url)
                 .method("PROPFIND", body.toRequestBody(XML))
@@ -709,8 +860,64 @@ class DavClient internal constructor(
             .build(),
     )
 
-    private fun execute(request: Request): MultiStatusResult =
-        http.newCall(request).execute().use { response ->
+    /**
+     * Execute a DAV request, following redirects by hand.
+     *
+     * ## 🔴 okhttp must not follow these itself
+     * okhttp follows a redirect to a different host but drops the `Authorization` header on the
+     * way, as an anti-leak measure. Discovery is the one place that cannot live with that: the
+     * whole point of `/.well-known/carddav` is that it 301s to the host the collections really
+     * live on, and that hop crosses hosts by design (a domain redirecting to its provider's
+     * server). Letting okhttp follow it delivers an anonymous PROPFIND, the server answers 401,
+     * and the user is told their password is wrong when it is not. So the client is built with
+     * following off, and this loop re-issues the request with its headers intact.
+     *
+     * The guards okhttp provided are kept: at most [MAX_REDIRECTS] hops, and a hop that would
+     * downgrade https to http is not followed (the redirect response is handed back and the
+     * caller reports it as the failure it is), so the password never goes on the wire in clear.
+     * Method handling matches okhttp's: 303, and 301/302 for POST, become a bodyless GET; every
+     * other request is re-sent as it was, because PROPFIND and REPORT are the requests discovery
+     * is made of and a GET in their place is meaningless.
+     *
+     * [fetch] does not come through here: it addresses URLs out of strangers' invitations, and
+     * for those, losing the header on a host change is the safe direction.
+     */
+    private fun call(request: Request): Response {
+        var current = request
+        var hops = 0
+        while (true) {
+            val response = http.newCall(current).execute()
+            val location = response.header("Location")
+            if (response.code !in REDIRECT_CODES || location == null || hops == MAX_REDIRECTS) {
+                return response
+            }
+            val target = current.url.resolve(location)
+            if (target == null || (current.url.isHttps && !target.isHttps)) return response
+            response.close()
+            hops++
+            current = redirectRequest(current, target, response.code)
+        }
+    }
+
+    /** [request] re-addressed to [target] after a redirect with [code]. See [call]. */
+    private fun redirectRequest(request: Request, target: HttpUrl, code: Int): Request {
+        val builder = request.newBuilder().url(target)
+        val becomesGet = code == 303 || ((code == 301 || code == 302) && request.method == "POST")
+        if (becomesGet) {
+            builder.method("GET", null)
+            builder.removeHeader("Content-Type")
+            builder.removeHeader("Content-Length")
+        } else {
+            builder.method(request.method, request.body)
+        }
+        return builder.build()
+    }
+
+    private fun execute(request: Request): MultiStatusResult = executeTracked(request).first
+
+    /** [execute], plus the URL of the request that was ultimately answered. */
+    private fun executeTracked(request: Request): Pair<MultiStatusResult, HttpUrl> =
+        call(request).use { response ->
             if (!response.isSuccessful) throw DavException(errorFor(response), response.code)
             val stream = response.body?.byteStream()
                 ?: throw DavException("Empty response from ${request.url}", response.code)
@@ -720,7 +927,8 @@ class DavClient internal constructor(
             if (declared > MultiStatus.MAX_BODY_BYTES) {
                 throw DavException("Response too large ($declared bytes)", response.code)
             }
-            MultiStatus.parse(LimitedInputStream(stream, MultiStatus.MAX_BODY_BYTES))
+            MultiStatus.parse(LimitedInputStream(stream, MultiStatus.MAX_BODY_BYTES)) to
+                response.request.url
         }
 
     /**
@@ -849,6 +1057,25 @@ class DavClient internal constructor(
         /** An item the server does not have. [delete] treats it as the outcome it asked for. */
         private const val HTTP_NOT_FOUND = 404
 
+        /** Redirect hops [call] follows before handing the last response back unfollowed. */
+        private const val MAX_REDIRECTS = 5
+
+        /** The statuses that carry a `Location` worth following. */
+        private val REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
+
+        /**
+         * The answers that mean "no sync-collection here" rather than "this sync failed":
+         * RFC 6578 is optional, and servers without it refuse the REPORT itself.
+         */
+        private val SYNC_REPORT_REFUSALS = setOf(400, 405, 501)
+
+        /** A member of a listing that is itself a collection, as [DavResponse.resourceTypes] spells it. */
+        private const val COLLECTION_RESOURCE_TYPE = "DAV:|collection"
+
+        /** Items per multiget REPORT in the fallback sync: large enough to matter, small enough that a refused or truncated batch costs little. */
+        private const val MULTIGET_BATCH = 50
+
+
         /** The RFC 8607 §5.1 capability token, as it appears in a `DAV:` response header. */
         internal const val MANAGED_ATTACHMENTS_TOKEN = "calendar-managed-attachments"
 
@@ -905,15 +1132,18 @@ class DavClient internal constructor(
          * The HTTP client this was written against.
          *
          * Redirects must be followed: the whole point of `/.well-known/caldav` is that it 301s to
-         * wherever the collections really live. `followSslRedirects(false)` is what keeps that from
-         * becoming a credential leak, since okhttp re-attaches the Authorization header on a
-         * same-host redirect and an HTTPS→HTTP hop would put the password on the wire in clear.
+         * wherever the collections really live. They are followed by [call] rather than by okhttp,
+         * because okhttp drops the `Authorization` header when a redirect changes host and the
+         * well-known hop crosses hosts by design; both follow switches are therefore off here,
+         * and [call] keeps the one guard that mattered, refusing an HTTPS→HTTP downgrade so the
+         * password never goes on the wire in clear.
          *
          * The read timeout is generous because a first sync of a large calendar is one response.
          */
         internal fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
+            .followRedirects(false)
             .followSslRedirects(false)
             .build()
 

@@ -158,8 +158,19 @@ class DavRepository(
         from: LocalDate,
         to: LocalDate,
     ): Flow<List<CalendarOccurrence>> =
-        eventDao.observeInRange(accountId, from.toEpochDay() - 1, to.toEpochDay() + 1)
-            .map { rows -> occurrencesOf(rows, from, to) }
+        eventDao.observeRangeEtags(accountId, from.toEpochDay() - 1, to.toEpochDay() + 1)
+            .map { keys ->
+                // The rows behind those identities are loaded in slices, not read as one Flow
+                // result: a real account holds thousands of events carrying their whole source
+                // files, and the single generated read over all of them dies partway in the
+                // cursor machinery (see observeRangeEtags in the DAO). Bounded one-shot reads
+                // are the shape every other DAO call already makes safely.
+                val rows = ArrayList<CalendarEventEntity>(keys.size)
+                keys.chunked(EVENT_LOAD_SLICE).forEach { slice ->
+                    rows += eventDao.byHrefs(accountId, slice.map { it.href })
+                }
+                occurrencesOf(rows, from, to)
+            }
 
     /** The expansion, split out so it can be tested without a database. */
     internal fun occurrencesOf(
@@ -1760,8 +1771,16 @@ class DavRepository(
 
         for (collection in discovered) {
             val token = stored[collection.url]?.syncToken
+            // What this collection's cache already holds, for the client fallback that diffs a
+            // listing against it when the server has no sync-collection. Only server paths are
+            // DAV items: rows synced over JMAP share these tables under synthetic hrefs, and one
+            // of those in the map would read as an item the DAV server deleted.
+            val knownEtags = when (kind) {
+                DavKind.CALENDAR -> eventDao.etagsForCollection(accountId, collection.url)
+                DavKind.ADDRESS_BOOK -> contactDao.etagsForCollection(accountId, collection.url)
+            }.filter { it.href.startsWith("/") }.associate { it.href to it.etag }
             val result = try {
-                client.sync(collection.url, dav, kind, token)
+                client.sync(collection.url, dav, kind, token, knownEtags)
             } catch (e: DavException) {
                 // One unreadable calendar must not abandon the others: a shared collection the
                 // account has lost access to answers 403 forever, and the user's own calendar has
@@ -1857,6 +1876,9 @@ private const val HTTP_PRECONDITION_FAILED = 412
 private const val HTTP_PAYLOAD_TOO_LARGE = 413
 
 private const val DELETE_CHUNK = 400
+
+/** Rows per slice when observeOccurrences loads the events behind its identity list. */
+private const val EVENT_LOAD_SLICE = 200
 
 /** No longer than a filename can sensibly be; the UID becomes `"$uid.ics"` on the server. */
 private const val MAX_UID_LENGTH = 255
