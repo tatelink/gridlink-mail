@@ -4961,7 +4961,13 @@ class MailRepository(
         cc: List<String> = emptyList(),
         bcc: List<String> = emptyList(),
     ): OutgoingMessage {
-        val from = formatFrom(fromName, fromEmail) ?: credentials.username
+        // A caller with no From of its own (the Gridlink composer passes none) sends as the
+        // account's default identity, which carries the Display name. Without this the IMAP/SMTP
+        // From was the bare login address whatever the account screen said (support report
+        // 2026-11-04, still reproducing on 2.1.2 before this). JMAP resolves its own identity.
+        val identity = if (fromEmail.isNullOrBlank()) accountStore.defaultIdentity(credentials.id) else null
+        val from = formatFrom(fromName ?: identity?.name?.takeIf { it.isNotBlank() }, fromEmail ?: identity?.email)
+            ?: credentials.username
         requireSingleLineAddresses(listOf(from) + recipients + cc + bcc)
         return OutgoingMessage(
             from = from,
