@@ -5,6 +5,8 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -118,5 +120,23 @@ class DavClientRedirectTest {
         assertEquals("PROPFIND", listing.method)
         assertEquals("/webdav/addressbooks/", listing.path)
         assertEquals(1, domain.requestCount)
+    }
+
+    @Test fun aCrossHostRedirectOutsideWellKnownDropsThePassword() = runBlocking {
+        // A collection the account's server points at another host: not the discovery hop, so
+        // the password must not follow it. The other host then refuses, and that is the failure.
+        domain.enqueue(
+            MockResponse().setResponseCode(301)
+                .setHeader("Location", providerUrl("/elsewhere/calendar/")),
+        )
+        provider.enqueue(MockResponse().setResponseCode(401))
+
+        val outcome = runCatching {
+            client.sync(domain.url("/dav/calendar/").toString(), credentials, DavKind.CALENDAR, token = "t1")
+        }
+
+        assertTrue(outcome.isFailure)
+        assertEquals(credentials.authorizationHeader(), domain.takeRequest().getHeader("Authorization"))
+        assertNull(provider.takeRequest().getHeader("Authorization"))
     }
 }

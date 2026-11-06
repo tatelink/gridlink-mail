@@ -910,6 +910,14 @@ class DavClient internal constructor(
         } else {
             builder.method(request.method, request.body)
         }
+        // The password follows a host change only off a `/.well-known/` path, the one hop that
+        // crosses hosts by design. Anywhere else a cross-host redirect is a server pointing the
+        // client at a third party, and the credential stays home: the request goes on without it
+        // and the other host's 401 is the failure the user sees (okhttp's own rule, kept).
+        val crossesHost = !target.host.equals(request.url.host, ignoreCase = true)
+        if (crossesHost && !request.url.encodedPath.startsWith(WELL_KNOWN_PREFIX)) {
+            builder.removeHeader("Authorization")
+        }
         return builder.build()
     }
 
@@ -1062,6 +1070,9 @@ class DavClient internal constructor(
 
         /** The statuses that carry a `Location` worth following. */
         private val REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
+
+        /** The RFC 6764 discovery paths, the only place a redirect may carry the password across hosts. */
+        private const val WELL_KNOWN_PREFIX = "/.well-known/"
 
         /**
          * The answers that mean "no sync-collection here" rather than "this sync failed":
