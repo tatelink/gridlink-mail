@@ -778,8 +778,15 @@ class ImapSession(private var socket: Socket) : Closeable {
         }
     }
 
+    /**
+     * LOGOUT is a courtesy, so its answer is waited for [LOGOUT_READ_BUDGET_MS] at most (as upstream). Close is
+     * mostly called on a session that just FAILED, and when the failure was a silently dead
+     * connection the LOGOUT reply never comes: unbounded, the read blocked forever right here,
+     * holding the account's pool lock, so the stall guard that had just fired bought nothing
+     * (field report 2026-11-05, reproduced on an emulator with the connection's packets dropped).
+     */
     override fun close() {
-        runCatching { command("LOGOUT") }
+        runCatching { withReadTimeout(LOGOUT_READ_BUDGET_MS) { command("LOGOUT") } }
         runCatching { socket.close() }
     }
 
@@ -1021,6 +1028,12 @@ internal val purgeWithoutUidPlus = PurgeWithoutUidPlus.EXPUNGE_WHEN_ONLY_OURS
  * compress to well under any server's command-length limit.
  */
 private const val UID_SET_CHUNK = 200
+
+/**
+ * How long [ImapSession.close] may wait for the answer to its `LOGOUT`. A live link answers in one
+ * round trip and a dead one never will. Same name and value as upstream Sterna.
+ */
+private const val LOGOUT_READ_BUDGET_MS = 5_000
 
 /** Tokens always readable on a line, however spent a caller's token budget is: enough for a
  *  tagged status line (`a12 NO [BADCHARSET] …`) to stay recognisable. */
