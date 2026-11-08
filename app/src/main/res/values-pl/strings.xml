@@ -197,6 +197,10 @@
     <string name="calendar_responded_tentative">Zaakceptowano wstępnie</string>
     <string name="calendar_reply_sending">Wysyłanie odpowiedzi…</string>
     <string name="calendar_reply_failed">Nie udało się wysłać odpowiedzi.</string>
+    <string name="calendars_title">Kalendarze</string>
+    <string name="calendars_unnamed">Kalendarz %1$d</string>
+    <string name="calendars_hidden_note">Ukryte kalendarze nadal się synchronizują. Po prostu nie są widoczne w siatce.</string>
+    <string name="event_form_calendar">Kalendarz</string>
     <string name="snooze_in_1_hour">Za 1 godzinę</string>
     <string name="snooze_this_evening">Dziś wieczorem, 18:00</string>
     <string name="snooze_tomorrow">Jutro, 8:00</string>

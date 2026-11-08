@@ -21,6 +21,7 @@ import app.gridlink.core.jmap.OutgoingLimits
 import app.gridlink.ui.gridlink.DEFAULT_DURATION_MINUTES
 import app.gridlink.ui.gridlink.GridlinkAttachment
 import app.gridlink.ui.gridlink.GridlinkCalendarContent
+import app.gridlink.ui.gridlink.GridlinkCalendarInfo
 import app.gridlink.ui.gridlink.GridlinkCalendarWriter
 import app.gridlink.ui.gridlink.GridlinkContactContent
 import app.gridlink.ui.gridlink.GridlinkContactWriter
@@ -145,15 +146,51 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
         }
         .onEach { calendarPrimed.value = true }
 
+    /**
+     * The account's calendars, each with its colour and whether the user has it switched on.
+     *
+     * The hidden set is read off the account record so a toggle made here survives a restart, and
+     * so this flow re-emits on its own when [setCalendarVisible] writes it.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val calendarList: Flow<List<GridlinkCalendarInfo>> = accountId
+        .flatMapLatest { id ->
+            if (id == null) {
+                flowOf(emptyList())
+            } else {
+                combine(repo.observeCalendars(id), store.accountsFlow) { collections, accounts ->
+                    val hidden = accounts.firstOrNull { it.id == id }?.hiddenCalendars.orEmpty()
+                    GridlinkDavMapping.calendars(collections, hidden)
+                }
+            }
+        }
+        .distinctUntilChanged()
+
+    private data class CalendarFrame(
+        val occurrences: List<CalendarOccurrence>,
+        val calendars: List<GridlinkCalendarInfo>,
+    )
+
+    /**
+     * Occurrences with the hidden calendars already taken out. An occurrence with no calendar url
+     * (nothing should produce one, but the field is nullable) stays: hiding is opt-in per calendar,
+     * and an event nobody can switch back on must not vanish.
+     */
+    private val shown: Flow<CalendarFrame> = combine(occurrences, calendarList) { list, calendars ->
+        val hidden = calendars.filterNot { it.visible }.map { it.id }.toSet()
+        CalendarFrame(list.filter { it.calendarUrl == null || it.calendarUrl !in hidden }, calendars)
+    }
+
     /** The Calendar tab, as [app.gridlink.ui.gridlink.GridlinkRoot] takes it. */
     val calendar: StateFlow<GridlinkCalendarContent> =
-        combine(occurrences, calendarPrimed, anchor, ownDomain, calendarError) { list, ready, today, domain, error ->
+        combine(shown, calendarPrimed, anchor, ownDomain, calendarError) { frame, ready, today, domain, error ->
             GridlinkCalendarContent(
-                events = list.map { GridlinkDavMapping.event(it, domain) },
+                events = frame.occurrences.map { GridlinkDavMapping.event(it, domain, frame.calendars) },
                 today = today,
                 loading = !ready,
                 window = today.minusDays(WINDOW_BACK_DAYS)..today.plusDays(WINDOW_FORWARD_DAYS),
                 error = error,
+                calendars = frame.calendars,
             )
         }.stateIn(
             scope = viewModelScope,
@@ -218,6 +255,9 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
                 description = event.notes,
                 category = event.category,
                 reminders = event.reminders,
+                // The calendar the form chose. Null (one calendar, or nothing chosen) lets the
+                // repository pick the account's first shown calendar.
+                collectionUrl = event.calendarId,
             )
             if (outcome.succeeded) {
                 Log.i(TAG, "created event ${outcome.href}")
@@ -231,6 +271,11 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
         // empty only for a row whose stored text no longer reads, and that is the one event that
         // must not show Edit. Repeating events are editable; the form asks which occurrences.
         override fun canUpdate(event: GridlinkEvent): Boolean = event.handle.isNotEmpty()
+
+        override fun setCalendarVisible(calendarId: String, visible: Boolean) {
+            val id = accountId.value ?: return
+            viewModelScope.launch(Dispatchers.IO) { store.setCalendarHidden(id, calendarId, hidden = !visible) }
+        }
 
         override suspend fun update(
             before: GridlinkEvent,

@@ -5,6 +5,7 @@ import app.gridlink.core.data.calendar.CalendarOccurrence
 import app.gridlink.core.data.contacts.ContactEdit
 import app.gridlink.core.data.contacts.ContactPayload
 import app.gridlink.core.data.db.AddressBookContactEntity
+import app.gridlink.core.data.db.DavCollectionEntity
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 import java.time.LocalDate
 
@@ -36,7 +37,29 @@ object GridlinkDavMapping {
      * the value [GridlinkEventScreen] reads to decide there is no outside party to show, so getting it
      * from the signed-in account rather than a constant is what keeps a private appointment private.
      */
-    fun event(occurrence: CalendarOccurrence, ownDomain: String): GridlinkEvent = GridlinkEvent(
+    /**
+     * The account's calendars as the screens take them, in the order given (the DAO's discovery
+     * order), with [hidden] (see `StoredAccount.hiddenCalendars`) switched off.
+     */
+    fun calendars(collections: List<DavCollectionEntity>, hidden: Set<String>): List<GridlinkCalendarInfo> =
+        collections.mapIndexed { index, collection ->
+            GridlinkCalendarInfo(
+                id = collection.url,
+                name = collection.displayName?.takeIf { it.isNotBlank() },
+                tint = GridlinkCalendarTint(gridlinkParseCalendarColor(collection.color), index),
+                visible = collection.url !in hidden,
+            )
+        }
+
+    /**
+     * @param calendars the account's calendars. Only with more than one does an event take its
+     *   calendar's colour; a single-calendar account keeps the organiser colours it always had.
+     */
+    fun event(
+        occurrence: CalendarOccurrence,
+        ownDomain: String,
+        calendars: List<GridlinkCalendarInfo> = emptyList(),
+    ): GridlinkEvent = GridlinkEvent(
         id = PREFIX + occurrence.uid + "@" + occurrence.date + (occurrence.start?.let { "T$it" } ?: ""),
         title = occurrence.summary?.takeIf { it.isNotBlank() } ?: "Untitled event",
         date = occurrence.date,
@@ -85,6 +108,10 @@ object GridlinkDavMapping {
             ?.let { PREFIX + it + (occurrence.recurrenceDay?.let { day -> "$DAY_MARK$day" } ?: "") }
             .orEmpty(),
         repeating = occurrence.repeating,
+        calendarId = occurrence.calendarUrl,
+        calendarTint = calendars.takeIf { it.size > 1 }
+            ?.firstOrNull { it.id == occurrence.calendarUrl }
+            ?.tint,
     )
 
     /** Separates the file from the occurrence inside a calendar handle. See [event]. */

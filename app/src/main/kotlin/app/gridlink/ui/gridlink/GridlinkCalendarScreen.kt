@@ -31,6 +31,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -47,6 +48,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -54,6 +57,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import app.gridlink.R
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
 import app.gridlink.ui.theme.GridlinkRadii
@@ -168,6 +172,13 @@ fun GridlinkCalendarScreen(
      * lands on a state that is already equal.
      */
     paneDate: LocalDate? = null,
+    /**
+     * Show or hide one calendar ([GridlinkCalendarInfo.id]) from the Calendars sheet.
+     *
+     * The sheet's button appears only when the book lists more than one calendar: a sheet with one
+     * row whose only effect is an empty grid is a trap, not a setting.
+     */
+    onSetCalendarVisible: (String, Boolean) -> Unit = { _, _ -> },
 ) {
     // 🔴 The book, not [GridlinkSampleTree], and `book` is a remember KEY below rather than only a
     // source. Without it there the filtered list is cached against the range alone, so an event saved
@@ -192,6 +203,17 @@ fun GridlinkCalendarScreen(
      * user chose rather than leaving them on the month the wide layout substituted.
      */
     var picked by remember(initialView) { mutableStateOf(initialView) }
+
+    // The Calendars sheet. A window of its own (GridlinkCenterSheet is a Dialog), so where it sits in
+    // this body does not matter for layout.
+    var showingCalendars by remember { mutableStateOf(false) }
+    if (showingCalendars && book.calendars.size > 1) {
+        GridlinkCalendarsSheet(
+            calendars = book.calendars,
+            onToggle = { calendar, visible -> onSetCalendarVisible(calendar.id, visible) },
+            onDismiss = { showingCalendars = false },
+        )
+    }
 
     /**
      * The view actually on screen.
@@ -375,6 +397,13 @@ fun GridlinkCalendarScreen(
                         GridlinkCalendarView.entries
                     } else {
                         GridlinkCalendarView.entries - GridlinkCalendarView.AGENDA
+                    },
+                    // On the tab row rather than in the title row, because the title row only
+                    // exists on one pane and the choice of calendars matters just as much unfolded.
+                    trailing = if (book.calendars.size > 1) {
+                        { GridlinkCalendarsButton(onClick = { showingCalendars = true }) }
+                    } else {
+                        null
                     },
                 )
             }
@@ -650,6 +679,11 @@ private fun GridlinkViewSwitcher(
      * count is the layout, and a flag would leave this function deciding which view a boolean meant.
      */
     views: List<GridlinkCalendarView> = GridlinkCalendarView.entries,
+    /**
+     * A control at the row's end (the Calendars button). Inside the row's Box so the rule still runs
+     * under it: the switcher stays one band across the screen rather than stopping short of a button.
+     */
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
     Box(modifier = modifier.fillMaxWidth()) {
@@ -708,7 +742,29 @@ private fun GridlinkViewSwitcher(
                     }
                 }
             }
+            trailing?.invoke()
         }
+    }
+}
+
+/** Opens the Calendars sheet. Same footprint as [GridlinkStepButton], so it sits level with the tabs. */
+@Composable
+private fun GridlinkCalendarsButton(onClick: () -> Unit) {
+    val colors = GridlinkTheme.colors
+    Box(
+        modifier = Modifier
+            .size(CALENDAR_STEPPER_SIZE)
+            .clip(CircleShape)
+            .clickable(onClick = onClick)
+            .testTag("gridlink-calendars-button"),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.Layers,
+            contentDescription = stringResource(R.string.calendars_title),
+            tint = colors.textSecondary,
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 
@@ -1005,7 +1061,7 @@ private fun GridlinkMonthDayList(
                 items(events.size, key = { events[it].id }) { index ->
                     GridlinkAgendaRow(
                         event = events[index],
-                        accent = gridlinkSenderBarColor(mode, events[index].domain),
+                        accent = gridlinkEventColor(mode, events[index]),
                         onClick = { onOpenEvent(events[index]) },
                         current = events[index].id == currentId,
                     )
@@ -1219,7 +1275,7 @@ private fun GridlinkDayCell(
                     Box(
                         modifier = Modifier
                             .size(GridlinkDimens.calendarEventDot)
-                            .background(gridlinkSenderBarColor(mode, event.domain), CircleShape),
+                            .background(gridlinkEventColor(mode, event), CircleShape),
                     )
                 }
             }
@@ -1248,7 +1304,7 @@ private fun GridlinkDayCellEvent(
         Box(
             modifier = Modifier
                 .size(GridlinkDimens.calendarEventDot)
-                .background(gridlinkSenderBarColor(mode, event.domain), CircleShape),
+                .background(gridlinkEventColor(mode, event), CircleShape),
         )
         Text(
             text = event.title,
@@ -1449,7 +1505,7 @@ private fun GridlinkTimeGrid(
                         book.eventsOn(day).firstOrNull { it.allDay }?.let { event ->
                             GridlinkEventBlock(
                                 event = event,
-                                accent = gridlinkSenderBarColor(mode, event.domain),
+                                accent = gridlinkEventColor(mode, event),
                                 onClick = { onOpenEvent(event) },
                                 current = event.id == currentId,
                                 showTime = false,
@@ -1567,7 +1623,7 @@ private fun GridlinkDayColumn(
 
             GridlinkEventBlock(
                 event = event,
-                accent = gridlinkSenderBarColor(mode, event.domain),
+                accent = gridlinkEventColor(mode, event),
                 onClick = { onOpenEvent(event) },
                 current = event.id == currentId,
                 showTime = heightDp >= 40.dp,
@@ -1950,7 +2006,7 @@ private fun GridlinkAgendaView(
                 items(dayEvents.size, key = { dayEvents[it].id }) { index ->
                     GridlinkAgendaRow(
                         event = dayEvents[index],
-                        accent = gridlinkSenderBarColor(mode, dayEvents[index].domain),
+                        accent = gridlinkEventColor(mode, dayEvents[index]),
                         onClick = { onOpenEvent(dayEvents[index]) },
                         current = dayEvents[index].id == currentId,
                     )

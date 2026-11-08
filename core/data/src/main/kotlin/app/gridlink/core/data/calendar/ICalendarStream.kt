@@ -56,6 +56,12 @@ data class ParsedCalendarEvent(
      * [parse] — a payload does not know its own href — and filled in by the repository layer.
      */
     val href: String? = null,
+    /**
+     * Which calendar (collection) of the account this event lives in, as its local url key, or null
+     * when the caller did not say. Filled in by the repository layer like [href]; it is what lets
+     * the app name, colour and hide calendars one by one instead of merging them all.
+     */
+    val calendarUrl: String? = null,
 ) {
     /** How long the event runs, or null when it had no DTEND and no DURATION. */
     val duration: Duration?
@@ -106,6 +112,8 @@ data class CalendarOccurrence(
     val recurrenceDay: LocalDate? = null,
     /** Whether this occurrence belongs to a series, so an edit has to ask "this one or all". */
     val repeating: Boolean = false,
+    /** See [ParsedCalendarEvent.calendarUrl]. */
+    val calendarUrl: String? = null,
 )
 
 /**
@@ -285,6 +293,7 @@ object ICalendarStream {
             else -> null
         },
         repeating = event.rrule != null || event.recurrenceId != null,
+        calendarUrl = event.calendarUrl,
     )
 
     // ---- Building one event -------------------------------------------------------------------

@@ -402,7 +402,7 @@ internal object DavMappers {
                     }
                 }
             }
-        if (reparsed != null) return reparsed.copy(href = fileHref)
+        if (reparsed != null) return reparsed.copy(href = fileHref, calendarUrl = row.collectionUrl)
 
         val start = row.startLocal.toLocalDateTimeOrNull() ?: return null
         return ParsedCalendarEvent(
@@ -418,6 +418,7 @@ internal object DavMappers {
             exDates = row.exDates.split(',').mapNotNull { it.toLocalDateOrNull() },
             recurrenceId = row.recurrenceId?.toLocalDateOrNull(),
             organizerEmail = row.organizerEmail,
+            calendarUrl = row.collectionUrl,
         )
     }
 

@@ -77,6 +77,13 @@ interface GridlinkCalendarWriter {
         edited: GridlinkEvent,
         scope: GridlinkEventEditScope = GridlinkEventEditScope.ALL_EVENTS,
     ): String?
+
+    /**
+     * Show or hide one calendar on the grid ([GridlinkCalendarInfo.id]). A local choice: nothing is
+     * written to the server and the calendar keeps syncing. The change comes back through the
+     * content, like a saved event does. No-op where nothing behind the screen has calendars.
+     */
+    fun setCalendarVisible(calendarId: String, visible: Boolean) = Unit
 }
 
 /**

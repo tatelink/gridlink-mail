@@ -124,6 +124,13 @@ data class StoredAccount(
     val pgpEnabled: Boolean = false,
     val pgpSignKeyId: Long = 0L,
     val pgpEncryptByDefault: Boolean = false,
+    /**
+     * The calendars (by their local collection url) the user switched off in the Calendar tab's
+     * Calendars sheet. Their events stay synced and cached; they are only left off the grid. A set
+     * of the HIDDEN ones rather than the shown ones, so a calendar the server adds later appears on
+     * its own instead of arriving switched off.
+     */
+    val hiddenCalendars: Set<String> = emptySet(),
 ) {
     /** The id whose stored secret/OAuth tokens back this record: its login (or itself if standalone). */
     fun loginKey(): String = loginId ?: id

@@ -2856,6 +2856,7 @@ fun GridlinkRoot(
                         GridlinkDestination.CALENDAR -> GridlinkCalendarScreen(
                             destination = destination,
                             onSelectDestination = { destination = it },
+                            onSetCalendarVisible = calendarWriter::setCalendarVisible,
                             onNewEvent = { day -> creating = GridlinkCreation.Event(day) },
                             initialView = initialCalendarView,
                             initialDate = calendarStart,

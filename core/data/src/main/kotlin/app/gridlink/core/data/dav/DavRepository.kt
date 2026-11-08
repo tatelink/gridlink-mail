@@ -233,7 +233,20 @@ class DavRepository(
      */
     suspend fun defaultCalendar(accountId: String): DavCollectionEntity? {
         if (accountStore.account(accountId)?.syncSelection?.calendar != true) return null
-        return collectionDao.forKind(accountId, DavCollectionEntity.KIND_CALENDAR).firstOrNull()
+        return firstShownCalendar(accountId)
+    }
+
+    /**
+     * The account's first calendar the user has NOT hidden, else its first calendar at all.
+     *
+     * A write with no named calendar lands here. Preferring a shown one matters: an event saved into
+     * a hidden calendar is on the server and correct, and then is nowhere on screen, which reads as
+     * a save that did not happen. Falling back to a hidden one still beats refusing to save.
+     */
+    private suspend fun firstShownCalendar(accountId: String): DavCollectionEntity? {
+        val all = collectionDao.forKind(accountId, DavCollectionEntity.KIND_CALENDAR)
+        val hidden = accountStore.account(accountId)?.hiddenCalendars.orEmpty()
+        return all.firstOrNull { it.url !in hidden } ?: all.firstOrNull()
     }
 
     /**
@@ -643,8 +656,7 @@ class DavRepository(
         // moment to make a network round trip that can fail for reasons that have nothing to do
         // with the event, and a device with no synced calendar has nowhere sensible to put it.
         val target = collectionUrl
-            ?: collectionDao.forKind(accountId, DavCollectionEntity.KIND_CALENDAR)
-                .firstOrNull()?.url
+            ?: firstShownCalendar(accountId)?.url
             ?: return DavWriteOutcome(error = "No calendar found on the server yet. Sync first.")
 
         val displayZone = zone()

@@ -263,7 +263,7 @@ fun GridlinkEventScreen(
                     modifier = Modifier
                         .width(GridlinkDimens.senderBarWidth)
                         .fillMaxHeight()
-                        .background(gridlinkSenderBarColor(mode, event.domain)),
+                        .background(gridlinkEventColor(mode, event)),
                 )
                 Column(
                     modifier = Modifier
@@ -418,7 +418,7 @@ fun GridlinkEventScreen(
                 sameDay.forEachIndexed { index, other ->
                     GridlinkEventDayRow(
                         event = other,
-                        accent = gridlinkSenderBarColor(mode, other.domain),
+                        accent = gridlinkEventColor(mode, other),
                         onClick = { onOpenEvent(other) },
                     )
                     if (index != sameDay.lastIndex) {

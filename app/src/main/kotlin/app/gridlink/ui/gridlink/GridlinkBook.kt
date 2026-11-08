@@ -86,6 +86,9 @@ class GridlinkBook(
     /** The last calendar sync's failure, for the header to say; null when it worked. */
     val calendarError: String? = calendar?.error
 
+    /** The account's calendars for the Calendars sheet and the form. See [GridlinkCalendarContent.calendars]. */
+    val calendars: List<GridlinkCalendarInfo> = calendar?.calendars.orEmpty()
+
     /** The last contacts sync's failure, for the header to say; null when it worked. */
     val contactsError: String? = addressBook?.error
 

@@ -197,6 +197,10 @@
     <string name="calendar_responded_tentative">Du hast vorläufig zugesagt</string>
     <string name="calendar_reply_sending">Antwort wird gesendet…</string>
     <string name="calendar_reply_failed">Antwort konnte nicht gesendet werden.</string>
+    <string name="calendars_title">Kalender</string>
+    <string name="calendars_unnamed">Kalender %1$d</string>
+    <string name="calendars_hidden_note">Ausgeblendete Kalender werden weiter synchronisiert. Sie erscheinen nur nicht im Raster.</string>
+    <string name="event_form_calendar">Kalender</string>
     <string name="snooze_in_1_hour">In 1 Stunde</string>
     <string name="snooze_this_evening">Heute Abend, 18 Uhr</string>
     <string name="snooze_tomorrow">Morgen, 8 Uhr</string>

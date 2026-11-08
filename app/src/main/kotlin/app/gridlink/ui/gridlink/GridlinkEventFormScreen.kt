@@ -8,10 +8,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import app.gridlink.R
 import app.gridlink.ui.theme.GridlinkType
 import java.time.LocalDate
 import java.time.LocalTime
@@ -123,6 +126,16 @@ fun GridlinkEventFormScreen(
     var category by remember { mutableStateOf(TextFieldValue(initial?.category.orEmpty())) }
     var reminders by remember { mutableStateOf(initial?.reminders.orEmpty().distinct().sorted()) }
     var picking by remember { mutableStateOf<GridlinkEventPicker?>(null) }
+    // Which calendar a NEW event goes into. Resolved against the live list on every frame rather
+    // than frozen at open, so a list that arrives a moment after the form still lands on a real
+    // calendar, and a calendar removed by a sync falls back to the default instead of to nothing.
+    val calendars = LocalGridlinkBook.current.calendars
+    var calendarPick by remember { mutableStateOf<String?>(null) }
+    val calendar = calendars.firstOrNull { it.id == calendarPick } ?: gridlinkDefaultCalendar(calendars)
+    // 🔴 New events only, and only with a real choice. Moving an existing event to another calendar
+    // is a delete on one collection and a create on another, which the writer does not do; a row
+    // that looked editable on an edit would silently keep the event where it was.
+    val choosesCalendar = initial == null && calendars.size > 1
 
     val titleFocus = remember { FocusRequester() }
     val locationFocus = remember { FocusRequester() }
@@ -169,6 +182,7 @@ fun GridlinkEventFormScreen(
                     // Verbatim, like the id: the ticket the writer issued must come back to it
                     // unchanged, and a new event has none until a writer gives it one.
                     handle = initial?.handle.orEmpty(),
+                    calendarId = initial?.calendarId ?: calendar?.id,
                 ),
             )
         },
@@ -193,6 +207,20 @@ fun GridlinkEventFormScreen(
             label = "Title",
             contained = true,
         )
+
+        // Straight under the title: which calendar is the first thing a multi-calendar user checks,
+        // and it is a choice about the whole event rather than about one of its details.
+        if (choosesCalendar && calendar != null) {
+            GridlinkFormPickRow(
+                label = stringResource(R.string.event_form_calendar),
+                value = gridlinkCalendarName(calendar),
+                onClick = { picking = GridlinkEventPicker.CALENDAR },
+                contained = true,
+                active = picking == GridlinkEventPicker.CALENDAR,
+                trailing = { GridlinkCalendarDot(calendar.tint) },
+                modifier = Modifier.testTag("gridlink-event-calendar"),
+            )
+        }
 
         // 🔴 No dividers: contained boxes separate themselves by their margins, same as the
         // contact form.
@@ -339,9 +367,16 @@ fun GridlinkEventFormScreen(
             onDismiss = { picking = null },
         )
 
+        GridlinkEventPicker.CALENDAR -> GridlinkCalendarPickerSheet(
+            calendars = calendars,
+            selectedId = calendar?.id,
+            onPick = { calendarPick = it.id },
+            onDismiss = { picking = null },
+        )
+
         null -> Unit
     }
 }
 
 /** Which picker is open, if any. */
-private enum class GridlinkEventPicker { DATE, START, END, REMINDERS }
+private enum class GridlinkEventPicker { DATE, START, END, REMINDERS, CALENDAR }

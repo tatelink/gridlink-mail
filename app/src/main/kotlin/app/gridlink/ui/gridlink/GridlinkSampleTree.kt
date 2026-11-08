@@ -533,6 +533,17 @@ data class GridlinkEvent(
      * fifty-two of them), so the question has to be put before the write, not undone after it.
      */
     val repeating: Boolean = false,
+    /**
+     * Which of the account's calendars this event is in ([GridlinkCalendarInfo.id]), or null when
+     * nothing behind the screen knows. On a NEW event it is where the form asks the writer to put
+     * it; null there means the account's default calendar.
+     */
+    val calendarId: String? = null,
+    /**
+     * The colour of that calendar, set only when the account has more than one. Null keeps the
+     * organiser-domain colour, which is what a single-calendar account has always seen.
+     */
+    val calendarTint: GridlinkCalendarTint? = null,
 ) {
     val allDay: Boolean get() = start == null
 }

@@ -276,6 +276,10 @@
     <string name="calendar_responded_tentative">You tentatively accepted</string>
     <string name="calendar_reply_sending">Sending reply…</string>
     <string name="calendar_reply_failed">Couldn\'t send your reply.</string>
+    <string name="calendars_title">Calendars</string>
+    <string name="calendars_unnamed">Calendar %1$d</string>
+    <string name="calendars_hidden_note">Hidden calendars keep syncing. They are only left off the grid.</string>
+    <string name="event_form_calendar">Calendar</string>
     <!-- Read receipt (MDN). Translated because these two strings LEAVE the device: they are read by
          the person who asked for the receipt, who is not the person holding this phone. -->
     <string name="read_receipt_subject">Read: %1$s</string>

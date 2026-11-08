@@ -477,6 +477,18 @@ class AccountStore(context: Context) {
     fun defaultIdentity(accountId: String?): StoredIdentity? =
         (accountId?.let { account(it) } ?: currentAccount())?.defaultIdentity()
 
+    /**
+     * Show or hide one of the account's calendars on the grid. See [StoredAccount.hiddenCalendars].
+     * No-op if the id is unknown or nothing would change.
+     */
+    @Synchronized
+    fun setCalendarHidden(accountId: String, calendarUrl: String, hidden: Boolean) {
+        val current = account(accountId) ?: return
+        val next = if (hidden) current.hiddenCalendars + calendarUrl else current.hiddenCalendars - calendarUrl
+        if (next == current.hiddenCalendars) return
+        saveAccounts(accounts().map { if (it.id == accountId) it.copy(hiddenCalendars = next) else it })
+    }
+
     /** The per-account sync window (defaults to 90 days for unknown ids). */
     fun syncWindow(id: String): SyncWindow = account(id)?.syncWindow ?: SyncWindow.DAYS_90
 

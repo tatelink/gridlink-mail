@@ -54,6 +54,12 @@ data class GridlinkCalendarContent(
      * describes the state of the calendar, and a failure is a state.
      */
     val error: String? = null,
+    /**
+     * Every calendar of the account, shown and hidden, in discovery order. [events] already leaves
+     * out the hidden ones. Empty when nothing behind the screen knows, which hides the Calendars
+     * button and the form's calendar row.
+     */
+    val calendars: List<GridlinkCalendarInfo> = emptyList(),
 ) {
     /** Whether [events] can be trusted to be complete for [date]. */
     fun covers(date: LocalDate): Boolean = window?.contains(date) ?: true
