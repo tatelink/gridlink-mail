@@ -182,7 +182,7 @@ class GridlinkCalendarsUiTest {
     fun editingAnEvent_showsItsOwnCalendar_andKeepsItWithNoPick() {
         showForm(listOf(PERSONAL, WORK), initial = existing("cal/work"))
         // Its own calendar, not the default (Personal) the list would otherwise fall back to.
-        rule.onNode(hasText("Calendar") and hasText("Calendar 2") and hasClickAction()).assertExists()
+        rule.onNode(hasText("CALENDAR") and hasText("Calendar 2") and hasClickAction()).assertExists()
         save().performClick()
         assertEquals("cal/work", saved.single().calendarId)
     }
