@@ -1040,7 +1040,7 @@
     <string name="gl_compose_send_later">Later verzenden</string>
     <string name="gl_compose_pick_a_time">Kies een tijd</string>
     <string name="gl_compose_preset_tonight">Vanavond</string>
-    <string name="gl_compose_quote_attribution">Op %1$s schreef %2$s &lt;%3$s&gt;:</string>
+    <string name="gl_compose_quote_attribution">%2$s &lt;%3$s&gt; schreef (%1$s):</string>
     <string name="gl_compose_forward_header">---------- Doorgestuurd bericht ----------</string>
     <string name="gl_compose_forward_from">Van: %1$s &lt;%2$s&gt;</string>
     <string name="gl_compose_forward_date">Datum: %1$s</string>
@@ -1486,4 +1486,7 @@
     <string name="gridlink_colour_forest">Bos</string>
     <string name="gridlink_colour_sand">Zand</string>
     <string name="gridlink_colour_choice">Kleur %1$s</string>
+    <string name="gl_list_section_earlier">Eerder</string>
+    <string name="gl_list_to_more">Aan %1$s (+%2$d)</string>
+    <string name="gl_list_no_recipient">(geen ontvanger)</string>
 </resources>

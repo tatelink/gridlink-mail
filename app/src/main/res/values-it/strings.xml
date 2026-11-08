@@ -1048,7 +1048,7 @@
     <string name="gl_compose_send_later">Invia più tardi</string>
     <string name="gl_compose_pick_a_time">Scegli un orario</string>
     <string name="gl_compose_preset_tonight">Stasera</string>
-    <string name="gl_compose_quote_attribution">Il %1$s, %2$s &lt;%3$s&gt; ha scritto:</string>
+    <string name="gl_compose_quote_attribution">%2$s &lt;%3$s&gt; ha scritto (%1$s):</string>
     <string name="gl_compose_forward_header">---------- Messaggio inoltrato ----------</string>
     <string name="gl_compose_forward_from">Da: %1$s &lt;%2$s&gt;</string>
     <string name="gl_compose_forward_date">Data: %1$s</string>
@@ -1524,4 +1524,7 @@
     <string name="gridlink_colour_forest">Foresta</string>
     <string name="gridlink_colour_sand">Sabbia</string>
     <string name="gridlink_colour_choice">Colore %1$s</string>
+    <string name="gl_list_section_earlier">Precedenti</string>
+    <string name="gl_list_to_more">A %1$s (+%2$d)</string>
+    <string name="gl_list_no_recipient">(nessun destinatario)</string>
 </resources>

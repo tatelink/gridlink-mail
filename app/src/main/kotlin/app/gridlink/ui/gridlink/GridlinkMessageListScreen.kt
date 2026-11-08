@@ -1214,7 +1214,7 @@ fun GridlinkMessageListScreen(
                 // mid-exit and make an archive snap instead of close.
                 if (robots.isNotEmpty()) {
                     item(key = "label-automated") {
-                        GridlinkSectionLabel(GridlinkSection.AUTOMATED.label, gutter = gutter)
+                        GridlinkSectionLabel(stringResource(GridlinkSection.AUTOMATED.title), gutter = gutter)
                     }
                     item(key = "bundle") {
                         Column {
@@ -1338,7 +1338,7 @@ fun GridlinkMessageListScreen(
                         val inSection = humans.filter { it.section == section }
                         if (inSection.isEmpty()) return@forEach
                         item(key = "label-${section.name}") {
-                            GridlinkSectionLabel(section.label, gutter = gutter)
+                            GridlinkSectionLabel(stringResource(section.title), gutter = gutter)
                         }
                         items(
                             count = inSection.size,
@@ -1700,7 +1700,7 @@ private fun GridlinkSearchResults(
             val inSection = current.results.filter { it.section == section }
             if (inSection.isEmpty()) return@forEach
             item(key = "search-label-${section.name}") {
-                GridlinkSectionLabel(section.label, gutter = gutter)
+                GridlinkSectionLabel(stringResource(section.title), gutter = gutter)
             }
             items(
                 count = inSection.size,

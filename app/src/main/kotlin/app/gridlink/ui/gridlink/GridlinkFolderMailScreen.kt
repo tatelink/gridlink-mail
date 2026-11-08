@@ -254,7 +254,7 @@ fun GridlinkFolderMailScreen(
                         if (inSection.isEmpty()) return@forEach
 
                         item(key = "label-${section.name}") {
-                            GridlinkSectionLabel(section.label)
+                            GridlinkSectionLabel(stringResource(section.title))
                         }
                         items(items = inSection, key = { it.id }) { message ->
                             Column {

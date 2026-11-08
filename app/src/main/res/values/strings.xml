@@ -1520,4 +1520,7 @@
     <string name="gridlink_colour_forest">Forest</string>
     <string name="gridlink_colour_sand">Sand</string>
     <string name="gridlink_colour_choice">%1$s colour</string>
+    <string name="gl_list_section_earlier">Earlier</string>
+    <string name="gl_list_to_more">To %1$s (+%2$d)</string>
+    <string name="gl_list_no_recipient">(no recipient)</string>
 </resources>

@@ -1,5 +1,10 @@
 package app.gridlink.ui.gridlink
 
+import androidx.annotation.StringRes
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import app.gridlink.R
+
 /**
  * The brief's content, re-themed.
  *
@@ -576,12 +581,12 @@ object GridlinkSample {
 }
 
 /** Which timeline heading a human message falls under. Bundled robots sit outside the timeline. */
-enum class GridlinkSection(val label: String) {
+enum class GridlinkSection(@StringRes val title: Int) {
     /** Only used by bundled senders, which are pulled out of the timeline entirely. */
-    AUTOMATED("Automated"),
-    TODAY("Today"),
-    YESTERDAY("Yesterday"),
-    EARLIER("Earlier"),
+    AUTOMATED(R.string.gl_vm_bundle_automated),
+    TODAY(R.string.widget_agenda_today),
+    YESTERDAY(R.string.gl_vm_yesterday),
+    EARLIER(R.string.gl_list_section_earlier),
 }
 
 data class GridlinkMessage(
@@ -860,10 +865,7 @@ data class GridlinkMessage(
  * falling back to the sender would print your own name again, which is the whole thing this field
  * exists to stop. So [line] says so plainly instead.
  *
- * ⚠️ Its English is hard-coded, like every other label in this package, and for the same reason
- * given at [GridlinkMailMapping.Labels]: the package implements a written design brief and its
- * wording is part of that brief. When `ui.gridlink` is localised these three strings move with the
- * four gathered there.
+ * [line] reads its three wordings from string resources, so it is resolved in composition.
  */
 data class GridlinkRecipient(
     /** Display name if the message carried one, else the bare address. Blank = unaddressed. */
@@ -875,10 +877,10 @@ data class GridlinkRecipient(
 ) {
     /** Line 1 of the row. */
     val line: String
-        get() = when {
-            name.isBlank() -> "(no recipient)"
-            others > 0 -> "To $name (+$others)"
-            else -> "To $name"
+        @Composable get() = when {
+            name.isBlank() -> stringResource(R.string.gl_list_no_recipient)
+            others > 0 -> stringResource(R.string.gl_list_to_more, name, others)
+            else -> stringResource(R.string.gl_thread_scheduled_to, name)
         }
 
     /**
