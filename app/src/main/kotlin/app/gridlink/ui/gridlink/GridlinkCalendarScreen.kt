@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -283,6 +282,19 @@ fun GridlinkCalendarScreen(
      * would be a confident statement about a month this app has never seen.
      */
     val countable = !book.calendarLoading && book.coversDate(range.first) && book.coversDate(range.second)
+    // The agenda used to say "upcoming" here, which was true when its window ran forward from
+    // today. It now includes the week just past, so "upcoming" would miscount out loud; "events" is
+    // what every view can honestly say.
+    val countLine = when {
+        book.calendarLoading -> "Loading"
+        // A sync that failed outranks a count, because the count is then a count of whatever was
+        // cached before the server stopped answering, and "0 events" over a calendar nobody could
+        // reach is the lie this line exists not to tell.
+        book.calendarError != null -> book.calendarError
+        !countable -> "Not synced this far out"
+        inRange.size == 1 -> "1 event"
+        else -> "${inRange.size} events"
+    }
 
     // 🔴 The agenda's title has to be built from the SAME date its range was, or it names a window
     // the list is not showing: [range] pins the agenda to today while [anchor] keeps whatever month
@@ -322,42 +334,26 @@ fun GridlinkCalendarScreen(
         // where its stretched across the entire phone."*
         split = GridlinkPaneSplit.EVEN,
         header = {
-            // One pane means the chrome row is a folded-width line shared with the hamburger, the
-            // sync chip and the subline, and the title seat is the one that gives way (`weight(1f,
-            // fill = false)` in [GridlinkHeader]), so "August 2026" rendered as "August 2…".
-            // Tate: "the date text display at the top of the screen is truncated (August 2...)
-            // isnt useful, rearrange to display full date, theres plenty of vertical room to move
-            // things around." So in one pane the date leaves the chrome row for its own line in
-            // [belowHeader], and the steppers go with it, because buttons that page a date belong
-            // beside the date they page. Two panes keep the on-row title: there the row has the
-            // width, and moving the date down would spend a line to fix a problem that pane count
-            // does not have.
-            GridlinkHeader(
-                // "Calendar" cannot truncate; the date it displaces is on the line below.
-                title = if (onePane) "Calendar" else view.title(titleAnchor),
-                unread = 0,
-                // The agenda used to say "upcoming" here, which was true when its window ran
-                // forward from today. It now includes the week just past, so "upcoming" would
-                // miscount out loud; "events" is what every view can honestly say.
-                subline = when {
-                    book.calendarLoading -> "Loading"
-                    // A sync that failed outranks a count, because the count is then a count of
-                    // whatever was cached before the server stopped answering, and "0 events" over
-                    // a calendar nobody could reach is the lie this line exists not to tell.
-                    book.calendarError != null -> book.calendarError
-                    !countable -> "Not synced this far out"
-                    inRange.size == 1 -> "1 event"
-                    else -> "${inRange.size} events"
-                },
-            )
+            // ONE large heading. On one pane that is the date line under this row (see
+            // [belowHeader]), so the chrome row carries no title of its own: it used to say
+            // "Calendar" in the same 32sp face directly above "November 2026", two giant headings
+            // stacked, and the nav pill already says which screen this is. (Polish pass,
+            // 2026-11-07.) The date cannot move up into this row instead: beside the hamburger and
+            // the steppers it truncated ("August 2..."), which is why it got its own line.
+            //
+            // Two panes keep the dated title here, because there the row has the width.
+            if (!onePane) {
+                GridlinkHeader(title = view.title(titleAnchor), unread = 0, subline = countLine)
+            }
         },
-        // 🔴 No steppers on the agenda. The other three views name their position in the title —
-        // "July 2026", "30 Jul – 1 Aug" — so a step visibly moves you. The agenda's title is just
-        // "Agenda", so paging it changed which events were listed while nothing on screen said
-        // where you now were: a control with an invisible effect. An agenda already means "from
-        // here on", and it scrolls, so the buttons were also a worse month view. Removed rather
-        // than labelled.
-        trailing = if (view == GridlinkCalendarView.AGENDA || onePane) null else steppers,
+        // 🔴 No steppers on the agenda. The other three views name their position in the title
+        // ("July 2026", "30 Jul - 1 Aug") so a step visibly moves you. The agenda is one fixed window
+        // around today, so paging it changed which events were listed while nothing on screen said
+        // where you now were: a control with an invisible effect. Removed rather than labelled.
+        //
+        // On one pane the steppers sit at the right of this row, directly above the date they page,
+        // which leaves the date line room for the count beside it.
+        trailing = if (view == GridlinkCalendarView.AGENDA) null else steppers,
         belowHeader = {
             Column {
                 // 🔴 EVERY view draws this line, including the agenda, and the height is held by the
@@ -371,25 +367,27 @@ fun GridlinkCalendarScreen(
                 // One pane grows this band freely — [LocalGridlinkPaneHeaderHeight] only matters
                 // when a side pane has to clear it, and one pane is defined by not having one.
                 if (onePane) {
-                    Row(
-                        // ⚠️ The floor, not the steppers' own height. With the buttons gone on the
-                        // agenda the Row would shrink to its text, which is the same jump one level
-                        // down: the switcher would still land somewhere new.
-                        modifier = Modifier.heightIn(min = CALENDAR_STEPPER_SIZE),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
+                    // The one heading, with the count beside it on the same baseline, the way the
+                    // inbox puts "13 unread" with its title. The date is measured first so it is
+                    // the count that gives way on a narrow screen, never the date.
+                    Row(modifier = Modifier.fillMaxWidth()) {
                         Text(
                             text = view.title(titleAnchor),
                             style = GridlinkType.screenTitle,
                             color = GridlinkTheme.colors.textPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.alignByBaseline(),
                         )
-                        // Still no step buttons on the agenda, for the reason recorded at [trailing]:
-                        // paging a list that never says where it is is a control with an invisible
-                        // effect. Only its SPACE is kept.
-                        if (view != GridlinkCalendarView.AGENDA) steppers()
+                        Spacer(Modifier.width(GridlinkSpacing.s12))
+                        Text(
+                            text = countLine,
+                            style = GridlinkType.metadata,
+                            color = GridlinkTheme.colors.textSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f).alignByBaseline(),
+                        )
                     }
                     Spacer(Modifier.height(GridlinkSpacing.s12))
                 }
@@ -652,25 +650,14 @@ internal fun GridlinkStepButton(forward: Boolean, onClick: () -> Unit) {
 /**
  * Month / 3 day / Week / Agenda, less whatever [views] leaves out.
  *
- * ## 🔴 Tabs, deliberately not a pill
- * This was a filled pill inside a bordered capsule, which is the same nesting Tate called "boxes
- * inside boxes" about the day cells, one level up. The obvious fix, dropping the outer border, was
- * not available: the nav pill and the search pill are both bordered capsules, so a third *pill* that
- * disagreed with them would read as a mistake rather than as a decision.
+ * The drawer's Auto / Day / Night / OLED track ([GridlinkPillTrack]), not a control of its own. It
+ * was an underlined tab bar, chosen so it would not compete with the nav and search pills, but it
+ * was the only tab bar in the app and read as a stray from another one. (Polish pass, 2026-11-07.)
+ * Same track, same filled segment, same type, so choosing a view and choosing a palette feel like
+ * one gesture.
  *
- * So it stops being a pill. A tab row with an underline is a different, universally understood
- * component (it is what every calendar app uses for exactly this job), and being visibly a different
- * component is what keeps it from competing with the two pills instead of losing to them. It also
- * reads as *where you are* rather than as *a button that is switched on*, which is what a view
- * switcher actually means.
- *
- * The rule below the row is full width and continuous: it separates the switcher from the grid, and
- * it is the track the active underline sits on, so the indicator has something to be positioned
- * against rather than floating in the gap.
- *
- * 🔴 The inactive tabs are not dimmed with alpha. Tate reads opacity-dimming as broken rather
- * than as off; the distinction is carried by the underline, by a weight step, and by a colour token
- * step, never by transparency.
+ * 🔴 The inactive segments are not dimmed with alpha. Tate reads opacity-dimming as broken rather
+ * than as off; the difference is the accent fill and a colour token step, never transparency.
  */
 @Composable
 private fun GridlinkViewSwitcher(
@@ -686,69 +673,25 @@ private fun GridlinkViewSwitcher(
      */
     views: List<GridlinkCalendarView> = GridlinkCalendarView.entries,
     /**
-     * A control at the row's end (the Calendars button). Inside the row's Box so the rule still runs
-     * under it: the switcher stays one band across the screen rather than stopping short of a button.
+     * A control at the row's end (the Calendars button), beside the track rather than inside it:
+     * it opens a sheet, it is not one of the views.
      */
     trailing: (@Composable () -> Unit)? = null,
 ) {
-    val colors = GridlinkTheme.colors
-    Box(modifier = modifier.fillMaxWidth()) {
-        // The rule first, so the active tab's indicator lands on top of it rather than beside it.
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .height(GridlinkDimens.hairline)
-                .background(colors.surfaceBorder),
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth().height(TAB_ROW_HEIGHT),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+    Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        GridlinkPillTrack(modifier = Modifier.weight(1f)) {
             views.forEach { entry ->
-                val active = entry == selected
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        // Rounded only at the top: the tap target reaches the rule, and a fully
-                        // rounded ripple would put a curve back where the underline is straight.
-                        .clip(RoundedCornerShape(topStart = TAB_RIPPLE_RADIUS, topEnd = TAB_RIPPLE_RADIUS))
-                        .clickable { onSelect(entry) },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = entry.label,
-                        // A step up from toolbarLabel. At 11sp these were legible but read as
-                        // chrome; a view switcher is one of the two controls on this screen anyone
-                        // actually uses, so it gets body-sized text.
-                        style = GridlinkType.metadata.copy(
-                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-                        ),
-                        color = if (active) colors.accent else colors.textSecondary,
-                        maxLines = 1,
-                    )
-                    if (active) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                // Not the full tab width. An indicator that runs edge to edge butts
-                                // against its neighbour's and the four tabs read as one bar with a
-                                // coloured quarter; inset, it reads as pointing at a word.
-                                .fillMaxWidth(TAB_INDICATOR_WIDTH)
-                                .height(TAB_INDICATOR_HEIGHT)
-                                .background(
-                                    colors.accent,
-                                    RoundedCornerShape(
-                                        topStart = TAB_INDICATOR_HEIGHT,
-                                        topEnd = TAB_INDICATOR_HEIGHT,
-                                    ),
-                                ),
-                        )
-                    }
-                }
+                GridlinkPillChoice(
+                    label = entry.label,
+                    active = entry == selected,
+                    onClick = { onSelect(entry) },
+                    modifier = Modifier.weight(1f),
+                )
             }
-            trailing?.invoke()
+        }
+        if (trailing != null) {
+            Spacer(Modifier.width(GridlinkSpacing.s8))
+            trailing()
         }
     }
 }
@@ -773,13 +716,6 @@ private fun GridlinkCalendarsButton(onClick: () -> Unit) {
         )
     }
 }
-
-private val TAB_ROW_HEIGHT = 42.dp
-private val TAB_RIPPLE_RADIUS = 8.dp
-private val TAB_INDICATOR_HEIGHT = 2.5.dp
-
-/** Fraction of the tab the underline spans. See [GridlinkViewSwitcher]. */
-private const val TAB_INDICATOR_WIDTH = 0.62f
 
 /**
  * The width at which the month view stops stacking and splits into grid + day list.

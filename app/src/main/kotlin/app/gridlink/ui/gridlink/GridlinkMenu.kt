@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -1015,26 +1016,15 @@ fun GridlinkPalettePicker(
 ) {
     val colors = GridlinkTheme.colors
     Column(modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(colors.surface.copy(alpha = 0.14f), MODE_TRACK_SHAPE)
-                .border(
-                    width = GridlinkDimens.hairline,
-                    color = colors.surfaceBorder.copy(alpha = 0.35f),
-                    shape = MODE_TRACK_SHAPE,
-                )
-                .padding(MODE_TRACK_PAD),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ModeChoice(
+        GridlinkPillTrack(modifier = Modifier.fillMaxWidth()) {
+            GridlinkPillChoice(
                 label = "Auto",
                 active = followingClock,
                 onClick = { onSelect(null) },
                 modifier = Modifier.weight(1f),
             )
             GRIDLINK_LADDER_MODES.forEach { candidate ->
-                ModeChoice(
+                GridlinkPillChoice(
                     label = candidate.label,
                     active = !followingClock && candidate == mode,
                     // A colour preset is a Night (or, for Sand, a Day) with its hue changed, so the
@@ -1135,8 +1125,36 @@ private val GridlinkMode.label: String
         GridlinkMode.SAND -> "Sand"
     }
 
+/**
+ * The rounded track the Auto / Day / Night / OLED choice sits in, holding [GridlinkPillChoice]s.
+ *
+ * Shared with the calendar's Month / 3 day / Week / Agenda switch, so the app has one segmented
+ * control rather than a pill here and an underlined tab bar there. (Polish pass, 2026-11-07.)
+ */
 @Composable
-private fun ModeChoice(
+internal fun GridlinkPillTrack(modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
+    val colors = GridlinkTheme.colors
+    Row(
+        modifier = modifier
+            .background(colors.surface.copy(alpha = MODE_TRACK_FILL_ALPHA), MODE_TRACK_SHAPE)
+            .border(
+                width = GridlinkDimens.hairline,
+                color = colors.surfaceBorder.copy(alpha = MODE_TRACK_EDGE_ALPHA),
+                shape = MODE_TRACK_SHAPE,
+            )
+            .padding(MODE_TRACK_PAD),
+        verticalAlignment = Alignment.CenterVertically,
+        content = content,
+    )
+}
+
+/** The track's glass, faint enough that the filled segment is the only solid thing in it. */
+private const val MODE_TRACK_FILL_ALPHA = 0.14f
+private const val MODE_TRACK_EDGE_ALPHA = 0.35f
+
+/** One segment of a [GridlinkPillTrack]: filled with the accent when it is the one chosen. */
+@Composable
+internal fun GridlinkPillChoice(
     label: String,
     active: Boolean,
     onClick: () -> Unit,
