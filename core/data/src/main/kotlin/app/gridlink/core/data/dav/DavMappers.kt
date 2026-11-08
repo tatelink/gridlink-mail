@@ -450,3 +450,11 @@ internal object DavMappers {
             null
         }
 }
+
+/**
+ * The full event behind one cached row, re-read from its payload: the fields the cache keeps no
+ * column for (description, reminders) included. [DavMappers.toParsed], opened to the app module for
+ * the system-calendar mirror, which publishes those fields and compares them on upload.
+ */
+fun CalendarEventEntity.reparsed(fallbackZone: ZoneId): ParsedCalendarEvent? =
+    DavMappers.toParsed(this, fallbackZone)
