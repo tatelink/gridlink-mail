@@ -324,10 +324,17 @@ data class GridlinkColors(
     val usesShadows: Boolean,
 )
 
-/** Day: the dashboard's cyan-to-blue gradient with translucent white glass over it. */
+/**
+ * Day: the dashboard's cyan-to-blue gradient with translucent white glass over it.
+ *
+ * 🔴 The gradient is the PALE version of those two blues, on purpose. The saturated one (a bright
+ * cyan into a mid azure) showed through the 55% glass strongly enough that read rows in secondary
+ * text and the blue unread times were hard to make out. Same hues, about half the colour, so the
+ * page still reads as Day and the glass reads as near-white.
+ */
 val GridlinkDayColors = GridlinkColors(
-    background = Color(0xFF2F6FE0),
-    gradient = listOf(Color(0xFF4DD5F0), Color(0xFF2F6FE0)),
+    background = Color(0xFF7FA9EE),
+    gradient = listOf(Color(0xFFB4ECF8), Color(0xFF7FA9EE)),
     glow = null,
     // Day's identity is the gradient itself. Blobs on top of it would only muddy two blues.
     aurora = emptyList(),
@@ -338,7 +345,9 @@ val GridlinkDayColors = GridlinkColors(
     surfaceBorder = Color.White.copy(alpha = 0.70f),
     surfaceRaised = Color.White.copy(alpha = 0.72f),
     textPrimary = Color(0xFF0A0F1A),
-    textSecondary = Color(0xFF3A4A5F),
+    // Darker than the other modes' secondary sits relative to their primary: read rows are a whole
+    // inbox of this colour on glass over blue, and the lighter slate let them fade into the page.
+    textSecondary = Color(0xFF2A3647),
     accent = Color(0xFF1B7FE8),
     // White on this azure is about 4.0:1, which carries a glyph comfortably.
     onAccent = Color(0xFFFFFFFF),
