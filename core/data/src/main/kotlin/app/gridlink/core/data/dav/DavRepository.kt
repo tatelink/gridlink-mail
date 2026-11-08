@@ -2,6 +2,7 @@ package app.gridlink.core.data.dav
 
 import app.gridlink.core.data.account.AccountStore
 import app.gridlink.core.data.account.AuthType
+import app.gridlink.core.data.account.JMAP_CALENDAR_KEY
 import app.gridlink.core.data.calendar.CalendarAttachment
 import app.gridlink.core.data.calendar.CalendarAttachmentSource
 import app.gridlink.core.data.calendar.CalendarOccurrence
@@ -237,16 +238,11 @@ class DavRepository(
     }
 
     /**
-     * The account's first calendar the user has NOT hidden, else its first calendar at all.
-     *
-     * A write with no named calendar lands here. Preferring a shown one matters: an event saved into
-     * a hidden calendar is on the server and correct, and then is nowhere on screen, which reads as
-     * a save that did not happen. Falling back to a hidden one still beats refusing to save.
+     * The calendar a write with no named calendar lands in. See [DavMappers.defaultCalendar].
      */
     private suspend fun firstShownCalendar(accountId: String): DavCollectionEntity? {
         val all = collectionDao.forKind(accountId, DavCollectionEntity.KIND_CALENDAR)
-        val hidden = accountStore.account(accountId)?.hiddenCalendars.orEmpty()
-        return all.firstOrNull { it.url !in hidden } ?: all.firstOrNull()
+        return DavMappers.defaultCalendar(all, accountStore.calendarPrefs(accountId))
     }
 
     /**
@@ -1250,13 +1246,22 @@ class DavRepository(
         session: JmapSession,
         jmapAccountId: String,
         auth: BasicAuth,
-    ): DavSyncOutcome = JmapCollectionSync(
-        accountId = accountId,
-        kind = DavCollectionEntity.KIND_CALENDAR,
-        collectionDao = collectionDao,
-        syntheticUrl = DavMappers::jmapCollectionUrl,
-        ops = calendarOps(accountId, jmapClient, session, jmapAccountId, auth),
-    ).run()
+    ): DavSyncOutcome {
+        var defaultId: String? = null
+        val outcome = JmapCollectionSync(
+            accountId = accountId,
+            kind = DavCollectionEntity.KIND_CALENDAR,
+            collectionDao = collectionDao,
+            syntheticUrl = DavMappers::jmapCollectionUrl,
+            ops = calendarOps(accountId, jmapClient, session, jmapAccountId, auth) { defaultId = it },
+        ).run()
+        // By its JMAP id (see calendarPrefKey), so the answer holds whichever local url the calendar
+        // was given. Only on a clean listing: a failed one says nothing about the default.
+        if (outcome.error == null) {
+            accountStore.setServerDefaultCalendar(accountId, defaultId?.let { JMAP_CALENDAR_KEY + it }, jmap = true)
+        }
+        return outcome
+    }
 
     /** The calendar half of a JMAP sync: which methods to call and which table to fill. */
     private fun calendarOps(
@@ -1265,10 +1270,13 @@ class DavRepository(
         session: JmapSession,
         jmapAccountId: String,
         auth: BasicAuth,
+        onDefault: (String?) -> Unit = {},
     ) = object : JmapCollectionSync.Ops {
 
         override suspend fun collections() =
-            jmapClient.getCalendars(session, jmapAccountId, auth).map { calendar ->
+            jmapClient.getCalendars(session, jmapAccountId, auth).also { calendars ->
+                onDefault(calendars.firstOrNull { it.isDefault }?.id)
+            }.map { calendar ->
                 JmapCollectionSync.Discovered(id = calendar.id, name = calendar.name) { url, order ->
                     DavMappers.jmapCollection(accountId, url, calendar, order)
                 }
@@ -1764,6 +1772,9 @@ class DavRepository(
             kind = kindKey,
             discovered = discovered.mapIndexed { i, c -> DavMappers.collection(accountId, c, i) },
         )
+        if (kind == DavKind.CALENDAR) {
+            accountStore.setServerDefaultCalendar(accountId, discovered.firstOrNull { it.isDefault }?.url, jmap = false)
+        }
         // A collection the server no longer lists takes its items with it. Done before the syncs so
         // a later failure cannot leave rows pointing at a calendar that is gone.
         val keep = discovered.map { it.url }

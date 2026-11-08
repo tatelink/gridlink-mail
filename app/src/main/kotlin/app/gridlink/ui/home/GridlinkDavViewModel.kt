@@ -10,6 +10,9 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.gridlink.container
+import app.gridlink.core.data.account.CalendarPrefs
+import app.gridlink.core.data.account.calendarPrefKey
+import app.gridlink.core.data.account.calendarPrefsFor
 import app.gridlink.core.data.calendar.CalendarOccurrence
 import app.gridlink.core.data.calendar.EventEditScope
 import app.gridlink.core.data.calendar.EventField
@@ -37,6 +40,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onEach
@@ -149,8 +153,9 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
     /**
      * The account's calendars, each with its colour and whether the user has it switched on.
      *
-     * The hidden set is read off the account record so a toggle made here survives a restart, and
-     * so this flow re-emits on its own when [setCalendarVisible] writes it.
+     * The hidden set, local names and colours and the server's default are read off the store's
+     * calendar choices (filed by login, so they also survive removing and re-adding the account),
+     * and this flow re-emits on its own when [setCalendarVisible] or a rename writes them.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val calendarList: Flow<List<GridlinkCalendarInfo>> = accountId
@@ -158,9 +163,13 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
             if (id == null) {
                 flowOf(emptyList())
             } else {
-                combine(repo.observeCalendars(id), store.accountsFlow) { collections, accounts ->
-                    val hidden = accounts.firstOrNull { it.id == id }?.hiddenCalendars.orEmpty()
-                    GridlinkDavMapping.calendars(collections, hidden)
+                combine(
+                    repo.observeCalendars(id),
+                    store.accountsFlow,
+                    store.calendarPrefsFlow,
+                ) { collections, accounts, all ->
+                    val prefs = accounts.firstOrNull { it.id == id }?.let { calendarPrefsFor(it, all) }
+                    GridlinkDavMapping.calendars(collections = collections, prefs = prefs ?: CalendarPrefs())
                 }
             }
         }
@@ -274,7 +283,11 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
 
         override fun setCalendarVisible(calendarId: String, visible: Boolean) {
             val id = accountId.value ?: return
-            viewModelScope.launch(Dispatchers.IO) { store.setCalendarHidden(id, calendarId, hidden = !visible) }
+            viewModelScope.launch(Dispatchers.IO) {
+                val key = repo.observeCalendars(id).first().firstOrNull { it.url == calendarId }
+                    ?.let(::calendarPrefKey) ?: calendarId
+                store.setCalendarHidden(id, key, calendarId, hidden = !visible)
+            }
         }
 
         override suspend fun update(

@@ -1,5 +1,6 @@
 package app.gridlink.core.data.dav
 
+import app.gridlink.core.data.account.CalendarPrefs
 import app.gridlink.core.data.calendar.ICalendarStream
 import app.gridlink.core.data.calendar.JsCalendar
 import app.gridlink.core.data.calendar.ParsedCalendarEvent
@@ -93,6 +94,23 @@ internal object DavMappers {
             if (match != null) claimed += match.url
             id to (match?.url ?: syntheticUrl(id))
         }
+    }
+
+    /**
+     * The calendar a write with no named calendar lands in: the one the server calls the account's
+     * default when the user has not hidden it, else the first calendar the user has not hidden, else
+     * the first calendar at all.
+     *
+     * The server's default first because that is where every other client puts a new event, and
+     * where the account's own address receives invitations; "the first in the list" is whatever the
+     * server happened to sort first, which on a shared or subscribed calendar is someone else's.
+     * A shown one before a hidden one because an event saved into a hidden calendar is on the server
+     * and correct, and then nowhere on screen, which reads as a save that did not happen. Falling
+     * back to a hidden one still beats refusing to save.
+     */
+    fun defaultCalendar(calendars: List<DavCollectionEntity>, prefs: CalendarPrefs): DavCollectionEntity? {
+        val shown = calendars.filterNot(prefs::isHidden)
+        return shown.firstOrNull(prefs::isServerDefault) ?: shown.firstOrNull() ?: calendars.firstOrNull()
     }
 
     fun collection(accountId: String, collection: DavCollection, order: Int) = DavCollectionEntity(

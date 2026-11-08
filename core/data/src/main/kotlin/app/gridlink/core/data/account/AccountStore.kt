@@ -200,6 +200,10 @@ class AccountStore(context: Context) {
     // then kept current by [saveAccounts] — the single choke point every list mutator goes through.
     private val live = AccountsState(accounts())
 
+    // Same pattern for the calendar choices, which live in their own blob (see [CalendarPrefs] for
+    // why they are not on the account record).
+    private val calendarPrefsState = MutableStateFlow(readCalendarPrefs())
+
     // ---- accounts ----
 
     /**
@@ -477,16 +481,90 @@ class AccountStore(context: Context) {
     fun defaultIdentity(accountId: String?): StoredIdentity? =
         (accountId?.let { account(it) } ?: currentAccount())?.defaultIdentity()
 
+    // ---- calendar choices ----
+
     /**
-     * Show or hide one of the account's calendars on the grid. See [StoredAccount.hiddenCalendars].
+     * Every stored [CalendarPrefs], by [calendarPrefsKey], as a live value. Screens combine it with
+     * [accountsFlow] and read their account's entry through [calendarPrefsFor].
+     */
+    val calendarPrefsFlow: StateFlow<Map<String, CalendarPrefs>> get() = calendarPrefsState.asStateFlow()
+
+    /** [accountId]'s calendar choices; empty for an unknown id. */
+    fun calendarPrefs(accountId: String): CalendarPrefs =
+        account(accountId)?.let { calendarPrefsFor(it, calendarPrefsState.value) } ?: CalendarPrefs()
+
+    /**
+     * Show or hide one of the account's calendars on the grid. See [CalendarPrefs.hidden].
      * No-op if the id is unknown or nothing would change.
+     *
+     * [calendar] is the calendar's [calendarPrefKey]; [calendarUrl] its local url, which an unhide
+     * also takes out, because a set written before the keys existed holds urls.
+     *
+     * The first change also moves the account's old per-record set ([StoredAccount.hiddenCalendars])
+     * into the keyed entry and empties it, so an unhide cannot be undone by the old copy.
      */
     @Synchronized
-    fun setCalendarHidden(accountId: String, calendarUrl: String, hidden: Boolean) {
-        val current = account(accountId) ?: return
-        val next = if (hidden) current.hiddenCalendars + calendarUrl else current.hiddenCalendars - calendarUrl
-        if (next == current.hiddenCalendars) return
-        saveAccounts(accounts().map { if (it.id == accountId) it.copy(hiddenCalendars = next) else it })
+    fun setCalendarHidden(accountId: String, calendar: String, calendarUrl: String, hidden: Boolean) {
+        val account = account(accountId) ?: return
+        val current = calendarPrefsFor(account, calendarPrefsState.value)
+        val next = if (hidden) current.hidden + calendar else current.hidden - calendar - calendarUrl
+        if (next == current.hidden && account.hiddenCalendars.isEmpty()) return
+        writeCalendarPrefs(account) { it.copy(hidden = next) }
+        if (account.hiddenCalendars.isNotEmpty()) {
+            saveAccounts(accounts().map { if (it.id == accountId) it.copy(hiddenCalendars = emptySet()) else it })
+        }
+    }
+
+    /**
+     * Keep [name] and/or [color] for one calendar (by its [calendarPrefKey]) on this device only,
+     * over whatever the server says. A null leaves that half as it was; a blank clears it. For a
+     * server that refused the change, so the user still sees what they chose.
+     */
+    @Synchronized
+    fun setCalendarOverride(accountId: String, calendar: String, name: String?, color: String?) {
+        val account = account(accountId) ?: return
+        writeCalendarPrefs(account) { prefs ->
+            prefs.copy(
+                names = name?.let { edited(prefs.names, calendar, it) } ?: prefs.names,
+                colors = color?.let { edited(prefs.colors, calendar, it) } ?: prefs.colors,
+            )
+        }
+    }
+
+    /** Drop any local name and colour for one calendar, once the server holds the real ones. */
+    @Synchronized
+    fun clearCalendarOverride(accountId: String, calendar: String) {
+        val account = account(accountId) ?: return
+        writeCalendarPrefs(account) { it.copy(names = it.names - calendar, colors = it.colors - calendar) }
+    }
+
+    /**
+     * Record which calendar (by its [calendarPrefKey], null: none) the server calls the account's
+     * default, as learned over JMAP ([jmap]) or CalDAV. See [CalendarPrefs.serverDefaults].
+     */
+    @Synchronized
+    fun setServerDefaultCalendar(accountId: String, calendar: String?, jmap: Boolean) {
+        val account = account(accountId) ?: return
+        writeCalendarPrefs(account) { it.withServerDefault(calendar, jmap) }
+    }
+
+    private fun edited(map: Map<String, String>, key: String, value: String): Map<String, String> =
+        if (value.isBlank()) map - key else map + (key to value.trim())
+
+    private fun writeCalendarPrefs(account: StoredAccount, change: (CalendarPrefs) -> CalendarPrefs) {
+        val all = calendarPrefsState.value
+        val key = calendarPrefsKey(account)
+        val before = calendarPrefsFor(account, all)
+        val after = change(before)
+        if (after == before && all.containsKey(key)) return
+        val next = if (after.isEmpty()) all - key else all + (key to after)
+        prefs.edit().putString(KEY_CALENDAR_PREFS, json.encodeToString(next)).apply()
+        calendarPrefsState.value = next
+    }
+
+    private fun readCalendarPrefs(): Map<String, CalendarPrefs> {
+        val raw = prefs.getString(KEY_CALENDAR_PREFS, null) ?: return emptyMap()
+        return runCatching { json.decodeFromString<Map<String, CalendarPrefs>>(raw) }.getOrDefault(emptyMap())
     }
 
     /** The per-account sync window (defaults to 90 days for unknown ids). */
@@ -631,6 +709,7 @@ class AccountStore(context: Context) {
         KeystoreCrypto.deleteKey()
         // Not a [saveAccounts] path (the whole file goes), so publish the emptied list by hand.
         live.publish(emptyList())
+        calendarPrefsState.value = emptyMap()
     }
 
     // ---- current-account convenience (used by existing callers) ----
@@ -1045,6 +1124,7 @@ class AccountStore(context: Context) {
         const val KEY_CURRENT = "current"
         const val KEY_PUSH_ALL = "push_all_accounts"
         const val KEY_APP_LOCK = "app_lock_enabled"
+        const val KEY_CALENDAR_PREFS = "calendar_prefs"
 
         // Legacy single-account keys (migrated on first run).
         const val LEGACY_SERVER = "server"

@@ -57,6 +57,12 @@ data class GridlinkCalendarInfo(
     val name: String?,
     val tint: GridlinkCalendarTint,
     val visible: Boolean = true,
+    /** The calendar the server names as the account's default; new events go here first. */
+    val isDefault: Boolean = false,
+    /** The name or colour shown is kept on this device only, because the server refused it. */
+    val localOnly: Boolean = false,
+    /** The name the account's calendar choices file this calendar under (`calendarPrefKey`). */
+    val prefKey: String = id,
 )
 
 /** The colour [tint] paints with in [mode]. */
@@ -87,12 +93,15 @@ fun gridlinkParseCalendarColor(raw: String?): Long? {
 }
 
 /**
- * The calendar a new event goes into when the user picks nothing: the first shown one, else the first.
- * Mirrors the repository's own choice for a write with no named calendar, so the form's row and the
- * save agree about where the event lands.
+ * The calendar a new event goes into when the user picks nothing: the server's default when it is
+ * shown, else the first shown one, else the first. Mirrors the repository's own choice for a write
+ * with no named calendar (`DavMappers.defaultCalendar`), so the form's row and the save agree about
+ * where the event lands.
  */
-fun gridlinkDefaultCalendar(calendars: List<GridlinkCalendarInfo>): GridlinkCalendarInfo? =
-    calendars.firstOrNull { it.visible } ?: calendars.firstOrNull()
+fun gridlinkDefaultCalendar(calendars: List<GridlinkCalendarInfo>): GridlinkCalendarInfo? {
+    val shown = calendars.filter { it.visible }
+    return shown.firstOrNull { it.isDefault } ?: shown.firstOrNull() ?: calendars.firstOrNull()
+}
 
 /** The label a calendar is shown under. */
 @Composable
