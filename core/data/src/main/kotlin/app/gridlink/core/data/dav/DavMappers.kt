@@ -188,9 +188,12 @@ internal object DavMappers {
      * - **collectionUrl.** Passed in rather than derived, for the same reason: it is
      *   [jmapCollectionUrl] over the calendar id for a calendar this cache is meeting for the first
      *   time, and the calendar's existing url when it is not.
-     * - **etag.** 🔴 JMAP does not have one. `sequence:updated` stands in, and it has to: the system
-     *   calendar mirror decides what changed by fingerprinting the etag, so a constant here would
-     *   make every edit invisible to it and a random one would rewrite every event on every sync.
+     * - **etag.** 🔴 JMAP does not have one. `sequence:updated:payload-hash` stands in, and it has
+     *   to: the system calendar mirror decides what changed by fingerprinting the etag, so a
+     *   constant here would make every edit invisible to it and a random one would rewrite every
+     *   event on every sync. The payload hash is there because `sequence` and `updated` are what
+     *   the WRITER put in the event, and a client that edits without bumping either (seen live on
+     *   Stalwart with a plain CalDAV PUT, #40) would otherwise leave the phone's copy stale for good.
      */
     fun jmapEvents(
         accountId: String,
@@ -199,6 +202,8 @@ internal object DavMappers {
         fallbackZone: ZoneId,
     ): List<CalendarEventEntity> {
         val baseHref = jmapHref(event.id)
+        val raw = JsCalendar.encode(event)
+        val etag = "${event.sequence}:${event.updated.orEmpty()}:${payloadHash(raw)}"
         return JsCalendar.parse(event, fallbackZone).map { parsed ->
             val startDate = parsed.start.toLocalDate()
             val endDate = parsed.end?.toLocalDate()
@@ -206,7 +211,7 @@ internal object DavMappers {
                 accountId = accountId,
                 href = if (parsed.recurrenceId == null) baseHref else "$baseHref#${parsed.recurrenceId}",
                 collectionUrl = collectionUrl,
-                etag = "${event.sequence}:${event.updated.orEmpty()}",
+                etag = etag,
                 uid = parsed.uid,
                 summary = parsed.summary,
                 location = parsed.location,
@@ -224,12 +229,18 @@ internal object DavMappers {
                 // 🔴 The WHOLE event, not this row's slice. Every row a repeating event produces
                 // stores the same payload, because an override is a patch on the master and means
                 // nothing without it. The columns are what tell the rows apart.
-                raw = JsCalendar.encode(event),
+                raw = raw,
                 payloadFormat = CalendarEventEntity.FORMAT_JSCALENDAR,
                 remoteId = event.id,
             )
         }
     }
+
+    /**
+     * A short, stable digest of a JMAP payload for the stand-in etags. `String.hashCode` is fixed by
+     * the language, so the same payload gives the same value in every process and on every phone.
+     */
+    private fun payloadHash(raw: String): String = Integer.toHexString(raw.hashCode())
 
     /** The synthetic row key for a JMAP event id. See [jmapEvents]. */
     fun jmapHref(eventId: String): String = "$JMAP_HREF_PREFIX$eventId"
@@ -303,11 +314,11 @@ internal object DavMappers {
      *   [AddressBookContactEntity.remoteId]. See [jmapEvents] for why, and the repository for where.
      * - **collectionUrl.** Passed in, for the same reason: [jmapBookUrl] over the address book id
      *   for a book this cache is meeting for the first time, its existing url otherwise.
-     * - **etag.** 🔴 JMAP does not have one. `updated` stands in, and it has to: the system-contacts
-     *   mirror decides what changed by fingerprinting the etag, so a constant here would make every
-     *   edit invisible to it and a random one would rewrite every contact on every sync. A card with
-     *   no `updated` falls back to the card id, which is stable, and the mirror's fingerprint also
-     *   covers the payload, so a change still shows up.
+     * - **etag.** 🔴 JMAP does not have one. `updated:payload-hash` stands in, and it has to: the
+     *   system-contacts mirror decides what changed by fingerprinting the etag, so a constant here
+     *   would make every edit invisible to it and a random one would rewrite every contact on every
+     *   sync. A card with no `updated` uses the card id in its place, which is stable. The payload
+     *   hash is what makes an edit that left `updated` alone still show up; see [jmapEvents].
      */
     fun jmapContact(
         accountId: String,
@@ -315,11 +326,12 @@ internal object DavMappers {
         card: JmapContactCard,
     ): AddressBookContactEntity {
         val parsed = JsContact.parse(card)
+        val raw = JsContact.encode(card)
         return AddressBookContactEntity(
             accountId = accountId,
             href = jmapCardHref(card.id),
             collectionUrl = collectionUrl,
-            etag = card.updated ?: card.id,
+            etag = "${card.updated ?: card.id}:${payloadHash(raw)}",
             uid = card.uid.takeIf { it.isNotBlank() } ?: jmapCardHref(card.id),
             displayName = parsed.formattedName?.takeIf { it.isNotBlank() }
                 ?: listOf(parsed.given, parsed.family).filter { it.isNotBlank() }
@@ -332,7 +344,7 @@ internal object DavMappers {
             isOrganization = parsed.isOrganization,
             primaryEmail = parsed.primaryEmail,
             emails = parsed.emails.joinToString(","),
-            raw = JsContact.encode(card),
+            raw = raw,
             payloadFormat = AddressBookContactEntity.FORMAT_JSCONTACT,
             remoteId = card.id,
         )
