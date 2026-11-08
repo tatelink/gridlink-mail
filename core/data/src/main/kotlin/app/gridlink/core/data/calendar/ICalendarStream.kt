@@ -145,6 +145,9 @@ object ICalendarStream {
 
     private val DATE_TIME = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss")
 
+    /** The zone of a bare UTC DTSTART. Spelled as the JMAP reader spells `timeZone: Etc/UTC`. */
+    private val UTC_ZONE: ZoneId = ZoneId.of("Etc/UTC")
+
     /**
      * Parse every VEVENT in [raw].
      *
@@ -307,7 +310,7 @@ object ICalendarStream {
         fun first(name: String) = lines.firstOrNull { it.name == name }
 
         val startLine = first("DTSTART") ?: return null
-        val zone = resolveZone(startLine.param("TZID"), zones, fallbackZone)
+        val zone = startZone(startLine, zones, fallbackZone)
         val start = parseDateTime(startLine, zone) ?: return null
 
         val endLine = first("DTEND")
@@ -443,6 +446,24 @@ object ICalendarStream {
         } catch (t: Throwable) {
             null
         }
+    }
+
+    /**
+     * The zone an event's DTSTART is written in, which is the zone its repeats are worked out in.
+     *
+     * 🔴 A bare UTC `DTSTART:20260728T150000Z` is in UTC, not in the device zone. RFC 5545 repeats
+     * a UTC start at the same UTC instant every time, so a weekly 15:00Z meeting is 11 AM Eastern in
+     * July and 10 AM after daylight saving ends. Resolving it to the device zone instead pinned the
+     * wall time (11 AM all year) and put it an hour away from the same event read over JMAP, whose
+     * `timeZone` is `Etc/UTC`. A one-off is unaffected: it is converted to the viewer's zone either
+     * way. The id matches the JMAP reader's so both protocols fill the cache identically.
+     */
+    private fun startZone(startLine: ContentLine, zones: Map<String, ZoneId>, fallback: ZoneId): ZoneId {
+        val tzid = startLine.param("TZID")
+        val utcStamp = tzid.isNullOrBlank() &&
+            !startLine.param("VALUE").equals("DATE", true) &&
+            startLine.value.trim().endsWith("Z", ignoreCase = true)
+        return if (utcStamp) UTC_ZONE else resolveZone(tzid, zones, fallback)
     }
 
     /**

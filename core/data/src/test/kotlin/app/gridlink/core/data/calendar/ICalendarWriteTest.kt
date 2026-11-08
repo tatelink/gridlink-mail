@@ -54,8 +54,15 @@ class ICalendarWriteTest {
         assertEquals("Sprint review", event.summary)
         assertEquals("test-uid", event.uid)
         assertFalse(event.allDay)
-        assertEquals(LocalDateTime.of(2026, 8, 12, 9, 0), event.start)
-        assertEquals(LocalDateTime.of(2026, 8, 12, 10, 0), event.end)
+        // A UTC stamp reads back in UTC (its repeats are UTC instants); the instant is what survives.
+        assertEquals(
+            LocalDateTime.of(2026, 8, 12, 9, 0).atZone(eastern).toInstant(),
+            event.start.atZone(event.zone).toInstant(),
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 8, 12, 10, 0).atZone(eastern).toInstant(),
+            event.end!!.atZone(event.zone).toInstant(),
+        )
     }
 
     /**
