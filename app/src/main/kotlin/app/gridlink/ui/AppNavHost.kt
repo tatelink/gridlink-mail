@@ -318,7 +318,15 @@ fun AppNavHost(
                             // GridlinkHomeHost) and this decision is made before the host composes.
                             // The mirror is written by the host as the list changes. See
                             // [PushController.unifiedInboxVisible].
-                            unifiedView = PushController.unifiedInboxVisible,
+                            //
+                            // Only for INBOX mail, though. A watched folder is never merged, so a
+                            // notification for another account's folder is not on screen at all,
+                            // and staying put would open that folder on the wrong account.
+                            unifiedView = PushController.unifiedInboxVisible &&
+                                NotificationAccountSwitch.inMergedInbox(
+                                    mailboxId = it.mailboxId,
+                                    ownerInboxId = accounts.firstOrNull { a -> a.id == it.accountId }?.inboxId,
+                                ),
                         )
                     }
                     // 🔴 The switch happens BEFORE the payload is handed down, never in the same

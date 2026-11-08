@@ -254,16 +254,27 @@ fun GridlinkHomeHost(
     //
     // A notification outranks a `mailto:` when both are somehow waiting. Neither is lost: the
     // scaffold acknowledges one, that payload clears, and this recomputes to the other.
-    val openRequest = remember(pendingEmailOpen, pendingMailto, pendingSection, sharedFiles, account?.inboxId) {
+    val openRequest = remember(
+        pendingEmailOpen, pendingMailto, pendingSection, sharedFiles, account?.inboxId, accounts, unifiedActive,
+    ) {
         when {
-            pendingEmailOpen != null -> GridlinkOpenRequest.Message(
-                id = pendingEmailOpen.emailId,
-                // Named only when it is NOT the inbox. The inbox is the list the scaffold is already
-                // holding, so passing it would spend a folder fetch to be told what is on screen,
-                // and would leave the Folders tab parked on a mailbox nobody opened. A notification
-                // for a watched folder DOES need it: see [GridlinkOpenRequest.Message].
-                folderId = pendingEmailOpen.mailboxId?.takeIf { it != account?.inboxId },
-            )
+            pendingEmailOpen != null -> {
+                // The folder is named only when it is NOT the inbox. The inbox is the list the
+                // scaffold is already holding, so passing it would spend a folder fetch to be told
+                // what is on screen, and would leave the Folders tab parked on a mailbox nobody
+                // opened. A notification for a watched folder DOES need it: see
+                // [GridlinkOpenRequest.Message]. The key names the account in the unified inbox:
+                // see [gridlinkNotificationOpen] for the wrong-account open that prevents.
+                val owner = pendingEmailOpen.accountId?.let { id -> accounts.firstOrNull { it.id == id } }
+                val (key, folder) = gridlinkNotificationOpen(
+                    emailId = pendingEmailOpen.emailId,
+                    accountId = owner?.id,
+                    mailboxId = pendingEmailOpen.mailboxId,
+                    ownerInboxId = (owner ?: account)?.inboxId,
+                    unified = unifiedActive,
+                )
+                GridlinkOpenRequest.Message(id = key, folderId = folder)
+            }
             pendingMailto != null -> {
                 // Logged HERE and not inside the conversion, which stays a pure function so the
                 // to/cc/bcc rule can be tested without a framework. Not the addresses themselves,

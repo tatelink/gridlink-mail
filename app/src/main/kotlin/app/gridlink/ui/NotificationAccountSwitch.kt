@@ -39,4 +39,12 @@ object NotificationAccountSwitch {
         if (unifiedView) return null
         return target
     }
+
+    /**
+     * Whether a notification's message is in the merged "All inboxes" list: inbox mail is, a
+     * watched folder's is not (folders are never merged). [mailboxId] null is a notification that
+     * named no folder, which only the inbox path posts.
+     */
+    fun inMergedInbox(mailboxId: String?, ownerInboxId: String?): Boolean =
+        mailboxId == null || mailboxId == ownerInboxId
 }
