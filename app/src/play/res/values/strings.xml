@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Google Play build only: the Play Billing tip jar that replaces the Ko-fi pill (Play forbids an
+     external tip link). English only for now; the other locales fall back to these lines. -->
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+    <string name="tip_card_body">Gridlink is free, has no ads and no trackers, and is built by one person. Tips are voluntary and unlock nothing: every feature is already yours.</string>
+    <string name="tip_card_body_thanked">Thank you for supporting Gridlink. Tips are voluntary and unlock nothing, so another one is welcome but never expected.</string>
+    <string name="tip_card_loading">Checking Google Play for tips.</string>
+    <string name="tip_card_unavailable">Tips through Google Play are not available right now.</string>
+    <string name="tip_card_thanks">Thank you! Your tip went through.</string>
+    <string name="tip_card_pending">Your tip is waiting on Google Play and will go through once the payment clears.</string>
+    <string name="tip_card_failed">The tip did not go through. Please try again in a moment.</string>
+    <!-- Screen reader label for a tip pill. %1$s is the price exactly as Google Play formats it. -->
+    <string name="tip_pill_description">Tip %1$s</string>
+</resources>
