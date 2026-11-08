@@ -1570,7 +1570,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 // button; the app does not answer for the reader. Not shown on the user's own mail:
                 // a message in Sent or Drafts carries the request it was written WITH, and prompting
                 // someone to confirm they read their own outbox is nonsense.
-                receipt = if (body.email.isDraft || isOwnAddress(body.email.from)) {
+                receipt = if (body.email.isDraft || isOwnAddress(credentials, body.email.from)) {
                     null
                 } else {
                     Mdn.requestedBy(body.email.dispositionNotificationTo)
@@ -1686,7 +1686,9 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
      * weekly standup from 2019 has to be able to clash with next Tuesday.
      */
     private suspend fun loadInviteConflicts(rowKey: String, event: ParsedEvent) {
-        val id = accountId.value ?: return
+        // The calendar of the account the invitation came to. In All inboxes that is often not the
+        // bound one, and an invite to B checked against A's calendar reports A's meetings as B's.
+        val id = accountFor(rowKey) ?: return
         val zone = ZoneId.systemDefault()
         val from = Instant.ofEpochMilli(event.startMillis).atZone(zone).toLocalDate()
         val to = Instant.ofEpochMilli(event.endMillis ?: event.startMillis).atZone(zone).toLocalDate()
@@ -1975,11 +1977,24 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
-    /** Whether one of [from] is this account's own address, so its mail is not prompted about. */
-    private fun isOwnAddress(from: List<EmailAddress>): Boolean {
-        val me = accountId.value?.let { store.credentials(it) }?.username ?: return false
-        return from.any { it.email.equals(me, ignoreCase = true) }
+    /**
+     * Whether one of [from] is an address of the account behind [credentials], so its mail is not
+     * prompted about.
+     *
+     * The account the message belongs to, not the bound one: in All inboxes a message of account B's
+     * that B itself sent would otherwise be judged against A's login, and B's own outbox would be
+     * offered a read receipt. Every identity counts, not only the login.
+     */
+    private fun isOwnAddress(credentials: AccountCredentials, from: List<EmailAddress>): Boolean {
+        val own = ownAddresses(credentials)
+        return from.any { it.email.trim().lowercase() in own }
     }
+
+    /** The login and every identity address of the account behind [credentials], lower case. */
+    private fun ownAddresses(credentials: AccountCredentials): Set<String> = buildSet {
+        add(credentials.username.trim().lowercase())
+        store.account(credentials.id)?.resolvedIdentities()?.forEach { add(it.email.trim().lowercase()) }
+    }.filter { it.isNotEmpty() }.toSet()
 
     /**
      * Send the read receipt the open message asked for, because the reader tapped the button.
@@ -2785,11 +2800,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     suspend fun replyOriginal(rowKey: String): GridlinkReplyOriginal {
         val (credentials, emailId) = checkNotNull(resolve(rowKey)) { "no account for this message" }
         val email = repo.fetchEmail(credentials, emailId)
-        val account = store.account(credentials.id)
-        val own = buildSet {
-            add(credentials.username.trim().lowercase())
-            account?.resolvedIdentities()?.forEach { add(it.email.trim().lowercase()) }
-        }.filter { it.isNotEmpty() }.toSet()
+        val own = ownAddresses(credentials)
         fun List<EmailAddress>.converted() =
             filter { it.email.isNotBlank() }.map { GridlinkAddress(it.name.orEmpty(), it.email) }
         return GridlinkReplyOriginal(
