@@ -89,10 +89,10 @@ class GridlinkCalendarsUiTest {
     fun newEvent_offersTheCalendar_defaultsToTheFirstShown_andSavesThePick() {
         showForm(listOf(PERSONAL.copy(visible = false), WORK, TEAM))
         // The hidden first calendar is skipped as the default.
-        rule.onNode(hasText("Calendar") and hasText("Calendar 2") and hasClickAction()).assertExists()
+        rule.onNode(hasText("CALENDAR") and hasText("Calendar 2") and hasClickAction()).assertExists()
         rule.onNodeWithTag("gridlink-event-calendar").performClick()
         rule.onNodeWithTag("gridlink-calendar-pick-2").performClick()
-        rule.onNode(hasText("Calendar") and hasText("Team") and hasClickAction()).assertExists()
+        rule.onNode(hasText("CALENDAR") and hasText("Team") and hasClickAction()).assertExists()
 
         rule.onAllNodes(hasSetTextAction())[0].performTextInput("Standup")
         save().performClick()

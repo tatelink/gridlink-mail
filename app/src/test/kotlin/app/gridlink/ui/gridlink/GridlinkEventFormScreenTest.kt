@@ -78,20 +78,24 @@ class GridlinkEventFormScreenTest {
     private fun save(label: String = "Save") = rule.onNode(hasText(label) and hasClickAction())
 
     /**
-     * A contained row is one clickable node carrying its label AND its value (the frame merges its
+     * A picked row is one clickable node carrying its caption AND its value (the click merges its
      * children), so matching on both picks the row apart from a stray label elsewhere.
      */
     private fun row(label: String, value: String): SemanticsNodeInteraction =
         rule.onNode(hasText(label) and hasText(value) and hasClickAction()).performScrollTo()
 
     @Test
-    fun blankForm_cannotSave_andSaysWhy() {
+    fun blankForm_saysWhyOnlyOnceSaveIsPressed_andSavesNothing() {
         show()
-        save().assertIsNotEnabled()
+        // Nothing scolds a form nobody has filled in yet.
+        rule.onNodeWithText(HINT_TITLE).assertDoesNotExist()
+        save().assertIsEnabled()
+
+        save().performClick()
+        assertTrue(saved.isEmpty())
         rule.onNodeWithText(HINT_TITLE).assertExists()
 
         titleField().performTextInput("Dentist")
-        save().assertIsEnabled()
         rule.onNodeWithText(HINT_TITLE).assertDoesNotExist()
     }
 
@@ -124,8 +128,8 @@ class GridlinkEventFormScreenTest {
     fun allDay_dropsBothTimes_andHidesTheTimeRows() {
         show()
         titleField().performTextInput("Trash day")
-        row("Start", "9 AM").assertExists()
-        row("End", "10 AM").assertExists()
+        row("START", "9 AM").assertExists()
+        row("END", "10 AM").assertExists()
 
         rule.onNode(hasText("All day") and isOff()).performScrollTo().performClick()
         rule.onNode(hasText("All day") and isOn()).assertExists()
@@ -143,15 +147,15 @@ class GridlinkEventFormScreenTest {
     fun movingTheStartPastTheEnd_dragsTheEndAlong() {
         show()
         titleField().performTextInput("Standup")
-        row("Start", "9 AM").performClick()
+        row("START", "9 AM").performClick()
         rule.onNodeWithText("Starts").assertExists()
         // The time sheet is a long lazy list; bring the slot into composition before tapping it.
         rule.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("4 PM"))
         rule.onNodeWithText("4 PM").performClick()
 
         rule.onNodeWithText("Starts").assertDoesNotExist()
-        row("Start", "4 PM").assertExists()
-        row("End", "5 PM").assertExists()
+        row("START", "4 PM").assertExists()
+        row("END", "5 PM").assertExists()
 
         save().performClick()
         assertEquals(LocalTime.of(16, 0), saved.single().start)
@@ -162,13 +166,13 @@ class GridlinkEventFormScreenTest {
     fun reminders_areToggledInTheSheet_andStayUntilDone() {
         show()
         titleField().performTextInput("Board call")
-        row("Reminders", "None").performClick()
+        row("REMINDERS", "None").performClick()
         rule.onNodeWithText("15 minutes before").performClick()
         // Still open: the sheet is a multi-select and must not close on the first toggle.
         rule.onNodeWithText("1 hour before").performClick()
         rule.onNodeWithText("Done").performClick()
 
-        row("Reminders", "15 min, 1 hr").assertExists()
+        row("REMINDERS", "15 min, 1 hr").assertExists()
         save().performClick()
         assertEquals(listOf(15, 60), saved.single().reminders)
     }
@@ -192,9 +196,9 @@ class GridlinkEventFormScreenTest {
 
         rule.onNodeWithText("Edit event").assertExists()
         rule.onNodeWithText("Tue 25 Aug").assertExists()
-        row("Start", "2:30 PM").assertExists()
-        row("End", "3 PM").assertExists()
-        row("Reminders", "5 min, 30 min").assertExists()
+        row("START", "2:30 PM").assertExists()
+        row("END", "3 PM").assertExists()
+        row("REMINDERS", "5 min, 30 min").assertExists()
         rule.onNodeWithText("Dock 3").assertExists()
         rule.onNodeWithText("badge needed").assertExists()
         rule.onNodeWithText("Ops").assertExists()

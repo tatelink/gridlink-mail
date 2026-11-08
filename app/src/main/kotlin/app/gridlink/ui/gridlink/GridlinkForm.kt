@@ -819,31 +819,39 @@ fun GridlinkFormPickRow(
         }
         return
     }
+    // Ruled: the caption above the value, the way Compose's TO row stands, so a column of these
+    // lines its values up on one edge whatever the captions' widths. (Polish pass, 2026-11-07; it
+    // used to put the caption beside the value, and Start / End / Reminders started at three
+    // different x positions.) The caption takes the accent while this row's picker is open.
     Row(
         modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(
                 horizontal = GridlinkSpacing.rowHorizontal,
-                vertical = GridlinkSpacing.s16,
+                vertical = GridlinkSpacing.s12,
             ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = label,
-            style = GridlinkType.sectionLabel,
-            color = colors.textSecondary,
-        )
-        Spacer(Modifier.width(GridlinkSpacing.s16))
-        Text(
-            text = value,
-            style = GridlinkType.senderName,
-            color = colors.textPrimary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        trailing?.invoke()
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = GridlinkType.sectionLabel,
+                color = if (active) colors.accent else colors.textSecondary,
+            )
+            Spacer(Modifier.height(GridlinkSpacing.s8))
+            Text(
+                text = value,
+                style = GridlinkType.senderName,
+                color = colors.textPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        trailing?.let {
+            Spacer(Modifier.width(GridlinkSpacing.s16))
+            it()
+        }
     }
 }
 
