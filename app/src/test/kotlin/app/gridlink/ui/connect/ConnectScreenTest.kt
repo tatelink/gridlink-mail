@@ -115,7 +115,7 @@ class ConnectScreenTest {
         choice("JMAP").assertIsSelected()
         chip("Password").assertIsSelected()
         chip("API token").assertIsNotSelected()
-        rule.onNodeWithText("Just enter your email and password", substring = true).assertExists()
+        rule.onNodeWithText("Enter your email and password", substring = true).assertExists()
         field("JMAP server").assertDoesNotExist()
 
         rule.onNodeWithText("Advanced settings").tap()
@@ -200,8 +200,8 @@ class ConnectScreenTest {
         show()
         choice("IMAP / SMTP").tap()
         choice("IMAP / SMTP").assertIsSelected()
-        rule.onNodeWithText("Incoming (IMAP)").assertExists()
-        rule.onNodeWithText("Outgoing (SMTP)").assertExists()
+        rule.onNodeWithText("INCOMING (IMAP)").assertExists()
+        rule.onNodeWithText("OUTGOING (SMTP)").assertExists()
         field("Port", 0).assert(hasText("993"))
         field("Port", 1).assert(hasText("465"))
         rule.onAllNodesWithText("SSL/TLS").assertCountEquals(2)
@@ -267,7 +267,7 @@ class ConnectScreenTest {
     fun outlook_hidesTheServerBlock_andConnectsOnTheAddressAlone() {
         show()
         choice("Outlook").tap()
-        rule.onNodeWithText("Incoming (IMAP)").assertDoesNotExist()
+        rule.onNodeWithText("INCOMING (IMAP)").assertDoesNotExist()
         rule.onNodeWithText("need an app-specific password", substring = true).assertDoesNotExist()
         connect().assertIsNotEnabled()
         field("Email / username").performTextInput("avery@outlook.com")

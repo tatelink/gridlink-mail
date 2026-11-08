@@ -24,7 +24,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.pullToRefresh
@@ -44,12 +46,16 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.gridlink.GridlinkApplication
+import app.gridlink.R
 import app.gridlink.core.data.mail.MailFilter
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
@@ -1605,11 +1611,19 @@ private fun GridlinkSearchResults(
         return
     }
     if (current.failed) {
-        GridlinkSearchStatus("Search could not reach the server. It will run again if you keep typing.")
+        GridlinkSearchEmpty(
+            icon = Icons.Outlined.CloudOff,
+            title = "Search could not reach the server",
+            subline = "It will run again if you keep typing.",
+        )
         return
     }
     if (current.results.isEmpty()) {
-        GridlinkSearchStatus("No results for “$query”")
+        GridlinkSearchEmpty(
+            icon = Icons.Outlined.SearchOff,
+            title = "No results for “$query”",
+            subline = stringResource(R.string.gridlink_search_empty_hint),
+        )
         return
     }
 
@@ -1632,11 +1646,37 @@ private fun GridlinkSearchResults(
             .fillMaxSize()
             .gridlinkEdgeFade(),
         flingBehavior = rememberGridlinkFlingBehavior(),
+        // 🔴 s12 on top, the inbox's own figure, not the full fade. With the Filter row and its
+        // divider above, the 40dp read as an empty band before the first hit, the same gap the
+        // inbox gave back when its chips moved into the panel.
         contentPadding = PaddingValues(
-            top = GridlinkDimens.listFade,
+            top = GridlinkSpacing.s12,
             bottom = GridlinkDimens.listFade,
         ),
     ) {
+        // How many matched, first, in the seat the title had. An open search pill hides the screen
+        // title, so without this line nothing on screen said what you were looking at or how much
+        // of it there was. Shown while the answer is still arriving too, as "at least", so the rows
+        // do not jump down when the count lands.
+        item(key = "search-count") {
+            val count = current.results.size
+            Text(
+                text = pluralStringResource(
+                    if (current.complete && !current.searching) {
+                        R.plurals.search_result_count
+                    } else {
+                        R.plurals.search_result_count_capped
+                    },
+                    count,
+                    count,
+                ),
+                style = GridlinkType.senderName,
+                color = GridlinkTheme.colors.textPrimary,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = GridlinkSpacing.rowHorizontal + gutter, end = GridlinkSpacing.rowHorizontal),
+            )
+        }
         // Every section INCLUDING automated, unlike the inbox timeline. Real hits never carry
         // AUTOMATED (the view model re-states their day section, same as the folder list), but the
         // sample's robots keep it, and a results list has no bundle row to hide them in.
@@ -1690,7 +1730,15 @@ private fun GridlinkSearchResults(
     }
 }
 
-/** One quiet line where rows would be: the no-results, failed and may-be-more states. */
+/** The no-results and failed states: the shared empty notice, centred where the rows would be. */
+@Composable
+private fun GridlinkSearchEmpty(icon: ImageVector, title: String, subline: String) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        GridlinkEmptyNotice(icon = icon, title = title, subline = subline)
+    }
+}
+
+/** One quiet line where rows would be: the may-be-more caveat under a list of results. */
 @Composable
 private fun GridlinkSearchStatus(text: String, fill: Boolean = true) {
     Box(

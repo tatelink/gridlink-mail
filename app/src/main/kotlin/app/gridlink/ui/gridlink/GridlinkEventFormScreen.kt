@@ -150,15 +150,25 @@ fun GridlinkEventFormScreen(
     LaunchedEffect(Unit) { if (initial == null) titleFocus.requestFocus() }
 
     val named = summary.text.isNotBlank()
+    // Whether Save has been pressed on a blank title. The "needs a title" line waits for that: shown
+    // on open, it told you off before you had typed a letter. (Polish pass, 2026-11-07.)
+    var triedBlank by remember { mutableStateOf(false) }
     GridlinkFormScreen(
         title = title,
         // No way out while the PUT is in flight. Closing would not recall it, so an X there offers
         // to cancel something it cannot, and the event turns up on the server anyway.
         onClose = if (saving) null else onClose,
         confirmLabel = if (saving) "Saving" else "Save",
-        confirmEnabled = named && !saving,
-        hint = failure ?: if (named) null else "An event needs a title.",
-        onConfirm = {
+        // Save stays live on a blank form so pressing it can say why it will not save, rather than
+        // being a grey button with the reason printed before anyone asked.
+        confirmEnabled = !saving,
+        hint = failure ?: if (triedBlank && !named) "An event needs a title." else null,
+        onConfirm = confirm@{
+            if (!named) {
+                triedBlank = true
+                titleFocus.requestFocus()
+                return@confirm
+            }
             onSave(
                 GridlinkEvent(
                     // Empty for a new event (the caller mints one; see [onSave]), initial's for an
@@ -192,11 +202,17 @@ fun GridlinkEventFormScreen(
         modifier = modifier,
         embedded = embedded,
     ) {
+        // 🔴 Ruled rows on the panel, Compose's layout, not boxed fields. (Polish pass, 2026-11-07.)
+        // The form used to be a stack of bordered boxes like a stock settings page, unlike the
+        // composer and setup it sits between. Typed rows carry their caption as the placeholder,
+        // in caps like SUBJECT, so "Title" is no longer printed twice (once as a label, once as
+        // the hint inside); picked rows keep their caption above the value because two times with
+        // nothing naming them are ambiguous.
         GridlinkFormTextRow(
             value = summary,
             onValueChange = { summary = it },
-            placeholder = "Title",
-            placeholderStyle = GridlinkType.senderName,
+            placeholder = "TITLE",
+            placeholderStyle = GridlinkType.sectionLabel,
             style = GridlinkType.senderName,
             focusRequester = titleFocus,
             onFocused = {},
@@ -207,66 +223,63 @@ fun GridlinkEventFormScreen(
             // pickers are dialogs: sending the ime action into one would open a modal from a keyboard
             // key, over a keyboard that is still up.
             onImeAction = { locationFocus.requestFocus() },
-            label = "Title",
-            contained = true,
         )
+        GridlinkFormDivider()
 
         // Straight under the title: which calendar is the first thing a multi-calendar user checks,
         // and it is a choice about the whole event rather than about one of its details.
         if (choosesCalendar && calendar != null) {
             GridlinkFormPickRow(
-                label = stringResource(R.string.event_form_calendar),
+                label = stringResource(R.string.event_form_calendar).uppercase(),
                 value = gridlinkCalendarName(calendar),
                 onClick = { picking = GridlinkEventPicker.CALENDAR },
-                contained = true,
                 active = picking == GridlinkEventPicker.CALENDAR,
                 trailing = { GridlinkCalendarDot(calendar.tint) },
                 modifier = Modifier.testTag("gridlink-event-calendar"),
             )
+            GridlinkFormDivider()
         }
 
-        // 🔴 No dividers: contained boxes separate themselves by their margins, same as the
-        // contact form.
         GridlinkFormPickRow(
-            label = "Date",
+            label = "DATE",
             value = day.format(EVENT_DATE),
             onClick = { picking = GridlinkEventPicker.DATE },
-            contained = true,
             active = picking == GridlinkEventPicker.DATE,
         )
+        GridlinkFormDivider()
 
         GridlinkFormToggleRow(
             label = "All day",
             checked = allDay,
             onToggle = { allDay = it },
-            contained = true,
         )
+        GridlinkFormDivider()
 
         // The times are removed rather than disabled when the event is all-day. A dimmed 9 AM under an
         // ON toggle asks the user to work out which of the two the app believes; nothing there says it
         // plainly.
         if (!allDay) {
             GridlinkFormPickRow(
-                label = "Start",
+                label = "START",
                 value = start.compact(),
                 onClick = { picking = GridlinkEventPicker.START },
-                contained = true,
                 active = picking == GridlinkEventPicker.START,
             )
+            GridlinkFormDivider()
             GridlinkFormPickRow(
-                label = "End",
+                label = "END",
                 value = end.compact(),
                 onClick = { picking = GridlinkEventPicker.END },
-                contained = true,
                 active = picking == GridlinkEventPicker.END,
             )
+            GridlinkFormDivider()
         }
 
         GridlinkFormTextRow(
             value = location,
             onValueChange = { location = it },
-            placeholder = "",
-            placeholderStyle = GridlinkType.body,
+            placeholder = "LOCATION",
+            placeholderStyle = GridlinkType.sectionLabel,
             style = GridlinkType.body,
             focusRequester = locationFocus,
             onFocused = {},
@@ -274,15 +287,14 @@ fun GridlinkEventFormScreen(
             capitalization = KeyboardCapitalization.Sentences,
             imeAction = ImeAction.Next,
             onImeAction = { notesFocus.requestFocus() },
-            label = "Location",
-            contained = true,
         )
+        GridlinkFormDivider()
 
         GridlinkFormTextRow(
             value = notes,
             onValueChange = { notes = it },
-            placeholder = "",
-            placeholderStyle = GridlinkType.body,
+            placeholder = "NOTES",
+            placeholderStyle = GridlinkType.sectionLabel,
             style = GridlinkType.body,
             focusRequester = notesFocus,
             onFocused = {},
@@ -293,15 +305,14 @@ fun GridlinkEventFormScreen(
             capitalization = KeyboardCapitalization.Sentences,
             imeAction = ImeAction.Default,
             onImeAction = null,
-            label = "Notes",
-            contained = true,
         )
+        GridlinkFormDivider()
 
         GridlinkFormTextRow(
             value = category,
             onValueChange = { category = it },
-            placeholder = "",
-            placeholderStyle = GridlinkType.body,
+            placeholder = "CATEGORY",
+            placeholderStyle = GridlinkType.sectionLabel,
             style = GridlinkType.body,
             focusRequester = remember { FocusRequester() },
             onFocused = {},
@@ -311,19 +322,17 @@ fun GridlinkEventFormScreen(
             // not a field the ime can move to.
             imeAction = ImeAction.Done,
             onImeAction = null,
-            label = "Category",
-            contained = true,
         )
+        GridlinkFormDivider()
 
         GridlinkFormPickRow(
-            label = "Reminders",
+            label = "REMINDERS",
             value = if (reminders.isEmpty()) {
                 "None"
             } else {
                 reminders.joinToString(", ") { gridlinkReminderShort(it) }
             },
             onClick = { picking = GridlinkEventPicker.REMINDERS },
-            contained = true,
             active = picking == GridlinkEventPicker.REMINDERS,
         )
     }

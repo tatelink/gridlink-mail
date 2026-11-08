@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import android.text.format.DateFormat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -28,16 +29,16 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.CloseFullscreen
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.Fullscreen
+import androidx.compose.material.icons.outlined.FullscreenExit
 import androidx.compose.material.icons.outlined.HideImage
 import androidx.compose.material.icons.outlined.MarkEmailUnread
 import androidx.compose.material.icons.outlined.MoreHoriz
-import androidx.compose.material.icons.outlined.OpenInFull
 import androidx.compose.material.icons.outlined.Print
 import androidx.compose.material.icons.outlined.Report
 import androidx.compose.material.icons.outlined.Sell
@@ -49,6 +50,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -56,7 +58,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -73,6 +79,8 @@ import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
 import app.gridlink.ui.theme.gridlinkSenderBarColor
 import app.gridlink.ui.theme.isLightSurface
+import app.gridlink.util.MailDates
+import java.time.format.DateTimeFormatter
 
 /**
  * Reading one message. Brief deliverable §11.5.
@@ -231,6 +239,19 @@ fun GridlinkThreadScreen(
     val tags = remember(message.tags, tagDefinitions) { resolveTags(message.tags, tagDefinitions) }
     val hasRemoteContent = remember(message.body) { EmailRemoteContent.referencedBy(message.body) }
     val showRemote = showOnce || imagesAlwaysAllowed
+    // A short message ends its card shortly after its last line instead of drawing a full-height
+    // panel that is mostly empty glass. The WebView cannot report a height shorter than itself (its
+    // scroll range is never below its viewport), so the body first lays out in a hidden sliver
+    // ([BODY_PROBE_HEIGHT]); the range it reports from there is the real document height. Taller
+    // than the room it has, it gets the room as before; shorter, the card ends at the text.
+    // 🔴 Maximized skips all of it: that mode is a request for the whole window.
+    var bodyFitPx by remember(message.id, message.body) { mutableStateOf<Int?>(null) }
+    var bodyRoomPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val bodyEndPadPx = with(density) { GridlinkSpacing.s8.roundToPx() }
+    val bodyProbePx = with(density) { BODY_PROBE_HEIGHT.roundToPx() }
+    val probingBody = !maximized && bodyFitPx == null
+    val fitBodyPx = bodyFitPx?.takeIf { !maximized && bodyRoomPx > 0 && it + bodyEndPadPx < bodyRoomPx }
     // 🔴 Unsubscribe is the one action here that talks to someone else. Every other button
     // rearranges mail that is already on the device, and this one tells a sender you exist and are
     // reading. It gets asked first, wherever it was tapped from.
@@ -266,10 +287,12 @@ fun GridlinkThreadScreen(
 
     GridlinkDetailFrame(
         title = message.subject,
+        titleStyle = GridlinkType.threadTitle,
         onBack = onBack,
         modifier = modifier,
         embedded = embedded,
         maximized = maximized,
+        fitToContent = fitBodyPx != null,
         titleAction = {
             // Two controls in the frame's one slot, as a Row rather than a second slot on the frame.
             // The slot is specified as "one [GridlinkDimens.headerControl] of height beside the
@@ -283,8 +306,8 @@ fun GridlinkThreadScreen(
                 // Muscle memory for the star is worth more than the new button being first.
                 if (onToggleMaximize != null) {
                     GridlinkDetailCircleButton(
-                        icon = Icons.Outlined.OpenInFull,
-                        label = "Maximize",
+                        icon = Icons.Outlined.Fullscreen,
+                        label = stringResource(R.string.gridlink_full_screen),
                         onClick = onToggleMaximize,
                     )
                 }
@@ -322,7 +345,7 @@ fun GridlinkThreadScreen(
             val layout = gridlinkToolbarLayout(
                 enabled = toolbarActions,
                 hasUnsubscribe = message.unsubscribe != null,
-                slots = if (embedded) PANE_SLOTS else SLOTS,
+                slots = SLOTS,
                 hasSheetRows = hasSheetRows,
             )
             if (layout.inBar.isEmpty() && !layout.showMore) {
@@ -352,7 +375,7 @@ fun GridlinkThreadScreen(
         // [GridlinkMessageBody]); an outer scroll would have to measure it to its full content
         // height, which defeats that and puts two scroll containers on one drag. So everything else
         // is pinned and the body takes the space that is left.
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = if (fitBodyPx != null) Modifier.fillMaxWidth() else Modifier.fillMaxSize()) {
             // 🔴 Above the sender block, which is what "under the subject" means here: the subject
             // is the frame's title, so this is the first thing inside the panel and the tags read as
             // belonging to the subject rather than to the person who sent it. Put below the sender
@@ -450,24 +473,50 @@ fun GridlinkThreadScreen(
                         .fillMaxWidth(),
                 )
             } else {
-                GridlinkMessageBody(
-                    html = message.body,
-                    blockRemote = !showRemote,
-                    // The palette's text and accent, so nothing in the markup can paint itself
-                    // invisible. 🔴 A body carrying `#000000` because it looked right in Day would be
-                    // unreadable in Night, which is what the whole-page invert in a dark theme is for.
-                    // There is no background to pass: the renderer is transparent so the frosted panel
-                    // reads through it. See [GridlinkMessageBody].
-                    text = colors.textPrimary,
-                    link = colors.accent,
-                    dark = !mode.isLightSurface,
-                    plainText = message.bodyIsPlainText,
-                    inlineImages = message.inlineImages,
-                    modifier = Modifier
+                // The slot keeps the body in the same place in the tree in all three states
+                // (probing, fitted, filling), so the WebView is never recreated by the switch.
+                val bodySlot = if (fitBodyPx != null) {
+                    Modifier.height(with(density) { (fitBodyPx + bodyEndPadPx).toDp() })
+                } else {
+                    Modifier
                         .weight(1f)
-                        .fillMaxWidth()
-                        .gridlinkEdgeFade(fadeTop = false),
-                )
+                        .onSizeChanged { bodyRoomPx = it.height }
+                }
+                Box(modifier = bodySlot.fillMaxWidth()) {
+                    GridlinkMessageBody(
+                        html = message.body,
+                        blockRemote = !showRemote,
+                        // The palette's text and accent, so nothing in the markup can paint itself
+                        // invisible. 🔴 A body carrying `#000000` because it looked right in Day
+                        // would be unreadable in Night, which is what the whole-page invert in a
+                        // dark theme is for. There is no background to pass: the renderer is
+                        // transparent so the frosted panel reads through it. See
+                        // [GridlinkMessageBody].
+                        text = colors.textPrimary,
+                        link = colors.accent,
+                        dark = !mode.isLightSurface,
+                        plainText = message.bodyIsPlainText,
+                        inlineImages = message.inlineImages,
+                        // Only a report taller than the body's current box means anything: the
+                        // range is never shorter than the viewport, so an equal one says "fits".
+                        onContentHeightPx = { px ->
+                            val shown = bodyFitPx?.plus(bodyEndPadPx) ?: bodyProbePx
+                            if (px > shown) bodyFitPx = px
+                        },
+                        modifier = when {
+                            probingBody ->
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(BODY_PROBE_HEIGHT)
+                                    .graphicsLayer { alpha = 0f }
+                            fitBodyPx != null -> Modifier.fillMaxSize()
+                            else ->
+                                Modifier
+                                    .fillMaxSize()
+                                    .gridlinkEdgeFade(fadeTop = false)
+                        },
+                    )
+                }
             }
 
             if (message.attachments.isNotEmpty()) {
@@ -513,8 +562,8 @@ fun GridlinkThreadScreen(
         // has to remember exists, and this one is the way out of a mode with no system bars in it.
         if (maximized && onToggleMaximize != null) {
             GridlinkDetailCircleButton(
-                icon = Icons.Outlined.CloseFullscreen,
-                label = "Restore",
+                icon = Icons.Outlined.FullscreenExit,
+                label = stringResource(R.string.gridlink_exit_full_screen),
                 onClick = onToggleMaximize,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -537,7 +586,7 @@ fun GridlinkThreadScreen(
             layout = gridlinkToolbarLayout(
                 enabled = toolbarActions,
                 hasUnsubscribe = message.unsubscribe != null,
-                slots = if (embedded) PANE_SLOTS else SLOTS,
+                slots = SLOTS,
                 hasSheetRows = hasSheetRows,
             ),
             starred = starred,
@@ -721,6 +770,7 @@ private fun GridlinkThreadSender(
                 )
             }
             if (expanded) {
+                val fullDate = rememberFullMailDate(message.receivedAt)
                 Text(
                     text = message.address,
                     style = GridlinkType.metadata,
@@ -742,6 +792,17 @@ private fun GridlinkThreadSender(
                 if (readerAddress.isNotBlank()) {
                     Text(
                         text = "to $readerAddress",
+                        style = GridlinkType.metadata,
+                        color = colors.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                // The stamp in the row above is the list's short one ("18 Aug", "Yesterday");
+                // this is the whole thing, in the phone's own date order and 12/24-hour clock.
+                if (fullDate.isNotBlank()) {
+                    Text(
+                        text = fullDate,
                         style = GridlinkType.metadata,
                         color = colors.textSecondary,
                         maxLines = 1,
@@ -1114,15 +1175,10 @@ internal fun gridlinkToolbarLayout(
 /** Slots on the bar, More included. See [GridlinkThreadActionPill]. */
 private const val SLOTS = 3
 
-/**
- * The same bar in the two-pane reading pane, which is ~380dp narrower than a folded screen.
- *
- * Three labelled controls plus Reply plus the parked "+" fit there arithmetically and still read as
- * cramped, which is a thing only visible on the real device: *"the bottom menu bar that currently
- * contains forward, archive, and more - its gonna only be able to hold one control + more. three
- * causes it to still be cramped."* The folded bar is not crowded and does not change.
- */
-private const val PANE_SLOTS = 2
+// PANE_SLOTS (2) used to live here: the reading pane's bar held one control plus More, because three
+// slots plus Reply plus the scaffold's parked "+" read as cramped on the real device. The "+" now
+// sits with the list in two panes, so the pane's bar is the folded bar again (three slots, Forward
+// back on it) and the one-slot rule in [gridlinkToolbarLayout] is only reached by a narrow window.
 
 /**
  * The secondary actions, in the same shell the nav pill uses on the list.
@@ -1358,3 +1414,25 @@ internal fun gridlinkForward(
         focus = GridlinkComposeField.TO,
     )
 }
+
+/**
+ * [iso] as a full date and time ("Tue, Aug 18, 2026, 9:41 AM"), or "" when there is none.
+ *
+ * Built from the phone's own settings rather than a fixed pattern: the locale picks the order and
+ * the words, and the system 12/24-hour switch picks the clock, which a pattern read off the
+ * language alone would ignore.
+ */
+@Composable
+private fun rememberFullMailDate(iso: String?): String {
+    val context = LocalContext.current
+    val locale = context.resources.configuration.locales[0]
+    val is24 = DateFormat.is24HourFormat(context)
+    return remember(iso, locale, is24) {
+        val skeleton = if (is24) "EEEdMMMyyyyHHmm" else "EEEdMMMyyyyhmma"
+        val pattern = DateFormat.getBestDateTimePattern(locale, skeleton)
+        MailDates.formatWith(iso, DateTimeFormatter.ofPattern(pattern, locale))
+    }
+}
+
+/** The hidden sliver a body lays out in first, so the height it reports is its own. */
+private val BODY_PROBE_HEIGHT = 1.dp

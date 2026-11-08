@@ -89,19 +89,11 @@ fun GridlinkScheduledScreen(
     ) {
         if (items.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "Nothing waiting",
-                        style = GridlinkType.senderName,
-                        color = colors.textPrimary,
-                    )
-                    Text(
-                        text = "Messages you schedule sit here until they go.",
-                        style = GridlinkType.metadata,
-                        color = colors.textSecondary,
-                        modifier = Modifier.padding(top = GridlinkSpacing.s8),
-                    )
-                }
+                GridlinkEmptyNotice(
+                    icon = Icons.Outlined.Schedule,
+                    title = "Nothing waiting",
+                    subline = "Messages you schedule sit here until they go.",
+                )
             }
             return@GridlinkDetailFrame
         }

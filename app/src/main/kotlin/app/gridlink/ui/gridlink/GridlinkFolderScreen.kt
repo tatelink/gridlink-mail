@@ -1315,7 +1315,7 @@ private fun GridlinkFolderActionSheet(
                     // and delivers a message half an hour late is worse than one that said so.
                     else -> "On, but checked every 30 min. IMAP only reports the inbox live"
                 },
-                trailing = { GridlinkOnOffPill(folder.watched) },
+                trailing = { GridlinkOnOffSwitch(folder.watched) },
             )
         }
         if (folder.mayRename) {

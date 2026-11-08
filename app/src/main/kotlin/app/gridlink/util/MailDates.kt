@@ -151,21 +151,33 @@ object MailDates {
         today: LocalDate = LocalDate.now(zone),
         locale: Locale = appLocale,
         yesterday: String = "Yesterday",
+        style: StampStyle? = null,
     ): String {
         val zoned = zoned(iso, zone) ?: return ""
         val date = zoned.toLocalDate()
         return when {
-            date == today -> zoned.format(shortTimeFormatter(locale))
+            date == today -> zoned.format(style?.time ?: shortTimeFormatter(locale))
             date == today.minusDays(1) -> yesterday
             // Strictly inside the last week, and only in the PAST: a message stamped tomorrow (a
             // sender's clock is wrong, or the mail was scheduled) must not come back as a weekday
             // that reads like last week's. It falls through to a date, which is at least unambiguous.
             date.isAfter(today.minusDays(7)) && date.isBefore(today) ->
                 zoned.format(weekdayFormatter.withLocale(locale))
-            date.year == today.year -> zoned.format(dayMonthFormatter.withLocale(locale))
+            date.year == today.year -> zoned.format(style?.dayMonth ?: dayMonthFormatter.withLocale(locale))
             else -> zoned.format(shortDateFormatter(locale))
         }
     }
+
+    /**
+     * How the phone itself writes a time and a day of the month, for [formatGridlinkStamp].
+     *
+     * 🔴 Built by the caller from Android's own settings (the best pattern for the language, and the
+     * system 12/24-hour switch), because this file stays free of Android types. Without it the list
+     * mixed two registers on one screen: "8:24 PM" in the US style beside "27 Oct" in the British
+     * one, since "d MMM" is a fixed order and not the language's. Null keeps the language-only
+     * fallback, which is what the JVM tests exercise.
+     */
+    data class StampStyle(val time: DateTimeFormatter, val dayMonth: DateTimeFormatter)
 
     /** "Tue" in the app's language: the short weekday name. */
     private val weekdayFormatter = DateTimeFormatter.ofPattern("EEE", appLocale)

@@ -17,11 +17,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -48,16 +48,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.Hyphens
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import app.gridlink.R
+import app.gridlink.ui.components.onAccentColor
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
 import app.gridlink.ui.theme.GridlinkRadii
@@ -280,6 +285,19 @@ fun GridlinkCalendarScreen(
      * would be a confident statement about a month this app has never seen.
      */
     val countable = !book.calendarLoading && book.coversDate(range.first) && book.coversDate(range.second)
+    // The agenda used to say "upcoming" here, which was true when its window ran forward from
+    // today. It now includes the week just past, so "upcoming" would miscount out loud; "events" is
+    // what every view can honestly say.
+    val countLine = when {
+        book.calendarLoading -> "Loading"
+        // A sync that failed outranks a count, because the count is then a count of whatever was
+        // cached before the server stopped answering, and "0 events" over a calendar nobody could
+        // reach is the lie this line exists not to tell.
+        book.calendarError != null -> book.calendarError
+        !countable -> "Not synced this far out"
+        inRange.size == 1 -> "1 event"
+        else -> "${inRange.size} events"
+    }
 
     // 🔴 The agenda's title has to be built from the SAME date its range was, or it names a window
     // the list is not showing: [range] pins the agenda to today while [anchor] keeps whatever month
@@ -319,42 +337,26 @@ fun GridlinkCalendarScreen(
         // where its stretched across the entire phone."*
         split = GridlinkPaneSplit.EVEN,
         header = {
-            // One pane means the chrome row is a folded-width line shared with the hamburger, the
-            // sync chip and the subline, and the title seat is the one that gives way (`weight(1f,
-            // fill = false)` in [GridlinkHeader]), so "August 2026" rendered as "August 2…".
-            // Tate: "the date text display at the top of the screen is truncated (August 2...)
-            // isnt useful, rearrange to display full date, theres plenty of vertical room to move
-            // things around." So in one pane the date leaves the chrome row for its own line in
-            // [belowHeader], and the steppers go with it, because buttons that page a date belong
-            // beside the date they page. Two panes keep the on-row title: there the row has the
-            // width, and moving the date down would spend a line to fix a problem that pane count
-            // does not have.
-            GridlinkHeader(
-                // "Calendar" cannot truncate; the date it displaces is on the line below.
-                title = if (onePane) "Calendar" else view.title(titleAnchor),
-                unread = 0,
-                // The agenda used to say "upcoming" here, which was true when its window ran
-                // forward from today. It now includes the week just past, so "upcoming" would
-                // miscount out loud; "events" is what every view can honestly say.
-                subline = when {
-                    book.calendarLoading -> "Loading"
-                    // A sync that failed outranks a count, because the count is then a count of
-                    // whatever was cached before the server stopped answering, and "0 events" over
-                    // a calendar nobody could reach is the lie this line exists not to tell.
-                    book.calendarError != null -> book.calendarError
-                    !countable -> "Not synced this far out"
-                    inRange.size == 1 -> "1 event"
-                    else -> "${inRange.size} events"
-                },
-            )
+            // ONE large heading. On one pane that is the date line under this row (see
+            // [belowHeader]), so the chrome row carries no title of its own: it used to say
+            // "Calendar" in the same 32sp face directly above "November 2026", two giant headings
+            // stacked, and the nav pill already says which screen this is. (Polish pass,
+            // 2026-11-07.) The date cannot move up into this row instead: beside the hamburger and
+            // the steppers it truncated ("August 2..."), which is why it got its own line.
+            //
+            // Two panes keep the dated title here, because there the row has the width.
+            if (!onePane) {
+                GridlinkHeader(title = view.title(titleAnchor), unread = 0, subline = countLine)
+            }
         },
-        // 🔴 No steppers on the agenda. The other three views name their position in the title —
-        // "July 2026", "30 Jul – 1 Aug" — so a step visibly moves you. The agenda's title is just
-        // "Agenda", so paging it changed which events were listed while nothing on screen said
-        // where you now were: a control with an invisible effect. An agenda already means "from
-        // here on", and it scrolls, so the buttons were also a worse month view. Removed rather
-        // than labelled.
-        trailing = if (view == GridlinkCalendarView.AGENDA || onePane) null else steppers,
+        // 🔴 No steppers on the agenda. The other three views name their position in the title
+        // ("July 2026", "30 Jul - 1 Aug") so a step visibly moves you. The agenda is one fixed window
+        // around today, so paging it changed which events were listed while nothing on screen said
+        // where you now were: a control with an invisible effect. Removed rather than labelled.
+        //
+        // On one pane the steppers sit at the right of this row, directly above the date they page,
+        // which leaves the date line room for the count beside it.
+        trailing = if (view == GridlinkCalendarView.AGENDA) null else steppers,
         belowHeader = {
             Column {
                 // 🔴 EVERY view draws this line, including the agenda, and the height is held by the
@@ -368,25 +370,27 @@ fun GridlinkCalendarScreen(
                 // One pane grows this band freely — [LocalGridlinkPaneHeaderHeight] only matters
                 // when a side pane has to clear it, and one pane is defined by not having one.
                 if (onePane) {
-                    Row(
-                        // ⚠️ The floor, not the steppers' own height. With the buttons gone on the
-                        // agenda the Row would shrink to its text, which is the same jump one level
-                        // down: the switcher would still land somewhere new.
-                        modifier = Modifier.heightIn(min = CALENDAR_STEPPER_SIZE),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
+                    // The one heading, with the count beside it on the same baseline, the way the
+                    // inbox puts "13 unread" with its title. The date is measured first so it is
+                    // the count that gives way on a narrow screen, never the date.
+                    Row(modifier = Modifier.fillMaxWidth()) {
                         Text(
                             text = view.title(titleAnchor),
                             style = GridlinkType.screenTitle,
                             color = GridlinkTheme.colors.textPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.alignByBaseline(),
                         )
-                        // Still no step buttons on the agenda, for the reason recorded at [trailing]:
-                        // paging a list that never says where it is is a control with an invisible
-                        // effect. Only its SPACE is kept.
-                        if (view != GridlinkCalendarView.AGENDA) steppers()
+                        Spacer(Modifier.width(GridlinkSpacing.s12))
+                        Text(
+                            text = countLine,
+                            style = GridlinkType.metadata,
+                            color = GridlinkTheme.colors.textSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f).alignByBaseline(),
+                        )
                     }
                     Spacer(Modifier.height(GridlinkSpacing.s12))
                 }
@@ -649,25 +653,14 @@ internal fun GridlinkStepButton(forward: Boolean, onClick: () -> Unit) {
 /**
  * Month / 3 day / Week / Agenda, less whatever [views] leaves out.
  *
- * ## 🔴 Tabs, deliberately not a pill
- * This was a filled pill inside a bordered capsule, which is the same nesting Tate called "boxes
- * inside boxes" about the day cells, one level up. The obvious fix, dropping the outer border, was
- * not available: the nav pill and the search pill are both bordered capsules, so a third *pill* that
- * disagreed with them would read as a mistake rather than as a decision.
+ * The drawer's Auto / Day / Night / OLED track ([GridlinkPillTrack]), not a control of its own. It
+ * was an underlined tab bar, chosen so it would not compete with the nav and search pills, but it
+ * was the only tab bar in the app and read as a stray from another one. (Polish pass, 2026-11-07.)
+ * Same track, same filled segment, same type, so choosing a view and choosing a palette feel like
+ * one gesture.
  *
- * So it stops being a pill. A tab row with an underline is a different, universally understood
- * component (it is what every calendar app uses for exactly this job), and being visibly a different
- * component is what keeps it from competing with the two pills instead of losing to them. It also
- * reads as *where you are* rather than as *a button that is switched on*, which is what a view
- * switcher actually means.
- *
- * The rule below the row is full width and continuous: it separates the switcher from the grid, and
- * it is the track the active underline sits on, so the indicator has something to be positioned
- * against rather than floating in the gap.
- *
- * 🔴 The inactive tabs are not dimmed with alpha. Tate reads opacity-dimming as broken rather
- * than as off; the distinction is carried by the underline, by a weight step, and by a colour token
- * step, never by transparency.
+ * 🔴 The inactive segments are not dimmed with alpha. Tate reads opacity-dimming as broken rather
+ * than as off; the difference is the accent fill and a colour token step, never transparency.
  */
 @Composable
 private fun GridlinkViewSwitcher(
@@ -683,69 +676,25 @@ private fun GridlinkViewSwitcher(
      */
     views: List<GridlinkCalendarView> = GridlinkCalendarView.entries,
     /**
-     * A control at the row's end (the Calendars button). Inside the row's Box so the rule still runs
-     * under it: the switcher stays one band across the screen rather than stopping short of a button.
+     * A control at the row's end (the Calendars button), beside the track rather than inside it:
+     * it opens a sheet, it is not one of the views.
      */
     trailing: (@Composable () -> Unit)? = null,
 ) {
-    val colors = GridlinkTheme.colors
-    Box(modifier = modifier.fillMaxWidth()) {
-        // The rule first, so the active tab's indicator lands on top of it rather than beside it.
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .height(GridlinkDimens.hairline)
-                .background(colors.surfaceBorder),
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth().height(TAB_ROW_HEIGHT),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+    Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        GridlinkPillTrack(modifier = Modifier.weight(1f)) {
             views.forEach { entry ->
-                val active = entry == selected
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        // Rounded only at the top: the tap target reaches the rule, and a fully
-                        // rounded ripple would put a curve back where the underline is straight.
-                        .clip(RoundedCornerShape(topStart = TAB_RIPPLE_RADIUS, topEnd = TAB_RIPPLE_RADIUS))
-                        .clickable { onSelect(entry) },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = entry.label,
-                        // A step up from toolbarLabel. At 11sp these were legible but read as
-                        // chrome; a view switcher is one of the two controls on this screen anyone
-                        // actually uses, so it gets body-sized text.
-                        style = GridlinkType.metadata.copy(
-                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-                        ),
-                        color = if (active) colors.accent else colors.textSecondary,
-                        maxLines = 1,
-                    )
-                    if (active) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                // Not the full tab width. An indicator that runs edge to edge butts
-                                // against its neighbour's and the four tabs read as one bar with a
-                                // coloured quarter; inset, it reads as pointing at a word.
-                                .fillMaxWidth(TAB_INDICATOR_WIDTH)
-                                .height(TAB_INDICATOR_HEIGHT)
-                                .background(
-                                    colors.accent,
-                                    RoundedCornerShape(
-                                        topStart = TAB_INDICATOR_HEIGHT,
-                                        topEnd = TAB_INDICATOR_HEIGHT,
-                                    ),
-                                ),
-                        )
-                    }
-                }
+                GridlinkPillChoice(
+                    label = entry.label,
+                    active = entry == selected,
+                    onClick = { onSelect(entry) },
+                    modifier = Modifier.weight(1f),
+                )
             }
-            trailing?.invoke()
+        }
+        if (trailing != null) {
+            Spacer(Modifier.width(GridlinkSpacing.s8))
+            trailing()
         }
     }
 }
@@ -770,13 +719,6 @@ private fun GridlinkCalendarsButton(onClick: () -> Unit) {
         )
     }
 }
-
-private val TAB_ROW_HEIGHT = 42.dp
-private val TAB_RIPPLE_RADIUS = 8.dp
-private val TAB_INDICATOR_HEIGHT = 2.5.dp
-
-/** Fraction of the tab the underline spans. See [GridlinkViewSwitcher]. */
-private const val TAB_INDICATOR_WIDTH = 0.62f
 
 /**
  * The width at which the month view stops stacking and splits into grid + day list.
@@ -1629,7 +1571,6 @@ private fun GridlinkDayColumn(
                 accent = gridlinkEventColor(mode, event),
                 onClick = { onOpenEvent(event) },
                 current = event.id == currentId,
-                showTime = heightDp >= 40.dp,
                 modifier = Modifier
                     .fillMaxWidth(1f / block.columns)
                     .offset(
@@ -1703,9 +1644,14 @@ private fun layOutOverlaps(events: List<GridlinkEvent>): List<GridlinkTimeBlock>
 /**
  * A coloured block in a time grid.
  *
- * Tinted fill plus a solid leading bar, matching the message row's identity bar exactly: same 3dp,
- * same colour source, same edge. A solid-filled block would be the loudest thing on the screen and
- * a seven-column week of them would be a bar chart.
+ * Filled with the event's colour, text in whichever of black or white reads on it. It used to be an
+ * 18% wash with a 3dp bar, on the reasoning that a solid week would read as a bar chart; in practice
+ * the wash was nearly the grid's own colour and a week with three meetings looked empty. (Polish
+ * pass, 2026-11-07.) Selection is a ring in the page's text colour, since a block that is already
+ * solid has no denser fill left to go to.
+ *
+ * The title takes as many lines as the block's real height holds (two in a 30-minute block), and
+ * the start time is added only when there is a line to spare beyond those.
  */
 @Composable
 private fun GridlinkEventBlock(
@@ -1718,62 +1664,68 @@ private fun GridlinkEventBlock(
 ) {
     val colors = GridlinkTheme.colors
     val shape = RoundedCornerShape(GridlinkSpacing.s4)
-    // 🔴 A block cannot be marked with `colors.selection` the way an agenda row is. That fill is a
-    // neutral wash laid over a transparent row; laid over a block that is already an 18% wash of its
-    // own accent it becomes a third muddy colour that differs per event, and on a week grid of them
-    // nothing reads as marked. So the block states it in its own colour instead: the same accent,
-    // denser, with a solid outline. Hue never changes, which is what keeps the identity readable.
-    val fill by animateColorAsState(
-        targetValue = accent.copy(alpha = if (current) 0.38f else 0.18f),
+    // The palette's own on-accent ink when the block is the accent, so it matches every other accent
+    // control (white on blue, not the black a bare contrast check picks); computed for any other hue.
+    val ink = if (accent == colors.accent) colors.onAccent else onAccentColor(accent)
+    val ring by animateColorAsState(
+        targetValue = if (current) colors.textPrimary else Color.Transparent,
         animationSpec = GridlinkMotion.standard(),
         label = "blockCurrent",
     )
-    Row(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(fill, shape)
-            .then(if (current) Modifier.border(1.5.dp, accent, shape) else Modifier)
-            .clickable(onClick = onClick),
+            .background(accent, shape)
+            .border(BLOCK_RING, ring, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = BLOCK_PAD_H, vertical = BLOCK_PAD_V),
     ) {
-        Box(
-            modifier = Modifier
-                .width(GridlinkDimens.senderBarWidth)
-                .fillMaxHeight()
-                .background(accent),
-        )
-        BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 2.dp),
-        ) {
-            // 🔴 Measured, not passed in by the caller. A seven-day column on a folded Fold is about
-            // 51dp wide, and 12sp bold "Callout" does not fit in it, so Compose broke the word and
-            // rendered "Callou / t cov…" — which reads as a rendering fault rather than as
-            // truncation. One line with an ellipsis is an honest "there is more here"; a hyphenless
-            // mid-word wrap is not. Below the threshold the start time goes too: the block's
-            // vertical position already states it and the hour gutter is two columns away.
-            val narrow = maxWidth < TIGHT_BLOCK_WIDTH
-            Column {
+        val lineDp = with(LocalDensity.current) { BLOCK_LINE.toDp() }
+        // A 30-minute block is about 25dp, so the line is 11.5sp and the padding half a dp. The
+        // slack only stops 22.99 flooring to one line.
+        val lines = ((maxHeight + LINE_SLACK) / lineDp).toInt().coerceAtLeast(1)
+        // A week column on a folded Fold is about 51dp. Titles still wrap there, but hyphenated:
+        // a bare mid-word break reads as a rendering fault, a hyphen reads as wrapping.
+        val narrow = maxWidth < TIGHT_BLOCK_WIDTH
+        val start = event.start
+        val withTime = showTime && !narrow && start != null && lines >= BLOCK_LINES_FOR_TIME
+        // Unbounded height, so [lines] decides how many lines show and not Text's own height check,
+        // which cut the second line of a 30-minute block. The block's clip still bounds the drawing.
+        Column(Modifier.wrapContentHeight(align = Alignment.Top, unbounded = true)) {
+            Text(
+                text = event.title,
+                style = BLOCK_TEXT.copy(hyphens = if (narrow) Hyphens.Auto else Hyphens.None),
+                color = ink,
+                maxLines = (if (withTime) lines - 1 else lines).coerceAtMost(BLOCK_MAX_TITLE_LINES),
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (withTime && start != null) {
                 Text(
-                    text = event.title,
-                    style = GridlinkType.badge,
-                    color = colors.textPrimary,
-                    maxLines = if (showTime && !narrow) 2 else 1,
-                    overflow = TextOverflow.Ellipsis,
+                    text = start.compact(),
+                    style = BLOCK_TEXT.copy(fontWeight = FontWeight.Medium),
+                    color = ink.copy(alpha = BLOCK_TIME_ALPHA),
+                    maxLines = 1,
                 )
-                if (showTime && !narrow && event.start != null) {
-                    Text(
-                        text = event.start.compact(),
-                        style = GridlinkType.badge,
-                        color = colors.textSecondary,
-                        maxLines = 1,
-                    )
-                }
             }
         }
     }
 }
+
+/** Block text: the badge face at 11sp on an 11.5sp line, so two lines fit a 30-minute block. */
+private val BLOCK_LINE = 11.5.sp
+private val BLOCK_TEXT = GridlinkType.badge.copy(
+    fontSize = 11.sp,
+    lineHeight = BLOCK_LINE,
+    lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),
+)
+private val BLOCK_PAD_H = 4.dp
+private val BLOCK_PAD_V = 0.5.dp
+private val BLOCK_RING = 1.5.dp
+private val LINE_SLACK = 0.5.dp
+private const val BLOCK_MAX_TITLE_LINES = 3
+private const val BLOCK_LINES_FOR_TIME = 3
+private const val BLOCK_TIME_ALPHA = 0.8f
 
 /**
  * The air between one day and the next on the agenda: under the day that ended, over the rule, and
@@ -1788,14 +1740,15 @@ private fun GridlinkEventBlock(
 private val AGENDA_DAY_GAP = GridlinkSpacing.s28
 
 /**
- * The agenda: a fixed four-week window as one continuous list, every day present.
+ * The agenda: a fixed four-week window as one continuous list, every day accounted for.
  *
  * Tate: "agenda needs to be a continuous list including the last week, plus up to 3 weeks in
- * the future. empty days need to be represented as well." So this is a diary page rather than a
- * filtered list: each day in [from]..[until] gets its header whether or not anything is on it, and
- * an empty day says so in one quiet line. This reverses the earlier design, which skipped empty
- * days for density; the point of showing them is that on an agenda the gap IS information — a
- * free Thursday is something you go looking for — and density is the month view's job.
+ * the future. empty days need to be represented as well." The gap IS information (a free Thursday
+ * is something you go looking for), so empty days are still on the list, but a run of them is now
+ * ONE thin line, "Nothing until Monday", instead of a heading and a "Nothing scheduled" each.
+ * (Polish pass, 2026-11-07.) Four of five rows were empty days and you scrolled past blank
+ * headings to reach one meeting; the folded line keeps the gap and its length, and costs one row.
+ * Today keeps its own heading even when it is empty, because the list opens on it.
  *
  * 🔴 The list OPENS at today, a third of the way down, not at the top. The top is last week;
  * opening there would greet every launch with seven days already lived through, and the view would
@@ -1840,50 +1793,52 @@ private fun GridlinkAgendaView(
             }
             .toList()
     }
-    // Where the anchor day's header lands in the flattened list: one header per day plus its rows, an
-    // empty day spending one row on its "Nothing scheduled" line. Only the INITIAL position —
-    // the items are keyed, so once the list is up, later data arriving re-anchors on the same
-    // day header instead of yanking the scroll.
+    val entries = remember(byDay, today) { agendaEntries(byDay, today) }
+    // Where the anchor day lands in the flattened list: every entry but the first draws a rule, a
+    // day is its heading plus its rows (an empty today spends one row on "Nothing scheduled"), and
+    // a folded run is one line. Only the INITIAL position; the items are keyed, so later data
+    // re-anchors on the same entry instead of yanking the scroll.
     //
-    // 🔴 The separator counts as an item, and every day but the first draws one. Miss that and the
-    // list opens one row further up per day behind today, which after a week is the view landing on
-    // last Wednesday and looking like the scroll restore is broken.
-    val anchorIndex = remember(byDay, anchor) {
+    // 🔴 The rule counts as an item. Miss that and the list opens one row further up per entry
+    // behind today, which looks like the scroll restore is broken.
+    val anchorIndex = remember(entries, anchor) {
         var index = 0
-        for ((dayIndex, day) in byDay.withIndex()) {
-            val (date, dayEvents) = day
-            if (date >= anchor) break
-            index += (if (dayIndex > 0) 1 else 0) + 1 + maxOf(dayEvents.size, 1)
+        var found = false
+        for ((entryIndex, entry) in entries.withIndex()) {
+            if (anchor in entry.first..entry.last) {
+                found = true
+                break
+            }
+            index += (if (entryIndex > 0) 1 else 0) + entry.rows
         }
-        // The rule ABOVE the anchor's heading, so its own separator is scrolled past rather than
-        // left as the first thing on screen with the heading tucked under it.
-        if (byDay.firstOrNull()?.first != anchor && byDay.any { it.first == anchor }) {
-            index + 1
-        } else {
-            index
-        }
+        // Past the rule ABOVE the anchor's entry, so its own separator is not left as the first
+        // thing on screen with the heading tucked under it.
+        if (found && entries.firstOrNull()?.let { anchor in it.first..it.last } == false) index + 1 else index
     }
-    // Which day each row belongs to, so the top of the list can be named without asking the items.
+    // Which days each row stands for, so the top of the list can be named without asking the items.
     //
-    // 🔴 The same arithmetic [anchorIndex] does, in the other direction, and the two have to stay
-    // in step: a rule, then a heading, then the day's rows or its one "Nothing scheduled" line. If
-    // one of them ever learns about a row the other does not, a tap would scroll somewhere the
-    // report then contradicts, and the grid and the list would argue with each other every gesture.
-    //
-    // ⚠️ The rule belongs to the day BELOW it, which is the day it introduces. It is drawn as part
-    // of arriving at that day, so a list stopped on the rule is a list showing that day.
-    val dayByIndex = remember(byDay) {
+    // 🔴 The same arithmetic [anchorIndex] does, in the other direction, and the two have to stay in
+    // step. The rule belongs to the entry BELOW it, the one it introduces.
+    val daysByIndex = remember(entries) {
         buildList {
-            byDay.forEachIndexed { dayIndex, (date, dayEvents) ->
-                if (dayIndex > 0) add(date)
-                add(date)
-                repeat(maxOf(dayEvents.size, 1)) { add(date) }
+            entries.forEachIndexed { entryIndex, entry ->
+                val days = entry.first..entry.last
+                if (entryIndex > 0) add(days)
+                repeat(entry.rows) { add(days) }
             }
         }
     }
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = anchorIndex)
-    val topDay by remember(dayByIndex, listState) {
-        derivedStateOf { dayByIndex.getOrNull(listState.firstVisibleItemIndex) }
+    val currentAnchor = rememberUpdatedState(anchor)
+    // ⚠️ A folded line stands for several days. When the day asked for is one of them, that day is
+    // the one being shown; otherwise it is the run's first. Without this, tapping a free Wednesday
+    // in the month beside the pane would scroll to the fold and report Tuesday straight back.
+    val topDay by remember(daysByIndex, listState) {
+        derivedStateOf {
+            daysByIndex.getOrNull(listState.firstVisibleItemIndex)?.let { days ->
+                if (currentAnchor.value in days) currentAnchor.value else days.start
+            }
+        }
     }
 
     /**
@@ -1929,35 +1884,37 @@ private fun GridlinkAgendaView(
         // every day above it is breathing.
         contentPadding = PaddingValues(bottom = GridlinkDimens.listFade + AGENDA_DAY_GAP),
     ) {
-        byDay.forEachIndexed { dayIndex, (date, dayEvents) ->
-            // 🔴 A rule between days, full width. Tate, 2026-08-12: "draw a horizontal line
-            // separator between days on agenda/schedule view". The day headings alone were carrying
-            // the whole structure of the list, and on a run of empty days the page is nothing but
-            // headings and one grey line each, which reads as one long column rather than as a
-            // week: the eye has no boundary to count. The line is what turns it back into days.
-            //
-            // ⚠️ Not before the first one. A hairline against the top edge of the panel reads as a
-            // seam in the glass rather than as a divider between two things, and above the first day
-            // there is nothing to divide it FROM.
-            if (dayIndex > 0) {
+        entries.forEachIndexed { entryIndex, entry ->
+            val date = entry.first
+            val dayEvents = entry.events
+            // 🔴 A rule between entries, full width. Tate, 2026-08-12: "draw a horizontal line
+            // separator between days on agenda/schedule view". Not before the first one: a hairline
+            // against the top edge of the panel reads as a seam in the glass. The air around the
+            // rule is the point ("agenda is too cramped and busy"), so it carries AGENDA_DAY_GAP.
+            if (entryIndex > 0) {
                 item(key = "rule-$date") {
-                    // No start inset, unlike the message list's. There the inset lines the rule up
-                    // under the text so rows read as one stack; here the rule is separating whole
-                    // days, and a day is the full width of the panel.
-                    //
-                    // 🔴 The air around the rule is the point, not the rule. Tate, 2026-08-12:
-                    // "agenda is too cramped and busy… i think its just too tight." With the day
-                    // packed to 4dp above and below, the hairline landed inside the text rather
-                    // than between two blocks, and a week of free days came out as a stack of
-                    // stripes. AGENDA_DAY_GAP under the day that just ended plus the heading's own
-                    // top inset over the one starting means every rule sits in its own band of
-                    // empty space, which is what makes the boundary legible without the line
-                    // having to be darker.
                     GridlinkRowDivider(
                         startInset = 0.dp,
                         modifier = Modifier.padding(top = AGENDA_DAY_GAP),
                     )
                 }
+            }
+            if (entry.folded) {
+                // A run of free days, as one line in the metadata style: present, so the gap still
+                // reads, and cheap, so it costs one row however long it is.
+                item(key = "free-$date") {
+                    Text(
+                        text = agendaFreeLine(entry, until, today),
+                        style = GridlinkType.metadata,
+                        color = colors.textSecondary,
+                        modifier = Modifier.padding(
+                            start = GridlinkSpacing.rowHorizontal,
+                            end = GridlinkSpacing.rowHorizontal,
+                            top = GridlinkSpacing.s16,
+                        ),
+                    )
+                }
+                return@forEachIndexed
             }
             item(key = "day-$date") {
                 Row(
@@ -1968,8 +1925,7 @@ private fun GridlinkAgendaView(
                             end = GridlinkSpacing.rowHorizontal,
                             // Deliberately unequal: more over the heading than under it, so the
                             // date binds to the day it heads instead of floating midway between
-                            // two of them. The gap above is doing the separating; the 12 below is
-                            // just enough to keep the first line off the words.
+                            // two of them.
                             top = AGENDA_DAY_GAP,
                             bottom = GridlinkSpacing.s12,
                         ),
@@ -1987,14 +1943,8 @@ private fun GridlinkAgendaView(
                 }
             }
             if (dayEvents.isEmpty()) {
-                // The same words the month day list uses for the same fact, in metadata style so
-                // a run of free days reads as texture rather than as a column of claims. One line,
-                // not a full row height: an empty day should be visible and cheap to scroll past.
-                //
-                // ⚠️ Its own padding is gone, not reduced. The line is the day's only content, so
-                // the space it needs is the day's trailing gap, which now lives on the rule below
-                // it — padding here as well was double-counting that gap and pushing a run of free
-                // days back to the packed rhythm this change exists to open up.
+                // Only today reaches here empty: every other free day is folded. Same words the
+                // month day list uses for the same fact.
                 item(key = "empty-$date") {
                     Text(
                         text = "Nothing scheduled",
@@ -2018,6 +1968,70 @@ private fun GridlinkAgendaView(
         }
     }
 }
+
+/**
+ * One thing on the agenda: a day with its events (or today, empty), or a folded run of free days.
+ *
+ * [first]..[last] is the span it stands for; a day is a span of one.
+ */
+private data class AgendaEntry(
+    val first: LocalDate,
+    val last: LocalDate,
+    val events: List<GridlinkEvent>,
+    val folded: Boolean,
+) {
+    /** Rows it occupies after its rule: a fold is one line, a day its heading plus at least one row. */
+    val rows: Int get() = if (folded) 1 else 1 + maxOf(events.size, 1)
+}
+
+/** [byDay] with every run of free days other than [today] folded into one entry. */
+private fun agendaEntries(
+    byDay: List<Pair<LocalDate, List<GridlinkEvent>>>,
+    today: LocalDate,
+): List<AgendaEntry> = buildList {
+    var runStart: LocalDate? = null
+    var runEnd: LocalDate? = null
+    fun closeRun() {
+        val start = runStart ?: return
+        add(AgendaEntry(start, runEnd ?: start, emptyList(), folded = true))
+        runStart = null
+        runEnd = null
+    }
+    byDay.forEach { (date, dayEvents) ->
+        if (dayEvents.isEmpty() && date != today) {
+            if (runStart == null) runStart = date
+            runEnd = date
+        } else {
+            closeRun()
+            add(AgendaEntry(date, date, dayEvents, folded = false))
+        }
+    }
+    closeRun()
+}
+
+/**
+ * The words on a folded run: "Nothing on Tuesday" for one day, "Nothing until Monday" for more,
+ * naming the day the run ends at. A day further than a week from the run's start gets its date too,
+ * since a bare weekday that far out is ambiguous.
+ */
+private fun agendaFreeLine(entry: AgendaEntry, until: LocalDate, today: LocalDate): String {
+    fun name(day: LocalDate) = when {
+        day == today -> "today"
+        day == today.plusDays(1) -> "tomorrow"
+        day.isAfter(entry.first.plusDays(FREE_LINE_WEEKDAY_ONLY)) -> day.format(AGENDA_DAY)
+        else -> day.format(FREE_LINE_DAY)
+    }
+    return when {
+        entry.first == entry.last && entry.first == today.plusDays(1) -> "Nothing tomorrow"
+        entry.first == entry.last -> "Nothing on ${name(entry.first)}"
+        entry.last == until -> "Nothing more through ${entry.last.format(AGENDA_DAY)}"
+        else -> "Nothing until ${name(entry.last.plusDays(1))}"
+    }
+}
+
+/** How far ahead a folded line may name a bare weekday before it adds the date. */
+private const val FREE_LINE_WEEKDAY_ONLY = 6L
+private val FREE_LINE_DAY = DateTimeFormatter.ofPattern("EEEE", Locale.US)
 
 /**
  * One agenda line: when, then what.

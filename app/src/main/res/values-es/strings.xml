@@ -29,7 +29,7 @@
     <string name="compose_prefill_failed">No se pudo cargar el mensaje original.</string>
     <string name="compose_draft_original_kept">Guardado como un borrador nuevo. Se conservó el original, porque esta copia no podía llevarse todo lo que contenía.</string>
     <string name="compose_forward_attachment_dropped">No se pudieron incluir algunos archivos adjuntos del mensaje reenviado.</string>
-    <string name="compose_scheduled_toast">Programado — %1$s</string>
+    <string name="compose_scheduled_toast">Programado: %1$s</string>
     <string name="compose_discard_title">¿Descartar mensaje?</string>
     <string name="compose_discard_message">No has guardado los cambios.</string>
     <string name="compose_discard_message_encrypted">Este mensaje está cifrado, así que no puede guardarse como borrador: un borrador se almacena en el servidor de correo tal como lo escribiste, legible por cualquiera que tenga acceso. Si sales ahora, el mensaje se descarta.</string>
@@ -244,8 +244,9 @@
     <string name="settings_backup_exported">Ajustes exportados</string>
     <string name="settings_backup_imported">Ajustes importados</string>
     <string name="settings_backup_imported_accounts">Importado. Las cuentas nuevas necesitan una contraseña: abre cada una en Cuentas para iniciar sesión.</string>
-    <string name="settings_backup_failed">No se pudo completar — comprueba el archivo e inténtalo de nuevo</string>
+    <string name="settings_backup_failed">No se pudo completar. Comprueba el archivo e inténtalo de nuevo</string>
     <string name="settings_appearance_screen_title">Apariencia</string>
+    <string name="settings_theme_section">Tema</string>
     <string name="settings_widgets_section">Widgets de la pantalla de inicio</string>
     <string name="settings_widget_opacity_title">Fondo del widget: %1$d%%</string>
     <string name="settings_language_section">Idioma</string>
@@ -315,7 +316,7 @@
     <string name="settings_quiet_hours_start">Inicio</string>
     <string name="settings_quiet_hours_end">Fin</string>
     <string name="notif_group_count">%1$d mensajes nuevos · %2$s</string>
-    <string name="notif_group_line">%1$s — %2$s</string>
+    <string name="notif_group_line">%1$s: %2$s</string>
     <string name="settings_vacation_screen_title">Respuesta de vacaciones</string>
     <string name="settings_vacation_section">Respuesta automática</string>
     <string name="settings_vacation_account">Cuenta: %1$s</string>
@@ -568,7 +569,7 @@
     <string name="connect_imap_smtp">IMAP / SMTP</string>
     <string name="connect_jmap_server">Servidor JMAP</string>
     <string name="connect_jmap_server_placeholder">mail.example.com</string>
-    <string name="connect_jmap_autodiscover_hint">Solo introduce tu correo y contraseña: Gridlink encontrará tu servidor automáticamente.</string>
+    <string name="connect_jmap_autodiscover_hint">Introduce tu correo y tu contraseña. Gridlink encuentra tu servidor automáticamente.</string>
     <string name="connect_auth_method">Iniciar sesión con</string>
     <string name="connect_auth_api_token">Token de API</string>
     <string name="connect_api_token_hint">Pega un token de API generado por tu proveedor (p. ej. Fastmail) en lugar de una contraseña. Puedes dejar el servidor vacío o pegar su URL de sesión.</string>
@@ -709,7 +710,7 @@
     <string name="notif_auth_rejected_text">El servidor rechazó %1$s. Esta cuenta dejará de recibir correo hasta que vuelvas a introducir la contraseña.</string>
     <string name="notif_channel_sync">Sincronización de correo</string>
     <string name="notif_channel_sync_desc">Mantiene una conexión activa con tu servidor de correo para recibir mensajes al instante.</string>
-    <string name="notif_watching">En vuelo, atenta al correo nuevo</string>
+    <string name="notif_watching">Buscando correo nuevo</string>
     <string name="notif_new_message">Nuevo mensaje</string>
     <string name="notif_mark_read">Marcar como leído</string>
     <string name="notif_delete">Eliminar</string>
@@ -870,7 +871,7 @@
     <string name="widget_has_attachment">Tiene un adjunto</string>
     <string name="widget_no_subject">(Sin asunto)</string>
     <string name="widget_unknown_sender">(Remitente desconocido)</string>
-    <string name="widget_count_unknown">—</string>
+    <string name="widget_count_unknown">–</string>
     <string name="widget_unread_suffix">sin leer</string>
     <string name="widget_label_signed_out">Iniciar sesión</string>
     <string name="widget_label_not_synced">Aún sin sincronizar</string>
@@ -930,4 +931,7 @@
     <string name="settings_tags_adopt_all">Adoptar las %1$d</string>
     <string name="read_receipt_subject">Leído: %1$s</string>
     <string name="read_receipt_body">Tu mensaje se mostró en el dispositivo del destinatario. Esto no garantiza que se haya leído ni comprendido.</string>
+    <string name="gridlink_full_screen">Pantalla completa</string>
+    <string name="gridlink_exit_full_screen">Salir de pantalla completa</string>
+    <string name="gridlink_search_empty_hint">Prueba con menos palabras o con otras. La búsqueda ya mira en todas las carpetas.</string>
 </resources>

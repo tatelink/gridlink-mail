@@ -322,6 +322,15 @@ fun GridlinkScaffold(
                         )
                         if (sidePane == null) {
                             Spacer(Modifier.width(GridlinkDimens.composeButton))
+                        } else {
+                            // 🔴 Two panes: the "+" sits HERE, at the end of the list column's own
+                            // line, exactly where it sits on a phone. It used to hang off the window's
+                            // far right, which put two identical accent circles side by side under
+                            // the message, Reply and New, and cost the reader's bar its Forward slot
+                            // and the sender its room. Writing something new belongs with the list;
+                            // the reading side's one loud button is Reply. It does not move while
+                            // the window stays two panes, selection or not.
+                            GridlinkComposeButton(onClick = onCompose, destination = destination)
                         }
                     }
                 }
@@ -467,16 +476,18 @@ fun GridlinkScaffold(
                  * The pane scrolls its own content and ends above the window's bottom padding, so
                  * what sits under the button is the tail of the fade, not a line of text.
                  */
-                GridlinkComposeButton(
-                    onClick = onCompose,
-                    destination = destination,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        // The same margins the control row uses, so the button keeps the nav pill's
-                        // baseline. The button and the pill are both [GRIDLINK_PILL_HEIGHT], so
-                        // matching the bottom matches the whole line.
-                        .padding(end = GridlinkSpacing.chrome, bottom = GridlinkSpacing.chrome),
-                )
+                if (sidePane == null) {
+                    GridlinkComposeButton(
+                        onClick = onCompose,
+                        destination = destination,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            // The same margins the control row uses, so the button keeps the nav
+                            // pill's baseline. The button and the pill are both
+                            // [GRIDLINK_PILL_HEIGHT], so matching the bottom matches the whole line.
+                            .padding(end = GridlinkSpacing.chrome, bottom = GridlinkSpacing.chrome),
+                    )
+                }
             }
         }
 
@@ -510,6 +521,7 @@ fun GridlinkScaffold(
                     // host: the tree is resolved below this point in the tree. See
                     // [GridlinkChromeState.folders].
                     folders = chrome.folders,
+                    here = chrome.here,
                     // Both close FIRST, for the same reason every other row does: a drawer left up
                     // over the mailbox it just opened is the app talking over itself.
                     onSelectFolder = {
@@ -2028,6 +2040,18 @@ fun GridlinkRoot(
                 progress.snapTo(0f)
                 chromeState.consumeInboxRoute()
             }
+
+            // The other direction: tell the drawer which row is where the user already is, so it
+            // can mark it. The overlays win because they cover whatever is under them.
+            val here = when {
+                scheduledOpen -> GridlinkHere(item = GridlinkMenuItem.SCHEDULED)
+                snoozedOpen -> GridlinkHere(item = GridlinkMenuItem.SNOOZED)
+                destination == GridlinkDestination.FOLDERS && openFolderId != null ->
+                    GridlinkHere(folderId = openFolderId)
+                destination == GridlinkDestination.INBOX -> GridlinkHere(inbox = true)
+                else -> GridlinkHere()
+            }
+            SideEffect { chromeState.here = here }
 
             // The other half of [onEditDraft]'s round trip: the body arrived, open the composer on
             // it. Acknowledged immediately so the answer cannot replay on a later recomposition.

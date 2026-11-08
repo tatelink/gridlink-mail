@@ -13,7 +13,7 @@ import org.junit.Test
  * by the bar, once by the sheet behind it). 🔴 The bug this guards is the two disagreeing: an action
  * drawn on the bar and offered again in the sheet, or dropped by both and unreachable.
  *
- * `SLOTS` (3, folded) and `PANE_SLOTS` (2, the two-pane reading pane) are private, so the numbers are
+ * `SLOTS` (3) is private, and the two-slot cases are kept from when the pane had two, so the numbers are
  * spelled out here. If either constant changes, these expectations are what says whether the change
  * was meant.
  */

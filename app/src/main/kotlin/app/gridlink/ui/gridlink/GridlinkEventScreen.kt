@@ -200,6 +200,7 @@ fun GridlinkEventScreen(
 
     GridlinkDetailFrame(
         title = event.title,
+        titleStyle = GridlinkType.threadTitle,
         onBack = onBack,
         modifier = modifier,
         embedded = embedded,

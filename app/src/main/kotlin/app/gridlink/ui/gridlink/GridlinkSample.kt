@@ -628,6 +628,12 @@ data class GridlinkMessage(
     val subject: String,
     /** Pre-formatted for the mock. The real list formats from a timestamp against "now". */
     val timestamp: String,
+    /**
+     * When the message arrived, as the server's ISO instant, or null for the mock. The reader's
+     * details strip prints it in full (date and time in the phone's own format), which [timestamp]
+     * cannot do: that one is already shortened to "Yesterday" or "18 Aug" for the list.
+     */
+    val receivedAt: String? = null,
     val unread: Boolean = false,
     /**
      * 🔴 The attachments themselves, not a boolean.

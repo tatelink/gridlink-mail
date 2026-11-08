@@ -6,7 +6,7 @@ import app.gridlink.core.data.calendar.CalendarOccurrence
 import app.gridlink.core.data.db.DavCollectionEntity
 import app.gridlink.ui.theme.GridlinkMode
 import app.gridlink.ui.theme.GridlinkSenderBars
-import app.gridlink.ui.theme.gridlinkSenderBarColor
+import app.gridlink.ui.theme.gridlinkColorsFor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -92,11 +92,11 @@ class GridlinkCalendarsTest {
             gridlinkEventColor(GridlinkMode.DAY, multi),
         )
 
-        // One calendar: the organiser colour the screen always used, untouched.
+        // One calendar: the theme's accent (the organiser colour came out grey on a filled block).
         val single = GridlinkDavMapping.event(occurrence("jmap:calendar/a"), "gridlink.me", two.take(1))
         assertNull(single.calendarTint)
         assertEquals(
-            gridlinkSenderBarColor(GridlinkMode.DAY, single.domain),
+            gridlinkColorsFor(GridlinkMode.DAY).accent,
             gridlinkEventColor(GridlinkMode.DAY, single),
         )
     }

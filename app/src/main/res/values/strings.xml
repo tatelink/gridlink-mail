@@ -31,7 +31,7 @@
     <string name="compose_prefill_failed">Couldn\'t load the original message.</string>
     <string name="compose_draft_original_kept">Saved as a new draft. The original was kept, because this copy couldn\'t carry everything it held.</string>
     <string name="compose_forward_attachment_dropped">Some attachments from the forwarded message couldn\'t be included.</string>
-    <string name="compose_scheduled_toast">Scheduled — %1$s</string>
+    <string name="compose_scheduled_toast">Scheduled: %1$s</string>
     <string name="compose_discard_title">Discard message?</string>
     <string name="compose_discard_message">You haven\'t saved your changes.</string>
     <string name="compose_discard_message_encrypted">This message is encrypted, so it can\'t be kept as a draft: a draft is stored on the mail server exactly as you typed it, readable by anyone with access to it. Leaving now discards the message.</string>
@@ -331,9 +331,10 @@
     <string name="settings_backup_import_k9">Import from K-9 or Thunderbird</string>
     <string name="settings_backup_exported">Settings exported</string>
     <string name="settings_backup_imported">Settings imported</string>
-    <string name="settings_backup_imported_accounts">Imported. New accounts need a password — open each under Accounts to sign in.</string>
-    <string name="settings_backup_failed">Couldn\'t complete — check the file and try again</string>
+    <string name="settings_backup_imported_accounts">Imported. New accounts need a password. Open each under Accounts to sign in.</string>
+    <string name="settings_backup_failed">Couldn\'t complete. Check the file and try again</string>
     <string name="settings_appearance_screen_title">Appearance</string>
+    <string name="settings_theme_section">Theme</string>
     <string name="settings_widgets_section">Home-screen widgets</string>
     <string name="settings_widget_opacity_title">Widget background: %1$d%%</string>
     <string name="settings_language_section">Language</string>
@@ -428,7 +429,7 @@
     <string name="settings_quiet_hours_start">Start</string>
     <string name="settings_quiet_hours_end">End</string>
     <string name="notif_group_count">%1$d new messages · %2$s</string>
-    <string name="notif_group_line">%1$s — %2$s</string>
+    <string name="notif_group_line">%1$s: %2$s</string>
     <string name="settings_vacation_screen_title">Vacation responder</string>
     <string name="settings_vacation_section">Auto-reply</string>
     <string name="settings_vacation_account">Account: %1$s</string>
@@ -600,7 +601,7 @@
     <string name="settings_email_invalid">Enter a valid email address.</string>
     <string name="settings_email_not_server">Your server may reject sending from this address.</string>
     <string name="settings_signature_label">Signature (plain text or HTML)</string>
-    <string name="settings_signature_supporting">Plain text, added to the message body when you write — edit or remove it there like any other text.</string>
+    <string name="settings_signature_supporting">Plain text, added to the message body when you write. Edit or remove it there like any other text.</string>
     <string name="settings_signature_supporting_html">An HTML version is saved; it is sent as is if you don\'t change the signature in the message.</string>
     <string name="settings_signature_preview_title">In a message it will read:</string>
     <string name="settings_signature_duplicate_delimiter">Your signature already starts with a “-- ” line, so it will appear twice.</string>
@@ -653,7 +654,7 @@
     <string name="message_pgp_sig_valid">Valid signature from %1$s</string>
     <string name="message_pgp_sig_unconfirmed">Signature from an unconfirmed key (%1$s)</string>
     <string name="message_pgp_sig_missing_key">Signature can\'t be checked (key not available)</string>
-    <string name="message_pgp_sig_invalid">Invalid signature — content may have been altered</string>
+    <string name="message_pgp_sig_invalid">Invalid signature: content may have been altered</string>
     <string name="message_pgp_sig_revoked">Signed with a revoked key</string>
     <string name="message_pgp_sig_expired">Signed with an expired key</string>
     <string name="message_pgp_sig_insecure">Signed with an insecure key</string>
@@ -718,13 +719,13 @@
     <string name="connect_imap_smtp">IMAP / SMTP</string>
     <string name="connect_jmap_server">JMAP server</string>
     <string name="connect_jmap_server_placeholder">mail.example.com</string>
-    <string name="connect_jmap_autodiscover_hint">Just enter your email and password — Gridlink will find your server automatically.</string>
+    <string name="connect_jmap_autodiscover_hint">Enter your email and password. Gridlink finds your server automatically.</string>
     <string name="connect_auth_method">Sign in with</string>
     <string name="connect_auth_api_token">API token</string>
     <string name="connect_api_token_hint">Paste an API token generated by your provider (e.g. Fastmail) instead of a password. You can leave the server empty or paste its session URL.</string>
     <string name="connect_token_rejected">The server rejected the API token. Check that it is valid and allows mail access.</string>
     <string name="connect_credentials_rejected">The server turned down that account and password. Check both, and whether your server needs an app password instead.</string>
-    <string name="connect_fastmail_token_hint">Fastmail requires an API token — switch to \"API token\" above.</string>
+    <string name="connect_fastmail_token_hint">Fastmail requires an API token. Switch to \"API token\" above.</string>
     <string name="connect_advanced_show">Advanced settings</string>
     <string name="connect_advanced_hide">Hide advanced settings</string>
     <string name="connect_discovering">Finding your server…</string>
@@ -866,7 +867,7 @@
     <string name="notif_auth_rejected_text">%1$s was refused by the server. Mail has stopped arriving for this account until you enter the password again.</string>
     <string name="notif_channel_sync">Mail sync</string>
     <string name="notif_channel_sync_desc">Keeps a live connection to your mail server for instant mail.</string>
-    <string name="notif_watching">In flight, watching for new mail</string>
+    <string name="notif_watching">Checking for new mail</string>
     <string name="notif_new_message">New message</string>
     <string name="notif_mark_read">Mark read</string>
     <string name="notif_delete">Delete</string>
@@ -916,7 +917,7 @@
     <!-- Shown where the unread count goes when nothing has synced yet. Not "0": a widget that
          confidently prints zero on a mailbox it has never read is wrong in the one place the
          user trusts without opening anything. -->
-    <string name="widget_count_unknown">—</string>
+    <string name="widget_count_unknown">–</string>
     <string name="widget_unread_suffix">unread</string>
     <!-- The small widget's label is one short line under a big number, so it gets its own terse
          wording rather than the list widget's full sentences. -->
@@ -965,4 +966,7 @@
     <string name="settings_tags_server_failed">Could not reach the server. This list is only from mail on this device.</string>
     <string name="settings_tags_adopt">Adopt</string>
     <string name="settings_tags_adopt_all">Adopt all %1$d</string>
+    <string name="gridlink_full_screen">Full screen</string>
+    <string name="gridlink_exit_full_screen">Exit full screen</string>
+    <string name="gridlink_search_empty_hint">Try fewer or different words. Search already looks in every folder.</string>
 </resources>

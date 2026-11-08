@@ -2,6 +2,7 @@ package app.gridlink.ui.gridlink
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -51,6 +53,7 @@ import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
 import app.gridlink.ui.theme.gridlinkSenderBarColor
+import kotlin.math.min
 
 /**
  * One contact, opened from the Contacts tab.
@@ -115,6 +118,7 @@ fun GridlinkContactScreen(
         // lone arrow over a photo says nothing about where back goes. A thread needs the band (its
         // subject is nowhere else once the header moved out of the glass); a contact card does not.
         title = if (embedded) "" else contact.displayName,
+        titleStyle = GridlinkType.threadTitle,
         onBack = onBack,
         modifier = modifier,
         embedded = embedded,
@@ -328,6 +332,13 @@ internal fun gridlinkWriteTo(contact: GridlinkContact): GridlinkComposeRequest =
  * soft shadow on the glyphs themselves for the case where the photo is busy rather than bright. Both
  * are cheap and neither depends on inspecting the image.
  *
+ * ## A small picture is a badge, not a hero
+ * A card photo smaller than [HERO_MIN_PHOTO_EDGE_PX] on its short side would be blown up five or six
+ * times to fill the hero, and the generated initials avatars many address books carry (192px pixel
+ * lettering) turned into huge blocky letters behind the name. Such a picture now sits at about its
+ * own size in a circle above the name, on the identity colour field, so it stays sharp and the name
+ * stays readable. It is still the card's own picture; nothing is generated here.
+ *
  * ⚠️ The text over the hero is white in all three modes, and that is not a palette leak: it is white
  * because it sits on the scrim, which is black in all three modes for the reason above. Pulling
  * `textPrimary` in here would make Day mode's near-black text invisible on its own scrim.
@@ -339,8 +350,10 @@ private fun GridlinkContactHero(
 ) {
     val mode = GridlinkTheme.mode
     val identity = gridlinkSenderBarColor(mode, contact.domain)
-    val photo = rememberGridlinkContactPhoto(contact.photo)
+    val picture = rememberGridlinkContactPhoto(contact.photo)
         ?: rememberGridlinkSampleContactPhoto(contact.id)
+    val photo = picture?.takeIf { min(it.width, it.height) >= HERO_MIN_PHOTO_EDGE_PX }
+    val badge = picture?.takeIf { photo == null }
     val name = contact.displayName
     Box(
         modifier = modifier
@@ -348,7 +361,13 @@ private fun GridlinkContactHero(
             // Taller with a picture than without. A card holding a photograph is showing you
             // something and wants the room; a card with only a colour field would be spending the
             // same 300dp saying nothing, which is how a hero turns into dead space.
-            .height(if (photo != null) HERO_PHOTO_HEIGHT else HERO_PLAIN_HEIGHT),
+            .height(
+                when {
+                    photo != null -> HERO_PHOTO_HEIGHT
+                    badge != null -> HERO_PLAIN_HEIGHT + HERO_BADGE_SIZE + GridlinkSpacing.s12
+                    else -> HERO_PLAIN_HEIGHT
+                },
+            ),
     ) {
         if (photo != null) {
             Image(
@@ -401,6 +420,18 @@ private fun GridlinkContactHero(
                     bottom = GridlinkSpacing.s16,
                 ),
         ) {
+            if (badge != null) {
+                Image(
+                    bitmap = badge,
+                    contentDescription = "Photo of $name",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .padding(bottom = GridlinkSpacing.s12)
+                        .size(HERO_BADGE_SIZE)
+                        .clip(CircleShape)
+                        .border(HERO_BADGE_RING, Color.White.copy(alpha = HERO_BADGE_RING_ALPHA), CircleShape),
+                )
+            }
             Text(
                 text = name,
                 style = gridlinkHeroNameStyle(name),
@@ -462,6 +493,12 @@ private fun Color.deepen(factor: Float): Color =
 
 private val HERO_PHOTO_HEIGHT = 300.dp
 private val HERO_PLAIN_HEIGHT = 168.dp
+
+/** Below this short edge (px) a card picture would be upscaled into mush, so it shows as a badge. */
+private const val HERO_MIN_PHOTO_EDGE_PX = 320
+private val HERO_BADGE_SIZE = 72.dp
+private val HERO_BADGE_RING = 1.5.dp
+private const val HERO_BADGE_RING_ALPHA = 0.35f
 
 private const val HERO_FIELD_TOP = 0.62f
 private const val HERO_FIELD_BOTTOM = 0.26f

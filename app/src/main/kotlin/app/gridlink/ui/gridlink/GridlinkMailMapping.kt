@@ -144,6 +144,21 @@ object GridlinkMailMapping {
         val unknownSender: String = "(unknown sender)",
         val noSubject: String = "(no subject)",
         val bundleTitle: String = "Automated",
+        /** The sender of your own mail, in place of your bare address. */
+        val me: String = "Me",
+    )
+
+    /**
+     * What a row needs to know about the person reading it, rather than about the message.
+     *
+     * [ownAddresses] are every address of every account on the phone, lowercased, so mail you sent
+     * says "Me" instead of printing your own address back at you. [stampStyle] is the phone's way of
+     * writing a time and a date; see [MailDates.StampStyle]. Both default to empty, which is the
+     * old behaviour.
+     */
+    data class Viewer(
+        val ownAddresses: Set<String> = emptySet(),
+        val stampStyle: MailDates.StampStyle? = null,
     )
 
     /**
@@ -204,6 +219,7 @@ object GridlinkMailMapping {
         today: LocalDate = LocalDate.now(zone),
         locale: Locale = appLocale,
         bundleAutomated: Boolean = false,
+        viewer: Viewer = Viewer(),
     ): Mail {
         val mapped = rows.map {
             message(
@@ -216,6 +232,7 @@ object GridlinkMailMapping {
                 threadCount = it.threadCount,
                 threadUnread = it.threadUnread,
                 account = it.account,
+                viewer = viewer,
             )
         }
         // 🔴 One list and no bundle when the setting is off, which is the default. See
@@ -261,6 +278,7 @@ object GridlinkMailMapping {
         threadUnread: Boolean? = null,
         /** Set only in the unified inbox. See [Row.account] and [GridlinkRowKey]. */
         account: Row.Account? = null,
+        viewer: Viewer = Viewer(),
     ): GridlinkMessage {
         val from = email.from.firstOrNull()
         val address = from?.email.orEmpty()
@@ -274,7 +292,13 @@ object GridlinkMailMapping {
             // The display name if the sender wrote one, otherwise the address itself. Not the local
             // part prettied up: "accounts.payable" becoming "Accounts Payable" is the app inventing
             // a name for a correspondent, and the address is both shorter and true.
-            sender = from?.display()?.takeIf { it.isNotBlank() } ?: labels.unknownSender,
+            //
+            // Your own mail is the exception and says "Me": a reply of yours in the inbox printed
+            // your bare address, which reads as a stranger rather than as you.
+            sender = when {
+                address.isNotBlank() && address.lowercase() in viewer.ownAddresses -> labels.me
+                else -> from?.display()?.takeIf { it.isNotBlank() } ?: labels.unknownSender
+            },
             domain = address.substringAfterLast('@', "").lowercase(),
             subject = email.subject?.takeIf { it.isNotBlank() } ?: labels.noSubject,
             timestamp = MailDates.formatGridlinkStamp(
@@ -283,7 +307,9 @@ object GridlinkMailMapping {
                 today = today,
                 locale = locale,
                 yesterday = labels.yesterday,
+                style = viewer.stampStyle,
             ),
+            receivedAt = email.receivedAt,
             unread = threadUnread ?: !email.isSeen,
             starred = email.isFlagged,
             threadCount = threadCount,

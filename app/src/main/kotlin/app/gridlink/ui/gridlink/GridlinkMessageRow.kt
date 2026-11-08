@@ -36,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
@@ -49,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import app.gridlink.core.data.settings.MailTag
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
+import app.gridlink.ui.theme.GridlinkRadii
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
@@ -516,35 +518,55 @@ private fun GridlinkThreadCount(
     // Outlined rather than filled, and that is the §4 unread ban doing its work one level down: a
     // filled pill on a row would be the second fill in a list where a fill already means "this row
     // is being acted on", and the two would compete on the same row.
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    //
+    // A full pill now, not a 6dp box, so it matches every other chip in the app. The tap target is
+    // the pill plus the gap after it and a little above and below, so it is no longer only the
+    // outline itself; the visible pill stays small enough not to push line 2 much taller.
+    Box(
+        contentAlignment = Alignment.CenterStart,
         modifier = Modifier
-            .padding(end = GridlinkSpacing.s8)
-            .height(20.dp)
-            .border(1.dp, colors.textSecondary, RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(GridlinkRadii.pill))
             .clickable(onClick = onClick)
-            .padding(start = 5.dp, end = 2.dp),
+            .padding(vertical = THREAD_COUNT_TARGET_PAD)
+            .padding(end = GridlinkSpacing.s8),
     ) {
-        Text(
-            // No cap and no "9+". A thread of 40 is worth knowing about, the number is the only
-            // thing telling you, and truncating it would hide exactly the case the row exists for.
-            text = count.toString(),
-            style = GridlinkType.metadata,
-            color = if (unread) colors.textPrimary else colors.textSecondary,
-            maxLines = 1,
-        )
-        Icon(
-            imageVector = Icons.Filled.KeyboardArrowDown,
-            // Says what the tap DOES, not what the row is, because that is what a screen reader
-            // user is choosing between. The count is already announced by the Text beside it.
-            contentDescription = if (expanded) "Collapse conversation" else "Expand conversation",
-            tint = colors.textSecondary,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .size(14.dp)
-                .rotate(turn),
-        )
+                .height(THREAD_COUNT_HEIGHT)
+                .border(1.dp, colors.textSecondary, RoundedCornerShape(GridlinkRadii.pill))
+                .padding(start = GridlinkSpacing.s8, end = THREAD_COUNT_END_PAD),
+        ) {
+            Text(
+                // No cap and no "9+". A thread of 40 is worth knowing about, the number is the only
+                // thing telling you, and truncating it would hide exactly the case the row exists for.
+                text = count.toString(),
+                style = GridlinkType.metadata,
+                color = if (unread) colors.textPrimary else colors.textSecondary,
+                maxLines = 1,
+            )
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowDown,
+                // Says what the tap DOES, not what the row is, because that is what a screen reader
+                // user is choosing between. The count is already announced by the Text beside it.
+                contentDescription = if (expanded) "Collapse conversation" else "Expand conversation",
+                tint = colors.textSecondary,
+                modifier = Modifier
+                    .size(14.dp)
+                    .rotate(turn),
+            )
+        }
     }
 }
+
+/** The thread-count pill's own height: a step over line 2's text, still under the row's line. */
+private val THREAD_COUNT_HEIGHT = 22.dp
+
+/** The pill's padding after the chevron, tighter than before the number since the glyph has air. */
+private val THREAD_COUNT_END_PAD = 4.dp
+
+/** How far the thread-count target reaches above and below the visible pill. */
+private val THREAD_COUNT_TARGET_PAD = 3.dp
 
 /**
  * The circle that lives in the strip the slide opens up.

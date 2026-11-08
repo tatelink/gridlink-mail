@@ -15,10 +15,10 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
@@ -108,7 +108,7 @@ fun SettingsCategoryRow(
         if (onClick != null) {
             Spacer(Modifier.width(GridlinkSpacing.s16))
             Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                Icons.AutoMirrored.Outlined.KeyboardArrowRight,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -195,7 +195,7 @@ fun SettingsOpenRow(
         }
         Spacer(Modifier.width(GridlinkSpacing.s16))
         Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            Icons.AutoMirrored.Outlined.KeyboardArrowRight,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -488,7 +488,7 @@ fun AccountRow(
         if (isCurrent) {
             Spacer(Modifier.width(GridlinkSpacing.s16))
             Icon(
-                Icons.Filled.Check,
+                Icons.Outlined.Check,
                 contentDescription = stringResource(R.string.settings_current_account),
                 tint = MaterialTheme.colorScheme.primary,
             )
@@ -519,7 +519,7 @@ fun SettingTextField(
             {
                 IconButton(onClick = { passwordVisible = !passwordVisible }) {
                     Icon(
-                        if (passwordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                        if (passwordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
                         contentDescription = stringResource(
                             if (passwordVisible) R.string.connect_password_hide else R.string.connect_password_show,
                         ),

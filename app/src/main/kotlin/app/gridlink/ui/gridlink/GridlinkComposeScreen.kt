@@ -1667,7 +1667,7 @@ private fun GridlinkComposeHeader(
     }
 }
 
-// GridlinkCircleButton, the bordered glyph circle behind close and attach, moved to
+// GridlinkCircleButton, the bordered glyph circle behind close (and once attach), moved to
 // [GridlinkForm.kt] when the new-event and new-contact forms needed the same close button. Nothing
 // about it was composer-specific; leaving a private copy here would have meant two of them drifting.
 
@@ -1727,17 +1727,29 @@ private fun GridlinkSendButton(
     }
 }
 
-/** Attach, on the nav-pill baseline beside send. Same 64dp, deliberately not the same weight. */
+/**
+ * Attach, on the nav-pill baseline opposite send, as a one-slot pill.
+ *
+ * The reader's own action pill and slot ([GridlinkDetailActionPill], [GridlinkDetailActionItem]), so
+ * the bottom of Compose is the same shape as the bottom of every other screen: a labelled pill on
+ * the left, the one accent circle on the right. It used to be a bare 64dp ring with a paperclip,
+ * which sat alone in the corner and read as a stray control rather than as part of a bar.
+ */
 @Composable
 private fun GridlinkAttachButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    GridlinkCircleButton(
-        icon = Icons.Outlined.AttachFile,
-        label = "Attach a file",
-        onClick = onClick,
-        modifier = modifier,
-        size = GridlinkDimens.composeButton,
-    )
+    GridlinkDetailActionPill(modifier = modifier) {
+        GridlinkDetailActionItem(
+            label = "Attach",
+            icon = Icons.Outlined.AttachFile,
+            onClick = onClick,
+            contentDescription = "Attach a file",
+            modifier = Modifier.width(ATTACH_SLOT_WIDTH),
+        )
+    }
 }
+
+/** The attach slot: one reader-pill slot's width, so the pill is small but the label has room. */
+private val ATTACH_SLOT_WIDTH = 88.dp
 
 // ---------------------------------------------------------------------------------------------
 // Fields

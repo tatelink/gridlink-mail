@@ -14,6 +14,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -42,30 +43,30 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Backup
-import androidx.compose.material.icons.filled.BeachAccess
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Feedback
-import androidx.compose.material.icons.filled.FilterAlt
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.LocalCafe
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Sell
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.List
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Backup
+import androidx.compose.material.icons.outlined.BeachAccess
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.Favorite
+import androidx.compose.material.icons.outlined.Feedback
+import androidx.compose.material.icons.outlined.FilterAlt
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.LocalCafe
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Sell
+import androidx.compose.material.icons.outlined.Storage
+import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -107,6 +108,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -146,6 +149,7 @@ import app.gridlink.core.data.account.SyncWindow
 import app.gridlink.core.data.mail.OAuthProvider
 import app.gridlink.core.data.settings.AppIcon
 import app.gridlink.core.data.settings.DeliveryMode
+import app.gridlink.core.data.settings.GridlinkPalette
 import app.gridlink.core.data.settings.ListDensity
 import app.gridlink.core.data.settings.MessageTextSize
 import app.gridlink.core.data.settings.NotificationContent
@@ -167,6 +171,8 @@ import app.gridlink.ui.components.onAccentColor
 import app.gridlink.ui.components.resolveAccountColors
 import app.gridlink.ui.connect.ConnectScreen
 import app.gridlink.ui.gridlink.GridlinkDetailFrame
+import app.gridlink.ui.gridlink.GridlinkPalettePicker
+import app.gridlink.ui.gridlink.toGridlinkPalette
 import app.gridlink.ui.navigateOnce
 import app.gridlink.ui.rememberLeaveOnce
 import app.gridlink.ui.rememberMotionEnabled
@@ -419,23 +425,58 @@ private fun SettingsHub(
             SupportCard { onOpenUrl(KOFI_URL) }
             // Account management on top.
             SettingsCategoryRow(
-                Icons.Filled.Person,
+                Icons.Outlined.Person,
                 stringResource(R.string.settings_accounts_title),
                 stringResource(R.string.settings_accounts_summary),
                 onOpenAccounts,
             )
             // App-wide preferences.
             SettingsSection(stringResource(R.string.settings_group_app)) {
-                SettingsCategoryRow(Icons.Filled.Palette, stringResource(R.string.settings_appearance_title), stringResource(R.string.settings_appearance_summary), onOpenAppearance)
-                SettingsCategoryRow(Icons.AutoMirrored.Filled.List, stringResource(R.string.settings_reading_title), stringResource(R.string.settings_reading_summary), onOpenReading)
+                SettingsCategoryRow(
+                    Icons.Outlined.Palette,
+                    stringResource(R.string.settings_appearance_title),
+                    stringResource(R.string.settings_appearance_summary),
+                    onOpenAppearance,
+                )
+                SettingsCategoryRow(
+                    Icons.AutoMirrored.Outlined.List,
+                    stringResource(R.string.settings_reading_title),
+                    stringResource(R.string.settings_reading_summary),
+                    onOpenReading,
+                )
                 // Tags sit next to Reading rather than under the account group: the definitions are
                 // this DEVICE's (see MailTag), so a row under "Current account" would promise a
                 // per-account tag set that does not exist.
-                SettingsCategoryRow(Icons.Filled.Sell, stringResource(R.string.settings_tags_title), stringResource(R.string.settings_tags_summary), onOpenTags)
-                SettingsCategoryRow(Icons.Filled.Notifications, stringResource(R.string.settings_notifications_title), stringResource(R.string.settings_notifications_summary), onOpenNotifications)
-                SettingsCategoryRow(Icons.Filled.Lock, stringResource(R.string.settings_privacy_title), stringResource(R.string.settings_privacy_summary), onOpenPrivacy)
-                SettingsCategoryRow(Icons.Filled.Storage, stringResource(R.string.settings_storage_title), stringResource(R.string.settings_storage_summary), onOpenStorage)
-                SettingsCategoryRow(Icons.Filled.Backup, stringResource(R.string.settings_backup_title), stringResource(R.string.settings_backup_summary), onOpenBackup)
+                SettingsCategoryRow(
+                    Icons.Outlined.Sell,
+                    stringResource(R.string.settings_tags_title),
+                    stringResource(R.string.settings_tags_summary),
+                    onOpenTags,
+                )
+                SettingsCategoryRow(
+                    Icons.Outlined.Notifications,
+                    stringResource(R.string.settings_notifications_title),
+                    stringResource(R.string.settings_notifications_summary),
+                    onOpenNotifications,
+                )
+                SettingsCategoryRow(
+                    Icons.Outlined.Lock,
+                    stringResource(R.string.settings_privacy_title),
+                    stringResource(R.string.settings_privacy_summary),
+                    onOpenPrivacy,
+                )
+                SettingsCategoryRow(
+                    Icons.Outlined.Storage,
+                    stringResource(R.string.settings_storage_title),
+                    stringResource(R.string.settings_storage_summary),
+                    onOpenStorage,
+                )
+                SettingsCategoryRow(
+                    Icons.Outlined.Backup,
+                    stringResource(R.string.settings_backup_title),
+                    stringResource(R.string.settings_backup_summary),
+                    onOpenBackup,
+                )
             }
             // Server-side settings that apply to the current account only — the header
             // names it so it's clear you'd switch accounts to configure another.
@@ -445,8 +486,18 @@ private fun SettingsHub(
                 stringResource(R.string.settings_group_current_account_generic)
             }
             SettingsSection(accountGroupTitle) {
-                SettingsCategoryRow(Icons.Filled.BeachAccess, stringResource(R.string.settings_vacation_title), stringResource(R.string.settings_vacation_summary), onOpenVacation)
-                SettingsCategoryRow(Icons.Filled.FilterAlt, stringResource(R.string.settings_filters_title), stringResource(R.string.settings_filters_summary), onOpenFilters)
+                SettingsCategoryRow(
+                    Icons.Outlined.BeachAccess,
+                    stringResource(R.string.settings_vacation_title),
+                    stringResource(R.string.settings_vacation_summary),
+                    onOpenVacation,
+                )
+                SettingsCategoryRow(
+                    Icons.Outlined.FilterAlt,
+                    stringResource(R.string.settings_filters_title),
+                    stringResource(R.string.settings_filters_summary),
+                    onOpenFilters,
+                )
             }
             // Some of these rows hand a URL to a browser instead of navigating; [onOpenUrl] carries
             // the guard that keeps a double tap from opening it twice. No Context is taken here on
@@ -462,7 +513,7 @@ private fun SettingsHub(
                 // link again. 🔴 If the repo ever goes private, do not just drop the chevron:
                 // [SOURCE_URL]'s subtitle would then be a lie as well.
                 SettingsCategoryRow(
-                    Icons.Filled.Info,
+                    Icons.Outlined.Info,
                     stringResource(R.string.settings_about_version),
                     "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) · ${BuildConfig.VERSION_DATE}",
                 ) { onOpenUrl(RELEASES_URL) }
@@ -471,14 +522,14 @@ private fun SettingsHub(
                 // who wants the source actually needs. It replaced a string that claimed the
                 // repository was private, which outlived the fact by five days.
                 SettingsCategoryRow(
-                    Icons.Filled.Code,
+                    Icons.Outlined.Code,
                     stringResource(R.string.settings_about_source),
                     SOURCE_LABEL,
                 ) { onOpenUrl(SOURCE_URL) }
                 // The GPL requires its text to travel with the binary, so it does: read from the
                 // APK's own assets, offline, unable to 404. See [LicenseScreen].
                 SettingsCategoryRow(
-                    Icons.Filled.Description,
+                    Icons.Outlined.Description,
                     stringResource(R.string.settings_about_license),
                     "GPL-3.0-or-later",
                     onOpenLicense,
@@ -489,7 +540,7 @@ private fun SettingsHub(
                 // taking their name in vain and telling Tate someone else wrote his mail client.
                 // The credit itself stays — a GPL fork says what it forked — it just says what it is.
                 SettingsCategoryRow(
-                    Icons.Filled.Person,
+                    Icons.Outlined.Person,
                     stringResource(R.string.settings_about_upstream),
                     "Sterna Mail by emon",
                 ) { onOpenUrl(UPSTREAM_URL) }
@@ -499,7 +550,7 @@ private fun SettingsHub(
                 // lands in whatever mail app takes it — this one, normally, pre-addressed with the
                 // build stamped in the subject so a report says which version it came from.
                 SettingsCategoryRow(
-                    Icons.Filled.Feedback,
+                    Icons.Outlined.Feedback,
                     stringResource(R.string.settings_about_feedback),
                     FEEDBACK_ADDRESS,
                 ) {
@@ -564,7 +615,7 @@ private fun SupportCard(onSupport: () -> Unit) {
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        Icons.Filled.Favorite,
+                        Icons.Outlined.Favorite,
                         contentDescription = null,
                         Modifier.size(GridlinkSpacing.s20),
                         tint = colors.accent,
@@ -591,7 +642,7 @@ private fun SupportCard(onSupport: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    Icons.Filled.LocalCafe,
+                    Icons.Outlined.LocalCafe,
                     contentDescription = null,
                     Modifier.size(GridlinkSpacing.s20),
                     tint = colors.onAccent,
@@ -658,14 +709,19 @@ private fun openUrl(context: android.content.Context, url: String): Boolean =
     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.isSuccess
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun WidgetOpacityRow(viewModel: SettingsViewModel) {
     val context = LocalContext.current
     val saved by viewModel.widgetOpacity.collectAsStateWithLifecycle()
     // Written on release, not per frame: every write repaints every widget on the home screen.
     var dragging by remember { mutableStateOf<Float?>(null) }
     val shown = dragging ?: saved.toFloat()
+    val colors = GridlinkTheme.colors
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Text(stringResource(R.string.settings_widget_opacity_title, shown.roundToInt()))
+        // The app's own slider rather than Material's: a thin rounded track and a round accent
+        // knob, the shapes the rest of Gridlink uses. The stock one is a thick bar with a tall
+        // stick for a handle and a row of step dots, and it was the only control of its kind here.
         Slider(
             value = shown,
             onValueChange = { dragging = it },
@@ -675,9 +731,36 @@ private fun WidgetOpacityRow(viewModel: SettingsViewModel) {
             },
             valueRange = 0f..100f,
             steps = 19,
+            thumb = {
+                Box(
+                    Modifier
+                        .size(SLIDER_KNOB)
+                        .background(colors.accent, CircleShape)
+                        .border(GridlinkDimens.hairline, colors.surfaceBorder, CircleShape),
+                )
+            },
+            track = { state ->
+                val fraction = (state.value - state.valueRange.start) /
+                    (state.valueRange.endInclusive - state.valueRange.start)
+                Canvas(Modifier.fillMaxWidth().height(SLIDER_TRACK)) {
+                    val radius = CornerRadius(size.height / 2)
+                    drawRoundRect(color = colors.surfaceBorder, cornerRadius = radius)
+                    drawRoundRect(
+                        color = colors.accent,
+                        size = Size(size.width * fraction.coerceIn(0f, 1f), size.height),
+                        cornerRadius = radius,
+                    )
+                }
+            },
         )
     }
 }
+
+/** The widget slider's knob: the size of the switch's, so the two controls read as one family. */
+private val SLIDER_KNOB = 22.dp
+
+/** The widget slider's track: a line, not a bar. */
+private val SLIDER_TRACK = 4.dp
 
 @Composable
 private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
@@ -685,6 +768,7 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val previewLines by viewModel.previewLines.collectAsStateWithLifecycle()
     val bundleAutomated by viewModel.bundleAutomated.collectAsStateWithLifecycle()
     val appIcon by viewModel.appIcon.collectAsStateWithLifecycle()
+    val palette by viewModel.gridlinkPalette.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var language by remember { mutableStateOf(currentAppLanguage()) }
     DetailScaffold(title = stringResource(R.string.settings_appearance_screen_title), onBack = onBack) { padding ->
@@ -703,24 +787,27 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     },
                 )
             }
+            // The drawer's own picker, not a second one. The Theme section that used to sit here
+            // wrote [ThemeMode] into [AppTheme], which dresses nothing you can see, so it was
+            // removed on 2026-08-12 and appearance lived only in the drawer. That left this page
+            // listed as covering "Theme" with no theme on it. This is the SAME composable the drawer
+            // draws ([GridlinkPalettePicker]) writing the SAME stored palette, so the two places
+            // cannot disagree; the settings host skins this screen from that value, so a tap here
+            // repaints the page it was made on. (Polish pass, 2026-11-07.)
+            SettingsSection(stringResource(R.string.settings_theme_section)) {
+                GridlinkPalettePicker(
+                    mode = GridlinkTheme.mode,
+                    followingClock = palette == GridlinkPalette.AUTO,
+                    onSelect = { viewModel.setGridlinkPalette(it.toGridlinkPalette()) },
+                    modifier = Modifier.padding(
+                        horizontal = GridlinkSpacing.rowHorizontal,
+                        vertical = GridlinkSpacing.s8,
+                    ),
+                )
+            }
             SettingsSection(stringResource(R.string.settings_widgets_section)) {
                 WidgetOpacityRow(viewModel)
             }
-            // ⛔ There is no Theme section here, and there must not be one. It held
-            // Auto/Light/Dark plus a Material You switch, both writing [ThemeMode] and
-            // [dynamicColor] into [AppTheme] — and [AppTheme] dresses nothing you can see, because
-            // every screen in the app (this one included) is re-skinned by [GridlinkMaterialSkin]
-            // from the drawer's own Auto/Day/Night/OLED track. Choosing "Dark" here changed the
-            // stored value and not one pixel.
-            //
-            // Tate's call, 2026-08-12, after the settings audit found it: remove it rather than
-            // mirror it. Appearance is set in one place, the drawer, where he pinned it a week ago.
-            // Two controls for one palette is how this got here in the first place.
-            //
-            // The store, the setters and [AppTheme] all stay: the theme value still dresses the
-            // handful of surfaces that never go through the skin (dialogs raised by the system,
-            // the first frame before the palette resolves), and backup/restore still carries it.
-            // What is gone is the claim that the user is driving it from this screen.
             // 🔴 The one appearance control on this screen that the drawer CANNOT own, which is why
             // it is here and the palette pill is not. Everything else about how the app looks is
             // decided by the app, live, and belongs where the user is looking at it. The launcher
@@ -1157,7 +1244,7 @@ private fun NotificationsBlockedNotice() {
     }
     if (!blocked) return
     SettingsCategoryRow(
-        icon = Icons.Filled.Notifications,
+        icon = Icons.Outlined.Notifications,
         title = stringResource(R.string.settings_notifications_blocked_title),
         summary = stringResource(R.string.settings_notifications_blocked_body),
         onClick = {
@@ -1464,7 +1551,7 @@ private fun PrivacySecurityScreen(
                 // button. The adapters otherwise run on the system's own schedule.
                 if (systemMirror) {
                     SettingsCategoryRow(
-                        Icons.Filled.Sync,
+                        Icons.Outlined.Sync,
                         stringResource(R.string.settings_system_sync_now_title),
                         stringResource(R.string.settings_system_sync_now_summary),
                         viewModel::syncSystemAccountsNow,
@@ -1543,7 +1630,7 @@ private fun ImageAllowlistScreen(viewModel: SettingsViewModel, onBack: () -> Uni
                             )
                             IconButton(onClick = { viewModel.setImageAllowed(sender, false) }) {
                                 Icon(
-                                    Icons.Filled.Close,
+                                    Icons.Outlined.Close,
                                     contentDescription = stringResource(
                                         R.string.settings_image_allowlist_remove,
                                     ),
@@ -1748,7 +1835,7 @@ private fun ColourSwatch(color: Color?, selected: Boolean, label: String? = null
                 color = color?.let { onAccentColor(it) } ?: MaterialTheme.colorScheme.onSurfaceVariant,
             )
             color != null && selected ->
-                Icon(Icons.Filled.Check, contentDescription = null, tint = onAccentColor(color))
+                Icon(Icons.Outlined.Check, contentDescription = null, tint = onAccentColor(color))
         }
     }
 }
@@ -1864,7 +1951,7 @@ private fun AccountsScreen(
             item {
                 Column(Modifier.fillMaxWidth().padding(16.dp)) {
                     Button(onClick = onAddAccount, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Filled.Add, contentDescription = null)
+                        Icon(Icons.Outlined.Add, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
                         Text(stringResource(R.string.settings_add_account))
                     }
@@ -2783,7 +2870,7 @@ private fun InlineDeviceApproval(
     ) {
         Text(userCode, style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.width(8.dp))
-        Icon(Icons.Filled.ContentCopy, contentDescription = stringResource(R.string.connect_oauth_copy_code))
+        Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.connect_oauth_copy_code))
     }
     Button(
         onClick = {
@@ -3221,7 +3308,7 @@ private fun VacationDateRow(label: String, millis: Long?, onPick: (Long?) -> Uni
         }
         if (millis != null) {
             IconButton(onClick = { onPick(null) }) {
-                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.settings_vacation_clear_date))
+                Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.settings_vacation_clear_date))
             }
         }
     }
@@ -3349,7 +3436,7 @@ private fun IdentityRowHeader(
             }
         }
         Icon(
-            if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+            if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
             contentDescription = stringResource(
                 if (expanded) R.string.settings_identity_collapse else R.string.settings_identity_expand,
             ),
