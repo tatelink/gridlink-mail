@@ -932,4 +932,15 @@
     <string name="gridlink_full_screen">Plein écran</string>
     <string name="gridlink_exit_full_screen">Quitter le plein écran</string>
     <string name="gridlink_search_empty_hint">Essayez avec moins de mots ou d\'autres mots. La recherche couvre déjà tous les dossiers.</string>
+    <string name="gridlink_mode_auto">Auto</string>
+    <string name="gridlink_mode_day">Jour</string>
+    <string name="gridlink_mode_night">Nuit</string>
+    <string name="gridlink_mode_oled">OLED</string>
+    <string name="gridlink_colour_classic">Classique</string>
+    <string name="gridlink_colour_graphite">Graphite</string>
+    <string name="gridlink_colour_deep_blue">Bleu profond</string>
+    <string name="gridlink_colour_ember">Braise</string>
+    <string name="gridlink_colour_forest">Forêt</string>
+    <string name="gridlink_colour_sand">Sable</string>
+    <string name="gridlink_colour_choice">Couleur %1$s</string>
 </resources>

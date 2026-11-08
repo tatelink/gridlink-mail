@@ -43,7 +43,7 @@ class GridlinkSwitchColorsTest {
         val captured = mutableMapOf<GridlinkMode, SwitchColors>()
         rule.setContent {
             for (mode in GridlinkMode.entries) {
-                ProvideGridlinkTokens(mode = mode, ownsSystemBars = false) {
+                ProvideGridlinkTokens(look = GridlinkLook(mode), ownsSystemBars = false) {
                     captured[mode] = gridlinkSwitchColors()
                 }
             }
@@ -52,7 +52,7 @@ class GridlinkSwitchColorsTest {
         return captured
     }
 
-    private fun paletteFor(mode: GridlinkMode) = gridlinkColorsFor(mode)
+    private fun paletteFor(mode: GridlinkMode) = gridlinkColorsFor(GridlinkLook(mode))
 
     @Test
     fun offIsDrawnInInkRatherThanInASurface() {

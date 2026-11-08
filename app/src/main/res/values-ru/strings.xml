@@ -936,4 +936,15 @@
     <string name="gridlink_full_screen">Во весь экран</string>
     <string name="gridlink_exit_full_screen">Выйти из полноэкранного режима</string>
     <string name="gridlink_search_empty_hint">Попробуйте меньше слов или другие слова. Поиск уже идёт по всем папкам.</string>
+    <string name="gridlink_mode_auto">Авто</string>
+    <string name="gridlink_mode_day">День</string>
+    <string name="gridlink_mode_night">Ночь</string>
+    <string name="gridlink_mode_oled">OLED</string>
+    <string name="gridlink_colour_classic">Классика</string>
+    <string name="gridlink_colour_graphite">Графит</string>
+    <string name="gridlink_colour_deep_blue">Глубокий синий</string>
+    <string name="gridlink_colour_ember">Жар</string>
+    <string name="gridlink_colour_forest">Лес</string>
+    <string name="gridlink_colour_sand">Песок</string>
+    <string name="gridlink_colour_choice">Цвет: %1$s</string>
 </resources>

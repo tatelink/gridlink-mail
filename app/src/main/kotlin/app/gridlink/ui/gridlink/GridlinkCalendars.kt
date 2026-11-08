@@ -27,7 +27,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.gridlink.R
-import app.gridlink.ui.theme.GridlinkMode
+import app.gridlink.ui.theme.GridlinkLook
 import app.gridlink.ui.theme.GridlinkSenderBars
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
@@ -59,10 +59,10 @@ data class GridlinkCalendarInfo(
     val visible: Boolean = true,
 )
 
-/** The colour [tint] paints with in [mode]. */
-fun gridlinkCalendarColor(mode: GridlinkMode, tint: GridlinkCalendarTint): Color {
+/** The colour [tint] paints with in [look]. */
+fun gridlinkCalendarColor(look: GridlinkLook, tint: GridlinkCalendarTint): Color {
     tint.argb?.let { return Color(it) }
-    val ramp = GridlinkSenderBars.forMode(mode)
+    val ramp = GridlinkSenderBars.forLook(look)
     return ramp[tint.index.mod(ramp.size)]
 }
 
@@ -75,8 +75,8 @@ fun gridlinkCalendarColor(mode: GridlinkMode, tint: GridlinkCalendarTint): Color
  * account's whole week came out slate grey on a navy grid and looked empty. The accent is what the
  * app means by "yours", which is what an event on your own calendar is. (Polish pass, 2026-11-07.)
  */
-fun gridlinkEventColor(mode: GridlinkMode, event: GridlinkEvent): Color =
-    event.calendarTint?.let { gridlinkCalendarColor(mode, it) } ?: gridlinkColorsFor(mode).accent
+fun gridlinkEventColor(look: GridlinkLook, event: GridlinkEvent): Color =
+    event.calendarTint?.let { gridlinkCalendarColor(look, it) } ?: gridlinkColorsFor(look).accent
 
 /**
  * A CalDAV `calendar-color` as ARGB, or null when it is absent or unreadable.
@@ -111,7 +111,7 @@ internal fun GridlinkCalendarDot(tint: GridlinkCalendarTint, modifier: Modifier 
     Box(
         modifier = modifier
             .size(12.dp)
-            .background(gridlinkCalendarColor(GridlinkTheme.mode, tint), CircleShape),
+            .background(gridlinkCalendarColor(GridlinkTheme.look, tint), CircleShape),
     )
 }
 

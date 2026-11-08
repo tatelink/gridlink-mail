@@ -46,6 +46,7 @@ import app.gridlink.ui.gridlink.LocalGridlinkChrome
 import app.gridlink.ui.gridlink.gridlinkTypedRecipient
 import app.gridlink.ui.gridlink.toGridlinkPalette
 import app.gridlink.ui.gridlink.toModeOverride
+import app.gridlink.ui.theme.GridlinkLook
 import app.gridlink.ui.theme.gridlinkColorsFor
 import app.gridlink.ui.theme.gridlinkModeAt
 import kotlinx.coroutines.launch
@@ -153,7 +154,7 @@ fun GridlinkHomeHost(
     // 🔴 Initial value is null meaning "not read yet", NOT AUTO meaning "follows the sun". The two
     // are the same picture and a completely different fact, and the difference is the whole reason
     // this gate exists: see the wait below, and [GridlinkApp]'s `initialModeOverride`.
-    val storedPalette by settings.gridlinkPalette.collectAsStateWithLifecycle(initialValue = null)
+    val storedAppearance by settings.gridlinkAppearance.collectAsStateWithLifecycle(initialValue = null)
 
     // The open message's bottom bar, as configured in Settings. Read straight off the repository
     // rather than through the view model: nothing about it needs the account, and the initial value
@@ -373,6 +374,9 @@ fun GridlinkHomeHost(
                     settings.setGridlinkPalette(mode.toGridlinkPalette())
                 }
             },
+            onSelectPreset = { preset ->
+                application.container.appScope.launch { settings.setGridlinkPreset(preset) }
+            },
             unifiedInbox = unified,
             // On the view model, not straight to DataStore like the palette above. The write is the
             // smaller half of this: the reader and the expanded threads have to be dropped in the
@@ -393,12 +397,12 @@ fun GridlinkHomeHost(
     // which is upstream's light theme and would strobe white before an OLED launch. The colour is
     // the sun's answer because that is what an unpinned launch resolves to anyway, and a pinned one
     // is a fraction of a frame away from repainting.
-    val palette = storedPalette
-    if (palette == null) {
+    val appearance = storedAppearance
+    if (appearance == null) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(gridlinkColorsFor(gridlinkModeAt(ZonedDateTime.now())).background),
+                .background(gridlinkColorsFor(GridlinkLook(gridlinkModeAt(ZonedDateTime.now()))).background),
         )
         return
     }
@@ -444,7 +448,8 @@ fun GridlinkHomeHost(
     }
 
     GridlinkApp(
-        initialModeOverride = palette.toModeOverride(),
+        initialModeOverride = appearance.palette.toModeOverride(),
+        initialPreset = appearance.preset,
         // 🔴 Starts SYNCING, not SYNCED. The launch sync below is already running by the time the
         // chrome row draws, and opening on a green "Synced" chip that has not synced anything is
         // the same lie as a fake timestamp, told a second earlier.

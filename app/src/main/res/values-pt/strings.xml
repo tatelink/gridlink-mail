@@ -933,4 +933,15 @@
     <string name="gridlink_full_screen">Tela cheia</string>
     <string name="gridlink_exit_full_screen">Sair da tela cheia</string>
     <string name="gridlink_search_empty_hint">Tente menos palavras ou outras. A busca já procura em todas as pastas.</string>
+    <string name="gridlink_mode_auto">Auto</string>
+    <string name="gridlink_mode_day">Dia</string>
+    <string name="gridlink_mode_night">Noite</string>
+    <string name="gridlink_mode_oled">OLED</string>
+    <string name="gridlink_colour_classic">Clássico</string>
+    <string name="gridlink_colour_graphite">Grafite</string>
+    <string name="gridlink_colour_deep_blue">Azul profundo</string>
+    <string name="gridlink_colour_ember">Brasa</string>
+    <string name="gridlink_colour_forest">Floresta</string>
+    <string name="gridlink_colour_sand">Areia</string>
+    <string name="gridlink_colour_choice">Cor %1$s</string>
 </resources>

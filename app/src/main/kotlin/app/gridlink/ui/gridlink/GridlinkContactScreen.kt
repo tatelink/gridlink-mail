@@ -348,7 +348,7 @@ private fun GridlinkContactHero(
     contact: GridlinkContact,
     modifier: Modifier = Modifier,
 ) {
-    val mode = GridlinkTheme.mode
+    val mode = GridlinkTheme.look
     val identity = gridlinkSenderBarColor(mode, contact.domain)
     val picture = rememberGridlinkContactPhoto(contact.photo)
         ?: rememberGridlinkSampleContactPhoto(contact.id)

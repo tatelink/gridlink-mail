@@ -215,7 +215,7 @@ fun GridlinkThreadScreen(
     onToggleMaximize: (() -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
-    val mode = GridlinkTheme.mode
+    val mode = GridlinkTheme.look
     var confirmingUnsubscribe by remember(message.id, initiallyConfirmingUnsubscribe) {
         mutableStateOf(initiallyConfirmingUnsubscribe)
     }
@@ -704,7 +704,7 @@ private fun GridlinkThreadSender(
     trailingGap: Dp = 0.dp,
 ) {
     val colors = GridlinkTheme.colors
-    val mode = GridlinkTheme.mode
+    val mode = GridlinkTheme.look
     var expanded by remember(message.address) { mutableStateOf(false) }
     val chevronTurn by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,

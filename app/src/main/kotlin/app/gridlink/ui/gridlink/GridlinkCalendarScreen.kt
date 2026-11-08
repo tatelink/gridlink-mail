@@ -957,7 +957,7 @@ private fun GridlinkMonthDayList(
     modifier: Modifier = Modifier,
 ) {
     val colors = GridlinkTheme.colors
-    val mode = GridlinkTheme.mode
+    val mode = GridlinkTheme.look
     Column(modifier) {
         Text(
             text = date.format(AGENDA_DAY),
@@ -1119,7 +1119,7 @@ private fun GridlinkDayCell(
     modifier: Modifier = Modifier,
 ) {
     val colors = GridlinkTheme.colors
-    val mode = GridlinkTheme.mode
+    val mode = GridlinkTheme.look
     Column(
         modifier = modifier
             .then(if (detailed) Modifier else Modifier.height(GridlinkDimens.calendarDayCell))
@@ -1233,7 +1233,7 @@ private fun GridlinkDayCellEvent(
     hidden: Int,
 ) {
     val colors = GridlinkTheme.colors
-    val mode = GridlinkTheme.mode
+    val mode = GridlinkTheme.look
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1363,7 +1363,7 @@ private fun GridlinkTimeGrid(
     onPage: (forward: Boolean) -> Unit,
 ) {
     val colors = GridlinkTheme.colors
-    val mode = GridlinkTheme.mode
+    val mode = GridlinkTheme.look
     val book = LocalGridlinkBook.current
     val scroll = rememberScrollState()
     val days = remember(startDate, dayCount) {
@@ -1526,7 +1526,7 @@ private fun GridlinkDayColumn(
     modifier: Modifier = Modifier,
 ) {
     val colors = GridlinkTheme.colors
-    val mode = GridlinkTheme.mode
+    val mode = GridlinkTheme.look
     val blocks = remember(events) { layOutOverlaps(events) }
 
     Box(modifier = modifier.fillMaxHeight()) {
@@ -1779,7 +1779,7 @@ private fun GridlinkAgendaView(
     onScrollToDay: (LocalDate) -> Unit = {},
 ) {
     val colors = GridlinkTheme.colors
-    val mode = GridlinkTheme.mode
+    val mode = GridlinkTheme.look
     val byDay = remember(events, from, until) {
         generateSequence(from) { it.plusDays(1) }
             .takeWhile { it <= until }

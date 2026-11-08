@@ -930,4 +930,15 @@
     <string name="gridlink_full_screen">Volledig scherm</string>
     <string name="gridlink_exit_full_screen">Volledig scherm sluiten</string>
     <string name="gridlink_search_empty_hint">Probeer minder of andere woorden. Zoeken kijkt al in alle mappen.</string>
+    <string name="gridlink_mode_auto">Auto</string>
+    <string name="gridlink_mode_day">Dag</string>
+    <string name="gridlink_mode_night">Nacht</string>
+    <string name="gridlink_mode_oled">OLED</string>
+    <string name="gridlink_colour_classic">Klassiek</string>
+    <string name="gridlink_colour_graphite">Grafiet</string>
+    <string name="gridlink_colour_deep_blue">Diepblauw</string>
+    <string name="gridlink_colour_ember">Gloed</string>
+    <string name="gridlink_colour_forest">Bos</string>
+    <string name="gridlink_colour_sand">Zand</string>
+    <string name="gridlink_colour_choice">Kleur %1$s</string>
 </resources>

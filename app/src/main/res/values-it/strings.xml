@@ -929,4 +929,15 @@
     <string name="gridlink_full_screen">Schermo intero</string>
     <string name="gridlink_exit_full_screen">Esci da schermo intero</string>
     <string name="gridlink_search_empty_hint">Prova con meno parole o con parole diverse. La ricerca guarda già in tutte le cartelle.</string>
+    <string name="gridlink_mode_auto">Auto</string>
+    <string name="gridlink_mode_day">Giorno</string>
+    <string name="gridlink_mode_night">Notte</string>
+    <string name="gridlink_mode_oled">OLED</string>
+    <string name="gridlink_colour_classic">Classico</string>
+    <string name="gridlink_colour_graphite">Grafite</string>
+    <string name="gridlink_colour_deep_blue">Blu profondo</string>
+    <string name="gridlink_colour_ember">Brace</string>
+    <string name="gridlink_colour_forest">Foresta</string>
+    <string name="gridlink_colour_sand">Sabbia</string>
+    <string name="gridlink_colour_choice">Colore %1$s</string>
 </resources>

@@ -41,8 +41,8 @@ class SystemBarsAppearanceTest {
         assertFalse(systemBarsAreLight(null, darkTheme = true))
     }
 
-    /** Exactly one rung paints light. A new rung must make a deliberate choice, not inherit one. */
-    @Test fun dayAndSandAreTheOnlyLightSurfaces() {
-        assertEquals(listOf(GridlinkMode.DAY, GridlinkMode.SAND), GridlinkMode.entries.filter { it.isLightSurface })
+    /** Exactly one rung paints light, whatever the colour. A new rung must choose, not inherit. */
+    @Test fun dayIsTheOnlyLightRung() {
+        assertEquals(listOf(GridlinkMode.DAY), GridlinkMode.entries.filter { it.isLightSurface })
     }
 }

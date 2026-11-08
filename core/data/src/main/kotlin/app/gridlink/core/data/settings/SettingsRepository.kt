@@ -24,17 +24,6 @@ import kotlinx.coroutines.runBlocking
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
 /**
- * Which of the Gridlink screens' three palettes is pinned, or [AUTO] to follow the day.
- *
- * Deliberately a data-layer enum of its own rather than the UI's `GridlinkMode?`, for the same
- * reason [ThemeMode] has SYSTEM instead of a nullable: "follow the clock" is a choice the user
- * made and a value worth storing, not the absence of one. The UI maps AUTO to a null override at
- * the boundary. Persisted BY NAME, so an unknown value from a newer build reads back as AUTO
- * rather than throwing.
- */
-enum class GridlinkPalette { AUTO, DAY, NIGHT, OLED, GRAPHITE, DEEP_BLUE, EMBER, FOREST, SAND }
-
-/**
  * Which launcher icon the app wears.
  *
  * 🔴 NOT the same question as [GridlinkPalette], and the two must not be wired together. The palette
@@ -195,20 +184,43 @@ class SettingsRepository(
     }
 
     /**
-     * The Gridlink screens' palette pill (`Auto · Day · Night · OLED`).
+     * The Gridlink screens' look: the mode pill (`Auto · Day · Night · OLED`) and the colour dots.
      *
      * Separate from [themeMode], which is upstream's light/dark switch for the settings and
      * account screens. The two are not the same control and must not be collapsed into one: the
      * Gridlink ladder has a third rung (OLED) that light/dark cannot express, and the settings
      * screens have no aurora to put it on.
+     *
+     * Read through [gridlinkAppearanceOf], which migrates the old single-key layout where a colour
+     * preset implied its own mode.
      */
-    val gridlinkPalette: Flow<GridlinkPalette> = dataStore.data.map { prefs ->
-        prefs[KEY_GRIDLINK_PALETTE]?.let { runCatching { GridlinkPalette.valueOf(it) }.getOrNull() }
-            ?: GridlinkPalette.AUTO
+    val gridlinkAppearance: Flow<GridlinkAppearance> = dataStore.data.map { prefs ->
+        gridlinkAppearanceOf(prefs[KEY_GRIDLINK_PALETTE], prefs[KEY_GRIDLINK_PRESET])
     }
 
+    /**
+     * Pins a mode (or AUTO) and keeps the colour.
+     *
+     * 🔴 Writes BOTH keys, read-modify-write inside one edit. A user still on the old layout has only
+     * `gridlink_palette = EMBER`; writing just `DAY` over it would silently drop the Ember that the
+     * old value implied. Resolving the current pair first and writing it back whole is what lets them
+     * switch Ember from Night to Day and still have Ember.
+     */
     suspend fun setGridlinkPalette(palette: GridlinkPalette) {
-        dataStore.edit { it[KEY_GRIDLINK_PALETTE] = palette.name }
+        dataStore.edit { prefs ->
+            val now = gridlinkAppearanceOf(prefs[KEY_GRIDLINK_PALETTE], prefs[KEY_GRIDLINK_PRESET])
+            prefs[KEY_GRIDLINK_PALETTE] = palette.name
+            prefs[KEY_GRIDLINK_PRESET] = now.preset.name
+        }
+    }
+
+    /** Picks a colour and keeps the mode. Writes both keys for [setGridlinkPalette]'s reason. */
+    suspend fun setGridlinkPreset(preset: GridlinkPreset) {
+        dataStore.edit { prefs ->
+            val now = gridlinkAppearanceOf(prefs[KEY_GRIDLINK_PALETTE], prefs[KEY_GRIDLINK_PRESET])
+            prefs[KEY_GRIDLINK_PALETTE] = now.palette.name
+            prefs[KEY_GRIDLINK_PRESET] = preset.name
+        }
     }
 
     /**
@@ -863,6 +875,7 @@ class SettingsRepository(
 
         private val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
         private val KEY_GRIDLINK_PALETTE = stringPreferencesKey("gridlink_palette")
+        private val KEY_GRIDLINK_PRESET = stringPreferencesKey("gridlink_preset")
         private val KEY_APP_ICON = stringPreferencesKey("app_icon")
         private val KEY_DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         private val KEY_LIST_DENSITY = stringPreferencesKey("list_density")

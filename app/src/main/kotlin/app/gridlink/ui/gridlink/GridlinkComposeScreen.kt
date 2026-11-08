@@ -1539,7 +1539,7 @@ private fun GridlinkTypedRecipientRow(
     modifier: Modifier = Modifier,
 ) {
     val colors = GridlinkTheme.colors
-    val mode = GridlinkTheme.mode
+    val mode = GridlinkTheme.look
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -1874,7 +1874,7 @@ private fun GridlinkSuggestionRow(
     modifier: Modifier = Modifier,
 ) {
     val colors = GridlinkTheme.colors
-    val mode = GridlinkTheme.mode
+    val mode = GridlinkTheme.look
     Box(
         modifier = modifier
             .fillMaxWidth()

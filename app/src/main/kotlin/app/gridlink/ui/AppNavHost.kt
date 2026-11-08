@@ -48,13 +48,13 @@ import app.gridlink.MailtoDraft
 import app.gridlink.R
 import app.gridlink.container
 import app.gridlink.core.data.account.StoredAccount
-import app.gridlink.core.data.settings.GridlinkPalette
+import app.gridlink.core.data.settings.GridlinkAppearance
 import app.gridlink.push.PushController
 import app.gridlink.security.LockScreen
 import app.gridlink.ui.connect.ConnectScreen
 import app.gridlink.ui.connect.GridlinkSetupHost
 import app.gridlink.ui.gridlink.GridlinkDestination
-import app.gridlink.ui.gridlink.rememberGridlinkMode
+import app.gridlink.ui.gridlink.rememberGridlinkLook
 import app.gridlink.ui.home.GridlinkHomeHost
 import app.gridlink.ui.onboarding.WelcomeScreen
 import app.gridlink.ui.settings.SettingsScreen
@@ -265,7 +265,7 @@ fun AppNavHost(
                     // 🔴 Settings is a SIBLING of the home host, not a child of it, and the home
                     // host is where `GridlinkApp` provides the palette. So for as long as this
                     // branch stood bare, every settings screen read [LocalGridlinkColors] and
-                    // [LocalGridlinkMode] at their STATIC DEFAULTS — Night, always, whatever the
+                    // [LocalGridlinkLook] at their STATIC DEFAULTS — Night, always, whatever the
                     // reader had chosen. Tate, 2026-08-23, on AUTO resolving to OLED: *"the
                     // settings page doesnt seem to follow the auto, day, night, oled theme"*, and
                     // *"the entire settings panel, all submenus too"*. All of them, because a
@@ -288,9 +288,9 @@ fun AppNavHost(
                     // while settings is actually on screen. Opening settings is a deliberate tap
                     // long after launch, so DataStore has answered by the time this composes and
                     // the AUTO seed is not a palette anyone sees.
-                    val palette by settings.gridlinkPalette
-                        .collectAsStateWithLifecycle(initialValue = GridlinkPalette.AUTO)
-                    ProvideGridlinkTokens(mode = rememberGridlinkMode(palette)) {
+                    val appearance by settings.gridlinkAppearance
+                        .collectAsStateWithLifecycle(initialValue = GridlinkAppearance())
+                    ProvideGridlinkTokens(look = rememberGridlinkLook(appearance)) {
                         SettingsScreen(
                             onBack = { settingsOpen = false },
                             onAccountsChanged = viewModel::refresh,
