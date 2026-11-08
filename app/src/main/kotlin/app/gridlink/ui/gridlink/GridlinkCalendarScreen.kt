@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import android.content.res.Resources
 import androidx.annotation.StringRes
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
@@ -49,6 +50,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
@@ -2036,35 +2039,71 @@ private fun agendaEntries(
     closeRun()
 }
 
-/**
- * The words on a folded run: "Nothing on Tuesday" for one day, "Nothing until Monday" for more,
- * naming the day the run ends at. A day further than a week from the run's start gets its date too,
- * since a bare weekday that far out is ambiguous.
- */
 @Composable
 private fun agendaFreeLine(entry: AgendaEntry, until: LocalDate, today: LocalDate): String {
-    fun name(day: LocalDate) = when {
-        day.isAfter(entry.first.plusDays(FREE_LINE_WEEKDAY_ONLY)) -> day.format(AGENDA_DAY)
-        else -> day.format(FREE_LINE_DAY)
-    }
-    // Today and tomorrow are whole sentences of their own rather than a word dropped into "Nothing
-    // until %1$s": several languages change the preposition or the case around them.
-    val resume = entry.last.plusDays(1)
+    // Read so the line recomposes when the language changes, as stringResource would.
+    LocalConfiguration.current
+    return agendaFreeText(LocalContext.current.resources, entry.first, entry.last, until, today, FREE_LINE_DATE)
+}
+
+/**
+ * The words on a folded run of empty days from [first] to [last]: "Nothing on Tuesday" for one day,
+ * "Nothing until Monday" for more, naming the day the run ends at. A day further than a week from
+ * the run's start gets its date too, since a bare weekday that far out is ambiguous.
+ *
+ * 🔴 Every weekday is its own sentence, never a name dropped into "Nothing until %1$s". The name's
+ * case follows the preposition: Russian says "до четверга" and "в среду", Polish "do czwartku" and
+ * "w środę", and a nominative weekday after a colon ("Ничего до дня: четверг") was the only way one
+ * format string could stay grammatical. Today and tomorrow are whole sentences for the same reason.
+ * [date] writes the day and month alone ("19 ноября"), which each sentence places itself.
+ */
+internal fun agendaFreeText(
+    res: Resources,
+    first: LocalDate,
+    last: LocalDate,
+    until: LocalDate,
+    today: LocalDate,
+    date: DateTimeFormatter,
+): String {
+    val resume = last.plusDays(1)
     return when {
-        entry.first == entry.last && entry.first == today.plusDays(1) ->
-            stringResource(R.string.gl_cal_free_tomorrow)
-        entry.first == entry.last -> stringResource(R.string.gl_cal_free_on, name(entry.first))
-        entry.last == until ->
-            stringResource(R.string.gl_cal_free_through, entry.last.format(AGENDA_DAY))
-        resume == today -> stringResource(R.string.gl_cal_free_until_today)
-        resume == today.plusDays(1) -> stringResource(R.string.gl_cal_free_until_tomorrow)
-        else -> stringResource(R.string.gl_cal_free_until, name(resume))
+        first == last && first == today.plusDays(1) -> res.getString(R.string.gl_cal_free_tomorrow)
+        first == last -> res.getString(FREE_ON[first.dayOfWeek.ordinal])
+        last == until -> res.getString(FREE_THROUGH[last.dayOfWeek.ordinal], last.format(date))
+        resume == today -> res.getString(R.string.gl_cal_free_until_today)
+        resume == today.plusDays(1) -> res.getString(R.string.gl_cal_free_until_tomorrow)
+        resume.isAfter(first.plusDays(FREE_LINE_WEEKDAY_ONLY)) ->
+            res.getString(FREE_UNTIL_DATE[resume.dayOfWeek.ordinal], resume.format(date))
+        else -> res.getString(FREE_UNTIL[resume.dayOfWeek.ordinal])
     }
 }
 
 /** How far ahead a folded line may name a bare weekday before it adds the date. */
 private const val FREE_LINE_WEEKDAY_ONLY = 6L
-private val FREE_LINE_DAY: DateTimeFormatter get() = calendarFormatter("EEEE", "EEEE")
+
+/** The day and month a free line adds to a weekday: "25 August" in English, "25. August" in German. */
+private val FREE_LINE_DATE: DateTimeFormatter get() = calendarFormatter("dMMMM", "d MMMM")
+
+// Monday to Sunday, indexed by DayOfWeek.ordinal.
+private val FREE_ON = listOf(
+    R.string.gl_cal_free_on_mon, R.string.gl_cal_free_on_tue, R.string.gl_cal_free_on_wed, R.string.gl_cal_free_on_thu,
+    R.string.gl_cal_free_on_fri, R.string.gl_cal_free_on_sat, R.string.gl_cal_free_on_sun,
+)
+private val FREE_UNTIL = listOf(
+    R.string.gl_cal_free_until_mon, R.string.gl_cal_free_until_tue, R.string.gl_cal_free_until_wed,
+    R.string.gl_cal_free_until_thu, R.string.gl_cal_free_until_fri, R.string.gl_cal_free_until_sat,
+    R.string.gl_cal_free_until_sun,
+)
+private val FREE_UNTIL_DATE = listOf(
+    R.string.gl_cal_free_until_date_mon, R.string.gl_cal_free_until_date_tue, R.string.gl_cal_free_until_date_wed,
+    R.string.gl_cal_free_until_date_thu, R.string.gl_cal_free_until_date_fri, R.string.gl_cal_free_until_date_sat,
+    R.string.gl_cal_free_until_date_sun,
+)
+private val FREE_THROUGH = listOf(
+    R.string.gl_cal_free_through_mon, R.string.gl_cal_free_through_tue, R.string.gl_cal_free_through_wed,
+    R.string.gl_cal_free_through_thu, R.string.gl_cal_free_through_fri, R.string.gl_cal_free_through_sat,
+    R.string.gl_cal_free_through_sun,
+)
 
 /**
  * One agenda line: when, then what.
