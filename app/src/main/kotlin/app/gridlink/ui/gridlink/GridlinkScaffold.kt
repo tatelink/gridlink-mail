@@ -52,8 +52,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.text.HtmlCompat
+import app.gridlink.R
 import app.gridlink.core.data.contacts.ContactEdit
 import app.gridlink.core.data.mail.MailFilter
 import app.gridlink.core.data.settings.ThreadToolbarAction
@@ -925,6 +927,12 @@ fun GridlinkRoot(
      */
     onLoadHeaders: (suspend (emailId: String) -> List<GridlinkHeader>)? = null,
     /**
+     * Fetch what a reply needs from the original (everyone on it, its Message-ID and References) by
+     * its row key, on the account it belongs to. Null in the gallery, where a reply is addressed
+     * from the row alone and carries no threading.
+     */
+    onLoadReplyOriginal: (suspend (rowKey: String) -> GridlinkReplyOriginal)? = null,
+    /**
      * The composer's From choices, active account first. Empty in the gallery, which hides the From
      * line. See [GridlinkComposeScreen]'s parameter of the same name.
      */
@@ -1151,6 +1159,7 @@ fun GridlinkRoot(
     // ⚠️ Declared here rather than beside the thread-animation state below, because [sendWithUndo]
     // is a local function and Kotlin will not let it close over a val declared after it.
     val scope = rememberCoroutineScope()
+    val replyAllFallback = stringResource(R.string.reply_all_original_unavailable)
 
     /** Send: close the composer, start the clock, keep everything needed to put it back. */
     fun sendWithUndo(request: GridlinkComposeRequest) {
@@ -2215,10 +2224,32 @@ fun GridlinkRoot(
                         // Every answer to a message goes out from the account it arrived at, which
                         // in the unified inbox is often not the active one. See
                         // [gridlinkSentFromOwner]; the From line can still change it.
-                        GridlinkThreadAction.REPLY ->
-                            composing = gridlinkSentFromOwner(gridlinkReplyTo(message), message.id)
-                        GridlinkThreadAction.REPLY_ALL ->
-                            composing = gridlinkSentFromOwner(gridlinkReplyAllTo(message), message.id)
+                        //
+                        // With a host, both read the original first: its Message-ID and References
+                        // thread the answer, and reply-all needs everyone who was on it, which the
+                        // list row does not carry. A plain reply whose original cannot be fetched
+                        // still opens (to the sender, unthreaded); a reply-all says it fell back.
+                        GridlinkThreadAction.REPLY, GridlinkThreadAction.REPLY_ALL -> {
+                            val all = action == GridlinkThreadAction.REPLY_ALL
+                            val rowBuilt = gridlinkSentFromOwner(
+                                if (all) gridlinkReplyAllTo(message) else gridlinkReplyTo(message),
+                                message.id,
+                            )
+                            val load = onLoadReplyOriginal
+                            if (load == null) {
+                                composing = rowBuilt
+                            } else {
+                                scope.launch {
+                                    composing = runCatching { load(message.id) }.fold(
+                                        onSuccess = { gridlinkAddressedReply(rowBuilt, it, all) },
+                                        onFailure = {
+                                            if (all) sendError = replyAllFallback
+                                            rowBuilt
+                                        },
+                                    )
+                                }
+                            }
+                        }
                         // 🔴 The files are taken over BEFORE the composer opens, the same way
                         // resuming a draft does it above, and for a related reason. A forward's
                         // chips used to be the reader's own, whose ids are part indexes no attacher

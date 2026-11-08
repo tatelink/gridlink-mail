@@ -224,6 +224,7 @@
     <string name="message_headers_title">Message headers</string>
     <string name="message_headers_empty">No headers to show</string>
     <string name="message_headers_error">Could not load headers:\n%1$s</string>
+    <string name="reply_all_original_unavailable">Could not load everyone on the original, so this reply goes to the sender only.</string>
     <string name="message_headers_loading">Loading headers…</string>
     <string name="message_headers_copy">Copy all</string>
     <string name="message_headers_close">Close</string>

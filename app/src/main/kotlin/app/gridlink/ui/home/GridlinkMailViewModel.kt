@@ -42,6 +42,7 @@ import app.gridlink.send.ScheduledSends
 import app.gridlink.snooze.Snoozes
 import app.gridlink.ui.components.AccountPalette
 import app.gridlink.ui.components.resolveAccountColors
+import app.gridlink.ui.gridlink.GridlinkAddress
 import app.gridlink.ui.gridlink.GridlinkAttachment
 import app.gridlink.ui.gridlink.GridlinkComposeDraft
 import app.gridlink.ui.gridlink.GridlinkFolder
@@ -62,6 +63,7 @@ import app.gridlink.ui.gridlink.GridlinkOpenFolder
 import app.gridlink.ui.gridlink.GridlinkOpenMessage
 import app.gridlink.ui.gridlink.GridlinkReceipt
 import app.gridlink.ui.gridlink.GridlinkReceiptState
+import app.gridlink.ui.gridlink.GridlinkReplyOriginal
 import app.gridlink.ui.gridlink.GridlinkRowKey
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 import app.gridlink.ui.gridlink.GridlinkScheduledContent
@@ -2139,6 +2141,18 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 recipientQuery = "",
                 subject = email.subject.orEmpty(),
                 body = formatted?.text ?: draftText(email),
+                // A resumed reply keeps its CC line and its place in the conversation.
+                cc = email.cc.filter { it.email.isNotBlank() }.map { address ->
+                    gridlinkTypedRecipient(address.email) ?: GridlinkContact(
+                        id = "typed:${address.email.lowercase()}",
+                        given = "",
+                        family = address.email,
+                        role = "",
+                        email = address.email,
+                    )
+                },
+                inReplyTo = email.inReplyTo,
+                references = email.references,
                 quoted = null,
                 attachments = emptyList(),
                 // What turns the eventual save into a replace and the eventual send into one that
@@ -2758,6 +2772,34 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
     suspend fun rawHeaders(rowKey: String): List<GridlinkHeader> {
         val (credentials, emailId) = checkNotNull(resolve(rowKey)) { "no account for this message" }
         return repo.rawHeaders(credentials, emailId).map { GridlinkHeader(it.name, it.value) }
+    }
+
+    /**
+     * What a reply to one message needs from the original: everyone on it, its Message-ID and
+     * References, and the sending account's own addresses so reply-all can leave them off.
+     *
+     * A row key for [rawHeaders]' reason: in the unified inbox the original belongs to the account
+     * its key names, and that account is also the one the reply goes out from. Not marked read: a
+     * reply opened from the list must not flip the message on the server as a side effect.
+     */
+    suspend fun replyOriginal(rowKey: String): GridlinkReplyOriginal {
+        val (credentials, emailId) = checkNotNull(resolve(rowKey)) { "no account for this message" }
+        val email = repo.fetchEmail(credentials, emailId)
+        val account = store.account(credentials.id)
+        val own = buildSet {
+            add(credentials.username.trim().lowercase())
+            account?.resolvedIdentities()?.forEach { add(it.email.trim().lowercase()) }
+        }.filter { it.isNotEmpty() }.toSet()
+        fun List<EmailAddress>.converted() =
+            filter { it.email.isNotBlank() }.map { GridlinkAddress(it.name.orEmpty(), it.email) }
+        return GridlinkReplyOriginal(
+            messageId = email.messageId,
+            references = email.references,
+            from = email.from.converted(),
+            to = email.to.converted(),
+            cc = email.cc.converted(),
+            ownAddresses = own,
+        )
     }
 
     fun setTag(rowKey: String, keyword: String, applied: Boolean) {

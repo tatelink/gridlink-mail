@@ -148,6 +148,7 @@
     <string name="message_headers_title">Encabezados del mensaje</string>
     <string name="message_headers_empty">No hay encabezados que mostrar</string>
     <string name="message_headers_error">No se pudieron cargar los encabezados:\n%1$s</string>
+    <string name="reply_all_original_unavailable">No se pudo cargar a todos los destinatarios del original, así que esta respuesta va solo al remitente.</string>
     <string name="message_headers_loading">Cargando encabezados…</string>
     <string name="message_headers_copy">Copiar todo</string>
     <string name="message_headers_close">Cerrar</string>

@@ -148,6 +148,7 @@
     <string name="message_headers_title">Заголовки письма</string>
     <string name="message_headers_empty">Нет заголовков для отображения</string>
     <string name="message_headers_error">Не удалось загрузить заголовки:\n%1$s</string>
+    <string name="reply_all_original_unavailable">Не удалось загрузить всех получателей исходного письма, поэтому ответ уйдёт только отправителю.</string>
     <string name="message_headers_loading">Загрузка заголовков…</string>
     <string name="message_headers_copy">Копировать всё</string>
     <string name="message_headers_close">Закрыть</string>

@@ -1305,17 +1305,14 @@ internal fun gridlinkReplyTo(message: GridlinkMessage): GridlinkComposeRequest {
 }
 
 /**
- * Builds a reply-all to [message].
+ * Builds a reply-all to [message] from the list row alone: the sender in TO and the "Reply all"
+ * title.
  *
- * ⚠️ **Right now this addresses exactly the same people [gridlinkReplyTo] does, and that is not a
- * bug in the button, it is the sample model.** [GridlinkMessage] carries one sender and no To or Cc
- * list, so there is literally nobody else on the message to add. Inventing a second recipient to
- * make the button look busier would put a name in a real-looking composer that no message ever
- * addressed, which §9 forbids and which is the sort of demo detail that survives into shipping code.
- *
- * What it does change is the title, so the composer says which of the two you pressed. When the JMAP
- * store lands this becomes `to + cc` minus your own identities, and it is the *minus* that matters:
- * every mail client that gets reply-all wrong gets it wrong by leaving you on the list.
+ * [GridlinkMessage] carries one sender and no To or Cc list, so this is only the starting point.
+ * The host fetches the original on the account that owns it and [gridlinkAddressedReply] replaces
+ * the addressing with [gridlinkReplyAllAddressing] (everyone on the original minus the sending
+ * account's own addresses, CC kept as CC) and adds the In-Reply-To and References. If that fetch
+ * fails the reply goes to the sender only and the composer says so.
  */
 internal fun gridlinkReplyAllTo(message: GridlinkMessage): GridlinkComposeRequest {
     val reply = gridlinkReplyTo(message)

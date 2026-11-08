@@ -148,6 +148,7 @@
     <string name="message_headers_title">Cabeçalhos da mensagem</string>
     <string name="message_headers_empty">Nenhum cabeçalho para mostrar</string>
     <string name="message_headers_error">Não foi possível carregar os cabeçalhos:\n%1$s</string>
+    <string name="reply_all_original_unavailable">Não foi possível carregar todos os destinatários do original, por isso esta resposta vai só para o remetente.</string>
     <string name="message_headers_loading">A carregar os cabeçalhos…</string>
     <string name="message_headers_copy">Copiar tudo</string>
     <string name="message_headers_close">Fechar</string>
