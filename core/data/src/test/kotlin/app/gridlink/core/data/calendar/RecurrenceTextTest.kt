@@ -116,6 +116,29 @@ class RecurrenceTextTest {
         )
     }
 
+    @Test fun aMonthlyRuleOnSeveralWeeksOfOneWeekdayNamesTheWeekdayOnce() {
+        assertEquals("Monthly on the first and third Monday", say("FREQ=MONTHLY;BYDAY=1MO,3MO"))
+        assertEquals("Monthly on the second and fourth Tuesday", say("FREQ=MONTHLY;BYDAY=4TU,2TU"))
+        assertEquals("Monthly on the first and last Friday", say("FREQ=MONTHLY;BYDAY=-1FR,1FR"))
+        // Different weekdays cannot share one noun, so each keeps its own.
+        assertEquals("Monthly on the first Monday and the third Wednesday", say("FREQ=MONTHLY;BYDAY=1MO,3WE"))
+    }
+
+    @Test fun bySetPosOverAWeekdaySetIsOneDayAMonthNotFive() {
+        assertEquals("Monthly on the last weekday", say("FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1"))
+        assertEquals("Monthly on the first weekday", say("FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=1"))
+        assertEquals("Monthly on the first and last weekend day", say("FREQ=MONTHLY;BYDAY=SA,SU;BYSETPOS=1,-1"))
+        assertEquals("Monthly on the last day", say("FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR,SA,SU;BYSETPOS=-1"))
+        assertEquals("Monthly on the second Monday", say("FREQ=MONTHLY;BYDAY=MO;BYSETPOS=2"))
+        assertEquals(
+            "Every 2 months on the last weekday, 6 times",
+            say("FREQ=MONTHLY;INTERVAL=2;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1;COUNT=6"),
+        )
+        // A set with no everyday name is still a monthly rule, and never a list of every weekday.
+        assertEquals("Monthly", say("FREQ=MONTHLY;BYDAY=MO,WE;BYSETPOS=1"))
+        assertEquals("Monthly", say("FREQ=MONTHLY;BYDAY=1MO,3MO;BYSETPOS=1"))
+    }
+
     @Test fun aRulePartThisCannotPhraseDegradesToTheFrequencyRatherThanToNothing() {
         // BYSETPOS is out of Recurrence's scope, so the day it names cannot be spoken. "Monthly" is
         // still true, and still more than the old bare word said.

@@ -57,7 +57,8 @@ class GridlinkRepeatTextTest {
     @Test
     fun `a monthly position the strings cannot say falls back to the frequency`() {
         assertEquals("Monatlich", gridlinkRepeatText(res, german, "FREQ=MONTHLY;BYDAY=-2MO", start))
-        assertEquals("Monatlich", gridlinkRepeatText(res, german, "FREQ=MONTHLY;BYDAY=1MO,3MO", start))
+        // Several weeks of one weekday are said now (GridlinkRepeatPositionsTest); two weekdays are not.
+        assertEquals("Monatlich", gridlinkRepeatText(res, german, "FREQ=MONTHLY;BYDAY=1MO,3WE", start))
     }
 
     @Test

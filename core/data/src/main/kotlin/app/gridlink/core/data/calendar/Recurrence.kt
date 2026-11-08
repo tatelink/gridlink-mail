@@ -17,8 +17,9 @@ enum class Freq { DAILY, WEEKLY, MONTHLY, YEARLY }
  * 🔴 Day, not instant. Everything downstream places events on a month grid, and the time of day of a
  * repeat is DTSTART's, unchanged, in the event's own zone. That is what lets this whole file work in
  * [LocalDate] and stay comprehensible. BYHOUR, BYMINUTE and BYSECOND are therefore not read: they
- * would change the time within a day and nothing here renders that difference. Neither is BYSETPOS,
- * which needs the full RFC 5545 expand/limit pipeline to mean anything.
+ * would change the time within a day and nothing here renders that difference. BYSETPOS is read
+ * into [bySetPos] so a rule can be described ("the last weekday"), but [Recurrence.expand] does not
+ * apply it: that needs the full RFC 5545 expand/limit pipeline.
  */
 data class RecurrenceRule(
     val freq: Freq,
@@ -38,6 +39,8 @@ data class RecurrenceRule(
     val byMonthDay: List<Int>,
     val byMonth: List<Int>,
     val weekStart: DayOfWeek,
+    /** BYSETPOS: which of each period's candidate days are kept. Described, never expanded. */
+    val bySetPos: List<Int> = emptyList(),
 )
 
 /**
@@ -75,6 +78,9 @@ object Recurrence {
     /** Most periods (days/weeks/months/years) the walk will examine before giving up. */
     const val MAX_PERIODS = 10_000
 
+    /** RFC 5545's bound on a BYSETPOS value: a position within a year's worth of days. */
+    private const val MAX_SET_POS = 366
+
     private val BY_CODE = mapOf(
         "SU" to DayOfWeek.SUNDAY, "MO" to DayOfWeek.MONDAY, "TU" to DayOfWeek.TUESDAY,
         "WE" to DayOfWeek.WEDNESDAY, "TH" to DayOfWeek.THURSDAY, "FR" to DayOfWeek.FRIDAY,
@@ -108,6 +114,8 @@ object Recurrence {
             byMonth = parts["BYMONTH"].orEmpty().split(',')
                 .mapNotNull { it.trim().toIntOrNull() }.filter { it in 1..12 },
             weekStart = parts["WKST"]?.uppercase()?.let { BY_CODE[it] } ?: DayOfWeek.MONDAY,
+            bySetPos = parts["BYSETPOS"].orEmpty().split(',')
+                .mapNotNull { it.trim().toIntOrNull() }.filter { it != 0 && it in -MAX_SET_POS..MAX_SET_POS },
         )
     }
 

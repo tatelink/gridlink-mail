@@ -1570,6 +1570,30 @@
     <string name="gl_rec_nth_last_fri">%1$s on the last Friday</string>
     <string name="gl_rec_nth_last_sat">%1$s on the last Saturday</string>
     <string name="gl_rec_nth_last_sun">%1$s on the last Sunday</string>
+    <!-- A monthly rule on several weeks of one weekday, or on a position of a weekday set
+         (BYSETPOS). gl_rec_pos_*: the ordinal in the form its target needs, an ICU select
+         keyed first..fifth, with "other" for the last. gl_rec_nths_*: the phrase around the
+         list of those ordinals, %1$s the frequency, %2$s e.g. "first and third". -->
+    <string name="gl_rec_pos_mon">{0, select, first {first} second {second} third {third} fourth {fourth} fifth {fifth} other {last}}</string>
+    <string name="gl_rec_pos_tue">{0, select, first {first} second {second} third {third} fourth {fourth} fifth {fifth} other {last}}</string>
+    <string name="gl_rec_pos_wed">{0, select, first {first} second {second} third {third} fourth {fourth} fifth {fifth} other {last}}</string>
+    <string name="gl_rec_pos_thu">{0, select, first {first} second {second} third {third} fourth {fourth} fifth {fifth} other {last}}</string>
+    <string name="gl_rec_pos_fri">{0, select, first {first} second {second} third {third} fourth {fourth} fifth {fifth} other {last}}</string>
+    <string name="gl_rec_pos_sat">{0, select, first {first} second {second} third {third} fourth {fourth} fifth {fifth} other {last}}</string>
+    <string name="gl_rec_pos_sun">{0, select, first {first} second {second} third {third} fourth {fourth} fifth {fifth} other {last}}</string>
+    <string name="gl_rec_pos_weekday">{0, select, first {first} second {second} third {third} fourth {fourth} fifth {fifth} other {last}}</string>
+    <string name="gl_rec_pos_weekend">{0, select, first {first} second {second} third {third} fourth {fourth} fifth {fifth} other {last}}</string>
+    <string name="gl_rec_pos_day">{0, select, first {first} second {second} third {third} fourth {fourth} fifth {fifth} other {last}}</string>
+    <string name="gl_rec_nths_mon">%1$s on the %2$s Monday</string>
+    <string name="gl_rec_nths_tue">%1$s on the %2$s Tuesday</string>
+    <string name="gl_rec_nths_wed">%1$s on the %2$s Wednesday</string>
+    <string name="gl_rec_nths_thu">%1$s on the %2$s Thursday</string>
+    <string name="gl_rec_nths_fri">%1$s on the %2$s Friday</string>
+    <string name="gl_rec_nths_sat">%1$s on the %2$s Saturday</string>
+    <string name="gl_rec_nths_sun">%1$s on the %2$s Sunday</string>
+    <string name="gl_rec_nths_weekday">%1$s on the %2$s weekday</string>
+    <string name="gl_rec_nths_weekend">%1$s on the %2$s weekend day</string>
+    <string name="gl_rec_nths_day">%1$s on the %2$s day</string>
     <plurals name="gl_rec_times">
         <item quantity="one">%1$d time</item>
         <item quantity="other">%1$d times</item>
