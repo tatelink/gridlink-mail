@@ -286,6 +286,7 @@ class GridlinkComposeScreenTest {
         tapSend()
         assertEquals(GridlinkFrom("work", "tate@work.test"), sent.single().draft.from)
     }
+
     @Test
     fun aReplyAllsCcRow_showsTheCopiedPeople_andSendKeepsThemInCcWithTheThreading() {
         val draft = GridlinkComposeDraft.Fresh.copy(

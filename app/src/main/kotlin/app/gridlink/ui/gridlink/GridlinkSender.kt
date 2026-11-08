@@ -242,8 +242,8 @@ class GridlinkOutboxSender(
         val draft = request.draft
         val origin = origin(draft) ?: error("No account to keep a draft on.")
         val credentials = origin.credentials
-        val emptied = draft.recipients.isEmpty() && draft.cc.isEmpty() && draft.subject.isBlank() && draft.body.isBlank() &&
-            draft.attachments.isEmpty()
+        val emptied = draft.recipients.isEmpty() && draft.cc.isEmpty() && draft.subject.isBlank() &&
+            draft.body.isBlank() && draft.attachments.isEmpty()
         if (emptied) {
             // The composer only reports an empty draft when there IS a server copy to retire
             // (an emptied fresh compose reports null and never reaches here): the user opened a

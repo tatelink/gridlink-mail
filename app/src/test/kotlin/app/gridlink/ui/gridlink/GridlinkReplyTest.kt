@@ -67,7 +67,11 @@ class GridlinkReplyTest {
     @Test
     fun replyAll_whenYouWereTheOnlyTo_ccMovesUpRatherThanLeavingToEmpty() {
         val r = gridlinkReplyAllAddressing(
-            original(from = listOf(a("avery@gridlink.me")), to = listOf(a("avery@gridlink.me")), cc = listOf(a("lee@example.com"))),
+            original(
+                from = listOf(a("avery@gridlink.me")),
+                to = listOf(a("avery@gridlink.me")),
+                cc = listOf(a("lee@example.com")),
+            ),
         )
         assertEquals(listOf("lee@example.com"), emails(r.to))
         assertEquals(emptyList<String>(), emails(r.cc))
