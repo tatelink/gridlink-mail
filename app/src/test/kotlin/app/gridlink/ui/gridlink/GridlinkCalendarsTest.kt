@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 import app.gridlink.core.data.account.CalendarPrefs
 import app.gridlink.core.data.calendar.CalendarOccurrence
 import app.gridlink.core.data.db.DavCollectionEntity
+import app.gridlink.ui.theme.GridlinkLook
 import app.gridlink.ui.theme.GridlinkMode
 import app.gridlink.ui.theme.GridlinkSenderBars
 import app.gridlink.ui.theme.gridlinkColorsFor
@@ -69,13 +70,14 @@ class GridlinkCalendarsTest {
     }
 
     @Test fun `a calendar without a server colour takes a ramp slot by position, so two never clash`() {
-        val ramp = GridlinkSenderBars.forMode(GridlinkMode.DAY)
-        assertEquals(ramp[0], gridlinkCalendarColor(GridlinkMode.DAY, GridlinkCalendarTint(null, 0)))
-        assertEquals(ramp[1], gridlinkCalendarColor(GridlinkMode.DAY, GridlinkCalendarTint(null, 1)))
-        assertEquals(ramp[0], gridlinkCalendarColor(GridlinkMode.DAY, GridlinkCalendarTint(null, ramp.size)))
+        val day = GridlinkLook(GridlinkMode.DAY)
+        val ramp = GridlinkSenderBars.forLook(day)
+        assertEquals(ramp[0], gridlinkCalendarColor(day, GridlinkCalendarTint(null, 0)))
+        assertEquals(ramp[1], gridlinkCalendarColor(day, GridlinkCalendarTint(null, 1)))
+        assertEquals(ramp[0], gridlinkCalendarColor(day, GridlinkCalendarTint(null, ramp.size)))
         assertEquals(
             Color(0xFF112233),
-            gridlinkCalendarColor(GridlinkMode.DAY, GridlinkCalendarTint(0xFF112233L, 3)),
+            gridlinkCalendarColor(day, GridlinkCalendarTint(0xFF112233L, 3)),
         )
     }
 
@@ -88,16 +90,16 @@ class GridlinkCalendarsTest {
         assertEquals("jmap:calendar/b", multi.calendarId)
         assertEquals(GridlinkCalendarTint(null, 1), multi.calendarTint)
         assertEquals(
-            gridlinkCalendarColor(GridlinkMode.DAY, GridlinkCalendarTint(null, 1)),
-            gridlinkEventColor(GridlinkMode.DAY, multi),
+            gridlinkCalendarColor(GridlinkLook(GridlinkMode.DAY), GridlinkCalendarTint(null, 1)),
+            gridlinkEventColor(GridlinkLook(GridlinkMode.DAY), multi),
         )
 
         // One calendar: the theme's accent (the organiser colour came out grey on a filled block).
         val single = GridlinkDavMapping.event(occurrence("jmap:calendar/a"), "gridlink.me", two.take(1), TEXT)
         assertNull(single.calendarTint)
         assertEquals(
-            gridlinkColorsFor(GridlinkMode.DAY).accent,
-            gridlinkEventColor(GridlinkMode.DAY, single),
+            gridlinkColorsFor(GridlinkLook(GridlinkMode.DAY)).accent,
+            gridlinkEventColor(GridlinkLook(GridlinkMode.DAY), single),
         )
     }
 

@@ -13,7 +13,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -45,6 +44,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,7 +52,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
@@ -64,10 +66,12 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.gridlink.R
+import app.gridlink.core.data.settings.GridlinkPreset
 import app.gridlink.ui.theme.GRIDLINK_LADDER_MODES
-import app.gridlink.ui.theme.GRIDLINK_PRESET_MODES
+import app.gridlink.ui.theme.GRIDLINK_PRESETS
 import app.gridlink.ui.theme.GridlinkColors
 import app.gridlink.ui.theme.GridlinkDimens
+import app.gridlink.ui.theme.GridlinkLook
 import app.gridlink.ui.theme.GridlinkMode
 import app.gridlink.ui.theme.GridlinkMotion
 import app.gridlink.ui.theme.GridlinkRadii
@@ -75,7 +79,6 @@ import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
 import app.gridlink.ui.theme.gridlinkColorsFor
-import app.gridlink.ui.theme.isLightSurface
 
 /**
  * The app's own row of chrome, above every screen, and the sheet the menu opens.
@@ -515,6 +518,10 @@ fun GridlinkMenuPanel(
     lastSyncedAt: Long? = null,
     counts: Map<GridlinkMenuItem, Int> = emptyMap(),
     accountCount: Int = 1,
+    /** The colour family, chosen independently of [mode]. */
+    preset: GridlinkPreset = GridlinkPreset.CLASSIC,
+    /** Where a colour choice goes. Like [onSelectMode], it must not close the panel. */
+    onSelectPreset: (GridlinkPreset) -> Unit = {},
     /**
      * The account's mailboxes, nested as the server nests them. Empty draws no folder group at all,
      * which is the honest state before anything has said what the mailboxes are.
@@ -654,9 +661,10 @@ fun GridlinkMenuPanel(
         // account. The things that are always the same distance away belong where the drawer opens.
         GridlinkSheetDivider()
         GridlinkModeRow(
-            mode = mode,
+            look = GridlinkLook(mode, preset),
             followingClock = followingClock,
-            onSelect = onSelectMode,
+            onSelectMode = onSelectMode,
+            onSelectPreset = onSelectPreset,
         )
         MenuRow(GridlinkMenuItem.SETTINGS, counts, accountCount, onSelect)
 
@@ -978,7 +986,8 @@ internal fun gridlinkSyncAge(resources: Resources, elapsedMs: Long): String {
 private val MODE_TRACK_PAD = 4.dp
 
 /**
- * Day / Night / OLED, plus Auto, as one segmented track across the sheet.
+ * Day / Night / OLED, plus Auto, as one segmented track across the sheet, with the colour dots
+ * under it.
  *
  * ## Why a segmented track and not a row that opens a picker
  * This is a control you use by looking at the result, and every extra screen between the tap and the
@@ -986,12 +995,9 @@ private val MODE_TRACK_PAD = 4.dp
  * and the sheet stays open while you try them, so the palette changes *under* the sheet and you can
  * see it happen. A picker would have been two taps to see one colour.
  *
- * ## Why "Auto" is a segment and its resolved mode is a readout
- * The four segments are equal width, which leaves no room for the old pill's "Auto · Day" label.
- * Splitting it works out better than it sounds: the segment says what the setting IS and the line
- * above says what it currently RESOLVES to, which were always two facts sharing one chip. The
- * readout only appears while Auto is on, because with a mode picked the lit segment already says it
- * and repeating it would invite the eye to compare two things that cannot disagree.
+ * ## The readout names what is painted right now
+ * Rung and colour, for example "Night · Ember", with "Auto" in front while the clock is choosing the
+ * rung. The segments say what the setting IS; the readout says what it currently RESOLVES to.
  *
  * ⚠️ Inactive segments are not dimmed. The app's rule is that opacity must never carry on/off, so
  * the active segment is marked by a filled pill and everything else keeps full-strength secondary
@@ -999,9 +1005,10 @@ private val MODE_TRACK_PAD = 4.dp
  */
 @Composable
 private fun GridlinkModeRow(
-    mode: GridlinkMode,
+    look: GridlinkLook,
     followingClock: Boolean,
-    onSelect: (GridlinkMode?) -> Unit,
+    onSelectMode: (GridlinkMode?) -> Unit,
+    onSelectPreset: (GridlinkPreset) -> Unit,
 ) {
     val colors = GridlinkTheme.colors
     Column(
@@ -1017,29 +1024,30 @@ private fun GridlinkModeRow(
                 modifier = Modifier.size(20.dp),
             )
             Text(
-                text = "Appearance",
+                text = stringResource(R.string.settings_appearance_title),
                 modifier = Modifier
                     .padding(start = GridlinkSpacing.s16)
                     .weight(1f),
                 style = GridlinkType.senderName,
                 color = colors.textPrimary,
             )
-            if (followingClock || mode in GRIDLINK_PRESET_MODES) {
-                Text(
-                    text = when {
-                        followingClock -> "Auto · ${mode.label}"
-                        else -> "${mode.presetRung.label} · ${mode.label}"
-                    },
-                    style = GridlinkType.metadata,
-                    color = colors.textSecondary,
-                )
-            }
+            val parts = listOfNotNull(
+                stringResource(R.string.gridlink_mode_auto).takeIf { followingClock },
+                look.mode.label(),
+                look.preset.label(),
+            )
+            Text(
+                text = parts.joinToString(" · "),
+                style = GridlinkType.metadata,
+                color = colors.textSecondary,
+            )
         }
         Spacer(Modifier.height(GridlinkSpacing.s12))
         GridlinkPalettePicker(
-            mode = mode,
+            look = look,
             followingClock = followingClock,
-            onSelect = onSelect,
+            onSelectMode = onSelectMode,
+            onSelectPreset = onSelectPreset,
             // Indented to the same line the row labels start on, so the track reads as this row's
             // content rather than as a band across the sheet.
             modifier = Modifier.padding(start = 20.dp + GridlinkSpacing.s16),
@@ -1048,55 +1056,57 @@ private fun GridlinkModeRow(
 }
 
 /**
- * The Auto / Day / Night / OLED track and the colour dots under it: the whole palette choice.
+ * The Auto / Day / Night / OLED track and the colour dots under it: the whole appearance choice.
+ *
+ * ## 🔴 Two independent axes
+ * The track picks the brightness, the dots pick the colour, and every pair is valid (Brandon,
+ * 2026-11-08: "any colour, any mode"). Tapping a rung keeps the colour; tapping a colour keeps the
+ * rung, Auto included. Each dot previews its colour IN the current rung, so on OLED the dots are
+ * black with a coloured centre and on Day they are pale washes: what you see is what you get.
  *
  * Shared by the drawer and by Settings > Appearance, so the two can never offer different choices
- * or draw them differently. Both write the same stored palette; the drawer through the chrome, which
+ * or draw them differently. Both write the same stored values; the drawer through the chrome, which
  * repaints at once, and Settings through the store, which the settings host reads back.
  */
 @Composable
 fun GridlinkPalettePicker(
-    mode: GridlinkMode,
+    look: GridlinkLook,
     followingClock: Boolean,
-    onSelect: (GridlinkMode?) -> Unit,
+    onSelectMode: (GridlinkMode?) -> Unit,
+    onSelectPreset: (GridlinkPreset) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val colors = GridlinkTheme.colors
     Column(modifier = modifier.fillMaxWidth()) {
         GridlinkPillTrack(modifier = Modifier.fillMaxWidth()) {
             GridlinkPillChoice(
-                label = "Auto",
+                label = stringResource(R.string.gridlink_mode_auto),
                 active = followingClock,
-                onClick = { onSelect(null) },
+                onClick = { onSelectMode(null) },
                 modifier = Modifier.weight(1f),
             )
             GRIDLINK_LADDER_MODES.forEach { candidate ->
                 GridlinkPillChoice(
-                    label = candidate.label,
-                    active = !followingClock && candidate == mode,
-                    // A colour preset is a Night (or, for Sand, a Day) with its hue changed, so the
-                    // rung it is built on stays lit beside it instead of the track going blank,
-                    // which read as no mode being set at all. Outlined rather than filled: the
-                    // filled pill means "this exact palette", and tapping the outlined rung goes
-                    // back to that rung's own colours.
-                    underPreset = !followingClock && mode in GRIDLINK_PRESET_MODES && candidate == mode.presetRung,
-                    onClick = { onSelect(candidate) },
+                    label = candidate.label(),
+                    active = !followingClock && candidate == look.mode,
+                    onClick = { onSelectMode(candidate) },
                     modifier = Modifier.weight(1f),
                 )
             }
         }
         Spacer(Modifier.height(GridlinkSpacing.s8))
-        // Under the track rather than in it: five more segments would not fit a phone-width panel.
+        // Under the track rather than in it: six more segments would not fit a phone-width panel.
+        // Six equal slots, one per colour, so the dots line up under the track at any panel width.
+        // Fixed 44 dp dots overflowed the drawer on a phone and squeezed the last one (Sand).
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            GRIDLINK_PRESET_MODES.forEach { preset ->
+            GRIDLINK_PRESETS.forEach { preset ->
                 PresetDot(
-                    preset = preset,
-                    active = !followingClock && preset == mode,
-                    onClick = { onSelect(preset) },
+                    swatchLook = GridlinkLook(look.mode, preset),
+                    active = preset == look.preset,
+                    onClick = { onSelectPreset(preset) },
+                    modifier = Modifier.weight(1f),
                 )
             }
         }
@@ -1104,73 +1114,102 @@ fun GridlinkPalettePicker(
 }
 
 /**
- * The preset's page colour with its accent inside, so a dot previews both.
+ * The colour's page in the current rung with its accent inside, so a dot previews both.
  *
  * ## 🔴 The selection ring sits OUTSIDE the swatch, with a gap
  * The old ring was the swatch's own border thickened, in the text colour. On Sand, whose page is a
  * pale beige, the swatch edge already read as a light ring, so Sand looked selected all the time
  * and the real choice was hard to find. Every dot now has the same hairline edge, and the chosen
  * one gets a separate ring in the accent with a clear gap, which no swatch colour can imitate.
+ *
+ * The edge is drawn in the secondary text colour rather than the panel border, because on OLED every
+ * swatch is black on a near-black panel and the edge is the only thing outlining it.
  */
 @Composable
-private fun PresetDot(preset: GridlinkMode, active: Boolean, onClick: () -> Unit) {
+private fun PresetDot(
+    swatchLook: GridlinkLook,
+    active: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val colors = GridlinkTheme.colors
-    val swatch = gridlinkColorsFor(preset)
+    val swatch = gridlinkColorsFor(swatchLook)
+    val description = stringResource(R.string.gridlink_colour_choice, swatchLook.preset.label())
+    val fill = swatch.gradient?.takeIf { it.size >= 2 }?.let { Brush.verticalGradient(it) }
+        ?: SolidColor(swatch.background)
+    // The whole slot is the touch target (full slot width, 48 dp tall), the dot is drawn inside it.
     Box(
-        modifier = Modifier
-            .size(44.dp)
-            .clip(CircleShape)
+        modifier = modifier
+            .height(48.dp)
+            .clip(MODE_TRACK_SHAPE)
             .semantics {
-                contentDescription = "${preset.label} colour preset"
+                contentDescription = description
                 selected = active
             }
-            .clickable(role = Role.Button, onClick = onClick)
-            .then(
-                if (active) {
-                    Modifier.padding(PRESET_RING_INSET).border(2.dp, colors.accent, CircleShape)
-                } else {
-                    Modifier
-                },
-            ),
+            .clickable(role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Box(
             modifier = Modifier
-                .size(30.dp)
-                .background(swatch.background, CircleShape)
-                .border(
-                    width = GridlinkDimens.hairline,
-                    color = colors.surfaceBorder,
-                    shape = CircleShape,
+                .size(40.dp)
+                .then(
+                    if (active) {
+                        Modifier.padding(PRESET_RING_INSET).border(2.dp, colors.accent, CircleShape)
+                    } else {
+                        Modifier
+                    },
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            Box(modifier = Modifier.size(14.dp).background(swatch.accent, CircleShape))
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .background(fill, CircleShape)
+                    .border(
+                        width = GridlinkDimens.hairline,
+                        color = colors.textSecondary.copy(alpha = SWATCH_EDGE_ALPHA),
+                        shape = CircleShape,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(modifier = Modifier.size(13.dp).background(swatch.accent, CircleShape))
+            }
         }
     }
 }
 
 private val MODE_TRACK_SHAPE = RoundedCornerShape(GridlinkRadii.pill)
 
-/** How far the selected dot's ring sits in from the touch target, leaving a gap round the swatch. */
+/** How far the selected dot's ring sits in from its 40 dp box, leaving a gap round the swatch. */
 private val PRESET_RING_INSET = 2.dp
 
-/** The rung a colour preset is built on: Night for the dark ones, Day for Sand. */
-private val GridlinkMode.presetRung: GridlinkMode
-    get() = if (isLightSurface) GridlinkMode.DAY else GridlinkMode.NIGHT
+/** Strong enough to outline a black swatch on OLED, faint enough not to read as a selection ring. */
+private const val SWATCH_EDGE_ALPHA = 0.45f
 
-/** How the three palettes name themselves anywhere a user can see them. */
-private val GridlinkMode.label: String
-    get() = when (this) {
-        GridlinkMode.DAY -> "Day"
-        GridlinkMode.NIGHT -> "Night"
-        GridlinkMode.OLED -> "OLED"
-        GridlinkMode.GRAPHITE -> "Graphite"
-        GridlinkMode.DEEP_BLUE -> "Deep Blue"
-        GridlinkMode.EMBER -> "Ember"
-        GridlinkMode.FOREST -> "Forest"
-        GridlinkMode.SAND -> "Sand"
-    }
+/** How a rung names itself anywhere a user can see it. */
+@Composable
+@ReadOnlyComposable
+internal fun GridlinkMode.label(): String = stringResource(
+    when (this) {
+        GridlinkMode.DAY -> R.string.gridlink_mode_day
+        GridlinkMode.NIGHT -> R.string.gridlink_mode_night
+        GridlinkMode.OLED -> R.string.gridlink_mode_oled
+    },
+)
+
+/** How a colour family names itself anywhere a user can see it. */
+@Composable
+@ReadOnlyComposable
+internal fun GridlinkPreset.label(): String = stringResource(
+    when (this) {
+        GridlinkPreset.CLASSIC -> R.string.gridlink_colour_classic
+        GridlinkPreset.GRAPHITE -> R.string.gridlink_colour_graphite
+        GridlinkPreset.DEEP_BLUE -> R.string.gridlink_colour_deep_blue
+        GridlinkPreset.EMBER -> R.string.gridlink_colour_ember
+        GridlinkPreset.FOREST -> R.string.gridlink_colour_forest
+        GridlinkPreset.SAND -> R.string.gridlink_colour_sand
+    },
+)
 
 /**
  * The rounded track the Auto / Day / Night / OLED choice sits in, holding [GridlinkPillChoice]s.
@@ -1206,25 +1245,13 @@ internal fun GridlinkPillChoice(
     active: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    underPreset: Boolean = false,
 ) {
     val colors = GridlinkTheme.colors
     Box(
         modifier = modifier
             .background(
-                color = when {
-                    active -> colors.accent
-                    underPreset -> colors.accent.copy(alpha = 0.16f)
-                    else -> Color.Transparent
-                },
+                color = if (active) colors.accent else Color.Transparent,
                 shape = MODE_TRACK_SHAPE,
-            )
-            .then(
-                if (underPreset) {
-                    Modifier.border(GridlinkDimens.hairline, colors.accent, MODE_TRACK_SHAPE)
-                } else {
-                    Modifier
-                },
             )
             .clip(MODE_TRACK_SHAPE)
             .clickable(onClick = onClick)
@@ -1234,11 +1261,7 @@ internal fun GridlinkPillChoice(
         Text(
             text = label,
             style = GridlinkType.toolbarLabel,
-            color = when {
-                active -> colors.onAccent
-                underPreset -> colors.textPrimary
-                else -> colors.textSecondary
-            },
+            color = if (active) colors.onAccent else colors.textSecondary,
             textAlign = TextAlign.Center,
         )
     }

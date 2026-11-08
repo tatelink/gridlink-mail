@@ -772,7 +772,7 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val previewLines by viewModel.previewLines.collectAsStateWithLifecycle()
     val bundleAutomated by viewModel.bundleAutomated.collectAsStateWithLifecycle()
     val appIcon by viewModel.appIcon.collectAsStateWithLifecycle()
-    val palette by viewModel.gridlinkPalette.collectAsStateWithLifecycle()
+    val appearance by viewModel.gridlinkAppearance.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var language by remember { mutableStateOf(currentAppLanguage()) }
     DetailScaffold(title = stringResource(R.string.settings_appearance_screen_title), onBack = onBack) { padding ->
@@ -800,9 +800,10 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
             // repaints the page it was made on. (Polish pass, 2026-11-07.)
             SettingsSection(stringResource(R.string.settings_theme_section)) {
                 GridlinkPalettePicker(
-                    mode = GridlinkTheme.mode,
-                    followingClock = palette == GridlinkPalette.AUTO,
-                    onSelect = { viewModel.setGridlinkPalette(it.toGridlinkPalette()) },
+                    look = GridlinkTheme.look,
+                    followingClock = appearance.palette == GridlinkPalette.AUTO,
+                    onSelectMode = { viewModel.setGridlinkPalette(it.toGridlinkPalette()) },
+                    onSelectPreset = viewModel::setGridlinkPreset,
                     modifier = Modifier.padding(
                         horizontal = GridlinkSpacing.rowHorizontal,
                         vertical = GridlinkSpacing.s8,

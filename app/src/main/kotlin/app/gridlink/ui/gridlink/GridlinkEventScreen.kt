@@ -133,7 +133,7 @@ fun GridlinkEventScreen(
     onRemoveAttachment: ((GridlinkEvent, GridlinkAttachment) -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
-    val mode = GridlinkTheme.mode
+    val mode = GridlinkTheme.look
     val context = LocalContext.current
     val res = context.resources
     val clipboard = LocalClipboardManager.current
@@ -520,7 +520,7 @@ fun GridlinkEventScreen(
 @Composable
 private fun GridlinkEventHtmlNotes(notes: String, modifier: Modifier = Modifier) {
     val colors = GridlinkTheme.colors
-    val mode = GridlinkTheme.mode
+    val mode = GridlinkTheme.look
     val density = LocalDensity.current
     // Keyed on the document: opening a second event reuses this composable, and a height left over
     // from the last one would clip a longer note until its own measurement landed.

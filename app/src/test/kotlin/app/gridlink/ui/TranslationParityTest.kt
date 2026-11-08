@@ -92,7 +92,7 @@ class TranslationParityTest {
             "settings_language_english", "settings_language_french", "settings_language_spanish",
             "settings_language_german", "settings_language_italian", "settings_language_portuguese",
             "settings_language_dutch", "settings_language_russian", "settings_language_polish",
-            "settings_app_icon_oled",
+            "settings_app_icon_oled", "gridlink_mode_oled",
             "settings_protocol_imap_smtp", "settings_protocol_jmap", "connect_jmap", "connect_imap_smtp",
             "settings_security_tls", "settings_security_starttls",
             "connect_security_ssl_tls", "connect_security_starttls",

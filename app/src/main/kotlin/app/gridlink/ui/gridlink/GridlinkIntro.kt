@@ -30,8 +30,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
-import app.gridlink.core.data.settings.GridlinkPalette
-import app.gridlink.ui.theme.GridlinkMode
+import app.gridlink.core.data.settings.GridlinkAppearance
+import app.gridlink.ui.theme.GridlinkLook
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -642,20 +642,20 @@ private const val GRIDLINK_INTRO_SKIP_FADE_MS = 110
  * intro plays Night and then the app underneath paints Day, one frame after the fade completes.
  * Both sides run the same clock and honour the same stored pin, which is what keeps them agreeing.
  * That used to be a warning here that the day the override was persisted this would flash the wrong
- * palette at everyone who pinned one; [palette] is that day arriving, and is why the parameter is
+ * palette at everyone who pinned one; [appearance] is that day arriving, and is why the parameter is
  * not optional.
  *
- * ⚠️ A thin alias over [rememberGridlinkMode], kept for the name at the call site. The two lines it
+ * ⚠️ A thin alias over [rememberGridlinkLook], kept for the name at the call site. The two lines it
  * used to hold now live there, because settings needs the same answer and two copies of a rule
  * nothing cross-checks is how the palettes drift apart in the first place.
  *
- * ⚠️ Keyed on [palette], so it re-resolves when the stored value lands. The caller collects with a
- * default of [GridlinkPalette.AUTO] rather than holding the overlay back, unlike the app
+ * ⚠️ Keyed on [appearance], so it re-resolves when the stored value lands. The caller collects with a
+ * default of Auto in the classic colours rather than holding the overlay back, unlike the app
  * underneath: an intro is 1.5 seconds of animation the user may skip, and stalling the whole
  * launch behind a disk read to be certain about it would cost more than the rare wrong first frame.
  */
 @Composable
-fun rememberGridlinkIntroMode(palette: GridlinkPalette): GridlinkMode = rememberGridlinkMode(palette)
+fun rememberGridlinkIntroLook(appearance: GridlinkAppearance): GridlinkLook = rememberGridlinkLook(appearance)
 
 /**
  * The launch screen: the app's own backdrop, with the mark assembling itself on it, fading out onto

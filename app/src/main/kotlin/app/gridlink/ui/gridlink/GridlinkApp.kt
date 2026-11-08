@@ -12,7 +12,10 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import app.gridlink.core.data.settings.GridlinkAppearance
 import app.gridlink.core.data.settings.GridlinkPalette
+import app.gridlink.core.data.settings.GridlinkPreset
+import app.gridlink.ui.theme.GridlinkLook
 import app.gridlink.ui.theme.GridlinkMode
 import app.gridlink.ui.theme.ProvideGridlinkTokens
 import app.gridlink.ui.theme.gridlinkModeAt
@@ -79,6 +82,7 @@ class GridlinkChromeState(
     initialModeOverride: GridlinkMode? = null,
     initialLastSyncedAt: Long? = null,
     val menuOpenAtStart: Boolean = false,
+    initialPreset: GridlinkPreset = GridlinkPreset.CLASSIC,
     initialConfig: GridlinkChromeConfig = GridlinkChromeConfig(),
 ) {
     /**
@@ -237,6 +241,19 @@ class GridlinkChromeState(
 
     val followingClock: Boolean get() = modeOverride == null
 
+    /** The colour family, independent of [mode]: any colour works at any rung. */
+    var preset by mutableStateOf(initialPreset)
+        private set
+
+    /** What is actually painted: the resolved rung in the chosen colour. */
+    val look: GridlinkLook get() = GridlinkLook(mode, preset)
+
+    /** Picks a colour and keeps the rung. Applied first, persisted second, as [selectMode] does. */
+    fun selectPreset(preset: GridlinkPreset) {
+        this.preset = preset
+        config.onSelectPreset(preset)
+    }
+
     /**
      * Pass null to hand the palette back to the clock.
      *
@@ -331,6 +348,9 @@ class GridlinkChromeState(
          * supplied fresh by the caller on restore, which is correct anyway, since it is live
          * objects and not saved facts.
          */
+        /** Where [saver] keeps the colour: appended last, so older slots keep their positions. */
+        private const val SAVED_PRESET_SLOT = 5
+
         fun saver(config: GridlinkChromeConfig): Saver<GridlinkChromeState, Any> = listSaver(
             save = {
                 listOf(
@@ -339,6 +359,7 @@ class GridlinkChromeState(
                     it.modeOverride?.name.orEmpty(),
                     it.lastSyncedAt ?: -1L,
                     it.menuOpenAtStart,
+                    it.preset.name,
                 )
             },
             restore = { saved ->
@@ -350,6 +371,7 @@ class GridlinkChromeState(
                         ?.let(GridlinkMode::valueOf),
                     initialLastSyncedAt = (saved[3] as Long).takeIf { it >= 0L },
                     menuOpenAtStart = saved[4] as Boolean,
+                    initialPreset = GridlinkPreset.valueOf(saved[SAVED_PRESET_SLOT] as String),
                     initialConfig = config,
                 )
             },
@@ -424,6 +446,8 @@ class GridlinkChromeConfig(
      * whole job is to sit in one named palette for one screenshot and forget it afterwards.
      */
     val onSelectMode: (GridlinkMode?) -> Unit = {},
+    /** Where a colour choice goes to be remembered. Same contract as [onSelectMode]. */
+    val onSelectPreset: (GridlinkPreset) -> Unit = {},
     /**
      * The merged-inbox pair for the drawer, or null to draw neither row.
      *
@@ -487,11 +511,6 @@ fun GridlinkPalette.toModeOverride(): GridlinkMode? = when (this) {
     GridlinkPalette.DAY -> GridlinkMode.DAY
     GridlinkPalette.NIGHT -> GridlinkMode.NIGHT
     GridlinkPalette.OLED -> GridlinkMode.OLED
-    GridlinkPalette.GRAPHITE -> GridlinkMode.GRAPHITE
-    GridlinkPalette.DEEP_BLUE -> GridlinkMode.DEEP_BLUE
-    GridlinkPalette.EMBER -> GridlinkMode.EMBER
-    GridlinkPalette.FOREST -> GridlinkMode.FOREST
-    GridlinkPalette.SAND -> GridlinkMode.SAND
 }
 
 /**
@@ -518,17 +537,17 @@ fun rememberGridlinkMode(palette: GridlinkPalette): GridlinkMode = remember(pale
     palette.toModeOverride() ?: gridlinkModeAt(ZonedDateTime.now())
 }
 
+/** [rememberGridlinkMode] in the stored colour: the look a subtree outside the chrome paints. */
+@Composable
+fun rememberGridlinkLook(appearance: GridlinkAppearance): GridlinkLook =
+    GridlinkLook(rememberGridlinkMode(appearance.palette), appearance.preset)
+
 /** The inverse of [toModeOverride]: what to write down when the user taps a pill. */
 fun GridlinkMode?.toGridlinkPalette(): GridlinkPalette = when (this) {
     null -> GridlinkPalette.AUTO
     GridlinkMode.DAY -> GridlinkPalette.DAY
     GridlinkMode.NIGHT -> GridlinkPalette.NIGHT
     GridlinkMode.OLED -> GridlinkPalette.OLED
-    GridlinkMode.GRAPHITE -> GridlinkPalette.GRAPHITE
-    GridlinkMode.DEEP_BLUE -> GridlinkPalette.DEEP_BLUE
-    GridlinkMode.EMBER -> GridlinkPalette.EMBER
-    GridlinkMode.FOREST -> GridlinkPalette.FOREST
-    GridlinkMode.SAND -> GridlinkPalette.SAND
 }
 
 val LocalGridlinkChrome = staticCompositionLocalOf { GridlinkChromeState() }
@@ -556,6 +575,8 @@ fun GridlinkApp(
      * the whole subtree back for the one frame that takes.
      */
     initialModeOverride: GridlinkMode? = null,
+    /** The colour to open in. Read once, for [initialModeOverride]'s reason. */
+    initialPreset: GridlinkPreset = GridlinkPreset.CLASSIC,
     menuOpenAtStart: Boolean = false,
     /**
      * Who is signed in and what the chrome's actions do. Defaults to the sample; a real build
@@ -585,6 +606,7 @@ fun GridlinkApp(
             initialModeOverride = initialModeOverride,
             initialLastSyncedAt = initialLastSyncedAt,
             menuOpenAtStart = menuOpenAtStart,
+            initialPreset = initialPreset,
             initialConfig = config,
         )
     }
@@ -594,6 +616,6 @@ fun GridlinkApp(
     // itself: an equal-but-new instance every frame would recompose the menu sheet every frame.
     SideEffect { chrome.config = config }
     CompositionLocalProvider(LocalGridlinkChrome provides chrome) {
-        ProvideGridlinkTokens(mode = chrome.mode, content = content)
+        ProvideGridlinkTokens(look = chrome.look, content = content)
     }
 }

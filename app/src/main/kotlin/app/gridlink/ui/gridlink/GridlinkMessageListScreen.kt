@@ -49,7 +49,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -1606,6 +1608,12 @@ private fun GridlinkSearchResults(
     currentId: String?,
     onOpenMessage: (GridlinkMessage) -> Unit,
 ) {
+    // 🔴 A result tap puts the keyboard away. The search field keeps focus after the query is typed,
+    // so without this the reader opened with the IME still covering half the message (Brandon,
+    // 2026-11-08). Hiding alone is not enough: the field would keep focus and some IMEs raise
+    // themselves again when the window regains focus on Back. Clearing focus is what stops that.
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
     val current = search?.takeIf { it.query == query }
     // Rows as soon as there are any, even while the answer is still being assembled. The local
     // index answers within a frame and the server takes as long as the network takes, so waiting
@@ -1703,6 +1711,8 @@ private fun GridlinkSearchResults(
                     GridlinkMessageRow(
                         message = if (message.id in readIds) message.copy(unread = false) else message,
                         onClick = {
+                            keyboard?.hide()
+                            focusManager.clearFocus()
                             readIds = readIds + message.id
                             onOpenMessage(message)
                         },

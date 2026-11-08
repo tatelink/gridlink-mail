@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.gridlink.R
+import app.gridlink.core.data.settings.GridlinkPreset
 
 /**
  * Gridlink design tokens — the single source of truth for the fork's UI.
@@ -51,33 +52,47 @@ import app.gridlink.R
 // ---------------------------------------------------------------------------------------------
 
 /**
- * The three-mode ladder. Not a light/dark pair: [OLED] is a third rung with its own hue family
- * (amber on true black) that exists to keep pixels physically off late at night.
+ * The three-mode ladder. Not a light/dark pair: [OLED] is a third rung that exists to keep pixels
+ * physically off late at night.
+ *
+ * 🔴 Brightness only. Colour is the separate [GridlinkPreset] axis, and the pair of them is a
+ * [GridlinkLook]. Until 2026-11-08 this enum also held the colour presets, each pinned to one fixed
+ * brightness; Brandon asked for "any colour, any mode", so the two became independent.
  */
 enum class GridlinkMode {
     DAY,
     NIGHT,
     OLED,
-
-    // The colour presets. Pinned by choice from the drawer, and never reached by the clock.
-    GRAPHITE,
-    DEEP_BLUE,
-    EMBER,
-    FOREST,
-    SAND,
 }
 
-/** The rungs the clock moves between, and the only ones the drawer's segmented track offers. */
+/** The rungs the clock moves between, in the order the drawer's segmented track offers them. */
 val GRIDLINK_LADDER_MODES = listOf(GridlinkMode.DAY, GridlinkMode.NIGHT, GridlinkMode.OLED)
 
-/** The colour presets, in the order the drawer's row of dots shows them. */
-val GRIDLINK_PRESET_MODES = listOf(
-    GridlinkMode.GRAPHITE,
-    GridlinkMode.DEEP_BLUE,
-    GridlinkMode.EMBER,
-    GridlinkMode.FOREST,
-    GridlinkMode.SAND,
-)
+/** The colour families, in the order the drawer's row of dots shows them. Classic first. */
+val GRIDLINK_PRESETS: List<GridlinkPreset> = GridlinkPreset.entries
+
+/**
+ * What the Gridlink screens are painted with: a brightness [mode] and a colour [preset].
+ *
+ * Every pair is valid, which is the whole point of the split: Ember works in Day, Sand works in
+ * OLED. [GridlinkPreset.CLASSIC] is the original look in each mode and is the default, so a look
+ * built from a mode alone is exactly what the app showed before presets existed.
+ */
+@Immutable
+data class GridlinkLook(
+    val mode: GridlinkMode,
+    val preset: GridlinkPreset = GridlinkPreset.CLASSIC,
+) {
+    companion object {
+        /** All eighteen looks, mode-major. */
+        val entries: List<GridlinkLook> =
+            GRIDLINK_LADDER_MODES.flatMap { mode -> GRIDLINK_PRESETS.map { GridlinkLook(mode, it) } }
+    }
+}
+
+/** Whether this look paints a light surface. Follows the mode alone: every Day look is light. */
+val GridlinkLook.isLightSurface: Boolean
+    get() = mode.isLightSurface
 
 /**
  * Whether this rung paints a LIGHT surface, which is what the system bar icons have to contrast
@@ -86,7 +101,7 @@ val GRIDLINK_PRESET_MODES = listOf(
  * setting, which is a separate axis entirely. See [LocalGridlinkSurfaceOverride].
  */
 val GridlinkMode.isLightSurface: Boolean
-    get() = this == GridlinkMode.DAY || this == GridlinkMode.SAND
+    get() = this == GridlinkMode.DAY
 
 /**
  * Fallback automatic ladder, by local hour.
@@ -600,20 +615,17 @@ object GridlinkSenderBars {
         Triple(false, BarBase.QUIET, 0.45f),
     )
 
-    private val presetRamps: Map<GridlinkMode, List<Color>> by lazy {
-        GRIDLINK_PRESET_MODES.associateWith { forPreset(gridlinkColorsFor(it)) }
+    private val presetRamps: Map<GridlinkLook, List<Color>> by lazy {
+        GridlinkLook.entries.filter { it.preset != GridlinkPreset.CLASSIC }
+            .associateWith { forPreset(gridlinkColorsFor(it)) }
     }
 
-    fun forMode(mode: GridlinkMode): List<Color> = when (mode) {
-        GridlinkMode.DAY -> day
-        GridlinkMode.NIGHT -> night
-        GridlinkMode.OLED -> oled
-        GridlinkMode.GRAPHITE,
-        GridlinkMode.DEEP_BLUE,
-        GridlinkMode.EMBER,
-        GridlinkMode.FOREST,
-        GridlinkMode.SAND,
-        -> presetRamps.getValue(mode)
+    /** The classic looks keep their hand-tuned ramps; every colour preset mixes its own. */
+    fun forLook(look: GridlinkLook): List<Color> = when {
+        look.preset != GridlinkPreset.CLASSIC -> presetRamps.getValue(look)
+        look.mode == GridlinkMode.DAY -> day
+        look.mode == GridlinkMode.NIGHT -> night
+        else -> oled
     }
 }
 
@@ -624,22 +636,48 @@ object GridlinkSenderBars {
  * matter which no-reply mailbox emitted it — that shared bar is the whole point, since it is what
  * makes a run of the same robot readable as one block while scrolling.
  */
-fun gridlinkSenderBarColor(mode: GridlinkMode, domain: String): Color {
-    val ramp = GridlinkSenderBars.forMode(mode)
+fun gridlinkSenderBarColor(look: GridlinkLook, domain: String): Color {
+    val ramp = GridlinkSenderBars.forLook(look)
     var hash = 0
     for (ch in domain.lowercase()) hash = (hash * 31 + ch.code) and 0x7FFFFFFF
     return ramp[hash % ramp.size]
 }
 
-fun gridlinkColorsFor(mode: GridlinkMode): GridlinkColors = when (mode) {
-    GridlinkMode.DAY -> GridlinkDayColors
-    GridlinkMode.NIGHT -> GridlinkNightColors
-    GridlinkMode.OLED -> GridlinkOledColors
-    GridlinkMode.GRAPHITE -> GridlinkGraphiteColors
-    GridlinkMode.DEEP_BLUE -> GridlinkDeepBlueColors
-    GridlinkMode.EMBER -> GridlinkEmberColors
-    GridlinkMode.FOREST -> GridlinkForestColors
-    GridlinkMode.SAND -> GridlinkSandColors
+/**
+ * The palette for one look. 🔴 Takes the whole look, never a bare mode, so no call site can quietly
+ * fall back to the classic colours while the user has picked Ember.
+ */
+fun gridlinkColorsFor(look: GridlinkLook): GridlinkColors = when (look.mode) {
+    GridlinkMode.DAY -> dayColorsFor(look.preset)
+    GridlinkMode.NIGHT -> nightColorsFor(look.preset)
+    GridlinkMode.OLED -> oledColorsFor(look.preset)
+}
+
+private fun dayColorsFor(preset: GridlinkPreset): GridlinkColors = when (preset) {
+    GridlinkPreset.CLASSIC -> GridlinkDayColors
+    GridlinkPreset.GRAPHITE -> GridlinkGraphiteDayColors
+    GridlinkPreset.DEEP_BLUE -> GridlinkDeepBlueDayColors
+    GridlinkPreset.EMBER -> GridlinkEmberDayColors
+    GridlinkPreset.FOREST -> GridlinkForestDayColors
+    GridlinkPreset.SAND -> GridlinkSandColors
+}
+
+private fun nightColorsFor(preset: GridlinkPreset): GridlinkColors = when (preset) {
+    GridlinkPreset.CLASSIC -> GridlinkNightColors
+    GridlinkPreset.GRAPHITE -> GridlinkGraphiteColors
+    GridlinkPreset.DEEP_BLUE -> GridlinkDeepBlueColors
+    GridlinkPreset.EMBER -> GridlinkEmberColors
+    GridlinkPreset.FOREST -> GridlinkForestColors
+    GridlinkPreset.SAND -> GridlinkSandNightColors
+}
+
+private fun oledColorsFor(preset: GridlinkPreset): GridlinkColors = when (preset) {
+    GridlinkPreset.CLASSIC -> GridlinkOledColors
+    GridlinkPreset.GRAPHITE -> GridlinkGraphiteOledColors
+    GridlinkPreset.DEEP_BLUE -> GridlinkDeepBlueOledColors
+    GridlinkPreset.EMBER -> GridlinkEmberOledColors
+    GridlinkPreset.FOREST -> GridlinkForestOledColors
+    GridlinkPreset.SAND -> GridlinkSandOledColors
 }
 
 /**
@@ -672,6 +710,10 @@ private fun gridlinkDarkPreset(
     // The compose button. Night's gold would sit beside this accent as a second theme colour.
     accentWarm = accent,
     onAccentWarm = onAccent,
+    // The halos behind the compose / reply buttons follow the button. Inherited from classic Night
+    // they were blue, which put a blue cloud round an orange or sand button (seen 2026-11-08).
+    warmGlow = accent,
+    actionGlow = accent,
     // 🔴 The unread highlight follows the preset, the way OLED's amber does: a preset is one hue
     // family by choice, and Night's gold left in an Ember or Forest inbox read as a theme that had
     // only half applied. A step lighter than the accent so an unread time still out-ranks a link.
@@ -689,7 +731,7 @@ private fun gridlinkDarkPreset(
 /** How far a preset's unread highlight moves from its accent toward its text colour. */
 private const val PRESET_ATTENTION_LIFT = 0.30f
 
-/** Soft grey: neutral, for someone who wants the colour out of the way. */
+/** Graphite Night. Soft grey: neutral, for someone who wants the colour out of the way. */
 val GridlinkGraphiteColors: GridlinkColors by lazy {
     gridlinkDarkPreset(
         background = Color(0xFF16181C),
@@ -704,7 +746,7 @@ val GridlinkGraphiteColors: GridlinkColors by lazy {
     )
 }
 
-/** Dark blue: the closest to Night, with more colour in the page. */
+/** Deep Blue Night: the closest to classic Night, with more colour in the page. */
 val GridlinkDeepBlueColors: GridlinkColors by lazy {
     gridlinkDarkPreset(
         background = Color(0xFF071A33),
@@ -719,7 +761,7 @@ val GridlinkDeepBlueColors: GridlinkColors by lazy {
     )
 }
 
-/** Warm dark. */
+/** Ember Night: warm dark. */
 val GridlinkEmberColors: GridlinkColors by lazy {
     gridlinkDarkPreset(
         background = Color(0xFF1B120C),
@@ -734,7 +776,7 @@ val GridlinkEmberColors: GridlinkColors by lazy {
     )
 }
 
-/** Dark green. */
+/** Forest Night: dark green. */
 val GridlinkForestColors: GridlinkColors by lazy {
     gridlinkDarkPreset(
         background = Color(0xFF0B1A14),
@@ -752,7 +794,7 @@ val GridlinkForestColors: GridlinkColors by lazy {
 private val SAND_ACCENT = Color(0xFF8E4A1A)
 private val SAND_INK = Color(0xFF2A2118)
 
-/** Warm beige: the one light preset, built on Day for the same reason the dark ones use Night. */
+/** Sand Day: warm beige, built on Day for the same reason the Night presets use Night. */
 val GridlinkSandColors: GridlinkColors by lazy {
     val accent = SAND_ACCENT
     val ink = SAND_INK
@@ -777,6 +819,230 @@ val GridlinkSandColors: GridlinkColors by lazy {
         fieldLabelText = accent,
         fieldFill = Color(0xFFFFFAF2),
         fieldBorder = accent.copy(alpha = 0.40f),
+        // Sand's own caramel at Day's strength. Inherited, Day's blue dimmed the page behind the
+        // menu and every sheet to a blue wash under a beige panel (seen 2026-11-08).
+        scrim = Color(0xFF8A5A30).copy(alpha = 0.50f),
+    )
+}
+
+/** Sand Night: Sand's beige and caramel carried onto a warm near-black. */
+val GridlinkSandNightColors: GridlinkColors by lazy {
+    gridlinkDarkPreset(
+        background = Color(0xFF1A1612),
+        glow = Color(0xFFC8A064),
+        surface = Color(0xFF28211A),
+        border = Color(0xFFE6CFA8),
+        text = Color(0xFFF5EDE1),
+        secondary = Color(0xFFBCAB93),
+        accent = Color(0xFFD9B27A),
+        onAccent = Color(0xFF1A1208),
+        attention = Color(0xFFE8B45C),
+    )
+}
+
+/**
+ * A Day preset is classic Day with its hue changed, the way Sand always was: the same glass over a
+ * pale two-stop gradient, the same shadows, ink dark enough to clear 7:1 on the glass.
+ *
+ * 🔴 The gradient carries the colour. A pale wash of the hue at the top running into a mid tone at
+ * the bottom is what keeps Day from reading as a washed-out white page with a coloured link in it.
+ */
+@Suppress("LongParameterList")
+private fun gridlinkDayPreset(
+    top: Color,
+    bottom: Color,
+    glass: Color,
+    glassAlpha: Float,
+    border: Color,
+    ink: Color,
+    secondary: Color,
+    accent: Color,
+    attention: Color,
+    scrim: Color,
+): GridlinkColors = GridlinkDayColors.copy(
+    background = bottom,
+    gradient = listOf(top, bottom),
+    surface = glass.copy(alpha = glassAlpha),
+    listSurface = glass.copy(alpha = glassAlpha),
+    surfaceBorder = border.copy(alpha = 0.18f),
+    surfaceRaised = glass,
+    textPrimary = ink,
+    textSecondary = secondary,
+    accent = accent,
+    onAccent = Color.White,
+    accentWarm = accent,
+    onAccentWarm = Color.White,
+    attention = attention,
+    selection = accent.copy(alpha = 0.16f),
+    divider = border.copy(alpha = 0.14f),
+    fieldLabelFill = accent.copy(alpha = 0.14f),
+    fieldLabelText = accent,
+    fieldFill = glass,
+    fieldBorder = accent.copy(alpha = 0.40f),
+    scrim = scrim.copy(alpha = 0.50f),
+)
+
+/** Graphite Day: cool paper greys, slate accent. */
+val GridlinkGraphiteDayColors: GridlinkColors by lazy {
+    gridlinkDayPreset(
+        top = Color(0xFFF2F4F7),
+        bottom = Color(0xFFC3C9D2),
+        glass = Color(0xFFFFFFFF),
+        glassAlpha = 0.70f,
+        border = Color(0xFF2A3140),
+        ink = Color(0xFF14171C),
+        secondary = Color(0xFF454C57),
+        accent = Color(0xFF4A5B74),
+        attention = Color(0xFF1F3B66),
+        scrim = Color(0xFF5B6576),
+    )
+}
+
+/** Deep Blue Day: a steadier, deeper blue than classic Day's cyan, under the same glass. */
+val GridlinkDeepBlueDayColors: GridlinkColors by lazy {
+    gridlinkDayPreset(
+        top = Color(0xFFDDE9F8),
+        bottom = Color(0xFF93B2DC),
+        glass = Color(0xFFFFFFFF),
+        glassAlpha = 0.66f,
+        border = Color(0xFF0F2E57),
+        ink = Color(0xFF06182F),
+        secondary = Color(0xFF24395A),
+        accent = Color(0xFF1557AD),
+        attention = Color(0xFF0A3A9A),
+        scrim = Color(0xFF1F4F94),
+    )
+}
+
+/** Ember Day: peach into apricot, burnt orange accent. */
+val GridlinkEmberDayColors: GridlinkColors by lazy {
+    gridlinkDayPreset(
+        top = Color(0xFFFDEADB),
+        bottom = Color(0xFFF0B88D),
+        glass = Color(0xFFFFF8F2),
+        glassAlpha = 0.70f,
+        border = Color(0xFF6A3412),
+        ink = Color(0xFF2A1407),
+        secondary = Color(0xFF6A4530),
+        accent = Color(0xFFB04A0A),
+        attention = Color(0xFF8F2E06),
+        scrim = Color(0xFF9A5426),
+    )
+}
+
+/** Forest Day: mint into sage, deep green accent. */
+val GridlinkForestDayColors: GridlinkColors by lazy {
+    gridlinkDayPreset(
+        top = Color(0xFFE2F3E9),
+        bottom = Color(0xFF9FD0B4),
+        glass = Color(0xFFF7FCF9),
+        glassAlpha = 0.68f,
+        border = Color(0xFF14432D),
+        ink = Color(0xFF0A1F15),
+        secondary = Color(0xFF355646),
+        accent = Color(0xFF1B7A4D),
+        attention = Color(0xFF0E5934),
+        scrim = Color(0xFF2E6E4E),
+    )
+}
+
+/**
+ * An OLED preset is classic OLED with its hue changed: true black page, no aurora, no glow, no
+ * shadows, and definition from hairlines in the preset's accent.
+ *
+ * The chrome panels (header, nav pill, sheets) are lifted a hair off black in the preset's tint,
+ * which is the "surfaces only slightly lifted" Brandon asked for. The list itself stays #000, so the
+ * pixels that cover most of the screen are still off.
+ */
+@Suppress("LongParameterList")
+private fun gridlinkOledPreset(
+    lifted: Color,
+    text: Color,
+    secondary: Color,
+    accent: Color,
+    onAccent: Color,
+    attention: Color,
+): GridlinkColors = GridlinkOledColors.copy(
+    surface = lifted,
+    surfaceBorder = accent.copy(alpha = 0.22f),
+    surfaceRaised = lifted,
+    textPrimary = text,
+    textSecondary = secondary,
+    accent = accent,
+    onAccent = onAccent,
+    accentWarm = accent,
+    onAccentWarm = onAccent,
+    attention = lerp(accent, text, PRESET_ATTENTION_LIFT),
+    caution = attention,
+    selection = accent.copy(alpha = 0.14f),
+    divider = accent.copy(alpha = 0.12f),
+    fieldLabelFill = accent.copy(alpha = 0.16f),
+    fieldLabelText = accent,
+    fieldFill = lifted,
+    fieldBorder = accent.copy(alpha = 0.40f),
+)
+
+/** Graphite OLED. */
+val GridlinkGraphiteOledColors: GridlinkColors by lazy {
+    gridlinkOledPreset(
+        lifted = Color(0xFF0B0C0F),
+        text = Color(0xFFD7DCE3),
+        secondary = Color(0xFF8C949F),
+        accent = Color(0xFF8FA3BF),
+        onAccent = Color(0xFF12151A),
+        attention = Color(0xFFE8B45C),
+    )
+}
+
+/** Deep Blue OLED. */
+val GridlinkDeepBlueOledColors: GridlinkColors by lazy {
+    gridlinkOledPreset(
+        lifted = Color(0xFF03080F),
+        text = Color(0xFFD2E4FA),
+        secondary = Color(0xFF7F9BBA),
+        accent = Color(0xFF4AA3FF),
+        onAccent = Color(0xFF04121F),
+        attention = Color(0xFFFFC14D),
+    )
+}
+
+/**
+ * Ember OLED: cream text rather than classic OLED's amber, and a redder coal-glow accent, so the two
+ * read apart. Classic OLED's accent is already orange (F97316); Ember Night's F0883E on black was
+ * the same dot in the picker.
+ */
+val GridlinkEmberOledColors: GridlinkColors by lazy {
+    gridlinkOledPreset(
+        lifted = Color(0xFF0D0805),
+        text = Color(0xFFF1DFCF),
+        secondary = Color(0xFFA88B76),
+        accent = Color(0xFFE8503A),
+        onAccent = Color(0xFF1A0C02),
+        attention = Color(0xFFFFCF70),
+    )
+}
+
+/** Forest OLED. */
+val GridlinkForestOledColors: GridlinkColors by lazy {
+    gridlinkOledPreset(
+        lifted = Color(0xFF040C08),
+        text = Color(0xFFD2EDDF),
+        secondary = Color(0xFF7EA390),
+        accent = Color(0xFF4CC38A),
+        onAccent = Color(0xFF05140D),
+        attention = Color(0xFFF2B84B),
+    )
+}
+
+/** Sand OLED. */
+val GridlinkSandOledColors: GridlinkColors by lazy {
+    gridlinkOledPreset(
+        lifted = Color(0xFF0C0A07),
+        text = Color(0xFFEDE2D0),
+        secondary = Color(0xFFA6967D),
+        accent = Color(0xFFD9B27A),
+        onAccent = Color(0xFF1A1208),
+        attention = Color(0xFFE8B45C),
     )
 }
 
@@ -1383,7 +1649,8 @@ fun gridlinkReducedMotion(): Boolean {
  */
 val LocalGridlinkColors = staticCompositionLocalOf { GridlinkNightColors }
 
-val LocalGridlinkMode = staticCompositionLocalOf { GridlinkMode.NIGHT }
+/** The look being painted. Read `GridlinkTheme.look` for the pair, `GridlinkTheme.mode` for the rung. */
+val LocalGridlinkLook = staticCompositionLocalOf { GridlinkLook(GridlinkMode.NIGHT) }
 
 /**
  * The slot a Gridlink-skinned subtree publishes its painted mode into, so that whoever owns the
@@ -1403,8 +1670,12 @@ object GridlinkTheme {
     val colors: GridlinkColors
         @Composable get() = LocalGridlinkColors.current
 
+    /** The brightness rung alone. For anything coloured (sender bars, calendar dots) use [look]. */
     val mode: GridlinkMode
-        @Composable get() = LocalGridlinkMode.current
+        @Composable get() = LocalGridlinkLook.current.mode
+
+    val look: GridlinkLook
+        @Composable get() = LocalGridlinkLook.current
 }
 
 /**
@@ -1416,7 +1687,7 @@ object GridlinkTheme {
  */
 @Composable
 fun ProvideGridlinkTokens(
-    mode: GridlinkMode,
+    look: GridlinkLook,
     ownsSystemBars: Boolean = true,
     content: @Composable () -> Unit,
 ) {
@@ -1424,14 +1695,14 @@ fun ProvideGridlinkTokens(
     // out so upstream Material screens go back to contrasting against themselves.
     val slot = LocalGridlinkSurfaceOverride.current
     if (ownsSystemBars && slot != null) {
-        DisposableEffect(slot, mode) {
-            slot.value = mode
+        DisposableEffect(slot, look.mode) {
+            slot.value = look.mode
             onDispose { slot.value = null }
         }
     }
     CompositionLocalProvider(
-        LocalGridlinkMode provides mode,
-        LocalGridlinkColors provides gridlinkColorsFor(mode),
+        LocalGridlinkLook provides look,
+        LocalGridlinkColors provides gridlinkColorsFor(look),
         content = content,
     )
 }

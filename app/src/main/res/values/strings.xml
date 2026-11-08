@@ -1509,4 +1509,15 @@
     <string name="gl_rec_once">once</string>
     <string name="gl_rec_until">until %1$s</string>
     <string name="gl_rec_with_end">%1$s, %2$s</string>
+    <string name="gridlink_mode_auto">Auto</string>
+    <string name="gridlink_mode_day">Day</string>
+    <string name="gridlink_mode_night">Night</string>
+    <string name="gridlink_mode_oled">OLED</string>
+    <string name="gridlink_colour_classic">Classic</string>
+    <string name="gridlink_colour_graphite">Graphite</string>
+    <string name="gridlink_colour_deep_blue">Deep Blue</string>
+    <string name="gridlink_colour_ember">Ember</string>
+    <string name="gridlink_colour_forest">Forest</string>
+    <string name="gridlink_colour_sand">Sand</string>
+    <string name="gridlink_colour_choice">%1$s colour</string>
 </resources>

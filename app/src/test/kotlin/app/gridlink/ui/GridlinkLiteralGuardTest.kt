@@ -80,11 +80,6 @@ class GridlinkLiteralGuardTest {
             "GridlinkMessageListScreen.kt" to "title = \"Automated\",",
             // An example address in the setup field, the same in every language.
             "GridlinkSetupScreen.kt" to "placeholder = \"you@yourdomain.com\",",
-            // The appearance and palette picker belongs to the theme work in progress on its own
-            // branch, which rewrites these rows; it is translated there, not here.
-            "GridlinkMenu.kt" to "text = \"Appearance\",",
-            "GridlinkMenu.kt" to "label = \"Auto\",",
-            "GridlinkMenu.kt" to "colour preset\"",
         )
 
         /** `app/src/main/kotlin/app/gridlink/ui/gridlink`, found by walking up from the working directory. */

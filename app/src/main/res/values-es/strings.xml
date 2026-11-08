@@ -1513,4 +1513,15 @@
     <string name="gl_rec_once">una vez</string>
     <string name="gl_rec_until">hasta el %1$s</string>
     <string name="gl_rec_with_end">%1$s, %2$s</string>
+    <string name="gridlink_mode_auto">Auto</string>
+    <string name="gridlink_mode_day">Día</string>
+    <string name="gridlink_mode_night">Noche</string>
+    <string name="gridlink_mode_oled">OLED</string>
+    <string name="gridlink_colour_classic">Clásico</string>
+    <string name="gridlink_colour_graphite">Grafito</string>
+    <string name="gridlink_colour_deep_blue">Azul profundo</string>
+    <string name="gridlink_colour_ember">Brasa</string>
+    <string name="gridlink_colour_forest">Bosque</string>
+    <string name="gridlink_colour_sand">Arena</string>
+    <string name="gridlink_colour_choice">Color %1$s</string>
 </resources>

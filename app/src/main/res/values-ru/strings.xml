@@ -1559,4 +1559,15 @@
     <string name="gl_rec_once">один раз</string>
     <string name="gl_rec_until">до %1$s</string>
     <string name="gl_rec_with_end">%1$s, %2$s</string>
+    <string name="gridlink_mode_auto">Авто</string>
+    <string name="gridlink_mode_day">День</string>
+    <string name="gridlink_mode_night">Ночь</string>
+    <string name="gridlink_mode_oled">OLED</string>
+    <string name="gridlink_colour_classic">Классика</string>
+    <string name="gridlink_colour_graphite">Графит</string>
+    <string name="gridlink_colour_deep_blue">Глубокий синий</string>
+    <string name="gridlink_colour_ember">Жар</string>
+    <string name="gridlink_colour_forest">Лес</string>
+    <string name="gridlink_colour_sand">Песок</string>
+    <string name="gridlink_colour_choice">Цвет: %1$s</string>
 </resources>

@@ -178,7 +178,7 @@ fun GridlinkMessageRow(
     tagDefinitions: List<MailTag> = emptyList(),
 ) {
     val colors = GridlinkTheme.colors
-    val mode = GridlinkTheme.mode
+    val mode = GridlinkTheme.look
     val tags = remember(message.tags, tagDefinitions) { resolveTags(message.tags, tagDefinitions) }
     val snippet = highlight?.takeIf { it.isNotBlank() && message.preview.isNotBlank() }
     // The user's preview setting, resolved to a line count. Zero is the default and the common case.
@@ -670,7 +670,7 @@ fun GridlinkBundleRow(
     onLongClick: (() -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
-    val mode = GridlinkTheme.mode
+    val mode = GridlinkTheme.look
     val chevronRotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
         animationSpec = GridlinkMotion.standard(),

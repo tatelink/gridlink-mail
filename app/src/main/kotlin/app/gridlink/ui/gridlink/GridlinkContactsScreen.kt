@@ -395,7 +395,7 @@ private fun GridlinkContactRow(
     current: Boolean = false,
 ) {
     val colors = GridlinkTheme.colors
-    val mode = GridlinkTheme.mode
+    val mode = GridlinkTheme.look
     // The same wash the message list uses for the row its pane is showing, on the same token and the
     // same curve, so "this is the one you are looking at" is one visual idea across the app rather
     // than two that nearly match. No tick disc: that belongs to multi-select, and there is no

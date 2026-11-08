@@ -516,6 +516,8 @@ fun GridlinkScaffold(
                     // looking at it, and the panel staying up is what lets you tap through all four
                     // and watch the app behind it repaint.
                     onSelectMode = chrome::selectMode,
+                    preset = chrome.preset,
+                    onSelectPreset = chrome::selectPreset,
                     counts = chrome.config.menuCounts,
                     // Published up by whichever [GridlinkRoot] is composed, not passed down by the
                     // host: the tree is resolved below this point in the tree. See
