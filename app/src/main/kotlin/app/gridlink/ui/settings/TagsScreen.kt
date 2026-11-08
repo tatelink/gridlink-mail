@@ -17,7 +17,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -486,7 +486,7 @@ private fun TagSwatch(color: Color, selected: Boolean, onClick: () -> Unit) {
             .semantics { role = Role.Button; this.selected = selected },
         contentAlignment = Alignment.Center,
     ) {
-        if (selected) Icon(Icons.Filled.Check, contentDescription = null, tint = Color.White)
+        if (selected) Icon(Icons.Outlined.Check, contentDescription = null, tint = Color.White)
     }
 }
 

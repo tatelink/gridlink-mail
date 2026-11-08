@@ -18,7 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -225,7 +225,7 @@ private fun FiltersList(
         }
 
         OutlinedButton(onClick = onAdd, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-            Icon(Icons.Filled.Add, contentDescription = null)
+            Icon(Icons.Outlined.Add, contentDescription = null)
             Spacer(Modifier.width(8.dp))
             Text(stringResource(R.string.settings_filters_add))
         }
@@ -373,7 +373,7 @@ private fun RuleConditions(rule: FilterRule, onChange: (FilterRule) -> Unit) {
             onClick = { onChange(rule.copy(conditions = conditions + RuleCondition())) },
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
-            Icon(Icons.Filled.Add, contentDescription = null)
+            Icon(Icons.Outlined.Add, contentDescription = null)
             Spacer(Modifier.width(8.dp))
             Text(stringResource(R.string.settings_filter_add_condition))
         }
