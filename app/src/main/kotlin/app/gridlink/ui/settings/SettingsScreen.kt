@@ -14,6 +14,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -107,6 +108,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -146,6 +149,7 @@ import app.gridlink.core.data.account.SyncWindow
 import app.gridlink.core.data.mail.OAuthProvider
 import app.gridlink.core.data.settings.AppIcon
 import app.gridlink.core.data.settings.DeliveryMode
+import app.gridlink.core.data.settings.GridlinkPalette
 import app.gridlink.core.data.settings.ListDensity
 import app.gridlink.core.data.settings.MessageTextSize
 import app.gridlink.core.data.settings.NotificationContent
@@ -167,6 +171,8 @@ import app.gridlink.ui.components.onAccentColor
 import app.gridlink.ui.components.resolveAccountColors
 import app.gridlink.ui.connect.ConnectScreen
 import app.gridlink.ui.gridlink.GridlinkDetailFrame
+import app.gridlink.ui.gridlink.GridlinkPalettePicker
+import app.gridlink.ui.gridlink.toGridlinkPalette
 import app.gridlink.ui.navigateOnce
 import app.gridlink.ui.rememberLeaveOnce
 import app.gridlink.ui.rememberMotionEnabled
@@ -703,14 +709,19 @@ private fun openUrl(context: android.content.Context, url: String): Boolean =
     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.isSuccess
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun WidgetOpacityRow(viewModel: SettingsViewModel) {
     val context = LocalContext.current
     val saved by viewModel.widgetOpacity.collectAsStateWithLifecycle()
     // Written on release, not per frame: every write repaints every widget on the home screen.
     var dragging by remember { mutableStateOf<Float?>(null) }
     val shown = dragging ?: saved.toFloat()
+    val colors = GridlinkTheme.colors
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Text(stringResource(R.string.settings_widget_opacity_title, shown.roundToInt()))
+        // The app's own slider rather than Material's: a thin rounded track and a round accent
+        // knob, the shapes the rest of Gridlink uses. The stock one is a thick bar with a tall
+        // stick for a handle and a row of step dots, and it was the only control of its kind here.
         Slider(
             value = shown,
             onValueChange = { dragging = it },
@@ -720,9 +731,36 @@ private fun WidgetOpacityRow(viewModel: SettingsViewModel) {
             },
             valueRange = 0f..100f,
             steps = 19,
+            thumb = {
+                Box(
+                    Modifier
+                        .size(SLIDER_KNOB)
+                        .background(colors.accent, CircleShape)
+                        .border(GridlinkDimens.hairline, colors.surfaceBorder, CircleShape),
+                )
+            },
+            track = { state ->
+                val fraction = (state.value - state.valueRange.start) /
+                    (state.valueRange.endInclusive - state.valueRange.start)
+                Canvas(Modifier.fillMaxWidth().height(SLIDER_TRACK)) {
+                    val radius = CornerRadius(size.height / 2)
+                    drawRoundRect(color = colors.surfaceBorder, cornerRadius = radius)
+                    drawRoundRect(
+                        color = colors.accent,
+                        size = Size(size.width * fraction.coerceIn(0f, 1f), size.height),
+                        cornerRadius = radius,
+                    )
+                }
+            },
         )
     }
 }
+
+/** The widget slider's knob: the size of the switch's, so the two controls read as one family. */
+private val SLIDER_KNOB = 22.dp
+
+/** The widget slider's track: a line, not a bar. */
+private val SLIDER_TRACK = 4.dp
 
 @Composable
 private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
@@ -730,6 +768,7 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val previewLines by viewModel.previewLines.collectAsStateWithLifecycle()
     val bundleAutomated by viewModel.bundleAutomated.collectAsStateWithLifecycle()
     val appIcon by viewModel.appIcon.collectAsStateWithLifecycle()
+    val palette by viewModel.gridlinkPalette.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var language by remember { mutableStateOf(currentAppLanguage()) }
     DetailScaffold(title = stringResource(R.string.settings_appearance_screen_title), onBack = onBack) { padding ->
@@ -748,24 +787,27 @@ private fun AppearanceScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     },
                 )
             }
+            // The drawer's own picker, not a second one. The Theme section that used to sit here
+            // wrote [ThemeMode] into [AppTheme], which dresses nothing you can see, so it was
+            // removed on 2026-08-12 and appearance lived only in the drawer. That left this page
+            // listed as covering "Theme" with no theme on it. This is the SAME composable the drawer
+            // draws ([GridlinkPalettePicker]) writing the SAME stored palette, so the two places
+            // cannot disagree; the settings host skins this screen from that value, so a tap here
+            // repaints the page it was made on. (Polish pass, 2026-11-07.)
+            SettingsSection(stringResource(R.string.settings_theme_section)) {
+                GridlinkPalettePicker(
+                    mode = GridlinkTheme.mode,
+                    followingClock = palette == GridlinkPalette.AUTO,
+                    onSelect = { viewModel.setGridlinkPalette(it.toGridlinkPalette()) },
+                    modifier = Modifier.padding(
+                        horizontal = GridlinkSpacing.rowHorizontal,
+                        vertical = GridlinkSpacing.s8,
+                    ),
+                )
+            }
             SettingsSection(stringResource(R.string.settings_widgets_section)) {
                 WidgetOpacityRow(viewModel)
             }
-            // ⛔ There is no Theme section here, and there must not be one. It held
-            // Auto/Light/Dark plus a Material You switch, both writing [ThemeMode] and
-            // [dynamicColor] into [AppTheme] — and [AppTheme] dresses nothing you can see, because
-            // every screen in the app (this one included) is re-skinned by [GridlinkMaterialSkin]
-            // from the drawer's own Auto/Day/Night/OLED track. Choosing "Dark" here changed the
-            // stored value and not one pixel.
-            //
-            // Tate's call, 2026-08-12, after the settings audit found it: remove it rather than
-            // mirror it. Appearance is set in one place, the drawer, where he pinned it a week ago.
-            // Two controls for one palette is how this got here in the first place.
-            //
-            // The store, the setters and [AppTheme] all stay: the theme value still dresses the
-            // handful of surfaces that never go through the skin (dialogs raised by the system,
-            // the first frame before the palette resolves), and backup/restore still carries it.
-            // What is gone is the claim that the user is driving it from this screen.
             // 🔴 The one appearance control on this screen that the drawer CANNOT own, which is why
             // it is here and the palette pill is not. Everything else about how the app looks is
             // decided by the app, live, and belongs where the user is looking at it. The launcher

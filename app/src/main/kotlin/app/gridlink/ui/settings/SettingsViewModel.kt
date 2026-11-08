@@ -9,6 +9,7 @@ import app.gridlink.core.data.account.K9SettingsImporter
 import app.gridlink.core.data.settings.APP_ICON_DEFAULT
 import app.gridlink.core.data.settings.AppIcon
 import app.gridlink.core.data.settings.DeliveryMode
+import app.gridlink.core.data.settings.GridlinkPalette
 import app.gridlink.core.data.settings.ListDensity
 import app.gridlink.core.data.settings.MailTag
 import app.gridlink.core.data.settings.MessageTextSize
@@ -721,6 +722,20 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = MessageTextSize.NORMAL,
     )
+
+    /**
+     * The palette the drawer sets, so Appearance can offer the same choice. The settings host skins
+     * this screen from the same stored value, so a tap here repaints the screen it was made on.
+     */
+    val gridlinkPalette = settings.gridlinkPalette.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = GridlinkPalette.AUTO,
+    )
+
+    fun setGridlinkPalette(palette: GridlinkPalette) {
+        viewModelScope.launch { settings.setGridlinkPalette(palette) }
+    }
 
     val widgetOpacity = settings.widgetOpacity.stateIn(
         scope = viewModelScope,

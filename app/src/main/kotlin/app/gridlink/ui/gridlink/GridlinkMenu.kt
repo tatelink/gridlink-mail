@@ -988,12 +988,36 @@ private fun GridlinkModeRow(
             }
         }
         Spacer(Modifier.height(GridlinkSpacing.s12))
+        GridlinkPalettePicker(
+            mode = mode,
+            followingClock = followingClock,
+            onSelect = onSelect,
+            // Indented to the same line the row labels start on, so the track reads as this row's
+            // content rather than as a band across the sheet.
+            modifier = Modifier.padding(start = 20.dp + GridlinkSpacing.s16),
+        )
+    }
+}
+
+/**
+ * The Auto / Day / Night / OLED track and the colour dots under it: the whole palette choice.
+ *
+ * Shared by the drawer and by Settings > Appearance, so the two can never offer different choices
+ * or draw them differently. Both write the same stored palette; the drawer through the chrome, which
+ * repaints at once, and Settings through the store, which the settings host reads back.
+ */
+@Composable
+fun GridlinkPalettePicker(
+    mode: GridlinkMode,
+    followingClock: Boolean,
+    onSelect: (GridlinkMode?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = GridlinkTheme.colors
+    Column(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                // Indented to the same line the row labels start on, so the track reads as this
-                // row's content rather than as a band across the sheet.
-                .padding(start = 20.dp + GridlinkSpacing.s16)
                 .background(colors.surface.copy(alpha = 0.14f), MODE_TRACK_SHAPE)
                 .border(
                     width = GridlinkDimens.hairline,
@@ -1027,9 +1051,7 @@ private fun GridlinkModeRow(
         Spacer(Modifier.height(GridlinkSpacing.s8))
         // Under the track rather than in it: five more segments would not fit a phone-width panel.
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 20.dp + GridlinkSpacing.s16),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {

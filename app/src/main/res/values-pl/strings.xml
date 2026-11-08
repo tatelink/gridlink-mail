@@ -241,6 +241,7 @@
     <string name="settings_backup_imported_accounts">Zaimportowano. Nowe konta wymagają hasła – otwórz każde w sekcji Konta, aby się zalogować.</string>
     <string name="settings_backup_failed">Nie udało się ukończyć. Sprawdź plik i spróbuj ponownie</string>
     <string name="settings_appearance_screen_title">Wygląd</string>
+    <string name="settings_theme_section">Motyw</string>
     <string name="settings_widgets_section">Widżety na ekranie głównym</string>
     <string name="settings_widget_opacity_title">Tło widżetu: %1$d%%</string>
     <string name="settings_language_section">Język</string>
