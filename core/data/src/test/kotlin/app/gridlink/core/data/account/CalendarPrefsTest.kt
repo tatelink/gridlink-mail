@@ -98,7 +98,10 @@ class CalendarPrefsTest {
             .withServerDefault("https://dav.example.com/cal/default/", jmap = false)
         assertEquals(setOf("jmap:calendar/b", "https://dav.example.com/cal/default/"), prefs.serverDefaults)
         // A JMAP sync that finds no default clears only the JMAP answer.
-        assertEquals(setOf("https://dav.example.com/cal/default/"), prefs.withServerDefault(null, jmap = true).serverDefaults)
+        assertEquals(
+            setOf("https://dav.example.com/cal/default/"),
+            prefs.withServerDefault(null, jmap = true).serverDefaults,
+        )
         assertEquals(
             setOf("jmap:calendar/c", "https://dav.example.com/cal/default/"),
             prefs.withServerDefault("jmap:calendar/c", jmap = true).serverDefaults,

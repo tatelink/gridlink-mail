@@ -108,23 +108,43 @@ class GridlinkCalendarsUiTest {
     }
 
     @Test
-    fun editingAnEvent_hasNoCalendarRow_andKeepsItsCalendar() {
-        val existing = GridlinkEvent(
-            id = "e1",
-            title = "Standup",
-            date = DAY,
-            start = null,
-            end = null,
-            location = null,
-            domain = "gridlink.me",
-            handle = "cal:/x.ics",
-            calendarId = "cal/work",
-        )
-        showForm(listOf(PERSONAL, WORK), initial = existing)
-        rule.onNodeWithTag("gridlink-event-calendar").assertDoesNotExist()
+    fun editingAnEvent_showsItsOwnCalendar_andKeepsItWithNoPick() {
+        showForm(listOf(PERSONAL, WORK), initial = existing("cal/work"))
+        // Its own calendar, not the default (Personal) the list would otherwise fall back to.
+        rule.onNode(hasText("Calendar") and hasText("Calendar 2") and hasClickAction()).assertExists()
         save().performClick()
         assertEquals("cal/work", saved.single().calendarId)
     }
+
+    @Test
+    fun editingAnEvent_savesAnotherPickedCalendar() {
+        showForm(listOf(PERSONAL, WORK), initial = existing("cal/work"))
+        rule.onNodeWithTag("gridlink-event-calendar").performClick()
+        rule.onNodeWithTag("gridlink-calendar-pick-0").performClick()
+        save().performClick()
+        assertEquals("cal/personal", saved.single().calendarId)
+    }
+
+    @Test
+    fun editingAnEvent_inACalendarNotListed_hasNoCalendarRow_andKeepsItsCalendar() {
+        // The row would show the default as if the event were in it, and saving would move it.
+        showForm(listOf(PERSONAL, WORK), initial = existing("cal/elsewhere"))
+        rule.onNodeWithTag("gridlink-event-calendar").assertDoesNotExist()
+        save().performClick()
+        assertEquals("cal/elsewhere", saved.single().calendarId)
+    }
+
+    private fun existing(calendarId: String) = GridlinkEvent(
+        id = "e1",
+        title = "Standup",
+        date = DAY,
+        start = null,
+        end = null,
+        location = null,
+        domain = "gridlink.me",
+        handle = "cal:/x.ics",
+        calendarId = calendarId,
+    )
 
     @Test
     fun oneCalendar_hasNoCalendarRow() {

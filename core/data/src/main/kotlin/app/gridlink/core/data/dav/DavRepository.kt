@@ -39,6 +39,8 @@ import app.gridlink.core.jmap.model.JmapSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -952,6 +954,161 @@ class DavRepository(
         eventDao.deleteForFile(accountId, written.href, DavMappers.hrefPrefix(written.href))
         eventDao.upsertAll(rows)
         return DavWriteOutcome(href = written.href)
+    }
+
+    /**
+     * Move an event (the whole file: every occurrence of a series) into another calendar of the
+     * same account.
+     *
+     * JMAP: one `CalendarEvent/set` that replaces `calendarIds`, which the server applies as a
+     * single change, so there is no state in which the event is in neither calendar or in both.
+     *
+     * CalDAV: `MOVE`, guarded by the synced etag, which is also atomic on the server. A server that
+     * does not do MOVE (403, 405, 501, 502) gets the fallback: PUT a copy into the target
+     * (`If-None-Match: *`, so it can never overwrite anything), then DELETE the original guarded by
+     * `If-Match`. If that delete fails the copy is deleted again, so a half-done move leaves the
+     * event where it was rather than in two calendars.
+     */
+    suspend fun moveEvent(
+        accountId: String,
+        href: String,
+        targetCalendarUrl: String,
+        recurrenceDay: LocalDate? = null,
+    ): DavWriteOutcome {
+        if (accountStore.account(accountId)?.syncSelection?.calendar != true) {
+            return DavWriteOutcome(error = "Turn on calendar sync for this account to save events")
+        }
+        val (dav, server) = when (val access = access(accountId)) {
+            is Access.Refused -> return DavWriteOutcome(error = access.reason)
+            is Access.Ready -> access.dav to access.server
+        }
+        val row = eventDao.byHref(accountId, href)
+            ?: recurrenceDay?.let { eventDao.byHref(accountId, "$href#$it") }
+            ?: return DavWriteOutcome(error = "This event isn't synced to this device yet. Sync first.")
+        val target = collectionDao.forKind(accountId, DavCollectionEntity.KIND_CALENDAR)
+            .firstOrNull { it.url == targetCalendarUrl }
+        // The protocol that cached the row writes it back, as in updateEvent.
+        return when {
+            row.collectionUrl == targetCalendarUrl -> DavWriteOutcome(href = href)
+            target == null -> DavWriteOutcome(error = "That calendar isn't synced to this device yet. Sync first.")
+            row.remoteId != null -> moveOverJmap(accountId, server, dav, row.remoteId, target)
+            else -> moveOverDav(accountId, dav, row, href, target)
+        }
+    }
+
+    /** [moveEvent] for a JMAP-cached event: one `CalendarEvent/set` replacing `calendarIds`. */
+    private suspend fun moveOverJmap(
+        accountId: String,
+        server: String,
+        dav: DavCredentials,
+        eventId: String,
+        target: DavCollectionEntity,
+    ): DavWriteOutcome {
+        val targetId = target.remoteId
+            ?: return DavWriteOutcome(error = "This event can't be moved to that calendar.")
+        val patch = mapOf("calendarIds" to JsonObject(mapOf(targetId to JsonPrimitive(true))))
+        return writeOverJmap(accountId, server, dav) { client, session, jmapAccountId, auth ->
+            client.updateCalendarEvent(session, jmapAccountId, eventId, patch, auth)
+            eventId
+        }
+    }
+
+    /** [moveEvent] for a CalDAV-cached event: MOVE, or copy-then-delete where MOVE is refused. */
+    private suspend fun moveOverDav(
+        accountId: String,
+        dav: DavCredentials,
+        row: CalendarEventEntity,
+        href: String,
+        target: DavCollectionEntity,
+    ): DavWriteOutcome {
+        if (!target.url.startsWith("http")) {
+            return DavWriteOutcome(error = "This event can't be moved to that calendar.")
+        }
+        val step = try {
+            MoveStep.Done(client.move(row.collectionUrl, href, target.url, dav, row.etag))
+        } catch (e: DavException) {
+            when {
+                e.code == 412 -> MoveStep.Failed(changedElsewhere(accountId))
+                DavClient.moveUnsupported(e.code) -> copyThenDelete(accountId, row, href, target.url, dav)
+                else -> MoveStep.Failed(DavWriteOutcome(error = describe(e)))
+            }
+        }
+        return when (step) {
+            is MoveStep.Failed -> step.outcome
+            is MoveStep.Done -> cacheMoved(accountId, href, target.url, step.result, row.raw)
+        }
+    }
+
+    /** The local half of a CalDAV move: the old file's rows out, the same text filed under the new place. */
+    private suspend fun cacheMoved(
+        accountId: String,
+        href: String,
+        targetUrl: String,
+        moved: DavWriteResult,
+        raw: String,
+    ): DavWriteOutcome {
+        eventDao.deleteForFile(accountId, href, DavMappers.hrefPrefix(href))
+        val item = DavItem(href = moved.href, etag = moved.etag, data = raw)
+        val rows = DavMappers.events(accountId, targetUrl, item, zone())
+        if (rows.isEmpty()) {
+            return DavWriteOutcome(
+                error = "Moved on the server, but this device could not read it back. Sync to see it.",
+            )
+        }
+        eventDao.upsertAll(rows)
+        return DavWriteOutcome(href = moved.href)
+    }
+
+    /** What a CalDAV move step came back with: the new copy, or the outcome to hand the user. */
+    private sealed interface MoveStep {
+        data class Done(val result: DavWriteResult) : MoveStep
+
+        data class Failed(val outcome: DavWriteOutcome) : MoveStep
+    }
+
+    /** [moveEvent]'s fallback for a server without MOVE: copy, delete the original, undo on failure. */
+    private suspend fun copyThenDelete(
+        accountId: String,
+        row: CalendarEventEntity,
+        href: String,
+        targetUrl: String,
+        dav: DavCredentials,
+    ): MoveStep {
+        val copy = try {
+            client.create(targetUrl, href.substringAfterLast('/'), dav, DavKind.CALENDAR, row.raw)
+        } catch (e: DavException) {
+            return MoveStep.Failed(DavWriteOutcome(error = describe(e)))
+        }
+        try {
+            client.delete(row.collectionUrl, href, dav, row.etag)
+        } catch (e: DavException) {
+            val undone = try {
+                client.delete(targetUrl, copy.href, dav, copy.etag)
+                true
+            } catch (_: DavException) {
+                false
+            }
+            if (e.code == 412 && undone) return MoveStep.Failed(changedElsewhere(accountId))
+            return MoveStep.Failed(
+                DavWriteOutcome(
+                    error = if (undone) {
+                        "The event could not be moved, so it was left where it was. " + describe(e)
+                    } else {
+                        "The event was copied but the original could not be removed. " +
+                            "It may show in both calendars until one is deleted."
+                    },
+                ),
+            )
+        }
+        return MoveStep.Done(copy)
+    }
+
+    /** A 412 on a write: pull the other device's version and say so, as updateEvent does. */
+    private suspend fun changedElsewhere(accountId: String): DavWriteOutcome {
+        syncCalendars(accountId)
+        return DavWriteOutcome(
+            error = "Someone changed this event on another device. The newer copy has been synced; try again.",
+        )
     }
 
     /**

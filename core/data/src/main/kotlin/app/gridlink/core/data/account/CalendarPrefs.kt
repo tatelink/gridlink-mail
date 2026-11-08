@@ -49,7 +49,11 @@ data class CalendarPrefs(
 
     /** This entry with [account]'s legacy per-record hidden set folded in. */
     internal fun withLegacy(account: StoredAccount?): CalendarPrefs =
-        if (account == null || account.hiddenCalendars.isEmpty()) this else copy(hidden = hidden + account.hiddenCalendars)
+        if (account == null || account.hiddenCalendars.isEmpty()) {
+            this
+        } else {
+            copy(hidden = hidden + account.hiddenCalendars)
+        }
 
     /** This entry with the default for one protocol ([jmap] or not) replaced by [key]. */
     internal fun withServerDefault(key: String?, jmap: Boolean): CalendarPrefs {

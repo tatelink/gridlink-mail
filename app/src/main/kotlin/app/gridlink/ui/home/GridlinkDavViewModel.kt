@@ -296,6 +296,12 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
             scope: GridlinkEventEditScope,
         ): String? {
             val id = accountId.value ?: return "No account is signed in."
+            val moveTo = edited.calendarId?.takeIf { it != before.calendarId }
+            // A calendar holds the whole file, so a move takes every occurrence with it. Asked for
+            // one day only, it would quietly move the rest too, so it is refused before any write.
+            if (moveTo != null && before.repeating && scope == GridlinkEventEditScope.THIS_EVENT) {
+                return "Moving to another calendar moves every occurrence. Choose All events to move it."
+            }
             // 🔴 Diffed against [before] — the event that SEEDED the form — never against server
             // truth. A multi-day all-day event's occurrence carries the day being looked at, not
             // the event's start date, so a server-truth diff would mark TIME touched on an
@@ -341,12 +347,25 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
                     GridlinkEventEditScope.ALL_EVENTS -> EventEditScope.WHOLE_SERIES
                 },
             )
-            if (outcome.succeeded) {
-                Log.i(TAG, "updated event ${outcome.href}")
-            } else {
+            if (!outcome.succeeded) {
                 Log.w(TAG, "update event failed: ${outcome.error}")
+                return outcome.error
             }
-            return outcome.error
+            Log.i(TAG, "updated event ${outcome.href}")
+            // After the field edit, so the move carries the edited copy, and from the href that edit
+            // answered with (a JMAP edit can re-key the row).
+            return moveTo?.let { moveEvent(id, outcome.href ?: href, it, recurrenceDay) }
+        }
+
+        /** Move an event to another calendar, returning why it could not be done, or null. */
+        private suspend fun moveEvent(accountId: String, href: String, calendarUrl: String, day: LocalDate?): String? {
+            val moved = repo.moveEvent(accountId, href, calendarUrl, day)
+            if (moved.succeeded) {
+                Log.i(TAG, "moved event to another calendar: ${moved.href}")
+            } else {
+                Log.w(TAG, "move event failed: ${moved.error}")
+            }
+            return moved.error
         }
     }
 
