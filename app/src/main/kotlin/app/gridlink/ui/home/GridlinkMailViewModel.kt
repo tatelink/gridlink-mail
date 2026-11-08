@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.CalendarContract
 import android.provider.MediaStore
+import android.text.format.DateFormat
 import android.util.Log
 import android.widget.Toast
 import androidx.annotation.RequiresApi
@@ -74,6 +75,7 @@ import app.gridlink.ui.gridlink.GridlinkUnsubscribe
 import app.gridlink.ui.gridlink.gridlinkTypedRecipient
 import app.gridlink.ui.gridlink.gridlinkUnsubscribeOf
 import app.gridlink.ui.gridlink.parseFormattedHtml
+import app.gridlink.util.MailDates
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -103,7 +105,9 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Real mail for the Gridlink screens: the cached inbox as a flow, and the four things a tap can ask
@@ -739,7 +743,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             // senders AUTOMATED for the inbox bundle, and a results list has no bundle row to
             // put them in. Every hit gets the day heading its date earns.
             results = emails.map { email ->
-                GridlinkMailMapping.message(email, LABELS, zone, today)
+                GridlinkMailMapping.message(email, LABELS, zone, today, viewer = viewer())
                     .copy(section = GridlinkMailMapping.section(email, zone, today))
             },
             searching = searching,
@@ -867,6 +871,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                                     // The children are rows too: they are selectable and swipeable,
                                     // so their keys have to be qualified exactly as their parent's is.
                                     account = w.rowAccount(account),
+                                    viewer = viewer(),
                                 ).copy(section = GridlinkMailMapping.section(email, zone, today))
                             }
                         }
@@ -907,6 +912,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 zone = zone,
                 today = LocalDate.now(zone),
                 bundleAutomated = bundling,
+                viewer = viewer(),
             )
             GridlinkMailContent(
                 humans = mapped.humans,
@@ -1030,6 +1036,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                             zone = zone,
                             today = today,
                             showRecipient = showRecipient,
+                            viewer = viewer(),
                         ).copy(section = GridlinkMailMapping.section(email, zone, today))
                     },
                     loading = emails.isEmpty() && w.mailboxId !in fetched,
@@ -1972,6 +1979,29 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             }
         }
     }
+
+    /**
+     * The reader as the list rows see them: every address on the phone, and the phone's own way of
+     * writing a time and a date. Read at map time, like the calendar, so a new account or a flipped
+     * 24-hour switch shows on the next emission.
+     */
+    private fun viewer(): GridlinkMailMapping.Viewer {
+        val own = store.accounts().flatMap { account ->
+            account.resolvedIdentities().map { it.email } + account.username
+        }.map { it.trim().lowercase() }.filter { '@' in it }.toSet()
+        val app = getApplication<Application>()
+        val is24 = DateFormat.is24HourFormat(app)
+        val locale = app.resources.configuration.locales[0]
+        val style = stampStyles.getOrPut(locale to is24) {
+            fun best(skeleton: String) =
+                DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, skeleton), locale)
+            MailDates.StampStyle(time = best(if (is24) "Hm" else "hm"), dayMonth = best("MMMd"))
+        }
+        return GridlinkMailMapping.Viewer(ownAddresses = own, stampStyle = style)
+    }
+
+    /** One stamp style per language and clock, since a list asks for one on every emission. */
+    private val stampStyles = ConcurrentHashMap<Pair<Locale, Boolean>, MailDates.StampStyle>()
 
     /** Whether one of [from] is this account's own address, so its mail is not prompted about. */
     private fun isOwnAddress(from: List<EmailAddress>): Boolean {
