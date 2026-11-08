@@ -118,6 +118,7 @@ fun GridlinkContactScreen(
         // lone arrow over a photo says nothing about where back goes. A thread needs the band (its
         // subject is nowhere else once the header moved out of the glass); a contact card does not.
         title = if (embedded) "" else contact.displayName,
+        titleStyle = GridlinkType.threadTitle,
         onBack = onBack,
         modifier = modifier,
         embedded = embedded,

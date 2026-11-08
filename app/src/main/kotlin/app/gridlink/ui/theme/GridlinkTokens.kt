@@ -1010,6 +1010,26 @@ object GridlinkType {
         letterSpacing = (-0.32).sp,
     )
 
+    /**
+     * The title of an inner page: Settings and its sections, Add account, Snoozed, Scheduled.
+     *
+     * 🔴 One rule for the whole app: [screenTitle] on the main screens (Inbox, Calendar, Contacts,
+     * Compose), this on every page you open from them. Inner pages used to borrow [threadTitle], an
+     * 18sp SemiBold made for subject lines, so the app read as two designs with two kinds of heading.
+     * Same face and same tight tracking as [screenTitle], one step down, so a page reads as a level
+     * below the screen it came from rather than as something else.
+     *
+     * A thread's subject, an event's name and a contact's name are content, not page names, and keep
+     * [threadTitle]; see the `titleStyle` slot on GridlinkDetailFrame.
+     */
+    val pageTitle = TextStyle(
+        fontFamily = GridlinkFontFamily,
+        fontSize = 24.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = (-0.24).sp,
+        lineHeight = 30.sp,
+    )
+
     /** Uppercase at the call site — the caps are content, not a font feature. */
     val sectionLabel = TextStyle(
         fontFamily = GridlinkFontFamily,

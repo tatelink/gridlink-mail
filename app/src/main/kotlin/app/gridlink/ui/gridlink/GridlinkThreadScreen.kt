@@ -287,6 +287,7 @@ fun GridlinkThreadScreen(
 
     GridlinkDetailFrame(
         title = message.subject,
+        titleStyle = GridlinkType.threadTitle,
         onBack = onBack,
         modifier = modifier,
         embedded = embedded,

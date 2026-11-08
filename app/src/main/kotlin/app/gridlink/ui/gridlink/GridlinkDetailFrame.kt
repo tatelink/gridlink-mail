@@ -37,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -99,6 +100,12 @@ fun GridlinkDetailFrame(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     embedded: Boolean = false,
+    /**
+     * [GridlinkType.pageTitle] for a page (Settings, Add account, Snoozed), [GridlinkType.threadTitle]
+     * when the title is the thing on screen's own name (a subject line, an event, a person), which
+     * can run long and must not be promoted to page size.
+     */
+    titleStyle: TextStyle = GridlinkType.pageTitle,
     /**
      * The 64dp control row under the panel, or null for a screen with nothing honest to put there.
      *
@@ -254,7 +261,7 @@ fun GridlinkDetailFrame(
                         if (title.isNotBlank()) {
                             Text(
                                 text = title,
-                                style = GridlinkType.threadTitle,
+                                style = titleStyle,
                                 color = colors.textPrimary,
                                 // Two lines, not three. The third line is bought with body text, and
                                 // a subject long enough to need it is a subject whose tail is
@@ -271,7 +278,12 @@ fun GridlinkDetailFrame(
                     }
                 }
             } else if (!maximized) {
-                GridlinkDetailHeader(title = title, onBack = onBack, titleAction = titleAction)
+                GridlinkDetailHeader(
+                    title = title,
+                    onBack = onBack,
+                    titleStyle = titleStyle,
+                    titleAction = titleAction,
+                )
             }
 
             // The slot always takes the leftover height, so the bottom row never moves; the glass
@@ -387,14 +399,15 @@ fun GridlinkDetailFrame(
  * The title sits here rather than scrolling with the content on purpose. A title that scrolls away
  * is fine in a client where the header collapses into a smaller copy of itself, and is just missing
  * in one where it does not: three screens into a long report you would have nothing on screen saying
- * which report. [GridlinkType.threadTitle] exists for this slot, at 18sp rather than the 32sp every
- * other screen title uses, because a real subject line promoted to 32sp wraps to three lines and
- * eats the top third of the window.
+ * which report. A subject line gets [GridlinkType.threadTitle] here, at 18sp rather than the 32sp
+ * main-screen title, because a real subject promoted to 32sp wraps to three lines and eats the top
+ * third of the window. A page name gets [GridlinkType.pageTitle], one step below the main screens.
  */
 @Composable
 private fun GridlinkDetailHeader(
     title: String,
     onBack: () -> Unit,
+    titleStyle: TextStyle,
     modifier: Modifier = Modifier,
     titleAction: (@Composable () -> Unit)? = null,
 ) {
@@ -417,7 +430,7 @@ private fun GridlinkDetailHeader(
         )
         Text(
             text = title,
-            style = GridlinkType.threadTitle,
+            style = titleStyle,
             color = colors.textPrimary,
             maxLines = 3,
             overflow = TextOverflow.Ellipsis,
