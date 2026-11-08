@@ -38,6 +38,7 @@ import app.gridlink.core.jmap.model.JmapSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.net.HttpURLConnection.HTTP_GONE
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -670,13 +671,7 @@ class DavRepository(
         val allDay = start == null
         val eventUid = fileSafeUid(uid)
         val startAt = LocalDateTime.of(date, start ?: LocalTime.MIDNIGHT)
-        // An end time earlier in the day than the start is the form's way of spelling "ends
-        // tomorrow", which is what someone means by 22:00 to 01:00. Rolling the date forward here
-        // keeps both writers honest about only ever receiving an end after its start.
-        val endAt = end?.let {
-            val day = endDate ?: if (start != null && it <= start) date.plusDays(1) else date
-            LocalDateTime.of(day, it)
-        } ?: endDate?.takeIf { allDay }?.let { LocalDateTime.of(it, LocalTime.MIDNIGHT) }
+        val endAt = newEventEnd(date, start, end, endDate)
 
         // 🔴 A JMAP-keyed calendar cannot be written to over CalDAV: `jmap:calendar/<id>` is this
         // app's own key, not a URL, and a PUT against it would 404 (or worse, hit something else
@@ -967,6 +962,18 @@ class DavRepository(
         return cacheRewrittenEvent(accountId, row.collectionUrl, written.href, written.etag, patched)
     }
 
+    /**
+     * Where a new event ends. An end time earlier in the day than the start is the form's way of
+     * spelling "ends tomorrow", which is what someone means by 22:00 to 01:00. Rolling the date
+     * forward here keeps both writers honest about only ever receiving an end after its start. An
+     * all-day event (no [start]) ends at midnight of [endDate] when the caller knows it.
+     */
+    private fun newEventEnd(date: LocalDate, start: LocalTime?, end: LocalTime?, endDate: LocalDate?): LocalDateTime? {
+        if (end == null) return endDate?.takeIf { start == null }?.let { LocalDateTime.of(it, LocalTime.MIDNIGHT) }
+        val day = endDate ?: if (start != null && end <= start) date.plusDays(1) else date
+        return LocalDateTime.of(day, end)
+    }
+
     /** The answer to a 412 on an event write, after the resync has already run. */
     private fun eventConflict() = DavWriteOutcome(
         error = "Someone changed this event on another device. The newer copy has been synced; try again.",
@@ -1037,7 +1044,7 @@ class DavRepository(
             } catch (e: DavException) {
                 when (e.code) {
                     // Already gone is what was asked for.
-                    404, 410 -> Unit
+                    404, HTTP_GONE -> Unit
                     412 -> {
                         syncCalendars(accountId)
                         return eventConflict()

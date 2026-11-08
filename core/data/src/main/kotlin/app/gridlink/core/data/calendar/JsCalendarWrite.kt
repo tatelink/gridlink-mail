@@ -143,7 +143,8 @@ object JsCalendarWrite {
      * standing beside the exclusion.
      */
     fun exclude(instance: LocalDateTime): Map<String, JsonElement> = mapOf(
-        "recurrenceOverrides/${pointerEscape(instance.stamp())}" to JsonObject(mapOf("excluded" to JsonPrimitive(true))),
+        "recurrenceOverrides/${pointerEscape(instance.stamp())}" to
+            JsonObject(mapOf("excluded" to JsonPrimitive(true))),
     )
 
     /**

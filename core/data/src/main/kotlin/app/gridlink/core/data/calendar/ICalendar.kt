@@ -723,6 +723,16 @@ object ICalendar {
     }
 
     /** The lines a touched field group writes back, minus the times (see [timeLines]). */
+    /**
+     * The RRULE line [patchEvent] writes when [EventField.RECURRENCE] is touched. Only a master
+     * carries a rule; an override handed one would become a second series. A blank rule writes
+     * nothing, which (with RRULE in the removed set) turns the series into a single event.
+     */
+    private fun ruleLines(touched: Set<EventField>, recurrenceId: LocalDate?, rrule: String?): List<String> {
+        if (EventField.RECURRENCE !in touched || recurrenceId != null) return emptyList()
+        return listOfNotNull(rrule?.trim()?.removePrefix("RRULE:")?.takeIf { it.isNotBlank() }?.let { "RRULE:$it" })
+    }
+
     private fun fieldLines(
         touched: Set<EventField>,
         summary: String,
@@ -824,10 +834,7 @@ object ICalendar {
             addAll(
                 fieldLines(touched, summary, location, description, category, reminders),
             )
-            // Only a master carries a rule; an override handed one would become a second series.
-            if (EventField.RECURRENCE in touched && recurrenceId == null) {
-                rrule?.trim()?.removePrefix("RRULE:")?.takeIf { it.isNotBlank() }?.let { add("RRULE:$it") }
-            }
+            addAll(ruleLines(touched, recurrenceId, rrule))
             if (EventField.TIME in touched) {
                 addAll(timeLines(keep, allDay, start, end, zone))
                 add("SEQUENCE:${target.sequence + 1}")
