@@ -57,7 +57,7 @@ private abstract class GridlinkSyncAdapter(context: Context) : AbstractThreadedS
             if (ids.isEmpty()) {
                 // The mail account is gone but its system account has not been swept yet. Nothing
                 // to publish, and nothing to clean up either: unregistering the account is what
-                // deletes the rows, and SystemMirror.apply does that on the next app start.
+                // deletes the rows, and SystemMirror.watch does that as soon as the account goes.
                 Log.i(TAG, "$label sync skipped: no mail account for this system account")
                 return@runBlocking
             }

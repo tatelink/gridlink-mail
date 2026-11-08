@@ -10,7 +10,16 @@ import app.gridlink.core.data.account.AccountStore
 import app.gridlink.core.data.account.MailProtocol
 import app.gridlink.core.data.account.StoredAccount
 import app.gridlink.core.data.settings.SettingsRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Keeps the set of registered [GridlinkSystemAccount]s in step with the mail accounts, and owns the
@@ -114,14 +123,53 @@ object SystemMirror {
         Manifest.permission.WRITE_CALENDAR,
     )
 
+    /** One [apply] at a time: the watcher and the Settings switch can both ask at once. */
+    private val applyLock = Mutex()
+
+    /**
+     * What [apply]'s answer depends on, per mail account. The account list also changes on every
+     * unread count, and those changes must not reconcile anything, so the watcher compares these.
+     */
+    private data class MirrorKey(val id: String, val username: String, val calendar: Boolean, val contacts: Boolean)
+
+    /**
+     * Run [apply] now, and again whenever an account is added or removed, an account's calendar or
+     * contacts choice changes, or the mirror switch flips.
+     *
+     * This is what puts a newly added account into the system Calendar and Contacts apps straight
+     * away. Reconciling only at app start left a new account out of the system until the next
+     * restart or a trip to the switch, and a removed one's contacts in the dialler just as long.
+     * Removal needs nothing extra here: [apply] unregisters the Android account, and that is what
+     * deletes its rows (see [GridlinkSystemAccount.remove]).
+     */
+    fun watch(scope: CoroutineScope, context: Context, accountStore: AccountStore, settings: SettingsRepository): Job =
+        scope.launch {
+            reconcileTriggers(accountStore.accountsFlow, settings.systemAccountMirror).collect {
+                runCatching { apply(context, accountStore, settings) }
+                    .onFailure { Log.w(TAG, "system-account reconcile failed", it) }
+            }
+        }
+
+    /** Emits once at the start and once per change that [watch] must reconcile for. See [MirrorKey]. */
+    internal fun reconcileTriggers(accounts: Flow<List<StoredAccount>>, mirrorOn: Flow<Boolean>): Flow<Any> {
+        val keys = accounts.map { list ->
+            list.map { MirrorKey(it.id, it.username, it.syncSelection.calendar, it.syncSelection.contacts) }
+        }
+        return combine(keys, mirrorOn) { list, on -> list to on }.distinctUntilChanged()
+    }
+
     /**
      * Register the accounts the current settings call for, unregister the rest, and ask for a sync.
      *
      * Safe to call as often as convenient: registering an account that exists is a no-op, and the
-     * sync request coalesces. Called on every app start, so an account added or removed inside
-     * Gridlink reaches the system without the user going back to Settings.
+     * sync request coalesces. [watch] calls it at app start and on every account change, so an
+     * account added or removed inside Gridlink reaches the system without the user going back to
+     * Settings, and a new account is synced straight away.
      */
-    suspend fun apply(context: Context, accountStore: AccountStore, settings: SettingsRepository) {
+    suspend fun apply(context: Context, accountStore: AccountStore, settings: SettingsRepository) =
+        applyLock.withLock { reconcile(context, accountStore, settings) }
+
+    private suspend fun reconcile(context: Context, accountStore: AccountStore, settings: SettingsRepository) {
         val on = settings.systemAccountMirror.first() && hasPermissions(context)
         val sources = accountStore.accounts().map { stored ->
             MirrorSource(
@@ -173,8 +221,8 @@ object SystemMirror {
      * The local account ids that publish under [account]: the one stored on it.
      *
      * A 2.1.3 account with no id yet is matched by login, but only when that login is unambiguous;
-     * otherwise nothing is published until [apply] has sorted it out on the next app start, which
-     * is better than writing one account's rows into another's.
+     * otherwise nothing is published until [apply] has sorted it out, which is better than writing
+     * one account's rows into another's.
      */
     suspend fun accountIdsFor(context: Context, account: Account, accountStore: AccountStore): List<String> {
         val accounts = accountStore.accounts()
