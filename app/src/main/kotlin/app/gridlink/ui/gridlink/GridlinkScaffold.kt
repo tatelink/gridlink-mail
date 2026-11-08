@@ -919,6 +919,12 @@ fun GridlinkRoot(
     /** Open Settings at the tag manager, or null when there is no Settings to open. */
     onManageTags: (() -> Unit)? = null,
     /**
+     * Fetch a message's raw headers by its row key, or null when there is no server to ask (the
+     * gallery), which hides View headers. A row key for [onSetTag]'s reason: in the unified inbox
+     * it names the account the message came from.
+     */
+    onLoadHeaders: (suspend (emailId: String) -> List<GridlinkHeader>)? = null,
+    /**
      * The account's mailboxes, or null to draw [GridlinkSampleTree]'s. See [GridlinkFolderContent].
      */
     folders: GridlinkFolderContent? = null,
@@ -2392,6 +2398,8 @@ fun GridlinkRoot(
                             { keyword, applied -> set(current.message.id, keyword, applied) }
                         },
                         onManageTags = onManageTags,
+                        // Bound to the open message for onSetTag's reason.
+                        loadHeaders = onLoadHeaders?.let { load -> { load(current.message.id) } },
                     )
 
                     is GridlinkDetail.Contact -> GridlinkContactScreen(

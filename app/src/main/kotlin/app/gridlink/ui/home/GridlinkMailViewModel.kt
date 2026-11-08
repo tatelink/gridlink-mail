@@ -49,6 +49,7 @@ import app.gridlink.ui.gridlink.GridlinkFolderContent
 import app.gridlink.ui.gridlink.GridlinkFolderEdit
 import app.gridlink.ui.gridlink.GridlinkFolderMapping
 import app.gridlink.ui.gridlink.GridlinkFolderRole
+import app.gridlink.ui.gridlink.GridlinkHeader
 import app.gridlink.ui.gridlink.GridlinkInvite
 import app.gridlink.ui.gridlink.GridlinkInviteResponse
 import app.gridlink.ui.gridlink.GridlinkMailAction
@@ -2741,6 +2742,19 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
      * created ([app.gridlink.core.data.settings.MailTag.keyword]); the label is this device's word for
      * it and renaming a tag deliberately does not rewrite what is already on the mail.
      */
+    /**
+     * Every raw header of one message, for the reader's View headers sheet (issue #60).
+     *
+     * A row key for [setTag]'s reason: in the unified inbox the open message may belong to another
+     * account, and asking the wrong server for it answers "not found". Throws on failure, and the
+     * sheet says why, so the reader is not left looking at an empty list that pretends to be the
+     * whole answer.
+     */
+    suspend fun rawHeaders(rowKey: String): List<GridlinkHeader> {
+        val (credentials, emailId) = checkNotNull(resolve(rowKey)) { "no account for this message" }
+        return repo.rawHeaders(credentials, emailId).map { GridlinkHeader(it.name, it.value) }
+    }
+
     fun setTag(rowKey: String, keyword: String, applied: Boolean) {
         // A row key, for [open]'s reason: this is called with the OPEN message's identity, and in
         // the unified inbox that identity carries the account the message came from.

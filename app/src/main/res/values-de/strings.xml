@@ -148,6 +148,9 @@
     <string name="message_headers_title">Nachrichten-Kopfzeilen</string>
     <string name="message_headers_empty">Keine Kopfzeilen vorhanden</string>
     <string name="message_headers_error">Kopfzeilen konnten nicht geladen werden:\n%1$s</string>
+    <string name="message_headers_loading">Kopfzeilen werden geladen…</string>
+    <string name="message_headers_copy">Alles kopieren</string>
+    <string name="message_headers_close">Schließen</string>
     <string name="message_load_error">Nachricht konnte nicht geladen werden:\n%1$s</string>
     <string name="message_retry">Erneut versuchen</string>
     <string name="message_unknown_sender">(unbekannter Absender)</string>

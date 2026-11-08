@@ -151,4 +151,23 @@ class GridlinkToolbarLayoutTest {
         assertTrue(layout.inSheet.isEmpty())
         assertFalse(layout.showMore)
     }
+
+    // ---- rows the sheet always carries (Tags, View headers) ------------------------------------
+
+    @Test
+    fun `sheet rows open More even when every enabled action fits`() {
+        // Without this a reader with three actions or fewer could never reach Tags or the headers.
+        val enabled = setOf(ThreadToolbarAction.ARCHIVE, ThreadToolbarAction.DELETE)
+        val layout = gridlinkToolbarLayout(enabled, hasUnsubscribe = false, slots = 3, hasSheetRows = true)
+        assertTrue(layout.showMore)
+        assertEquals(listOf(ThreadToolbarAction.ARCHIVE, ThreadToolbarAction.DELETE), layout.inBar)
+        assertTrue(layout.inSheet.isEmpty())
+    }
+
+    @Test
+    fun `sheet rows do not change an install that already overflows`() {
+        val with = gridlinkToolbarLayout(defaults, hasUnsubscribe = false, slots = 3, hasSheetRows = true)
+        val without = gridlinkToolbarLayout(defaults, hasUnsubscribe = false, slots = 3)
+        assertEquals(without, with)
+    }
 }

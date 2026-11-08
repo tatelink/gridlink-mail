@@ -148,6 +148,9 @@
     <string name="message_headers_title">Encabezados del mensaje</string>
     <string name="message_headers_empty">No hay encabezados que mostrar</string>
     <string name="message_headers_error">No se pudieron cargar los encabezados:\n%1$s</string>
+    <string name="message_headers_loading">Cargando encabezados…</string>
+    <string name="message_headers_copy">Copiar todo</string>
+    <string name="message_headers_close">Cerrar</string>
     <string name="message_load_error">No se pudo cargar el mensaje:\n%1$s</string>
     <string name="message_retry">Reintentar</string>
     <string name="message_unknown_sender">(remitente desconocido)</string>

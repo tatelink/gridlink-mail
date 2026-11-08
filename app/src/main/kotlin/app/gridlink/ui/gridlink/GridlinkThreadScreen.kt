@@ -29,6 +29,7 @@ import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CloseFullscreen
+import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.Email
@@ -56,9 +57,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import app.gridlink.R
 import app.gridlink.core.data.settings.ThreadToolbarAction
 import app.gridlink.ui.emailhtml.EmailRemoteContent
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
@@ -157,6 +160,13 @@ fun GridlinkThreadScreen(
     /** Open the tag manager in Settings. Null in the gallery, where Settings is not reachable. */
     onManageTags: (() -> Unit)? = null,
     /**
+     * Fetch this message's raw headers for the More sheet's "View headers" (issue #60).
+     *
+     * Null hides the row, [onOpenAttachment]'s rule: the debug gallery has no server to ask, and a
+     * sheet that could only ever say "could not load" is a control that cannot act.
+     */
+    loadHeaders: (suspend () -> List<GridlinkHeader>)? = null,
+    /**
      * The meeting invitation this message carries, or null for mail that carries none — which is
      * almost all of it, and which draws no card and costs no space.
      *
@@ -212,6 +222,11 @@ fun GridlinkThreadScreen(
     // Same key, same reason: a picker left open must not follow the reading pane onto another
     // message and put the next reader's taps on the wrong mail.
     var showingTags by remember(message.id) { mutableStateOf(false) }
+    // Same key again: headers fetched for one message must never be drawn under the next one.
+    var showingHeaders by remember(message.id) { mutableStateOf(false) }
+    // The rows the More sheet always carries on a live mailbox, whatever the bar holds. They are why
+    // More has to show even when every enabled action fits on the bar; see [gridlinkToolbarLayout].
+    val hasSheetRows = onSetTag != null || loadHeaders != null
     val tagDefinitions = rememberMailTagDefinitions()
     val tags = remember(message.tags, tagDefinitions) { resolveTags(message.tags, tagDefinitions) }
     val hasRemoteContent = remember(message.body) { EmailRemoteContent.referencedBy(message.body) }
@@ -308,6 +323,7 @@ fun GridlinkThreadScreen(
                 enabled = toolbarActions,
                 hasUnsubscribe = message.unsubscribe != null,
                 slots = if (embedded) PANE_SLOTS else SLOTS,
+                hasSheetRows = hasSheetRows,
             )
             if (layout.inBar.isEmpty() && !layout.showMore) {
                 // Every switch off and nothing contextual to offer. An empty pill is a control that
@@ -522,6 +538,7 @@ fun GridlinkThreadScreen(
                 enabled = toolbarActions,
                 hasUnsubscribe = message.unsubscribe != null,
                 slots = if (embedded) PANE_SLOTS else SLOTS,
+                hasSheetRows = hasSheetRows,
             ),
             starred = starred,
             onAction = { action ->
@@ -534,7 +551,21 @@ fun GridlinkThreadScreen(
                     showingTags = true
                 }
             },
+            onViewHeaders = loadHeaders?.let {
+                {
+                    showingMore = false
+                    showingHeaders = true
+                }
+            },
             onDismiss = { showingMore = false },
+        )
+    }
+
+    if (showingHeaders && loadHeaders != null) {
+        GridlinkHeadersSheet(
+            subject = message.subject,
+            load = loadHeaders,
+            onDismiss = { showingHeaders = false },
         )
     }
 
@@ -1048,11 +1079,18 @@ internal fun gridlinkToolbarLayout(
     enabled: Set<ThreadToolbarAction>,
     hasUnsubscribe: Boolean,
     slots: Int = SLOTS,
+    /**
+     * True when the sheet carries rows of its own that are not toolbar actions (Tags, View
+     * headers). Unsubscribe's rule: real content in the sheet, so More has to appear for it even
+     * when every enabled action fits on the bar. Without it a reader with three actions or fewer
+     * could never reach Tags or the headers at all.
+     */
+    hasSheetRows: Boolean = false,
 ): GridlinkToolbarLayout {
     // The enum's order, never the set's. A Set has no order worth trusting, and the whole
     // fixed-order decision rests on this line.
     val ordered = ThreadToolbarAction.entries.filter { it in enabled }
-    val showMore = ordered.size > slots || hasUnsubscribe
+    val showMore = ordered.size > slots || hasUnsubscribe || hasSheetRows
     val room = if (showMore) slots - 1 else slots
     val inBar = when {
         ordered.size <= room -> ordered
@@ -1168,6 +1206,7 @@ private fun GridlinkThreadMoreSheet(
     starred: Boolean,
     onAction: (GridlinkThreadAction) -> Unit,
     onTags: (() -> Unit)?,
+    onViewHeaders: (() -> Unit)?,
     onDismiss: () -> Unit,
 ) {
     GridlinkCenterSheet(onDismiss = onDismiss) {
@@ -1200,6 +1239,14 @@ private fun GridlinkThreadMoreSheet(
                 label = "Tags",
                 icon = Icons.Outlined.Sell,
                 onClick = onTags,
+            )
+        }
+        // About THIS message too, so it sits with Tags above the reader's overflow.
+        if (onViewHeaders != null) {
+            GridlinkSheetAction(
+                label = stringResource(R.string.message_view_headers),
+                icon = Icons.Outlined.Code,
+                onClick = onViewHeaders,
             )
         }
         // Everything the bar could not fit, in the same order it would have shown them. The sheet is

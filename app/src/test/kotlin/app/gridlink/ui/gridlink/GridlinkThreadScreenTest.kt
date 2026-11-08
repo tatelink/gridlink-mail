@@ -1,5 +1,7 @@
 package app.gridlink.ui.gridlink
 
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -7,6 +9,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.test.core.app.ApplicationProvider
 import app.gridlink.core.data.settings.ThreadToolbarAction
 import app.gridlink.ui.theme.GridlinkMode
 import org.junit.Assert.assertEquals
@@ -77,6 +80,7 @@ class GridlinkThreadScreenTest {
         onRespondToInvite: ((String) -> Unit)? = null,
         receipt: GridlinkReceipt? = null,
         onSendReceipt: (() -> Unit)? = null,
+        loadHeaders: (suspend () -> List<GridlinkHeader>)? = null,
     ) {
         rule.setContent {
             GridlinkApp(initialModeOverride = GridlinkMode.DAY) {
@@ -94,9 +98,61 @@ class GridlinkThreadScreenTest {
                     onRespondToInvite = onRespondToInvite,
                     receipt = receipt,
                     onSendReceipt = onSendReceipt,
+                    loadHeaders = loadHeaders,
                 )
             }
         }
+    }
+
+    // ---- View headers (issue #60) ---------------------------------------------------------------
+
+    private val headers = listOf(
+        GridlinkHeader("Received", "from mx.dalton-energy.example by mail.example"),
+        GridlinkHeader("Message-ID", "<july-42@dalton-energy.example>"),
+    )
+
+    @Test
+    fun viewHeaders_listsEveryHeader_andCopyAllPutsThemOnTheClipboard() {
+        show(loadHeaders = { headers })
+        rule.onNodeWithText("More").performClick()
+        rule.onNodeWithText("View headers").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Message headers").assertExists()
+        rule.onNodeWithText("Message-ID: <july-42@dalton-energy.example>").assertExists()
+        rule.onNodeWithText("Copy all").performClick()
+        val clipboard = ApplicationProvider.getApplicationContext<Context>()
+            .getSystemService(ClipboardManager::class.java)
+        assertEquals(
+            "Received: from mx.dalton-energy.example by mail.example\n" +
+                "Message-ID: <july-42@dalton-energy.example>",
+            clipboard.primaryClip?.getItemAt(0)?.text.toString(),
+        )
+        rule.onNodeWithText("Close").performClick()
+        rule.onNodeWithText("Message headers").assertDoesNotExist()
+    }
+
+    @Test
+    fun viewHeaders_aFailedFetchSaysWhy() {
+        show(loadHeaders = { error("HTTP 503") })
+        rule.onNodeWithText("More").performClick()
+        rule.onNodeWithText("View headers").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Could not load headers:\nHTTP 503").assertExists()
+    }
+
+    @Test
+    fun viewHeaders_isReachableEvenWhenEveryActionFitsOnTheBar() {
+        // One enabled action fits with room to spare, which used to mean no More at all.
+        show(toolbarActions = setOf(ThreadToolbarAction.ARCHIVE), loadHeaders = { headers })
+        rule.onNodeWithText("More").performClick()
+        rule.onNodeWithText("View headers").assertExists()
+    }
+
+    @Test
+    fun viewHeaders_isNotOfferedWithNothingToAsk() {
+        show()
+        rule.onNodeWithText("More").performClick()
+        rule.onAllNodesWithText("View headers").assertCountEquals(0)
     }
 
     // ---- a body that never arrived ---------------------------------------------------------------

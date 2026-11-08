@@ -224,6 +224,9 @@
     <string name="message_headers_title">Message headers</string>
     <string name="message_headers_empty">No headers to show</string>
     <string name="message_headers_error">Could not load headers:\n%1$s</string>
+    <string name="message_headers_loading">Loading headers…</string>
+    <string name="message_headers_copy">Copy all</string>
+    <string name="message_headers_close">Close</string>
     <string name="message_load_error">Could not load message:\n%1$s</string>
     <string name="message_retry">Retry</string>
     <string name="message_unknown_sender">(unknown sender)</string>

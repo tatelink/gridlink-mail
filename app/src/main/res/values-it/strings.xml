@@ -148,6 +148,9 @@
     <string name="message_headers_title">Intestazioni del messaggio</string>
     <string name="message_headers_empty">Nessuna intestazione da mostrare</string>
     <string name="message_headers_error">Impossibile caricare le intestazioni:\n%1$s</string>
+    <string name="message_headers_loading">Caricamento delle intestazioni…</string>
+    <string name="message_headers_copy">Copia tutto</string>
+    <string name="message_headers_close">Chiudi</string>
     <string name="message_load_error">Impossibile caricare il messaggio:\n%1$s</string>
     <string name="message_retry">Riprova</string>
     <string name="message_unknown_sender">(mittente sconosciuto)</string>

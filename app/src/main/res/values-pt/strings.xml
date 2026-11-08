@@ -148,6 +148,9 @@
     <string name="message_headers_title">Cabeçalhos da mensagem</string>
     <string name="message_headers_empty">Nenhum cabeçalho para mostrar</string>
     <string name="message_headers_error">Não foi possível carregar os cabeçalhos:\n%1$s</string>
+    <string name="message_headers_loading">A carregar os cabeçalhos…</string>
+    <string name="message_headers_copy">Copiar tudo</string>
+    <string name="message_headers_close">Fechar</string>
     <string name="message_load_error">Não foi possível carregar a mensagem:\n%1$s</string>
     <string name="message_retry">Tentar novamente</string>
     <string name="message_unknown_sender">(remetente desconhecido)</string>
