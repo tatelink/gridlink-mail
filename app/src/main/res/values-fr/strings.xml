@@ -29,7 +29,7 @@
     <string name="compose_prefill_failed">Impossible de charger le message d\'origine.</string>
     <string name="compose_draft_original_kept">Enregistré comme nouveau brouillon. L\'original a été conservé, car cette copie ne pouvait pas tout reprendre.</string>
     <string name="compose_forward_attachment_dropped">Certaines pièces jointes du message transféré n\'ont pas pu être incluses.</string>
-    <string name="compose_scheduled_toast">Programmé — %1$s</string>
+    <string name="compose_scheduled_toast">Programmé: %1$s</string>
     <string name="compose_discard_title">Abandonner le message ?</string>
     <string name="compose_discard_message">Vous n\'avez pas enregistré vos modifications.</string>
     <string name="compose_discard_message_encrypted">Ce message est chiffré : il ne peut pas être conservé en brouillon, car un brouillon est stocké sur le serveur de courrier tel que vous l\'avez écrit, lisible par qui y a accès. Quitter maintenant abandonne le message.</string>
@@ -239,7 +239,7 @@
     <string name="settings_backup_exported">Paramètres exportés</string>
     <string name="settings_backup_imported">Paramètres importés</string>
     <string name="settings_backup_imported_accounts">Importé. Les nouveaux comptes ont besoin d\'un mot de passe : ouvrez chacun dans Comptes pour vous connecter.</string>
-    <string name="settings_backup_failed">Impossible de terminer — vérifiez le fichier et réessayez</string>
+    <string name="settings_backup_failed">Impossible de terminer. Vérifiez le fichier et réessayez</string>
     <string name="settings_appearance_screen_title">Apparence</string>
     <string name="settings_widgets_section">Widgets de l\'écran d\'accueil</string>
     <string name="settings_widget_opacity_title">Arrière-plan du widget : %1$d%%</string>
@@ -310,7 +310,7 @@
     <string name="settings_quiet_hours_start">Début</string>
     <string name="settings_quiet_hours_end">Fin</string>
     <string name="notif_group_count">%1$d nouveaux messages · %2$s</string>
-    <string name="notif_group_line">%1$s — %2$s</string>
+    <string name="notif_group_line">%1$s: %2$s</string>
     <string name="settings_vacation_screen_title">Réponse d\'absence</string>
     <string name="settings_vacation_section">Réponse automatique</string>
     <string name="settings_vacation_account">Compte : %1$s</string>
@@ -564,13 +564,13 @@
     <string name="connect_imap_smtp">IMAP / SMTP</string>
     <string name="connect_jmap_server">Serveur JMAP</string>
     <string name="connect_jmap_server_placeholder">mail.example.com</string>
-    <string name="connect_jmap_autodiscover_hint">Saisissez simplement votre adresse e-mail et votre mot de passe — Gridlink trouvera votre serveur automatiquement.</string>
+    <string name="connect_jmap_autodiscover_hint">Saisissez votre adresse e-mail et votre mot de passe. Gridlink trouve votre serveur automatiquement.</string>
     <string name="connect_auth_method">Se connecter avec</string>
     <string name="connect_auth_api_token">Jeton d\'API</string>
     <string name="connect_api_token_hint">Collez un jeton d\'API généré par votre fournisseur (par ex. Fastmail) au lieu d\'un mot de passe. Vous pouvez laisser le serveur vide ou coller son URL de session.</string>
     <string name="connect_token_rejected">Le serveur a rejeté le jeton d\'API. Vérifiez qu\'il est valide et autorise l\'accès au courrier.</string>
     <string name="connect_credentials_rejected">Le serveur a refusé ce compte et ce mot de passe. Vérifiez les deux, et si votre serveur exige plutôt un mot de passe d\'application.</string>
-    <string name="connect_fastmail_token_hint">Fastmail nécessite un jeton API — choisissez « Jeton d\'API » ci-dessus.</string>
+    <string name="connect_fastmail_token_hint">Fastmail nécessite un jeton API. Choisissez « Jeton d\'API » ci-dessus.</string>
     <string name="connect_advanced_show">Paramètres avancés</string>
     <string name="connect_advanced_hide">Masquer les paramètres avancés</string>
     <string name="connect_discovering">Recherche de votre serveur…</string>
@@ -868,7 +868,7 @@
     <string name="widget_has_attachment">Contient une pièce jointe</string>
     <string name="widget_no_subject">(Sans objet)</string>
     <string name="widget_unknown_sender">(Expéditeur inconnu)</string>
-    <string name="widget_count_unknown">—</string>
+    <string name="widget_count_unknown">–</string>
     <string name="widget_unread_suffix">non lus</string>
     <string name="widget_label_signed_out">Se connecter</string>
     <string name="widget_label_not_synced">Pas encore synchronisé</string>

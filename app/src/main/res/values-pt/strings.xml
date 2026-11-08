@@ -29,7 +29,7 @@
     <string name="compose_prefill_failed">Não foi possível carregar a mensagem original.</string>
     <string name="compose_draft_original_kept">Salvo como um novo rascunho. O original foi mantido, porque esta cópia não conseguia levar tudo o que ele continha.</string>
     <string name="compose_forward_attachment_dropped">Não foi possível incluir alguns anexos da mensagem encaminhada.</string>
-    <string name="compose_scheduled_toast">Agendado — %1$s</string>
+    <string name="compose_scheduled_toast">Agendado: %1$s</string>
     <string name="compose_discard_title">Descartar mensagem?</string>
     <string name="compose_discard_message">Você não guardou as suas alterações.</string>
     <string name="compose_discard_message_encrypted">Esta mensagem está criptografada, por isso não pode ser guardada como rascunho: um rascunho fica no servidor de e-mail exatamente como foi escrito, legível por quem tiver acesso a ele. Se sair agora, a mensagem é descartada.</string>
@@ -239,7 +239,7 @@
     <string name="settings_backup_exported">Configurações exportadas</string>
     <string name="settings_backup_imported">Configurações importadas</string>
     <string name="settings_backup_imported_accounts">Importado. As novas contas precisam de uma senha: abra cada uma em Contas para entrar.</string>
-    <string name="settings_backup_failed">Não foi possível concluir — verifique o arquivo e tente novamente</string>
+    <string name="settings_backup_failed">Não foi possível concluir. Verifique o arquivo e tente novamente</string>
     <string name="settings_appearance_screen_title">Aparência</string>
     <string name="settings_widgets_section">Widgets da tela inicial</string>
     <string name="settings_widget_opacity_title">Fundo do widget: %1$d%%</string>
@@ -310,7 +310,7 @@
     <string name="settings_quiet_hours_start">Início</string>
     <string name="settings_quiet_hours_end">Fim</string>
     <string name="notif_group_count">%1$d novas mensagens · %2$s</string>
-    <string name="notif_group_line">%1$s — %2$s</string>
+    <string name="notif_group_line">%1$s: %2$s</string>
     <string name="settings_vacation_screen_title">Resposta de ausência</string>
     <string name="settings_vacation_section">Resposta automática</string>
     <string name="settings_vacation_account">Conta: %1$s</string>
@@ -528,7 +528,7 @@
     <string name="message_pgp_sig_valid">Assinatura válida de %1$s</string>
     <string name="message_pgp_sig_unconfirmed">Assinatura de uma chave não confirmada (%1$s)</string>
     <string name="message_pgp_sig_missing_key">Não é possível verificar a assinatura (chave indisponível)</string>
-    <string name="message_pgp_sig_invalid">Assinatura inválida — o conteúdo pode ter sido alterado</string>
+    <string name="message_pgp_sig_invalid">Assinatura inválida: o conteúdo pode ter sido alterado</string>
     <string name="message_pgp_sig_revoked">Assinado com uma chave revogada</string>
     <string name="message_pgp_sig_expired">Assinado com uma chave expirada</string>
     <string name="message_pgp_sig_insecure">Assinado com uma chave insegura</string>
@@ -563,13 +563,13 @@
     <string name="connect_imap_smtp">IMAP / SMTP</string>
     <string name="connect_jmap_server">Servidor JMAP</string>
     <string name="connect_jmap_server_placeholder">mail.example.com</string>
-    <string name="connect_jmap_autodiscover_hint">Basta inserir o seu e-mail e a palavra-passe — o Gridlink encontrará o seu servidor automaticamente.</string>
+    <string name="connect_jmap_autodiscover_hint">Introduza o seu e-mail e a palavra-passe. O Gridlink encontra o seu servidor automaticamente.</string>
     <string name="connect_auth_method">Iniciar sessão com</string>
     <string name="connect_auth_api_token">Token de API</string>
     <string name="connect_api_token_hint">Cole um token de API gerado pelo seu fornecedor (p. ex. Fastmail) em vez de uma palavra-passe. Pode deixar o servidor vazio ou colar o URL da sessão.</string>
     <string name="connect_token_rejected">O servidor recusou o token de API. Verifique se é válido e se permite o acesso ao correio.</string>
     <string name="connect_credentials_rejected">O servidor recusou essa conta e palavra-passe. Verifique ambas, e se o seu servidor exige antes uma palavra-passe de aplicação.</string>
-    <string name="connect_fastmail_token_hint">O Fastmail exige um token de API — escolha \"Token de API\" acima.</string>
+    <string name="connect_fastmail_token_hint">O Fastmail exige um token de API. Escolha \"Token de API\" acima.</string>
     <string name="connect_advanced_show">Definições avançadas</string>
     <string name="connect_advanced_hide">Ocultar definições avançadas</string>
     <string name="connect_discovering">A localizar o seu servidor…</string>
@@ -869,7 +869,7 @@
     <string name="widget_has_attachment">Tem um anexo</string>
     <string name="widget_no_subject">(Sem assunto)</string>
     <string name="widget_unknown_sender">(Remetente desconhecido)</string>
-    <string name="widget_count_unknown">—</string>
+    <string name="widget_count_unknown">–</string>
     <string name="widget_unread_suffix">não lidas</string>
     <string name="widget_label_signed_out">Iniciar sessão</string>
     <string name="widget_label_not_synced">Ainda não sincronizado</string>

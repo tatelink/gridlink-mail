@@ -29,13 +29,13 @@
     <string name="compose_prefill_failed">Не удалось загрузить исходное сообщение.</string>
     <string name="compose_draft_original_kept">Сохранено как новый черновик. Оригинал оставлен, потому что эта копия смогла перенести не всё, что в нём было.</string>
     <string name="compose_forward_attachment_dropped">Некоторые вложения пересылаемого сообщения не удалось включить.</string>
-    <string name="compose_scheduled_toast">Запланировано — %1$s</string>
+    <string name="compose_scheduled_toast">Запланировано: %1$s</string>
     <string name="compose_discard_title">Удалить сообщение?</string>
     <string name="compose_discard_message">Вы не сохранили изменения.</string>
     <string name="compose_discard_message_encrypted">Это письмо зашифровано, поэтому его нельзя сохранить как черновик: черновик хранится на почтовом сервере ровно в том виде, в каком вы его написали, и доступен для чтения любому, у кого есть доступ. Если выйти сейчас, письмо будет удалено.</string>
     <string name="compose_discard_title_outbox">Сбросить изменения?</string>
-    <string name="compose_discard_message_outbox">Ваши изменения будут сброшены, а сообщение — нет: оно останется в исходящих или попадёт в Черновики, если вы его сохраните.</string>
-    <string name="compose_discard_message_outbox_encrypted">Ваши изменения будут сброшены, а сообщение — нет: оно останется в исходящих. Удалите его там, если хотите от него избавиться.</string>
+    <string name="compose_discard_message_outbox">Ваши изменения будут сброшены, а само сообщение останется: оно останется в исходящих или попадёт в Черновики, если вы его сохраните.</string>
+    <string name="compose_discard_message_outbox_encrypted">Ваши изменения будут сброшены, а само сообщение останется: оно останется в исходящих. Удалите его там, если хотите от него избавиться.</string>
     <string name="compose_discard_changes">Сбросить изменения</string>
     <string name="compose_discard_save">Сохранить черновик</string>
     <string name="compose_discard_discard">Удалить</string>
@@ -238,8 +238,8 @@
     <string name="settings_backup_import_k9">Импорт из K-9 или Thunderbird</string>
     <string name="settings_backup_exported">Настройки экспортированы</string>
     <string name="settings_backup_imported">Настройки импортированы</string>
-    <string name="settings_backup_imported_accounts">Импортировано. Новым учётным записям нужен пароль — откройте каждую в разделе «Учётные записи», чтобы войти.</string>
-    <string name="settings_backup_failed">Не удалось завершить — проверьте файл и попробуйте снова</string>
+    <string name="settings_backup_imported_accounts">Импортировано. Новым учётным записям нужен пароль. Откройте каждую в разделе «Учётные записи», чтобы войти.</string>
+    <string name="settings_backup_failed">Не удалось завершить. Проверьте файл и попробуйте снова</string>
     <string name="settings_appearance_screen_title">Внешний вид</string>
     <string name="settings_widgets_section">Виджеты главного экрана</string>
     <string name="settings_widget_opacity_title">Фон виджета: %1$d%%</string>
@@ -283,7 +283,7 @@
     <string name="settings_swipe_right_title">Смахивание вправо</string>
     <string name="settings_swipe_left_title">Смахивание влево, наполовину</string>
     <string name="settings_swipe_left_far_title">Смахивание влево, полностью</string>
-    <string name="settings_swipe_caption">Смахивание влево нарастает: на полпути оно становится янтарным, а после 60% ширины строки — красным, с короткой вибрацией в этот момент.</string>
+    <string name="settings_swipe_caption">Смахивание влево нарастает: на полпути оно становится янтарным, а после 60% ширины строки становится красным, с короткой вибрацией в этот момент.</string>
     <string name="settings_swipe_nothing">Ничего</string>
     <string name="settings_swipe_toggle_read">Отметить прочитанным/непрочитанным</string>
     <string name="settings_swipe_delete">Удалить</string>
@@ -310,7 +310,7 @@
     <string name="settings_quiet_hours_start">Начало</string>
     <string name="settings_quiet_hours_end">Конец</string>
     <string name="notif_group_count">%1$d новых сообщений · %2$s</string>
-    <string name="notif_group_line">%1$s — %2$s</string>
+    <string name="notif_group_line">%1$s: %2$s</string>
     <string name="settings_vacation_screen_title">Автоответчик</string>
     <string name="settings_vacation_section">Автоответ</string>
     <string name="settings_vacation_account">Аккаунт: %1$s</string>
@@ -466,7 +466,7 @@
     <string name="settings_protocol_imap_smtp">IMAP / SMTP</string>
     <string name="settings_protocol_jmap">JMAP</string>
     <string name="settings_identities_section">Личности</string>
-    <string name="settings_identities_help">Личности — это отправитель, от имени которого вы пишете: имя, адрес и подпись. У них нет пароля (за это отвечает вход в учётную запись). Ваш сервер решает, с каких адресов действительно можно отправлять. Личность по умолчанию выбирается заранее при написании письма.</string>
+    <string name="settings_identities_help">Личности: это отправитель, от имени которого вы пишете: имя, адрес и подпись. У них нет пароля (за это отвечает вход в учётную запись). Ваш сервер решает, с каких адресов действительно можно отправлять. Личность по умолчанию выбирается заранее при написании письма.</string>
     <string name="settings_identities_server_group">С вашего сервера</string>
     <string name="settings_identities_manual_group">Ваши личности</string>
     <string name="settings_identity_from_server">С сервера</string>
@@ -487,7 +487,7 @@
     <string name="settings_email_supporting">Обязательно. Пустые личности удаляются при сохранении.</string>
     <string name="settings_email_invalid">Введите корректный адрес эл. почты.</string>
     <string name="settings_email_not_server">Ваш сервер может отклонить отправку с этого адреса.</string>
-    <string name="settings_signature_supporting">Обычный текст, добавляется в письмо при написании — там его можно изменить или удалить, как любой другой текст.</string>
+    <string name="settings_signature_supporting">Обычный текст, добавляется в письмо при написании. Там его можно изменить или удалить, как любой другой текст.</string>
     <string name="settings_signature_supporting_html">Сохранена HTML-версия: она отправляется как есть, если вы не измените подпись в письме.</string>
     <string name="settings_signature_preview_title">В письме это будет выглядеть так:</string>
     <string name="settings_signature_duplicate_delimiter">Ваша подпись уже начинается со строки «-- », поэтому она появится дважды.</string>
@@ -530,7 +530,7 @@
     <string name="message_pgp_sig_valid">Действительная подпись от %1$s</string>
     <string name="message_pgp_sig_unconfirmed">Подпись неподтверждённого ключа (%1$s)</string>
     <string name="message_pgp_sig_missing_key">Подпись нельзя проверить (ключ недоступен)</string>
-    <string name="message_pgp_sig_invalid">Недействительная подпись — содержимое могло быть изменено</string>
+    <string name="message_pgp_sig_invalid">Недействительная подпись: содержимое могло быть изменено</string>
     <string name="message_pgp_sig_revoked">Подписано отозванным ключом</string>
     <string name="message_pgp_sig_expired">Подписано просроченным ключом</string>
     <string name="message_pgp_sig_insecure">Подписано небезопасным ключом</string>
@@ -565,13 +565,13 @@
     <string name="connect_imap_smtp">IMAP / SMTP</string>
     <string name="connect_jmap_server">Сервер JMAP</string>
     <string name="connect_jmap_server_placeholder">mail.example.com</string>
-    <string name="connect_jmap_autodiscover_hint">Просто введите адрес электронной почты и пароль — Gridlink сам найдёт ваш сервер.</string>
+    <string name="connect_jmap_autodiscover_hint">Введите адрес электронной почты и пароль. Gridlink сам найдёт ваш сервер.</string>
     <string name="connect_auth_method">Войти через</string>
     <string name="connect_auth_api_token">Токен API</string>
     <string name="connect_api_token_hint">Вставьте токен API, созданный вашим провайдером (например, Fastmail), вместо пароля. Поле сервера можно оставить пустым или вставить URL его сессии.</string>
     <string name="connect_token_rejected">Сервер отклонил токен API. Проверьте, что он действителен и разрешает доступ к почте.</string>
     <string name="connect_credentials_rejected">Сервер отклонил эту учётную запись и пароль. Проверьте оба, а также не требует ли ваш сервер пароль приложения.</string>
-    <string name="connect_fastmail_token_hint">Fastmail требует токен API — выберите выше «Токен API».</string>
+    <string name="connect_fastmail_token_hint">Fastmail требует токен API. Выберите выше «Токен API».</string>
     <string name="connect_advanced_show">Дополнительные настройки</string>
     <string name="connect_advanced_hide">Скрыть дополнительные настройки</string>
     <string name="connect_discovering">Поиск вашего сервера…</string>
@@ -691,7 +691,7 @@
     <string name="status_removed_account">Аккаунт удалён</string>
     <string name="status_attaching">Прикрепление…</string>
     <string name="status_read_file_failed">Не удалось прочитать выбранный файл.</string>
-    <string name="status_attach_too_large">Этот файл слишком велик для вложения. Ограничение — %1$s.</string>
+    <string name="status_attach_too_large">Этот файл слишком велик для вложения. Ограничение: %1$s.</string>
     <string name="status_open_attachment_failed">Не удалось открыть вложение: %1$s</string>
     <string name="status_attachment_too_large">Это вложение слишком велико, чтобы его открыть.</string>
     <string name="status_inline_images_too_large">Некоторые изображения в этом сообщении слишком велики для отображения.</string>
@@ -764,8 +764,8 @@
     <string name="settings_image_allowlist_remove">Удалить отправителя</string>
     <string name="settings_image_allowlist_hint">sender@example.com</string>
     <string name="settings_sign_out_title">Выйти из этого аккаунта?</string>
-    <string name="settings_sign_out_message">Этот аккаунт будет удалён из Gridlink, а загруженные письма — стёрты с этого устройства.</string>
-    <string name="connect_welcome_title">Ваша почта — наконец-то ваша.</string>
+    <string name="settings_sign_out_message">Этот аккаунт будет удалён из Gridlink, а загруженные письма будут стёрты с этого устройства.</string>
+    <string name="connect_welcome_title">Ваша почта наконец-то ваша.</string>
     <string name="connect_welcome_subtitle">Без рекламы и слежки. На том сервере, который выберете вы.</string>
     <string name="connect_import_header">Уже есть аккаунты в другом месте?</string>
     <string name="connect_email_invalid">Введите правильный адрес эл. почты (например, name@example.com).</string>
@@ -775,7 +775,7 @@
     <string name="connect_import_signin_skip">Пропустить пока</string>
     <string name="connect_import_invalid">Этот файл не является допустимой резервной копией Gridlink.</string>
     <string name="connect_import_settings">Восстановить из резервной копии Gridlink</string>
-    <string name="connect_import_no_accounts">Настройки импортированы. В копии не было учётных записей — добавьте её ниже.</string>
+    <string name="connect_import_no_accounts">Настройки импортированы. В копии не было учётных записей, добавьте её ниже.</string>
     <string name="connect_import_k9">Импорт из K-9 или Thunderbird</string>
     <string name="connect_import_k9_none">В этом файле не найдено учётных записей для импорта.</string>
     <string name="connect_import_k9_summary">Импортировано учётных записей: %1$d, пропущено: %2$d (POP3 или не поддерживается).</string>
@@ -872,7 +872,7 @@
     <string name="widget_has_attachment">Есть вложение</string>
     <string name="widget_no_subject">(Без темы)</string>
     <string name="widget_unknown_sender">(Отправитель неизвестен)</string>
-    <string name="widget_count_unknown">—</string>
+    <string name="widget_count_unknown">–</string>
     <string name="widget_unread_suffix">непрочитанных</string>
     <string name="widget_label_signed_out">Войти</string>
     <string name="widget_label_not_synced">Ещё не синхронизировано</string>

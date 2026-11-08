@@ -29,7 +29,7 @@
     <string name="compose_prefill_failed">Impossibile caricare il messaggio originale.</string>
     <string name="compose_draft_original_kept">Salvato come nuova bozza. L\'originale è stato mantenuto, perché questa copia non poteva riportare tutto ciò che conteneva.</string>
     <string name="compose_forward_attachment_dropped">Non è stato possibile includere alcuni allegati del messaggio inoltrato.</string>
-    <string name="compose_scheduled_toast">Programmato — %1$s</string>
+    <string name="compose_scheduled_toast">Programmato: %1$s</string>
     <string name="compose_discard_title">Eliminare il messaggio?</string>
     <string name="compose_discard_message">Non hai salvato le modifiche.</string>
     <string name="compose_discard_message_encrypted">Questo messaggio è cifrato, quindi non può essere conservato come bozza: una bozza viene archiviata sul server di posta esattamente come l\'hai scritta, leggibile da chiunque vi abbia accesso. Uscendo ora il messaggio viene eliminato.</string>
@@ -239,7 +239,7 @@
     <string name="settings_backup_exported">Impostazioni esportate</string>
     <string name="settings_backup_imported">Impostazioni importate</string>
     <string name="settings_backup_imported_accounts">Importato. I nuovi account richiedono una password: aprine ciascuno in Account per accedere.</string>
-    <string name="settings_backup_failed">Operazione non riuscita — controlla il file e riprova</string>
+    <string name="settings_backup_failed">Operazione non riuscita. Controlla il file e riprova</string>
     <string name="settings_appearance_screen_title">Aspetto</string>
     <string name="settings_widgets_section">Widget della schermata Home</string>
     <string name="settings_widget_opacity_title">Sfondo del widget: %1$d%%</string>
@@ -310,7 +310,7 @@
     <string name="settings_quiet_hours_start">Inizio</string>
     <string name="settings_quiet_hours_end">Fine</string>
     <string name="notif_group_count">%1$d nuovi messaggi · %2$s</string>
-    <string name="notif_group_line">%1$s — %2$s</string>
+    <string name="notif_group_line">%1$s: %2$s</string>
     <string name="settings_vacation_screen_title">Risponditore automatico</string>
     <string name="settings_vacation_section">Risposta automatica</string>
     <string name="settings_vacation_account">Account: %1$s</string>
@@ -563,7 +563,7 @@
     <string name="connect_imap_smtp">IMAP / SMTP</string>
     <string name="connect_jmap_server">Server JMAP</string>
     <string name="connect_jmap_server_placeholder">mail.example.com</string>
-    <string name="connect_jmap_autodiscover_hint">Inserisci semplicemente la tua email e la password: Gridlink troverà automaticamente il tuo server.</string>
+    <string name="connect_jmap_autodiscover_hint">Inserisci la tua email e la password. Gridlink trova il tuo server automaticamente.</string>
     <string name="connect_auth_method">Accedi con</string>
     <string name="connect_auth_api_token">Token API</string>
     <string name="connect_api_token_hint">Incolla un token API generato dal tuo provider (ad es. Fastmail) al posto di una password. Puoi lasciare vuoto il server o incollare l\'URL della sua sessione.</string>
@@ -865,7 +865,7 @@
     <string name="widget_has_attachment">Ha un allegato</string>
     <string name="widget_no_subject">(Nessun oggetto)</string>
     <string name="widget_unknown_sender">(Mittente sconosciuto)</string>
-    <string name="widget_count_unknown">—</string>
+    <string name="widget_count_unknown">–</string>
     <string name="widget_unread_suffix">non letti</string>
     <string name="widget_label_signed_out">Accedi</string>
     <string name="widget_label_not_synced">Non ancora sincronizzato</string>
