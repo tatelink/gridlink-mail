@@ -27,7 +27,11 @@ class GridlinkMenuAccountSwitchTest {
         it.config.getOrNull(SemanticsActions.OnClick)?.label == "Switch account"
     }
 
-    private fun setPanel(others: List<GridlinkMenuAccount>, onSwitch: (String) -> Unit = {}) {
+    private fun setPanel(
+        others: List<GridlinkMenuAccount>,
+        onSwitch: (String) -> Unit = {},
+        protocol: String = "",
+    ) {
         rule.setContent {
             GridlinkApp(initialModeOverride = GridlinkMode.DAY) {
                 GridlinkMenuPanel(
@@ -40,6 +44,7 @@ class GridlinkMenuAccountSwitchTest {
                     onDismiss = {},
                     otherAccounts = others,
                     onSwitchAccount = onSwitch,
+                    protocol = protocol,
                 )
             }
         }
@@ -71,5 +76,18 @@ class GridlinkMenuAccountSwitchTest {
     fun `one account leaves the address as a plain statement`() {
         setPanel(emptyList())
         rule.onAllNodes(switchAction).assertCountEquals(0)
+    }
+
+    @Test
+    fun `the status line names the account own protocol`() {
+        setPanel(emptyList(), protocol = "IMAP")
+        rule.onNodeWithText("IMAP · ", substring = true).assertExists()
+        rule.onAllNodesWithText("JMAP", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun `an unknown protocol claims none`() {
+        assertEquals("Synced", gridlinkSyncLine("", "Synced"))
+        assertEquals("JMAP · Synced", gridlinkSyncLine("JMAP", "Synced"))
     }
 }

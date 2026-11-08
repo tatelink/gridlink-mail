@@ -436,6 +436,11 @@ class GridlinkChromeConfig(
     val otherAccounts: List<GridlinkMenuAccount> = emptyList(),
     /** Makes that account the current one. Called on the main thread from a tap. */
     val onSwitchAccount: (String) -> Unit = {},
+    /**
+     * The signed-in account's protocol for the drawer's status line ("JMAP", "IMAP"). Blank under
+     * this class's rule: a build that has not said which protocol claims none.
+     */
+    val protocol: String = "",
 )
 
 /**
@@ -449,6 +454,7 @@ class GridlinkChromeConfig(
 fun gridlinkSampleChromeConfig(): GridlinkChromeConfig = GridlinkChromeConfig(
     account = GRIDLINK_SAMPLE_ACCOUNT,
     menuCounts = GRIDLINK_SAMPLE_MENU_COUNTS,
+    protocol = "JMAP",
 )
 
 /**

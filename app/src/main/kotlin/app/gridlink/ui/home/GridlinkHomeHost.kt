@@ -308,9 +308,15 @@ fun GridlinkHomeHost(
     // 🔴 `unified` joins the remember keys for menuCounts' reason: the pair carries a live unread
     // sum and a live active flag, and a config held across a change would leave the drawer saying
     // yesterday's number, or worse, marking the wrong row as the one you are in.
-    val config = remember(address, accounts.size, otherAccounts, menuCounts, unified, viewModel, davViewModel) {
+    // The protocol the drawer's status line names. Its own key below: an IMAP account switched to
+    // from a JMAP one must not keep the old protocol on the line.
+    val protocol = account?.protocol?.name.orEmpty()
+    val config = remember(
+        address, protocol, accounts.size, otherAccounts, menuCounts, unified, viewModel, davViewModel,
+    ) {
         GridlinkChromeConfig(
             account = address,
+            protocol = protocol,
             accountCount = accounts.size,
             // Live numbers, from the folder table (Drafts) and the scheduled-send table. A zero is
             // omitted by the menu row itself (`takeIf { it > 0 }`), so an empty account still shows

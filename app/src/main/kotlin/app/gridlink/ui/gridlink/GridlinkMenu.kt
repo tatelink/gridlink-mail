@@ -445,6 +445,10 @@ const val GRIDLINK_SAMPLE_ACCOUNT = "tate@gridlink.me"
  * mean either passing a clock into a constant or freezing the times this menu is not allowed to
  * own. `GridlinkSampleMenuCountsTest` holds it to the fixture instead.
  */
+/** The drawer's status line: the protocol, a dot, the sync sentence; the sentence alone when blank. */
+internal fun gridlinkSyncLine(protocol: String, sentence: String): String =
+    if (protocol.isBlank()) sentence else "$protocol · $sentence"
+
 val GRIDLINK_SAMPLE_MENU_COUNTS = mapOf(
     GridlinkMenuItem.SCHEDULED to 2,
     // Same literal, same defence as Scheduled: gridlinkSampleSnoozed builds its rows against a
@@ -521,6 +525,15 @@ fun GridlinkMenuPanel(
      */
     otherAccounts: List<GridlinkMenuAccount> = emptyList(),
     onSwitchAccount: (String) -> Unit = {},
+    /**
+     * The signed-in account's protocol as the status line names it ("JMAP", "IMAP"), or blank to
+     * leave the protocol off the line.
+     *
+     * 🔴 Blank and not "JMAP" by default. This line hardcoded "JMAP" until 2026-11, so every IMAP
+     * account's drawer told its user they were on a protocol they were not, which is exactly the
+     * line a support question reads back. A caller that does not know says nothing.
+     */
+    protocol: String = "",
 ) {
     val colors = GridlinkTheme.colors
     // Not saved: the panel is composed only while it is open, so every opening starts collapsed.
@@ -585,7 +598,7 @@ fun GridlinkMenuPanel(
                         // Settings; whether it is talking JMAP at all is the thing that changes what
                         // the app can do, and it is the one line of this sheet a support question
                         // would ever ask for.
-                        text = "JMAP · " + gridlinkSyncSentence(sync, lastSyncedAt, openedAt),
+                        text = gridlinkSyncLine(protocol, gridlinkSyncSentence(sync, lastSyncedAt, openedAt)),
                         modifier = Modifier.padding(start = GridlinkSpacing.s8),
                         style = GridlinkType.metadata,
                         color = colors.textSecondary,

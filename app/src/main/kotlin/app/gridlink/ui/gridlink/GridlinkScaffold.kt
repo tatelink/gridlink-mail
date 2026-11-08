@@ -489,6 +489,7 @@ fun GridlinkScaffold(
             CompositionLocalProvider(LocalGridlinkBackdrop provides backdrop) {
                 GridlinkMenuPanel(
                     account = chrome.config.account,
+                    protocol = chrome.config.protocol,
                     accountCount = chrome.config.accountCount,
                     sync = sync,
                     lastSyncedAt = chrome.lastSyncedAt,
