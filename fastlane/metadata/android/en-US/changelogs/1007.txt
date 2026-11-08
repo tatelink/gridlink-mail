@@ -1,0 +1,8 @@
+Gridlink Mail 2.1.4.
+
+- Themes: six colours, each in Day, Night or OLED black.
+- Fully translated in all 9 languages, including calendar repeats and reply quotes.
+- Calendars and contacts sync both ways with the phone's Calendar and Contacts apps.
+- Move events between calendars; rename and recolour calendars.
+- Monthly repeats such as "last weekday" land on the right days.
+- Search keyboard closes when you open a result, plus 24 smaller polish fixes.
