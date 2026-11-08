@@ -141,6 +141,14 @@ class GridlinkChromeState(
         internal set
 
     /**
+     * Where the user is, so the drawer can mark that row. Published by the composed root the same
+     * way [folders] is, because the drawer sits above the state that knows. Nothing marked is the
+     * honest default, and it is also the answer on Calendar, Contacts and the folder screen.
+     */
+    var here by mutableStateOf(GridlinkHere())
+        internal set
+
+    /**
      * A mailbox the drawer wants opened, or null. [GridlinkFolder.id] of null means "the folder
      * screen itself" — the drawer's Manage folders row, which is the only route to it now that the
      * nav pill has no Folders seat.

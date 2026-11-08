@@ -535,6 +535,8 @@ fun GridlinkMenuPanel(
      * line a support question reads back. A caller that does not know says nothing.
      */
     protocol: String = "",
+    /** Where the user is, so that row wears the soft pill. See [GridlinkHere]. */
+    here: GridlinkHere = GridlinkHere(),
 ) {
     val colors = GridlinkTheme.colors
     // Not saved: the panel is composed only while it is open, so every opening starts collapsed.
@@ -657,18 +659,26 @@ fun GridlinkMenuPanel(
             GridlinkSheetDivider()
             Spacer(Modifier.height(GridlinkSpacing.s12))
             if (unified != null) {
-                MenuUnifiedRows(unified, folders, onSelectUnified)
+                MenuUnifiedRows(unified, folders, onSelectUnified, onInbox = here.inbox)
             }
             // 🔴 The tree's own Inbox is suppressed while the pair above is drawn, for exactly the
             // reason Drafts is suppressed inside [MenuFolders]: the pair already offers that
             // mailbox, with a better subline and, unlike the tree row, landing on the mail list
             // instead of the folder screen. Two rows for one mailbox, disagreeing about where they
             // go, is worse than either alone.
-            MenuFolders(folders, hideInbox = unified != null, onSelectFolder, onManageFolders)
+            MenuFolders(folders, hideInbox = unified != null, here, onSelectFolder, onManageFolders)
         }
 
         GridlinkSheetDivider()
-        MAILBOX_ITEMS.forEach { item -> MenuRow(item, counts, accountCount, onSelect) }
+        // Drafts is the drafts-role mailbox opened by role, so it is "here" when that mailbox is.
+        val draftsId = remember(folders) {
+            folders.flatten().firstOrNull { it.role == GridlinkFolderRole.DRAFTS }?.id
+        }
+        MAILBOX_ITEMS.forEach { item ->
+            val marked = here.item == item ||
+                (item == GridlinkMenuItem.DRAFTS && draftsId != null && here.folderId == draftsId)
+            MenuRow(item, counts, accountCount, onSelect, highlighted = marked)
+        }
 
         // Whatever is left over, which today is Accounts alone. ⚠️ Written as a subtraction rather
         // than a literal list so a row added to [GridlinkMenuItem] still appears somewhere: the
@@ -702,6 +712,7 @@ fun GridlinkMenuPanel(
 private fun MenuFolders(
     folders: List<GridlinkFolder>,
     hideInbox: Boolean,
+    here: GridlinkHere,
     onSelectFolder: (GridlinkFolder) -> Unit,
     onManageFolders: () -> Unit,
 ) {
@@ -709,16 +720,36 @@ private fun MenuFolders(
     // state, and a lone "Manage folders" under it would offer a screen with no mailboxes on it.
     if (folders.isEmpty()) return
     folders.forEach { folder ->
-        MenuFolderRow(folder, depth = 0, hideInbox = hideInbox, onSelectFolder = onSelectFolder)
+        MenuFolderRow(folder, depth = 0, hideInbox = hideInbox, here = here, onSelectFolder = onSelectFolder)
     }
     GridlinkSheetAction(
         label = "Manage folders",
         icon = Icons.Outlined.CreateNewFolder,
         // The only route to the folder screen now that the pill has no seat for it. Named for the
         // verb rather than the place ("Folders" would read as a sixth mailbox in a list of mailboxes).
+        // In the ordinary ink: the grey it used to wear is this sheet's disabled colour, so the row
+        // read as switched off.
         onClick = onManageFolders,
-        tint = GridlinkTheme.colors.textSecondary,
     )
+}
+
+/**
+ * Where the user is, as the drawer marks it. At most one of the three is set.
+ *
+ * [inbox] is the mail list (the tree's Inbox row, or whichever of the merged pair is active),
+ * [folderId] a mailbox opened on its own, [item] an overlay row such as Scheduled.
+ */
+@Immutable
+data class GridlinkHere(
+    val inbox: Boolean = false,
+    val folderId: String? = null,
+    val item: GridlinkMenuItem? = null,
+)
+
+/** The unread count on the right of a mailbox row, absent at zero. */
+@Composable
+private fun UnreadCount(unread: Int) {
+    if (unread > 0) GridlinkSheetCount(unread, spoken = "$unread unread", attention = true)
 }
 
 /** An account the drawer's address row can switch to. See [GridlinkMenuPanel]. */
@@ -766,15 +797,17 @@ private fun MenuUnifiedRows(
     unified: GridlinkUnifiedInbox,
     folders: List<GridlinkFolder>,
     onSelectUnified: (Boolean) -> Unit,
+    onInbox: Boolean = false,
 ) {
     val colors = GridlinkTheme.colors
     GridlinkSheetAction(
         label = "All inboxes",
         icon = Icons.Outlined.AllInbox,
         // Counted, absent at zero, exactly as the folder rows do it. See [MenuFolderRow].
-        subline = unified.unread.takeIf { it > 0 }?.let { "$it unread" },
+        trailing = unified.unread.takeIf { it > 0 }?.let { n -> { UnreadCount(n) } },
         onClick = { onSelectUnified(true) },
         tint = if (unified.active) colors.accent else null,
+        highlighted = onInbox && unified.active,
     )
     GridlinkSheetAction(
         label = "Inbox",
@@ -785,6 +818,7 @@ private fun MenuUnifiedRows(
         subline = unified.accountLabel.takeIf { it.isNotBlank() },
         onClick = { onSelectUnified(false) },
         tint = if (unified.active) null else colors.accent,
+        highlighted = onInbox && !unified.active,
     )
 }
 
@@ -794,6 +828,7 @@ private fun MenuFolderRow(
     folder: GridlinkFolder,
     depth: Int,
     hideInbox: Boolean,
+    here: GridlinkHere,
     onSelectFolder: (GridlinkFolder) -> Unit,
 ) {
     val suppressed = folder.role == GridlinkFolderRole.DRAFTS ||
@@ -804,16 +839,20 @@ private fun MenuFolderRow(
             icon = folder.role.icon(),
             // Counted, never a bare dot, for [MenuRow]'s reason: a number is a fact and a dot is a
             // question. Absent at zero rather than "0 unread", which is a claim nobody asked for.
-            subline = folder.unread.takeIf { it > 0 }?.let { "$it unread" },
+            // On the right as a number, the way every mail app lists a folder, rather than a line
+            // under the name that made the counted rows taller than the rest.
+            trailing = folder.unread.takeIf { it > 0 }?.let { n -> { UnreadCount(n) } },
             onClick = { onSelectFolder(folder) },
             indent = FOLDER_INDENT * depth,
+            highlighted = folder.id == here.folderId ||
+                (here.inbox && !hideInbox && folder.role == GridlinkFolderRole.INBOX),
         )
     }
     folder.children.forEach { child ->
         // 🔴 The children of a filtered-out Drafts still draw, at the depth Drafts would have given
         // them. A server that nests mailboxes under the drafts role is unusual and not forbidden,
         // and silently dropping a whole branch is not something a drawer may do.
-        MenuFolderRow(child, depth = depth + 1, hideInbox = hideInbox, onSelectFolder = onSelectFolder)
+        MenuFolderRow(child, depth = depth + 1, hideInbox = hideInbox, here = here, onSelectFolder = onSelectFolder)
     }
 }
 
@@ -826,20 +865,25 @@ private fun MenuRow(
     counts: Map<GridlinkMenuItem, Int>,
     accountCount: Int,
     onSelect: (GridlinkMenuItem) -> Unit,
+    highlighted: Boolean = false,
 ) {
+    // Counted, never a bare badge. "3 waiting" is a fact; a dot on Scheduled is a question you have
+    // to open the screen to answer. The number sits on the right like a folder's unread count, and
+    // the phrase is what a screen reader hears. Accounts keeps its line, because a lone "1" beside
+    // it would look like a badge, and it counts itself rather than carrying a noun, because
+    // "1 accounts" is the kind of thing that ships.
+    val count = item.countNoun?.let { noun -> counts[item]?.takeIf { it > 0 }?.let { it to noun } }
     GridlinkSheetAction(
         label = item.label,
         icon = item.icon,
-        // Counted, never a bare badge. "3 waiting" is a fact; a dot on Scheduled is a question you
-        // have to open the screen to answer. Accounts counts itself rather than carrying a noun,
-        // because "1 accounts" is the kind of thing that ships.
-        subline = when (item) {
-            GridlinkMenuItem.ACCOUNTS -> if (accountCount == 1) "1 account" else "$accountCount accounts"
-            else -> item.countNoun?.let { noun ->
-                counts[item]?.takeIf { it > 0 }?.let { "$it $noun" }
-            }
+        subline = if (item == GridlinkMenuItem.ACCOUNTS) {
+            if (accountCount == 1) "1 account" else "$accountCount accounts"
+        } else {
+            null
         },
+        trailing = count?.let { (n, noun) -> { GridlinkSheetCount(n, spoken = "$n $noun") } },
         onClick = { onSelect(item) },
+        highlighted = highlighted,
     )
 }
 

@@ -505,6 +505,7 @@ fun GridlinkScaffold(
                     // host: the tree is resolved below this point in the tree. See
                     // [GridlinkChromeState.folders].
                     folders = chrome.folders,
+                    here = chrome.here,
                     // Both close FIRST, for the same reason every other row does: a drawer left up
                     // over the mailbox it just opened is the app talking over itself.
                     onSelectFolder = {
@@ -1989,6 +1990,18 @@ fun GridlinkRoot(
                 progress.snapTo(0f)
                 chromeState.consumeInboxRoute()
             }
+
+            // The other direction: tell the drawer which row is where the user already is, so it
+            // can mark it. The overlays win because they cover whatever is under them.
+            val here = when {
+                scheduledOpen -> GridlinkHere(item = GridlinkMenuItem.SCHEDULED)
+                snoozedOpen -> GridlinkHere(item = GridlinkMenuItem.SNOOZED)
+                destination == GridlinkDestination.FOLDERS && openFolderId != null ->
+                    GridlinkHere(folderId = openFolderId)
+                destination == GridlinkDestination.INBOX -> GridlinkHere(inbox = true)
+                else -> GridlinkHere()
+            }
+            SideEffect { chromeState.here = here }
 
             // The other half of [onEditDraft]'s round trip: the body arrived, open the composer on
             // it. Acknowledged immediately so the answer cannot replay on a later recomposition.
