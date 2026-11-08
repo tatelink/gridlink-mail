@@ -82,8 +82,9 @@ object SystemMirror {
      *
      * ## Why this only warns
      * Two syncers publishing the same collections corrupts nothing: each writes under its own
-     * AccountManager account, and Gridlink's rows are read-only (`CAL_ACCESS_READ` /
-     * `RAW_CONTACT_IS_READ_ONLY`), so neither can overwrite the other. What it does is show every
+     * AccountManager account, and an edit to either copy goes to the server through the app that
+     * owns that copy (the other then downloads it like any server change), so neither overwrites
+     * the other's rows. What it does is show every
      * event twice in the system Calendar app, once per source, which looks like a bug and is
      * nobody's fault. So the user is told and then left to decide (Tate, 2026-08-16): blocking
      * the switch would also block the case where DAVx5 is installed for an entirely different

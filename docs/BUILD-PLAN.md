@@ -118,6 +118,13 @@ so deleting the other UI only made two pre-existing holes impossible to keep ign
    `CAL_ACCESS_READ` / `RAW_CONTACT_IS_READ_ONLY`, so an edit made in the system Contacts app is not
    pushed back to the server. Two-way would need conflict handling against a DAV server the app does
    not own, for a case DAVx5 already covers.
+   ✅ **Superseded 2026-11-07 (#40): two-way, both providers.** Edits, new items and deletions made
+   in the system Contacts and Calendar apps go back over CalDAV/CardDAV or JMAP before each publish
+   (`CalendarUploader`, `ContactsUploader`). Conflict rule: upload with `If-Match`; a native edit
+   is merged with a server edit when they touched different field groups, and the server wins when
+   they touched the same one or when a 412 still overlaps after one re-check. New items carry their
+   UID before upload and are adopted on the next pass, never created twice. Postal-address edits
+   and contact groups are not sent.
    🔴 The account IS the anchor: both providers delete rows whose account is not registered, so
    turning the switch off removes the account and the rows go with it. There is deliberately no
    per-account switch; `SyncSelection` already answers that question.

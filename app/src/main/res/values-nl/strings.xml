@@ -417,12 +417,12 @@
     <string name="settings_system_sync_section">Systeemcontacten en -agenda</string>
     <string name="settings_system_sync_title">Aan Android toevoegen</string>
     <string name="settings_system_sync_subtitle">Publiceert de contacten en agenda\'s van dit account als een Android-account, zodat nummerherkenning, de Agenda-app, widgets en elke personenkiezer ze kunnen zien.</string>
-    <string name="settings_system_sync_note">Alleen-lezen: wijzigingen in andere apps worden niet naar de server teruggestuurd. Alleen accounts met contact- of agendasynchronisatie ingeschakeld worden gepubliceerd. Uitschakelen verwijdert het Android-account en alles wat Gridlink daarin heeft gezet.</string>
+    <string name="settings_system_sync_note">In twee richtingen: wijzigingen, nieuwe items en verwijderingen in de apps Contacten en Agenda worden naar de server teruggestuurd. Heeft de server intussen hetzelfde detail gewijzigd, dan wint de versie van de server. Wijzigingen in postadressen worden daar niet verstuurd. Alleen accounts met contact- of agendasynchronisatie ingeschakeld worden gepubliceerd. Uitschakelen verwijdert het Android-account en alles wat Gridlink daarin heeft gezet, ook wijzigingen die nog niet zijn verstuurd.</string>
     <string name="settings_system_sync_other_title">%1$s is al geïnstalleerd</string>
-    <string name="settings_system_sync_other_body">Als %1$s dezelfde contacten en agenda\'s synchroniseert, bewaart Android er twee kopieën van en toont de Agenda-app elke afspraak twee keer. Er gaat niets kapot: elke app schrijft onder zijn eigen account en wat Gridlink toevoegt is alleen-lezen. Schakel dit alleen in als %1$s dit account niet synchroniseert.</string>
+    <string name="settings_system_sync_other_body">Als %1$s dezelfde contacten en agenda\'s synchroniseert, bewaart Android er twee kopieën van en toont de Agenda-app elke afspraak twee keer. Er gaat niets kapot: elke app schrijft onder zijn eigen account en een wijziging in een van beide kopieën gaat terug naar de server via de app die hem daar heeft gezet. Schakel dit alleen in als %1$s dit account niet synchroniseert.</string>
     <string name="settings_system_sync_other_confirm">Toch inschakelen</string>
     <string name="settings_system_sync_now_title">Nu synchroniseren</string>
-    <string name="settings_system_sync_now_summary">Van de server ophalen en vernieuwen wat Android ziet</string>
+    <string name="settings_system_sync_now_summary">Wijzigingen uit andere apps versturen, van de server ophalen en vernieuwen wat Android ziet</string>
     <string name="settings_storage_screen_title">Opslag</string>
     <string name="settings_on_device_usage_section">Gebruik op apparaat</string>
     <string name="settings_storage_total">Totaal</string>

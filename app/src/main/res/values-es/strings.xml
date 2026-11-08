@@ -417,12 +417,12 @@
     <string name="settings_system_sync_section">Contactos y calendario del sistema</string>
     <string name="settings_system_sync_title">Añadir a Android</string>
     <string name="settings_system_sync_subtitle">Publica los contactos y calendarios de esta cuenta como una cuenta de Android, para que el identificador de llamadas, la app Calendario, los widgets y cualquier selector de personas puedan verlos.</string>
-    <string name="settings_system_sync_note">Solo lectura: los cambios hechos en otras apps no se envían al servidor. Solo se publican las cuentas que tienen activada la sincronización de contactos o calendario. Al desactivarlo se elimina la cuenta de Android y todo lo que Gridlink puso allí.</string>
+    <string name="settings_system_sync_note">En ambos sentidos: los cambios, las nuevas entradas y las eliminaciones hechas en las apps Contactos y Calendario se envían al servidor. Si el servidor cambió el mismo dato mientras tanto, gana la versión del servidor. Los cambios de direcciones postales hechos allí no se envían. Solo se publican las cuentas que tienen activada la sincronización de contactos o calendario. Al desactivarlo se elimina la cuenta de Android y todo lo que Gridlink puso allí, incluidos los cambios aún no enviados.</string>
     <string name="settings_system_sync_other_title">%1$s ya está instalado</string>
-    <string name="settings_system_sync_other_body">Si %1$s sincroniza los mismos contactos y calendarios, Android tendrá dos copias de ellos y la app Calendario mostrará cada evento dos veces. No se daña nada: cada app escribe con su propia cuenta y lo que añade Gridlink es de solo lectura. Actívalo solo si %1$s no sincroniza esta cuenta.</string>
+    <string name="settings_system_sync_other_body">Si %1$s sincroniza los mismos contactos y calendarios, Android tendrá dos copias de ellos y la app Calendario mostrará cada evento dos veces. No se daña nada: cada app escribe con su propia cuenta y un cambio en cualquiera de las copias vuelve al servidor a través de la app que la puso allí. Actívalo solo si %1$s no sincroniza esta cuenta.</string>
     <string name="settings_system_sync_other_confirm">Activar de todos modos</string>
     <string name="settings_system_sync_now_title">Sincronizar ahora</string>
-    <string name="settings_system_sync_now_summary">Descargar del servidor y actualizar lo que ve Android</string>
+    <string name="settings_system_sync_now_summary">Enviar los cambios hechos en otras apps, descargar del servidor y actualizar lo que ve Android</string>
     <string name="settings_storage_screen_title">Almacenamiento</string>
     <string name="settings_on_device_usage_section">Uso en el dispositivo</string>
     <string name="settings_storage_total">Total</string>
