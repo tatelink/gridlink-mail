@@ -925,6 +925,11 @@ fun GridlinkRoot(
      */
     onLoadHeaders: (suspend (emailId: String) -> List<GridlinkHeader>)? = null,
     /**
+     * The composer's From choices, active account first. Empty in the gallery, which hides the From
+     * line. See [GridlinkComposeScreen]'s parameter of the same name.
+     */
+    fromChoices: List<GridlinkFromAccount> = emptyList(),
+    /**
      * The account's mailboxes, or null to draw [GridlinkSampleTree]'s. See [GridlinkFolderContent].
      */
     folders: GridlinkFolderContent? = null,
@@ -2202,8 +2207,13 @@ fun GridlinkRoot(
             val threadActions: (GridlinkMessage) -> (GridlinkThreadAction) -> Unit = { message ->
                 { action ->
                     when (action) {
-                        GridlinkThreadAction.REPLY -> composing = gridlinkReplyTo(message)
-                        GridlinkThreadAction.REPLY_ALL -> composing = gridlinkReplyAllTo(message)
+                        // Every answer to a message goes out from the account it arrived at, which
+                        // in the unified inbox is often not the active one. See
+                        // [gridlinkSentFromOwner]; the From line can still change it.
+                        GridlinkThreadAction.REPLY ->
+                            composing = gridlinkSentFromOwner(gridlinkReplyTo(message), message.id)
+                        GridlinkThreadAction.REPLY_ALL ->
+                            composing = gridlinkSentFromOwner(gridlinkReplyAllTo(message), message.id)
                         // 🔴 The files are taken over BEFORE the composer opens, the same way
                         // resuming a draft does it above, and for a related reason. A forward's
                         // chips used to be the reader's own, whose ids are part indexes no attacher
@@ -2217,11 +2227,11 @@ fun GridlinkRoot(
                         // short of what you forwarded.
                         GridlinkThreadAction.FORWARD ->
                             if (attacher == null || message.attachments.isEmpty()) {
-                                composing = gridlinkForward(message)
+                                composing = gridlinkSentFromOwner(gridlinkForward(message), message.id)
                             } else {
                                 scope.launch {
                                     composing = runCatching { attacher.adopt(message.id) }.fold(
-                                        onSuccess = { gridlinkForward(message, it) },
+                                        onSuccess = { gridlinkSentFromOwner(gridlinkForward(message, it), message.id) },
                                         onFailure = { failure ->
                                             // Forwarded WITHOUT the files, and said so. The message
                                             // is still worth sending, and a chip with nothing behind
@@ -2229,7 +2239,7 @@ fun GridlinkRoot(
                                             sendError = failure.message
                                                 ?: "Couldn't attach that message's files, so this " +
                                                 "forward won't carry them."
-                                            gridlinkForward(message)
+                                            gridlinkSentFromOwner(gridlinkForward(message), message.id)
                                         },
                                     )
                                 }
@@ -2324,7 +2334,10 @@ fun GridlinkRoot(
                                 // the message now would clear the screen behind a request they may
                                 // still abandon. The composer's own send is what completes this.
                                 method.mailto != null ->
-                                    composing = gridlinkUnsubscribeDraft(message, method.mailto)
+                                    composing = gridlinkSentFromOwner(
+                                        gridlinkUnsubscribeDraft(message, method.mailto),
+                                        message.id,
+                                    )
 
                                 // Unreachable: a [GridlinkUnsubscribe] exists only when it carries
                                 // at least one of the two. File it rather than swallow the tap.
@@ -3223,6 +3236,7 @@ fun GridlinkRoot(
                         initiallyScheduling = request.scheduling,
                         error = sendError,
                         attacher = attacher,
+                        fromChoices = fromChoices,
                     )
                 }
 

@@ -1,11 +1,14 @@
 package app.gridlink.ui.gridlink
 
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
@@ -53,6 +56,7 @@ class GridlinkComposeScreenTest {
         initialFocus: GridlinkComposeField = GridlinkComposeField.NONE,
         initiallyScheduling: Boolean = false,
         error: String? = null,
+        fromChoices: List<GridlinkFromAccount> = emptyList(),
     ) {
         rule.setContent {
             GridlinkApp(initialModeOverride = GridlinkMode.DAY) {
@@ -64,6 +68,7 @@ class GridlinkComposeScreenTest {
                     initialFocus = initialFocus,
                     initiallyScheduling = initiallyScheduling,
                     error = error,
+                    fromChoices = fromChoices,
                 )
             }
         }
@@ -232,5 +237,53 @@ class GridlinkComposeScreenTest {
         ).forEach { rule.onNodeWithContentDescription(it).assertExists() }
         rule.onNodeWithContentDescription("Send").assertExists()
         rule.onNodeWithContentDescription("Attach a file").assertDoesNotExist()
+    }
+
+    // ---- From line ----
+
+    private val twoAccounts = listOf(
+        GridlinkFromAccount(
+            accountId = "work",
+            label = "Work",
+            identities = listOf(GridlinkFromIdentity("Tate", "tate@work.test")),
+            defaultEmail = "tate@work.test",
+        ),
+        GridlinkFromAccount(
+            accountId = "home",
+            label = "Home",
+            identities = listOf(GridlinkFromIdentity("", "me@home.test")),
+            defaultEmail = "me@home.test",
+        ),
+    )
+
+    @Test fun `one address in total keeps the composer without a From line`() {
+        show(fromChoices = twoAccounts.take(1))
+        rule.onAllNodes(hasTestTag("gridlink-compose-from")).assertCountEquals(0)
+    }
+
+    @Test fun `the From line shows the active account's address by default`() {
+        show(fromChoices = twoAccounts)
+        rule.onNodeWithTag("gridlink-compose-from").assertIsDisplayed()
+        rule.onNodeWithText("Tate <tate@work.test>").assertIsDisplayed()
+    }
+
+    @Test fun `a reply opens as the account the message arrived at`() {
+        show(draft = GridlinkComposeDraft.Fresh.copy(from = GridlinkFrom("home")), fromChoices = twoAccounts)
+        rule.onNodeWithText("me@home.test").assertIsDisplayed()
+    }
+
+    @Test fun `picking another address sends as that address`() {
+        show(fromChoices = twoAccounts)
+        rule.onNodeWithTag("gridlink-compose-from").performClick()
+        rule.onNodeWithTag("gridlink-from-1-me@home.test").performClick()
+        rule.waitForIdle()
+        tapSend()
+        assertEquals(GridlinkFrom("home", "me@home.test"), sent.single().draft.from)
+    }
+
+    @Test fun `sending untouched still names the address explicitly`() {
+        show(fromChoices = twoAccounts)
+        tapSend()
+        assertEquals(GridlinkFrom("work", "tate@work.test"), sent.single().draft.from)
     }
 }

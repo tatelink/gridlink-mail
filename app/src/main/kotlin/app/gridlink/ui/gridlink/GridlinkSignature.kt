@@ -49,3 +49,30 @@ internal fun composeBodyWithSignature(
     // RFC 3676 §4.3's "-- " line, which is what other clients cut a quote at.
     return body + signatureBlock(signature, delimiter)
 }
+
+/**
+ * The body after the From line changed identity, or null to leave it exactly as it is.
+ *
+ * [seeded] is the signature the composer appended for the previous identity (null when it appended
+ * none). Its block is swapped for [next]'s only while it is still the untouched tail of the body: a
+ * signature the user has edited is theirs now, and rewriting it would destroy that edit. With nothing
+ * seeded, [next] is appended under the same rules as opening ([composeBodyWithSignature]), so picking
+ * an identity with a signature after one without still signs the message.
+ *
+ * Swapping only the TAIL keeps [GridlinkComposeDraft.bodySpans] valid for everything above it, for
+ * the reason given at the top of this file.
+ */
+internal fun gridlinkSwapSignature(
+    body: String,
+    seeded: String?,
+    next: String,
+    isReply: Boolean,
+    onReplies: Boolean,
+    delimiter: Boolean,
+): String? {
+    val old = seeded?.takeIf { it.isNotBlank() }?.let { signatureBlock(it, delimiter) }
+        ?: return composeBodyWithSignature(body, next, isReply, onReplies, delimiter)
+    if (!body.endsWith(old)) return null
+    val stem = body.removeSuffix(old)
+    return composeBodyWithSignature(stem, next, isReply, onReplies, delimiter) ?: stem
+}

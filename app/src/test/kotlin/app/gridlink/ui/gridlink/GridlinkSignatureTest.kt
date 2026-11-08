@@ -73,4 +73,26 @@ class GridlinkSignatureTest {
             ),
         )
     }
+
+    // ---- changing From swaps the signature ----
+
+    private fun swap(body: String, seeded: String?, next: String, reply: Boolean = false, onReplies: Boolean = true) =
+        gridlinkSwapSignature(body, seeded, next, isReply = reply, onReplies = onReplies, delimiter = true)
+
+    @Test fun `changing From swaps an untouched signature for the new identity's`() {
+        assertEquals("Hello\n\n-- \nSupport", swap("Hello\n\n-- \nTate", "Tate", "Support"))
+    }
+
+    @Test fun `a signature the user edited is theirs, and is left alone`() {
+        assertNull(swap("Hello\n\n-- \nTate (mobile)", "Tate", "Support"))
+    }
+
+    @Test fun `moving to an identity with no signature drops the old block`() {
+        assertEquals("Hello", swap("Hello\n\n-- \nTate", "Tate", ""))
+    }
+
+    @Test fun `moving from no signature to one appends it under the opening rules`() {
+        assertEquals("Hello\n\n-- \nSupport", swap("Hello", null, "Support"))
+        assertNull(swap("Hello", null, "Support", reply = true, onReplies = false))
+    }
 }

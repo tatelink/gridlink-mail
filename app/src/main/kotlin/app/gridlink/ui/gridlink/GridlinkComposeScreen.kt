@@ -193,6 +193,12 @@ fun GridlinkComposeScreen(
      * screen the app does not have. Tapping it with no attacher does nothing, exactly as before.
      */
     attacher: GridlinkAttacher? = null,
+    /**
+     * Every signed-in account and the addresses it can send as, active account first, for the From
+     * line. Empty hides the line (the gallery has no accounts), and so does a single account with a
+     * single address, which has nothing to choose. See [gridlinkFromHasChoice].
+     */
+    fromChoices: List<GridlinkFromAccount> = emptyList(),
 ) {
     val colors = GridlinkTheme.colors
     // 🔴 Both null in the gallery, and both call sites treat null as "seed nothing". The harness
@@ -210,6 +216,14 @@ fun GridlinkComposeScreen(
     var recipients by remember(draft) { mutableStateOf(draft.recipients) }
     var attachments by remember(draft) { mutableStateOf(draft.attachments) }
     var scheduling by remember(draft) { mutableStateOf(initiallyScheduling) }
+    // Who this goes out as. The draft's own value until the user picks, so an untouched From never
+    // reads as an edit; [sending] is what it resolves to against the live account list.
+    var from by remember(draft) { mutableStateOf(draft.from) }
+    var pickingFrom by remember(draft) { mutableStateOf(false) }
+    val sending = gridlinkResolveFrom(from, fromChoices)
+    // The signature text the composer appended, so changing From can swap it for the new identity's
+    // instead of leaving the old one under a message that now comes from someone else.
+    var seededSignature by remember(draft) { mutableStateOf<String?>(null) }
 
     // The custom half of Send Later: "Pick a time" walks a date sheet and then a time sheet. Two
     // states rather than one enum because the second carries the first's answer, and back walks the
@@ -530,6 +544,9 @@ fun GridlinkComposeScreen(
                 body = body.text,
                 attachments = attachments,
                 bodySpans = bodySpans,
+                // Explicit once resolved, so the sender, the undo bar and Send Later all act on the
+                // address that was on screen rather than re-deciding the default later.
+                from = sending?.from ?: from,
             ),
             focus = focused,
         )
@@ -552,7 +569,8 @@ fun GridlinkComposeScreen(
             // Bolding a word and nothing else is an edit. Leaving it out here would let a draft
             // opened, formatted and closed report "untouched" and lose the formatting silently.
             bodySpans == draft.bodySpans &&
-            attachments == draft.attachments
+            attachments == draft.attachments &&
+            from == draft.from
         if (untouched) return null
         val request = sendRequest()
         val content = request.draft
@@ -604,9 +622,16 @@ fun GridlinkComposeScreen(
         if (draft.draftEmailId != null) return@LaunchedEffect
         val store = signatureStore ?: return@LaunchedEffect
         val settings = settingsStore ?: return@LaunchedEffect
-        val signature = store.defaultIdentity(null)?.signature
-            ?.takeIf { it.isNotBlank() }
-            ?: store.signature(null)
+        // The identity this draft opens as. A reply on account B signs as B; only a composer with
+        // no account list behind it (no host) falls back to the active account's default.
+        val opening = gridlinkResolveFrom(draft.from, fromChoices)
+        val signature = if (opening != null) {
+            opening.identity.signature
+        } else {
+            store.defaultIdentity(null)?.signature
+                ?.takeIf { it.isNotBlank() }
+                ?: store.signature(null)
+        }
         val seeded = composeBodyWithSignature(
             body = draft.body,
             signature = signature,
@@ -618,6 +643,7 @@ fun GridlinkComposeScreen(
             delimiter = settings.signatureDelimiter.first(),
         ) ?: return@LaunchedEffect
         if (body.text != draft.body) return@LaunchedEffect
+        seededSignature = signature
         // Caret at the START of an empty message, not after the signature: a signature is something
         // you write above. A draft that already has text (a `mailto:` body, a share) keeps the caret
         // at the end of that text, which is still above the block just added.
@@ -776,6 +802,15 @@ fun GridlinkComposeScreen(
                             if (!state.hasFocus) focused = GridlinkComposeField.NONE
                         },
                 ) {
+                    // Who this goes out as, above TO the way every mail header reads.
+                    if (sending != null && gridlinkFromHasChoice(fromChoices)) {
+                        GridlinkFromRow(
+                            sending = sending,
+                            multiAccount = fromChoices.size > 1,
+                            onClick = { pickingFrom = true },
+                        )
+                        GridlinkFormDivider()
+                    }
                     GridlinkRecipientField(
                         recipients = recipients,
                         query = query,
@@ -1055,6 +1090,41 @@ fun GridlinkComposeScreen(
         keyboard?.show()
     }
 
+    if (pickingFrom) {
+        GridlinkFromPicker(
+            choices = fromChoices,
+            selected = sending,
+            onPick = { picked ->
+                pickingFrom = false
+                val before = sending?.identity?.signature.orEmpty()
+                from = picked.from
+                val after = picked.identity.signature
+                val settings = settingsStore
+                // A resumed draft that the composer never signed already carries whatever
+                // signature it was written with; appending another would sign it twice.
+                val mayTouch = seededSignature != null || draft.draftEmailId == null
+                if (before != after && settings != null && mayTouch) {
+                    attachScope.launch {
+                        val swapped = gridlinkSwapSignature(
+                            body = body.text,
+                            seeded = seededSignature,
+                            next = after,
+                            isReply = draft.quoted != null,
+                            onReplies = settings.signatureOnReplies.first(),
+                            delimiter = settings.signatureDelimiter.first(),
+                        ) ?: return@launch
+                        seededSignature = after
+                        // Marks inside the old block go with it; everything above is untouched.
+                        val kept = body.text.commonPrefixWith(swapped).length
+                        bodySpans = bodySpans.filter { it.end <= kept }
+                        body = TextFieldValue(swapped, TextRange(minOf(body.selection.start, swapped.length)))
+                    }
+                }
+            },
+            onDismiss = { pickingFrom = false },
+        )
+    }
+
     if (scheduling) {
         GridlinkScheduleSheet(
             // Computed when the sheet opens, not when the composer did: the two moments can be
@@ -1207,6 +1277,18 @@ data class GridlinkComposeDraft(
      * in the middle of that list is a silent argument shift rather than a compile error.
      */
     val bodySpans: List<GridlinkSpan> = emptyList(),
+    /**
+     * Who this goes out as, or null for the active account's default identity (the compose button's
+     * case). Set by a reply, forward or resumed draft to the account the original belongs to, and by
+     * the From line when the user picks. See [GridlinkFrom].
+     */
+    val from: GridlinkFrom? = null,
+    /**
+     * The account [draftEmailId] lives on, when it is known. A draft is a message in ONE mailbox, so
+     * a draft resumed on account B and then sent from account A must be retired on B, not looked up
+     * on A where that id means nothing.
+     */
+    val draftAccountId: String? = null,
 ) {
     /**
      * [body] and [bodySpans] as the single value the formatting core takes, so that every write path

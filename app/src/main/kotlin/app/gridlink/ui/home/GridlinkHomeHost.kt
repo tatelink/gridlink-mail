@@ -303,6 +303,10 @@ fun GridlinkHomeHost(
             .filter { it.id != accountId && application.container.accountStore.credentials(it.id) != null }
             .map { GridlinkMenuAccount(it.id, it.label(), it.username) }
     }
+    // The composer's From line: the active account first, then every other signed-in account.
+    val fromChoices = remember(accounts, accountId) {
+        gridlinkFromChoices(accounts, accountId) { application.container.accountStore.credentials(it) != null }
+    }
     // 🔴 menuCounts joins the remember keys: the config is rebuilt when a count changes or the
     // drawer keeps saying yesterday's number over today's Drafts.
     // 🔴 `unified` joins the remember keys for menuCounts' reason: the pair carries a live unread
@@ -456,6 +460,7 @@ fun GridlinkHomeHost(
             onSetTag = viewModel::setTag,
             onManageTags = manageTags,
             onLoadHeaders = viewModel::rawHeaders,
+            fromChoices = fromChoices,
             onOpenAttachment = viewModel::openAttachment,
             // 🔴 No picker on anything modern. Android's document picker is another app's UI, in
             // another app's theme, and putting it in front of a one-tap save would be the only

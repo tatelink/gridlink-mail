@@ -49,6 +49,7 @@ import app.gridlink.ui.gridlink.GridlinkFolderContent
 import app.gridlink.ui.gridlink.GridlinkFolderEdit
 import app.gridlink.ui.gridlink.GridlinkFolderMapping
 import app.gridlink.ui.gridlink.GridlinkFolderRole
+import app.gridlink.ui.gridlink.GridlinkFrom
 import app.gridlink.ui.gridlink.GridlinkHeader
 import app.gridlink.ui.gridlink.GridlinkInvite
 import app.gridlink.ui.gridlink.GridlinkInviteResponse
@@ -2144,6 +2145,10 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 // retires the server copy. Without it, every resume would fork the draft.
                 draftEmailId = emailId,
                 bodySpans = formatted?.spans.orEmpty(),
+                // Resumed as the address it was written from, on the account it lives on, so a
+                // draft opened from another account's Drafts does not quietly change sender.
+                from = GridlinkFrom(credentials.id, email.from.firstOrNull()?.email?.takeIf { it.isNotBlank() }),
+                draftAccountId = credentials.id,
             )
         }
     }

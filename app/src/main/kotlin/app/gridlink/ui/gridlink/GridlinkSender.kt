@@ -1,7 +1,10 @@
 package app.gridlink.ui.gridlink
 
 import android.content.Context
+import app.gridlink.core.data.account.AccountCredentials
 import app.gridlink.core.data.account.AccountStore
+import app.gridlink.core.data.account.StoredAccount
+import app.gridlink.core.data.account.StoredIdentity
 import app.gridlink.core.data.db.ScheduledSendEntity
 import app.gridlink.core.data.mail.MailRepository
 import app.gridlink.send.Outbox
@@ -89,8 +92,54 @@ class GridlinkOutboxSender(
     private val attacher: GridlinkAttacher? = null,
 ) : GridlinkSender {
 
+    /**
+     * Who a draft goes out as, resolved against the store at the moment of the write.
+     *
+     * [credentials] are the account the composer's From line chose (the active account when it chose
+     * nothing), and [fromName]/[fromEmail] the identity on it, ALWAYS explicit: left blank, the JMAP
+     * engine falls back to the server's first identity rather than the default the user picked in
+     * Settings, so a message could leave from an address the composer never showed.
+     *
+     * [draftEmailId] is the stored draft to replace or retire, but only when it lives on that same
+     * account; [strayDraft] is the copy on another account when the user moved the message to a
+     * different From, which the caller retires best-effort so Drafts does not keep a twin.
+     */
+    private class Origin(
+        val credentials: AccountCredentials,
+        val fromName: String?,
+        val fromEmail: String?,
+        val draftEmailId: String?,
+        val strayDraft: Pair<AccountCredentials, String>?,
+    )
+
+    private fun origin(draft: GridlinkComposeDraft): Origin? {
+        val wanted = draft.from
+        val credentials = (if (wanted != null) accounts.credentials(wanted.accountId) else accounts.load())
+            ?: return null
+        val identity = gridlinkSendingIdentity(accounts.account(credentials.id), wanted?.email)
+        val (kept, stray) = gridlinkDraftHome(draft.draftEmailId, draft.draftAccountId, credentials.id)
+        return Origin(
+            credentials = credentials,
+            fromName = identity?.name?.takeIf { it.isNotBlank() },
+            fromEmail = identity?.email?.takeIf { it.isNotBlank() },
+            draftEmailId = kept,
+            strayDraft = stray?.let { (home, id) -> accounts.credentials(home)?.let { it to id } },
+        )
+    }
+
+    /** Retire a draft left behind on another account. Best effort: the message itself is what matters. */
+    private suspend fun retireStray(origin: Origin) {
+        val (home, id) = origin.strayDraft ?: return
+        runCatching { repository.discardDraft(home, id) }
+    }
+
     override fun check(request: GridlinkComposeRequest): String? {
         val draft = request.draft
+        if (draft.from != null && accounts.credentials(draft.from.accountId) == null) {
+            // Picked on the From line, then signed out before the tap. Refused rather than quietly
+            // sent as the active account: the address on screen is the one the user chose.
+            return "That account is no longer signed in. Pick another one under From."
+        }
         if (accounts.load() == null) {
             // ⚠️ Reached from the debug GALLERY, which is its own launcher icon beside the app and
             // shares its account store. The app itself cannot get here: it routes to
@@ -134,10 +183,12 @@ class GridlinkOutboxSender(
         // Re-read rather than closing over what [check] saw. The two calls are a user-visible moment
         // apart, and an account removed in between must fail loudly here rather than send as whoever
         // happens to be current now.
-        val credentials = accounts.load() ?: error("No account to send from.")
+        val origin = origin(draft) ?: error("No account to send from.")
         val formatted = draft.formattedBody()
         val id = repository.enqueueSend(
-            credentials = credentials,
+            credentials = origin.credentials,
+            fromName = origin.fromName,
+            fromEmail = origin.fromEmail,
             to = draft.recipients.map { it.email },
             subject = draft.subject,
             // 🔴 The quote is appended HERE, at the write, and not folded into the body when the
@@ -159,8 +210,9 @@ class GridlinkOutboxSender(
             // Sending a message that began life as a saved draft retires the draft: the engine
             // deletes the server copy once the send is accepted, so Drafts does not keep a stale
             // twin of something that is now in Sent.
-            draftEmailId = draft.draftEmailId,
+            draftEmailId = origin.draftEmailId,
         )
+        retireStray(origin)
         // 🔴 What makes "people you've recently emailed" true. The store and the query behind it
         // existed and nothing ever wrote to it, so the recents half of the recipient suggestions was
         // permanently empty and the Settings switch that promises it ("When off, it still suggests
@@ -182,7 +234,8 @@ class GridlinkOutboxSender(
 
     override suspend fun keep(request: GridlinkComposeRequest) {
         val draft = request.draft
-        val credentials = accounts.load() ?: error("No account to keep a draft on.")
+        val origin = origin(draft) ?: error("No account to keep a draft on.")
+        val credentials = origin.credentials
         val emptied = draft.recipients.isEmpty() && draft.subject.isBlank() && draft.body.isBlank() &&
             draft.attachments.isEmpty()
         if (emptied) {
@@ -190,12 +243,15 @@ class GridlinkOutboxSender(
             // (an emptied fresh compose reports null and never reaches here): the user opened a
             // saved draft, deleted everything, and closed. That is a discard, said with the
             // backspace key instead of a button.
-            draft.draftEmailId?.let { repository.discardDraft(credentials, it) }
+            origin.draftEmailId?.let { repository.discardDraft(credentials, it) }
+            retireStray(origin)
             return
         }
         val formatted = draft.formattedBody()
         repository.saveDraft(
             credentials = credentials,
+            fromName = origin.fromName,
+            fromEmail = origin.fromEmail,
             to = draft.recipients.map { it.email },
             subject = draft.subject,
             // ⚠️ The quote is written into the SAVED draft too, and it has to be: the stored draft
@@ -213,8 +269,9 @@ class GridlinkOutboxSender(
             // less than a sendable message — which is the whole point of a draft.
             attachments = attacher?.parts(draft.attachments.filter { attacher.holds(it) }).orEmpty(),
             // Editing a saved draft replaces it in place rather than piling up a copy per close.
-            replacesEmailId = draft.draftEmailId,
+            replacesEmailId = origin.draftEmailId,
         )
+        retireStray(origin)
     }
 
     override suspend fun schedule(request: GridlinkComposeRequest, sendAtMillis: Long) {
@@ -227,26 +284,30 @@ class GridlinkOutboxSender(
         if (draft.attachments.isNotEmpty()) {
             error("Send Later can't carry a file yet. Send it now, or remove the attachment.")
         }
-        val credentials = accounts.load() ?: error("No account to send from.")
+        val origin = origin(draft) ?: error("No account to send from.")
         // Same shape [ComposeViewModel] writes: the entity is the message, held locally until its
         // worker fires. Nothing goes to the server until then, which is why cancelling a scheduled
         // send is a local row delete rather than a recall.
         val id = repository.insertScheduledSend(
             ScheduledSendEntity(
-                accountId = credentials.id,
+                accountId = origin.credentials.id,
                 recipients = draft.recipients.joinToString(",") { it.email },
                 subject = draft.subject,
                 textBody = gridlinkQuotedPlain(formattedPlain(draft.formattedBody()), draft.quoted),
                 htmlBody = gridlinkQuotedHtml(formattedHtml(draft.formattedBody()), draft.quoted),
-                fromName = null,
-                fromEmail = null,
+                // The From line's choice, carried to the worker, which hands it to the engine
+                // exactly as a send-now would. Null here used to mean "whatever the engine picks
+                // at send time", which on JMAP is not the identity the composer showed.
+                fromName = origin.fromName,
+                fromEmail = origin.fromEmail,
                 inReplyTo = null,
                 references = null,
                 sendAtMillis = sendAtMillis,
                 // So the worker retires the server draft when the send finally goes out.
-                draftEmailId = draft.draftEmailId,
+                draftEmailId = origin.draftEmailId,
             )
         )
+        retireStray(origin)
         ScheduledSends.enqueue(context, id, sendAtMillis)
     }
 }
@@ -259,6 +320,35 @@ class GridlinkOutboxSender(
  * nothing. Screenshot frames of the undo bar come from `--es undo full|half|nearly`, which does not
  * go through send at all, so nothing in the harness needs a pretend one.
  */
+/**
+ * The identity [account] sends as for an address the composer chose: the identity with that
+ * address, else the account's default ([StoredAccount.defaultIdentity]), so a stale address
+ * degrades to the default rather than to the engine's guess.
+ */
+internal fun gridlinkSendingIdentity(account: StoredAccount?, email: String?): StoredIdentity? {
+    account ?: return null
+    return account.resolvedIdentities().firstOrNull { it.email.equals(email, ignoreCase = true) }
+        ?: account.defaultIdentity()
+}
+
+/**
+ * Where a stored draft goes when its message is written from [sendingAccountId].
+ *
+ * First: the draft id to replace or retire on the sending account, or null. Second: the
+ * (account id, draft id) left behind on ANOTHER account, when the From line moved the message off
+ * the account the draft lives on. A draft id means nothing on a different mailbox, so it is never
+ * handed to the sending account in that case.
+ */
+internal fun gridlinkDraftHome(
+    draftEmailId: String?,
+    draftAccountId: String?,
+    sendingAccountId: String,
+): Pair<String?, Pair<String, String>?> {
+    draftEmailId ?: return null to null
+    val home = draftAccountId ?: sendingAccountId
+    return if (home == sendingAccountId) draftEmailId to null else null to (home to draftEmailId)
+}
+
 object GridlinkNullSender : GridlinkSender {
     override fun check(request: GridlinkComposeRequest): String? =
         "This build can't send mail."
