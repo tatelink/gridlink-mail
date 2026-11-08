@@ -1183,7 +1183,10 @@ class DavRepository(
             ?: return DavWriteOutcome(error = "This contact isn't synced to this device yet. Sync first.")
         val parsed = ContactPayload.parse(row)
             ?: return DavWriteOutcome(error = "This contact's card could not be read. Sync first.")
-        val touched = edit.touchedSince(ContactEdit.from(parsed))
+        val original = ContactEdit.from(parsed)
+        // Types nobody stated (the in-app form cannot) keep the card's own; see ContactEdit.emailTypes.
+        val typed = edit.withTypesFrom(original)
+        val touched = typed.touchedSince(original)
         if (touched.isEmpty()) return DavWriteOutcome(href = href)
 
         // 🔴 A JMAP-backed row cannot be written over CardDAV, and it needs no UID lookup either,
@@ -1196,7 +1199,7 @@ class DavRepository(
             val cardUid = parsed.uid ?: row.uid
             return writeCardOverJmap(accountId, server, dav) { client, session, jmapAccountId, auth ->
                 client.updateContactCard(
-                    session, jmapAccountId, cardId, edit.toCardWrite(cardUid), touched, auth,
+                    session, jmapAccountId, cardId, typed.toCardWrite(cardUid), touched, auth,
                 )
                 cardId
             }
@@ -1216,7 +1219,7 @@ class DavRepository(
                 if (foundId != null) {
                     try {
                         jmap.updateContactCard(
-                            session, jmapAccountId, foundId, edit.toCardWrite(uid), touched, auth,
+                            session, jmapAccountId, foundId, typed.toCardWrite(uid), touched, auth,
                         )
                     } catch (e: JmapException) {
                         return DavWriteOutcome(error = e.message ?: "The server refused the change")
@@ -1230,7 +1233,7 @@ class DavRepository(
             }
         }
 
-        val patched = VCardWrite.patch(row.raw, edit, touched)
+        val patched = VCardWrite.patch(row.raw, typed, touched)
         val written = try {
             client.update(row.collectionUrl, href, dav, DavKind.ADDRESS_BOOK, patched, row.etag)
         } catch (e: DavException) {

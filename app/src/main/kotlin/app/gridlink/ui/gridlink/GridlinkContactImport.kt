@@ -154,6 +154,8 @@ private fun ParsedContact.toEdit(): ContactEdit {
         phones = phones,
         note = note.orEmpty(),
         photo = photo,
+        emailTypes = emailTypes,
+        phoneTypes = phoneTypes,
     ).normalized()
 }
 

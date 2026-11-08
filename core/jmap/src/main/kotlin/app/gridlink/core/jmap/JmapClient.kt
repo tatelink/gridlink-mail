@@ -6,6 +6,7 @@ import app.gridlink.core.jmap.model.ContactCardGroup
 import app.gridlink.core.jmap.model.ContactCardIdPage
 import app.gridlink.core.jmap.model.ContactCardWrite
 import app.gridlink.core.jmap.model.ContactChangesResult
+import app.gridlink.core.jmap.model.ContactTypes
 import app.gridlink.core.jmap.model.CrawlPage
 import app.gridlink.core.jmap.model.Email
 import app.gridlink.core.jmap.model.EmailAddress
@@ -3238,14 +3239,20 @@ private fun contactCardGroupValue(group: ContactCardGroup, card: ContactCardWrit
     ContactCardGroup.EMAILS -> card.emails.filter { it.isNotBlank() }.ifEmpty { null }?.let { list ->
         buildJsonObject {
             list.forEachIndexed { i, address ->
-                putJsonObject("e$i") { put("address", address) }
+                putJsonObject("e$i") {
+                    put("address", address)
+                    putFlags("contexts", ContactTypes.contexts(card.emailTypes[address].orEmpty()))
+                }
             }
         }
     } ?: JsonNull
     ContactCardGroup.PHONES -> card.phones.filter { it.isNotBlank() }.ifEmpty { null }?.let { list ->
         buildJsonObject {
             list.forEachIndexed { i, number ->
-                putJsonObject("p$i") { put("number", number) }
+                putJsonObject("p$i") {
+                    put("number", number)
+                    putPhoneTypes(card.phoneTypes[number].orEmpty())
+                }
             }
         }
     } ?: JsonNull
@@ -3281,6 +3288,18 @@ private fun contactCardGroupValue(group: ContactCardGroup, card: ContactCardWrit
             }
         }
     } ?: JsonNull
+}
+
+/** A JSContact flag set (`{"work": true}`), or nothing at all when it is empty. */
+/** A JSContact Phone's `contexts` and `features` for its vCard [types]. */
+private fun JsonObjectBuilder.putPhoneTypes(types: Set<String>) {
+    putFlags("contexts", ContactTypes.contexts(types))
+    putFlags("features", ContactTypes.phoneFeatures(types))
+}
+
+private fun JsonObjectBuilder.putFlags(name: String, flags: Map<String, Boolean>) {
+    if (flags.isEmpty()) return
+    putJsonObject(name) { flags.forEach { (key, on) -> put(key, on) } }
 }
 
 /** JMAP UTCDate (RFC 8620 §1.4) from epoch millis. */

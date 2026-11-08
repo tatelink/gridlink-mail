@@ -34,12 +34,11 @@ import app.gridlink.core.data.db.AddressBookContactEntity
  * CardDAV, a JSContact Card from JMAP). That is the same entry point the contact detail screen
  * uses, so what lands in the system is what Gridlink itself shows, field for field.
  *
- * ## ⚠️ Phone numbers arrive untyped
- * [ParsedContact.phones] keeps the numbers and drops the vCard's `TYPE=` parameters, so every
- * number is written as `TYPE_OTHER`. Caller ID and dialling are unaffected; what the user loses is
- * the word "mobile" or "work" beside the number in the system Contacts app. Fixing it means
- * teaching the vCard parser to keep the types, which is a change to shared code the address book
- * has no use for.
+ * ## Email and phone types
+ * Each address and number goes in with the provider type its card's kind words map to
+ * ([NativeContactTypes]): `TEL;TYPE=cell` is Mobile, a JSContact `contexts: {work}` email is
+ * Work. Until fingerprint v3 every one was written as `TYPE_OTHER`, because the parser dropped
+ * the words; the bump rewrites every row once so cards already mirrored get theirs.
  */
 class ContactsMirror(private val resolver: ContentResolver) {
 
@@ -209,18 +208,17 @@ class ContactsMirror(private val resolver: ContentResolver) {
                 withValue(ContactsContract.CommonDataKinds.Email.ADDRESS, address)
                 withValue(
                     ContactsContract.CommonDataKinds.Email.TYPE,
-                    ContactsContract.CommonDataKinds.Email.TYPE_OTHER,
+                    NativeContactTypes.emailKind(parsed.emailTypes[address].orEmpty()),
                 )
             }
         }
 
-        // Untyped on purpose; see the class note.
         parsed.phones.forEach { number ->
             data(ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE) {
                 withValue(ContactsContract.CommonDataKinds.Phone.NUMBER, number)
                 withValue(
                     ContactsContract.CommonDataKinds.Phone.TYPE,
-                    ContactsContract.CommonDataKinds.Phone.TYPE_OTHER,
+                    NativeContactTypes.phoneKind(parsed.phoneTypes[number].orEmpty()),
                 )
             }
         }
@@ -362,8 +360,8 @@ class ContactsMirror(private val resolver: ContentResolver) {
 
         /**
          * Fingerprint format. Bumped when what a row holds changes, which rewrites every row once:
-         * v2 dropped the read-only flag and added the base hashes.
+         * v2 dropped the read-only flag and added the base hashes, v3 types emails and phones.
          */
-        const val FORMAT = "v2:"
+        const val FORMAT = "v3:"
     }
 }

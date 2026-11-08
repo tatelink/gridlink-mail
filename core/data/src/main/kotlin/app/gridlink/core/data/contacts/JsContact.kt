@@ -14,10 +14,11 @@ import kotlinx.serialization.json.Json
  * that speak nothing else.
  *
  * ## What is deliberately NOT converted
- * Email contexts, phone features, address components, `pref` rankings beyond the ordering they
- * imply, anniversaries and relations have no home in [ParsedContact] today. They survive
- * anyway, because the stored payload is one `decode` away: the screens that will show them do not
- * need a schema change to get at them.
+ * Address components, `pref` rankings beyond the ordering they imply, anniversaries and
+ * relations have no home in [ParsedContact] today. They survive anyway, because the stored
+ * payload is one `decode` away: the screens that will show them do not need a schema change to
+ * get at them. Email contexts and phone features DO convert, as vCard kind words (see
+ * [app.gridlink.core.jmap.model.ContactTypes]), because the system-contacts mirror shows them.
  *
  * ⚠️ [encode] writes the MODELLED card, not the bytes the server sent. Properties
  * [JmapContactCard] does not model are absent from the cache. That costs display of those
@@ -79,6 +80,8 @@ object JsContact {
             title = card.titleName(),
             emails = card.emailAddresses(),
             phones = card.phoneNumbers(),
+            emailTypes = card.emailTypes(),
+            phoneTypes = card.phoneTypes(),
             note = card.noteText(),
             addresses = card.addressLines(),
             photo = card.photo(),

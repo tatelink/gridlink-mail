@@ -270,4 +270,35 @@ class VCardTest {
         )!!
         assertEquals(listOf("123 Main St, Suite 4, Hillcrest, PA"), card.addresses)
     }
+
+    @Test
+    fun `phone and email types are read in every spelling a server sends`() {
+        val card = VCard.parse(
+            listOf(
+                "BEGIN:VCARD",
+                "VERSION:3.0",
+                "FN:Kenna Chadwick",
+                "TEL;TYPE=CELL,VOICE:+1 717-555-0142",
+                "TEL;TYPE=WORK;TYPE=PREF:+1 717-555-0100",
+                "TEL;VALUE=uri;TYPE=\"home,fax\":tel:+1-717-555-0199",
+                "TEL;WORK;PAGER:+1 717-555-0111",
+                "TEL:+1 717-555-0122",
+                "item1.EMAIL;type=INTERNET;type=WORK:kenna@acme.example",
+                "EMAIL;TYPE=home:mailto:kenna@home.example",
+                "END:VCARD",
+            ).joinToString("\r\n"),
+        )!!
+
+        assertEquals(setOf("cell", "voice"), card.phoneTypes["+1 717-555-0142"])
+        // PREF is ranking, not a kind.
+        assertEquals(setOf("work"), card.phoneTypes["+1 717-555-0100"])
+        // 4.0: a quoted list, and the value is a tel: URI the map keys without its scheme.
+        assertEquals(setOf("home", "fax"), card.phoneTypes["+1-717-555-0199"])
+        // 2.1: bare parameters are types.
+        assertEquals(setOf("work", "pager"), card.phoneTypes["+1 717-555-0111"])
+        assertEquals(emptySet<String>(), card.phoneTypes["+1 717-555-0122"].orEmpty())
+        assertEquals(setOf("internet", "work"), card.emailTypes["kenna@acme.example"])
+        assertEquals(setOf("home"), card.emailTypes["kenna@home.example"])
+        assertEquals(listOf("kenna@acme.example", "kenna@home.example"), card.emails)
+    }
 }

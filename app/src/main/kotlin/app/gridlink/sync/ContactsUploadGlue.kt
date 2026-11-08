@@ -34,6 +34,8 @@ class ContactsProviderReader(private val resolver: ContentResolver, private val 
         var contact = NativeContact()
         val emails = ArrayList<String>()
         val phones = ArrayList<String>()
+        val emailKinds = HashMap<String, Int>()
+        val phoneKinds = HashMap<String, Int>()
         val addresses = ArrayList<String>()
         fun take(c: Cursor) {
             when (c.str(ContactsContract.Data.MIMETYPE)) {
@@ -50,8 +52,8 @@ class ContactsProviderReader(private val resolver: ContentResolver, private val 
                 Photo.CONTENT_ITEM_TYPE -> contact = contact.copy(
                     photoHash = NativeContactDiff.photoHash(c.blob(Photo.PHOTO)),
                 )
-                Email.CONTENT_ITEM_TYPE -> c.str(Email.ADDRESS)?.let { emails += it }
-                Phone.CONTENT_ITEM_TYPE -> c.str(Phone.NUMBER)?.let { phones += it }
+                Email.CONTENT_ITEM_TYPE -> c.typed(Email.ADDRESS, Email.TYPE, emails, emailKinds)
+                Phone.CONTENT_ITEM_TYPE -> c.typed(Phone.NUMBER, Phone.TYPE, phones, phoneKinds)
                 StructuredPostal.CONTENT_ITEM_TYPE ->
                     c.str(StructuredPostal.FORMATTED_ADDRESS)?.let { addresses += it }
             }
@@ -70,7 +72,25 @@ class ContactsProviderReader(private val resolver: ContentResolver, private val 
             arrayOf(rawId.toString()),
             ContactsContract.Data._ID,
         )?.use { c -> while (c.moveToNext()) take(c) }
-        return contact.copy(emails = emails, phones = phones, addresses = addresses)
+        return contact.copy(
+            emails = emails,
+            phones = phones,
+            addresses = addresses,
+            emailKinds = emailKinds,
+            phoneKinds = phoneKinds,
+        )
+    }
+
+    /** One email or phone row: its value into [values], its provider type into [kinds]. */
+    private fun Cursor.typed(
+        valueColumn: String,
+        typeColumn: String,
+        values: MutableList<String>,
+        kinds: MutableMap<String, Int>,
+    ) {
+        val value = str(valueColumn) ?: return
+        values += value
+        str(typeColumn)?.toIntOrNull()?.let { kinds[value] = it }
     }
 
     /**

@@ -1,5 +1,7 @@
 package app.gridlink.sync
 
+import android.provider.ContactsContract.CommonDataKinds.Email
+import android.provider.ContactsContract.CommonDataKinds.Phone
 import app.gridlink.core.data.contacts.ContactEdit
 import app.gridlink.core.jmap.model.ContactCardGroup
 import app.gridlink.core.jmap.model.ContactCardPhoto
@@ -18,6 +20,9 @@ import java.security.MessageDigest
  *   only when an upload needs them.
  * @param addresses read so a change to one can be recognised and reported; there is no way to send
  *   it (Gridlink's contact model has no address field to write).
+ * @param emailKinds each address's provider type (`Email.TYPE_WORK` and so on); a missing entry
+ *   reads as `TYPE_OTHER`, which is what the provider means by no type.
+ * @param phoneKinds each number's provider type (`Phone.TYPE_MOBILE` and so on), likewise.
  */
 data class NativeContact(
     val given: String = "",
@@ -30,7 +35,23 @@ data class NativeContact(
     val note: String = "",
     val addresses: List<String> = emptyList(),
     val photoHash: String? = null,
+    val emailKinds: Map<String, Int> = emptyMap(),
+    val phoneKinds: Map<String, Int> = emptyMap(),
 ) {
+
+    /** Every address with its kind words, stated for all of them: the provider always has a type. */
+    private val emailTypes: Map<String, Set<String>>
+        get() = emails.associateWith { NativeContactTypes.emailWords(emailKind(it)) }
+
+    /** Every number with its kind words, as [emailTypes]. */
+    private val phoneTypes: Map<String, Set<String>>
+        get() = phones.associateWith { NativeContactTypes.phoneWords(phoneKind(it)) }
+
+    /** The provider type of one address, `TYPE_OTHER` when none was read. */
+    fun emailKind(address: String): Int = emailKinds[address] ?: Email.TYPE_OTHER
+
+    /** The provider type of one number, `TYPE_OTHER` when none was read. */
+    fun phoneKind(number: String): Int = phoneKinds[number] ?: Phone.TYPE_OTHER
 
     /**
      * True when this is an organization card: a company and no person name besides it. The
@@ -52,6 +73,8 @@ data class NativeContact(
             emails = emails,
             phones = phones,
             note = note,
+            emailTypes = emailTypes,
+            phoneTypes = phoneTypes,
         )
     } else if (given.isBlank() && family.isBlank()) {
         // Only a display name: Gridlink spells that as a family name alone, as it reads one back.
@@ -62,6 +85,8 @@ data class NativeContact(
             emails = emails,
             phones = phones,
             note = note,
+            emailTypes = emailTypes,
+            phoneTypes = phoneTypes,
         )
     } else {
         ContactEdit(
@@ -72,6 +97,8 @@ data class NativeContact(
             emails = emails,
             phones = phones,
             note = note,
+            emailTypes = emailTypes,
+            phoneTypes = phoneTypes,
         )
     }
 }
@@ -115,8 +142,11 @@ object NativeContactDiff {
     fun localHashes(contact: NativeContact): Map<String, String> = mapOf(
         NAME to hash(contact.given.trim(), contact.family.trim(), contact.displayName.trim(), contact.company.trim()),
         TITLE to hash(contact.title.trim()),
-        EMAILS to hashAll(contact.emails.map { it.trim().lowercase() }),
-        PHONES to hashAll(contact.phones.map { digits(it) }),
+        // The provider's type number, not the words it maps to: a type with no vCard word (Callback,
+        // a custom label) is still a change the user made, and sending it puts the server's
+        // truth back on screen instead of leaving the row showing something the server never got.
+        EMAILS to hashAll(contact.emails.map { it.trim().lowercase() + "|" + contact.emailKind(it) }),
+        PHONES to hashAll(contact.phones.map { digits(it) + "|" + contact.phoneKind(it) }),
         NOTE to hash(contact.note.trim()),
         PHOTO to hash(contact.photoHash.orEmpty()),
         ADDRESSES to hashAll(contact.addresses.map { it.trim() }),
@@ -127,8 +157,8 @@ object NativeContactDiff {
         return mapOf(
             NAME to hash(n.given, n.family, n.organizationValue.orEmpty()),
             TITLE to hash(n.title),
-            EMAILS to hashAll(n.emails.map { it.lowercase() }),
-            PHONES to hashAll(n.phones.map { digits(it) }),
+            EMAILS to hashAll(n.emails.map { it.lowercase() + "|" + words(n.emailTypes[it]) }),
+            PHONES to hashAll(n.phones.map { digits(it) + "|" + words(n.phoneTypes[it]) }),
             NOTE to hash(n.note),
             PHOTO to hash(n.photo?.base64.orEmpty()),
             CUSTOM to hashList(n.customFields.map { "${it.label}=${it.value}" }),
@@ -155,8 +185,28 @@ object NativeContactDiff {
         var out = server
         if (NAME in touched) out = out.copy(given = local.given, family = local.family, company = local.company)
         if (TITLE in touched) out = out.copy(title = local.title)
-        if (EMAILS in touched) out = out.copy(emails = local.emails)
-        if (PHONES in touched) out = out.copy(phones = local.phones)
+        if (EMAILS in touched) {
+            out = out.copy(
+                emails = local.emails,
+                emailTypes = NativeContactTypes.keepServerWords(
+                    TypedValues(local.emails, local.emailTypes),
+                    TypedValues(server.emails, server.emailTypes),
+                    key = { it.trim().lowercase() },
+                    kind = NativeContactTypes::emailKind,
+                ),
+            )
+        }
+        if (PHONES in touched) {
+            out = out.copy(
+                phones = local.phones,
+                phoneTypes = NativeContactTypes.keepServerWords(
+                    TypedValues(local.phones, local.phoneTypes),
+                    TypedValues(server.phones, server.phoneTypes),
+                    key = ::digits,
+                    kind = NativeContactTypes::phoneKind,
+                ),
+            )
+        }
         if (NOTE in touched) out = out.copy(note = local.note)
         if (PHOTO in touched) out = out.copy(photo = photo())
         return out
@@ -179,6 +229,9 @@ object NativeContactDiff {
     /** Phone numbers compare by their digits, so the provider's own formatting is not an edit. */
     private fun digits(number: String): String = number.filter { it.isDigit() || it == '+' }
 
+    /** Kind words in a stable spelling for a hash. */
+    private fun words(types: Set<String>?): String = types.orEmpty().sorted().joinToString(",")
+
     /** Order and blanks ignored: the provider keeps its own row order. */
     private fun hashAll(values: List<String>): String =
         hashList(values.filter { it.isNotEmpty() }.sorted())
@@ -192,4 +245,123 @@ object NativeContactDiff {
         MessageDigest.getInstance("SHA-256").digest(bytes).copyOf(HASH_BYTES)
 
     private fun hex(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it) }
+}
+
+/** A list of addresses or numbers with each one's kind words, as [ContactEdit] carries them. */
+data class TypedValues(val values: List<String>, val types: Map<String, Set<String>>)
+
+/**
+ * The translation between vCard kind words ([app.gridlink.core.jmap.model.ContactTypes]) and the
+ * contacts provider's type numbers, in both directions.
+ *
+ * The provider has one number per row where a card has a set of words, so the mapping is lossy
+ * one way: `TEL;TYPE=work,voice` shows as Work and would come back as just `work`. That loss never
+ * reaches the server unprompted, because [keepServerWords] puts the card's own words back on any
+ * value whose type the user did not change.
+ *
+ * A provider type with no vCard word (Callback, Radio, a custom label) maps to no words, which is
+ * how the server then holds it.
+ */
+object NativeContactTypes {
+
+    private const val HOME = "home"
+    private const val WORK = "work"
+    private const val CELL = "cell"
+    private const val FAX = "fax"
+    private const val PAGER = "pager"
+    private const val MAIN = "main"
+    private const val TEXTPHONE = "textphone"
+    private const val CAR = "car"
+    private const val ISDN = "isdn"
+
+    /** Kinds that pair with work (first) or not (second), checked in this order. */
+    private val PAIRED = listOf(
+        CELL to (Phone.TYPE_WORK_MOBILE to Phone.TYPE_MOBILE),
+        PAGER to (Phone.TYPE_WORK_PAGER to Phone.TYPE_PAGER),
+        MAIN to (Phone.TYPE_COMPANY_MAIN to Phone.TYPE_MAIN),
+    )
+
+    /** Kinds that stand alone, checked after [PAIRED] and before home or work. */
+    private val SINGLE = listOf(
+        TEXTPHONE to Phone.TYPE_TTY_TDD,
+        CAR to Phone.TYPE_CAR,
+        ISDN to Phone.TYPE_ISDN,
+    )
+
+    /** The provider's type for a card's phone words. */
+    fun phoneKind(words: Set<String>): Int {
+        val work = WORK in words
+        if (FAX in words) {
+            return when {
+                work -> Phone.TYPE_FAX_WORK
+                HOME in words -> Phone.TYPE_FAX_HOME
+                else -> Phone.TYPE_OTHER_FAX
+            }
+        }
+        PAIRED.firstOrNull { it.first in words }?.let { (_, kinds) -> return if (work) kinds.first else kinds.second }
+        SINGLE.firstOrNull { it.first in words }?.let { return it.second }
+        return when {
+            HOME in words -> Phone.TYPE_HOME
+            work -> Phone.TYPE_WORK
+            else -> Phone.TYPE_OTHER
+        }
+    }
+
+    /** The card words for a provider phone type. */
+    fun phoneWords(kind: Int): Set<String> = PHONE_WORDS[kind].orEmpty()
+
+    /** The provider's type for a card's email words. */
+    fun emailKind(words: Set<String>): Int = when {
+        WORK in words -> Email.TYPE_WORK
+        HOME in words -> Email.TYPE_HOME
+        else -> Email.TYPE_OTHER
+    }
+
+    /** The card words for a provider email type. */
+    fun emailWords(kind: Int): Set<String> = when (kind) {
+        Email.TYPE_HOME -> setOf(HOME)
+        Email.TYPE_WORK -> setOf(WORK)
+        else -> emptySet()
+    }
+
+    /**
+     * The words to send for [local]'s values: the server card's own words for a value it already
+     * holds when the provider shows the same type for both, else the provider's. Values match by
+     * [key] (an email ignoring case, a number by its digits).
+     *
+     * This is what stops a one-way loss becoming a server change: a `TYPE=work,voice` number shows
+     * as Work, and when the user adds a second number the first goes back up as `work,voice`, not
+     * as the `work` the provider can spell.
+     */
+    fun keepServerWords(
+        local: TypedValues,
+        server: TypedValues,
+        key: (String) -> String,
+        kind: (Set<String>) -> Int,
+    ): Map<String, Set<String>> {
+        val serverByKey = HashMap<String, Set<String>>()
+        server.values.forEach { value -> serverByKey.putIfAbsent(key(value), server.types[value].orEmpty()) }
+        return local.values.associateWith { value ->
+            val mine = local.types[value].orEmpty()
+            val theirs = serverByKey[key(value)]
+            if (theirs != null && kind(theirs) == kind(mine)) theirs else mine
+        }
+    }
+
+    private val PHONE_WORDS = mapOf(
+        Phone.TYPE_HOME to setOf(HOME),
+        Phone.TYPE_MOBILE to setOf(CELL),
+        Phone.TYPE_WORK to setOf(WORK),
+        Phone.TYPE_FAX_WORK to setOf(WORK, FAX),
+        Phone.TYPE_FAX_HOME to setOf(HOME, FAX),
+        Phone.TYPE_OTHER_FAX to setOf(FAX),
+        Phone.TYPE_PAGER to setOf(PAGER),
+        Phone.TYPE_WORK_PAGER to setOf(WORK, PAGER),
+        Phone.TYPE_WORK_MOBILE to setOf(WORK, CELL),
+        Phone.TYPE_MAIN to setOf(MAIN),
+        Phone.TYPE_COMPANY_MAIN to setOf(WORK, MAIN),
+        Phone.TYPE_TTY_TDD to setOf(TEXTPHONE),
+        Phone.TYPE_CAR to setOf(CAR),
+        Phone.TYPE_ISDN to setOf(ISDN),
+    )
 }

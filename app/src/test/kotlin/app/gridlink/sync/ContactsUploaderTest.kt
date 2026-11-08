@@ -1,5 +1,7 @@
 package app.gridlink.sync
 
+import android.provider.ContactsContract.CommonDataKinds.Email
+import android.provider.ContactsContract.CommonDataKinds.Phone
 import app.gridlink.core.data.contacts.ContactEdit
 import app.gridlink.core.data.dav.DavWriteOutcome
 import app.gridlink.core.jmap.model.ContactCardPhoto
@@ -46,13 +48,15 @@ class ContactsUploaderTest {
         deleted: Boolean = false,
         uid: String? = null,
         bases: Boolean = true,
+        localAtPublish: NativeContact = localBase,
+        serverAtPublish: ContactEdit = serverBase,
     ) = ContactsUploader.Row(
         id = id,
         sourceId = href?.let { SystemMirror.sourceId(account, it) },
         uid = uid,
         deleted = deleted,
-        localBase = if (bases) NativeContactDiff.encode(NativeContactDiff.localHashes(localBase)) else null,
-        serverBase = if (bases) NativeContactDiff.encode(NativeContactDiff.serverHashes(serverBase)) else null,
+        localBase = if (bases) NativeContactDiff.encode(NativeContactDiff.localHashes(localAtPublish)) else null,
+        serverBase = if (bases) NativeContactDiff.encode(NativeContactDiff.serverHashes(serverAtPublish)) else null,
         contact = contact,
     )
 
@@ -142,7 +146,11 @@ class ContactsUploaderTest {
 
         assertEquals(1, result.uploaded)
         assertEquals(listOf("+1 555-0199"), remote.updates.single().second.phones)
-        assertEquals(serverBase.copy(phones = listOf("+1 555-0199")), remote.updates.single().second)
+        // The provider always has a type, so the new number goes up with its (here: none) said.
+        assertEquals(
+            serverBase.copy(phones = listOf("+1 555-0199"), phoneTypes = mapOf("+1 555-0199" to emptySet())),
+            remote.updates.single().second,
+        )
         assertEquals(listOf(1L), local.reset)
     }
 
@@ -164,6 +172,91 @@ class ContactsUploaderTest {
         val a = NativeContactDiff.localHashes(localBase)
         val b = NativeContactDiff.localHashes(localBase.copy(phones = listOf("+15550100")))
         assertEquals(a, b)
+    }
+
+    // ---------------------------------------------------------------- types
+
+    /** A card with a typed number and email, and the provider rows the mirror made of it. */
+    private val typedServer = serverBase.copy(
+        phoneTypes = mapOf("+15550100" to setOf("work", "voice")),
+        emailTypes = mapOf("ada@example.com" to setOf("work")),
+    )
+    private val typedLocal = localBase.copy(
+        phoneKinds = mapOf("+1 555-0100" to Phone.TYPE_WORK),
+        emailKinds = mapOf("ada@example.com" to Email.TYPE_WORK),
+    )
+
+    private fun typedRow(contact: NativeContact) =
+        row(contact = contact, localAtPublish = typedLocal, serverAtPublish = typedServer)
+
+    @Test
+    fun `a server type the provider cannot spell survives a native edit of another number`() = runTest {
+        val edited = typedLocal.copy(
+            phones = listOf("+1 555-0100", "+1 555-0122"),
+            phoneKinds = typedLocal.phoneKinds + ("+1 555-0122" to Phone.TYPE_MOBILE),
+        )
+        val remote = FakeRemote(listOf(card(edit = typedServer)))
+
+        uploader(FakeLocal(listOf(typedRow(edited))), remote).run()
+
+        val sent = remote.updates.single().second
+        // Work+voice shows as Work; it goes back up as the card had it, not as the "work" a
+        // provider row can spell.
+        assertEquals(setOf("work", "voice"), sent.phoneTypes["+1 555-0100"])
+        assertEquals(setOf("cell"), sent.phoneTypes["+1 555-0122"])
+    }
+
+    @Test
+    fun `a type changed in the Contacts app is sent`() = runTest {
+        val edited = typedLocal.copy(phoneKinds = mapOf("+1 555-0100" to Phone.TYPE_WORK_MOBILE))
+        val remote = FakeRemote(listOf(card(edit = typedServer)))
+
+        val result = uploader(FakeLocal(listOf(typedRow(edited))), remote).run()
+
+        assertEquals(1, result.uploaded)
+        val sent = remote.updates.single().second
+        assertEquals(setOf("work", "cell"), sent.phoneTypes["+1 555-0100"])
+        assertEquals(setOf("work"), sent.emailTypes["ada@example.com"])
+    }
+
+    @Test
+    fun `a retype to a type with no vCard word is still an edit, sent as no type`() = runTest {
+        val edited = typedLocal.copy(emailKinds = mapOf("ada@example.com" to Email.TYPE_MOBILE))
+        val remote = FakeRemote(listOf(card(edit = typedServer)))
+
+        val result = uploader(FakeLocal(listOf(typedRow(edited))), remote).run()
+
+        assertEquals(1, result.uploaded)
+        assertEquals(emptySet<String>(), remote.updates.single().second.emailTypes["ada@example.com"])
+    }
+
+    @Test
+    fun `an untouched typed row is not an edit`() = runTest {
+        val local = FakeLocal(listOf(typedRow(typedLocal)))
+        val remote = FakeRemote(listOf(card(edit = typedServer)))
+
+        val result = uploader(local, remote).run()
+
+        assertEquals(0, result.uploaded)
+        assertTrue(remote.updates.isEmpty())
+    }
+
+    @Test
+    fun `every provider phone type maps to words and back to itself`() {
+        val kinds = listOf(
+            Phone.TYPE_HOME, Phone.TYPE_MOBILE, Phone.TYPE_WORK, Phone.TYPE_FAX_WORK, Phone.TYPE_FAX_HOME,
+            Phone.TYPE_OTHER_FAX, Phone.TYPE_PAGER, Phone.TYPE_WORK_PAGER, Phone.TYPE_WORK_MOBILE,
+            Phone.TYPE_MAIN, Phone.TYPE_COMPANY_MAIN, Phone.TYPE_TTY_TDD, Phone.TYPE_CAR, Phone.TYPE_ISDN,
+            Phone.TYPE_OTHER,
+        )
+        kinds.forEach { assertEquals(it, NativeContactTypes.phoneKind(NativeContactTypes.phoneWords(it))) }
+        listOf(Email.TYPE_HOME, Email.TYPE_WORK, Email.TYPE_OTHER).forEach {
+            assertEquals(it, NativeContactTypes.emailKind(NativeContactTypes.emailWords(it)))
+        }
+        // Words a card may carry beside the one that picks the type.
+        assertEquals(Phone.TYPE_WORK, NativeContactTypes.phoneKind(setOf("work", "voice")))
+        assertEquals(Phone.TYPE_HOME, NativeContactTypes.phoneKind(setOf("home", "text")))
+        assertEquals(Phone.TYPE_OTHER, NativeContactTypes.phoneKind(emptySet()))
     }
 
     @Test
@@ -368,6 +461,7 @@ class ContactsUploaderTest {
         assertEquals("fresh", local.uids[7])
         assertEquals("fresh", remote.creates.single().first)
         assertEquals("Grace", remote.creates.single().second.given)
+        assertEquals(mapOf("555" to emptySet<String>()), remote.creates.single().second.phoneTypes)
         assertEquals(SystemMirror.sourceId(account, "new-fresh.vcf"), local.links[7])
     }
 
@@ -429,5 +523,24 @@ class ContactsUploaderTest {
         val hashes = NativeContactDiff.serverHashes(serverBase)
         assertEquals(hashes, NativeContactDiff.decode(NativeContactDiff.encode(hashes)))
         assertEquals(null, NativeContactDiff.decode(""))
+    }
+
+    @Test
+    fun `a new contact goes up with its types`() = runTest {
+        val new = NativeContact(
+            given = "Grace",
+            displayName = "Grace",
+            emails = listOf("grace@navy.example"),
+            phones = listOf("555"),
+            emailKinds = mapOf("grace@navy.example" to Email.TYPE_WORK),
+            phoneKinds = mapOf("555" to Phone.TYPE_MOBILE),
+        )
+        val remote = FakeRemote(emptyList())
+
+        uploader(FakeLocal(listOf(row(id = 7, href = null, contact = new, bases = false))), remote).run()
+
+        val sent = remote.creates.single().second
+        assertEquals(mapOf("grace@navy.example" to setOf("work")), sent.emailTypes)
+        assertEquals(mapOf("555" to setOf("cell")), sent.phoneTypes)
     }
 }
