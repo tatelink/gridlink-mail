@@ -80,8 +80,9 @@ jobs:
         run: >-
           ./gradlew
           :core:jmap:test :core:imap:test :core:dav:test
-          :core:data:testDebugUnitTest :app:testDebugUnitTest
+          :core:data:testDebugUnitTest
+          :app:testFdroidDebugUnitTest :app:testPlayDebugUnitTest
           --no-daemon --stacktrace
 
-      - name: Assemble debug APK
-        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+      - name: Assemble debug APKs
+        run: ./gradlew :app:assembleFdroidDebug :app:assemblePlayDebug --no-daemon --stacktrace

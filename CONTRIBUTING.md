@@ -17,12 +17,13 @@ Gradle installed.
 # Run unit tests for the JMAP layer
 ./gradlew :core:jmap:test
 
-# Build a debug APK
-./gradlew :app:assembleDebug
-# Output: app/build/outputs/apk/debug/app-debug.apk
+# Build a debug APK. Two store flavors: `fdroid` (F-Droid and GitHub releases, no Google
+# dependencies, Ko-fi tips) and `play` (Google Play, Play Billing tips).
+./gradlew :app:assembleFdroidDebug
+# Output: app/build/outputs/apk/fdroid/debug/app-fdroid-debug.apk
 
 # Install on a connected device/emulator
-./gradlew :app:installDebug
+./gradlew :app:installFdroidDebug
 ```
 
 ## Behind a proxy

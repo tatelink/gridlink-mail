@@ -50,17 +50,20 @@ jobs:
         run: >-
           ./gradlew
           :core:jmap:test :core:imap:test :core:dav:test
-          :core:data:testDebugUnitTest :app:testDebugUnitTest
+          :core:data:testDebugUnitTest
+          :app:testFdroidDebugUnitTest :app:testPlayDebugUnitTest
           --stacktrace
 
-      - name: Assemble debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace
+      # Both store flavors: fdroid (F-Droid + GitHub releases, no Google deps) and play (Play
+      # Billing tips). A change that only breaks one of them must still fail the run.
+      - name: Assemble debug APKs
+        run: ./gradlew :app:assembleFdroidDebug :app:assemblePlayDebug --stacktrace
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
         with:
           name: gridlink-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/fdroid/debug/app-fdroid-debug.apk
           if-no-files-found: error
 
   # Feeds the resolved dependency list to GitHub's dependency graph, which is what makes Dependabot
