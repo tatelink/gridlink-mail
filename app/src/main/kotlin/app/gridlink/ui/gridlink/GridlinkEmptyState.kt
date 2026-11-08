@@ -22,6 +22,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -29,6 +31,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.gridlink.R
 import app.gridlink.ui.theme.GridlinkMotion
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
@@ -140,10 +143,12 @@ fun GridlinkEmptyInbox(
     lastSyncedAt: Long?,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
-    headline: String = "Nothing to read",
+    /** The big line under the mark. Null says "Nothing to read". */
+    headline: String? = null,
 ) {
     val colors = GridlinkTheme.colors
     val syncing = sync == GridlinkSyncState.SYNCING
+    val resources = LocalResources.current
 
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     // Re-keyed on the stamp as well as ticking, so a sync that completes updates the line on the
@@ -205,23 +210,28 @@ fun GridlinkEmptyInbox(
         ) {
             GridlinkMark(glow = glow)
             Text(
-                text = headline,
+                text = headline ?: stringResource(R.string.gl_list_empty_nothing_to_read),
                 modifier = Modifier.padding(top = EMPTY_MARK_GAP),
                 style = GridlinkType.threadTitle,
                 color = colors.textPrimary,
             )
+            val verb = stringResource(
+                if (sync == GridlinkSyncState.OFFLINE) {
+                    R.string.gl_list_empty_tap_to_retry
+                } else {
+                    R.string.gl_list_empty_tap_to_check
+                },
+            )
             Text(
                 text = buildAnnotatedString {
-                    append(gridlinkSyncSentence(sync, lastSyncedAt, now))
+                    append(gridlinkSyncSentence(resources, sync, lastSyncedAt, now))
                     if (!syncing) {
                         append(" · ")
                         // Accent on the verb only. It is the one word here that describes something
                         // that will happen if you touch the screen, and colouring the whole line
                         // would make the status read as tappable too.
                         withStyle(SpanStyle(color = colors.accent)) {
-                            append(
-                                if (sync == GridlinkSyncState.OFFLINE) "tap to retry" else "tap to check",
-                            )
+                            append(verb)
                         }
                     }
                 },
@@ -291,8 +301,9 @@ fun GridlinkEmptyFiltered(
         ) {
             // Unlit. The glow means "a sync is running", and nothing is running here.
             GridlinkMark(glow = 0f)
+            val tapToClear = stringResource(R.string.gl_list_empty_tap_to_clear)
             Text(
-                text = "Nothing matches",
+                text = stringResource(R.string.gl_list_empty_nothing_matches),
                 modifier = Modifier.padding(top = EMPTY_MARK_GAP),
                 style = GridlinkType.threadTitle,
                 color = colors.textPrimary,
@@ -302,7 +313,7 @@ fun GridlinkEmptyFiltered(
                     append(summary)
                     append(" · ")
                     withStyle(SpanStyle(color = colors.accent)) {
-                        append("tap to clear")
+                        append(tapToClear)
                     }
                 },
                 modifier = Modifier.padding(top = GridlinkSpacing.s8),
@@ -372,8 +383,9 @@ fun GridlinkEmptyContacts(
         ) {
             // Unlit, for [GridlinkEmptyFiltered]'s reason: the glow means a sync is running.
             GridlinkMark(glow = 0f)
+            val tapToAdd = stringResource(R.string.gl_list_empty_tap_to_add)
             Text(
-                text = "No contacts yet",
+                text = stringResource(R.string.gl_list_empty_no_contacts),
                 modifier = Modifier.padding(top = EMPTY_MARK_GAP),
                 style = GridlinkType.threadTitle,
                 color = colors.textPrimary,
@@ -383,7 +395,7 @@ fun GridlinkEmptyContacts(
                     append(subline)
                     append(" · ")
                     withStyle(SpanStyle(color = colors.accent)) {
-                        append("tap to add someone")
+                        append(tapToAdd)
                     }
                 },
                 modifier = Modifier.padding(top = GridlinkSpacing.s8),

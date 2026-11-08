@@ -8,6 +8,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.core.content.getSystemService
+import app.gridlink.R
 import app.gridlink.ui.emailhtml.EmailTheme
 import app.gridlink.ui.emailhtml.buildEmailHtmlDocument
 import java.io.ByteArrayInputStream
@@ -89,7 +90,7 @@ fun gridlinkPrintMessage(context: Context, message: GridlinkMessage) {
         }
 
         override fun onPageFinished(view: WebView, url: String?) {
-            val job = "${message.subject.ifBlank { "Message" }}.pdf"
+            val job = "${message.subject.ifBlank { context.getString(R.string.message_title_fallback) }}.pdf"
             printManager.print(
                 job,
                 view.createPrintDocumentAdapter(job).also { webViewHolder = view },

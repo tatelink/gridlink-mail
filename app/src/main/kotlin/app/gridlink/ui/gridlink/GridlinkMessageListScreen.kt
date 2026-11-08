@@ -49,6 +49,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -950,7 +951,13 @@ fun GridlinkMessageListScreen(
                 // the chrome config so it cannot disagree with the drawer row that switched it:
                 // the same object supplies both, and the same word appears on the row you tapped
                 // and the title you land on.
-                title = if (chrome.config.unifiedInbox?.active == true) "All inboxes" else "Inbox",
+                title = stringResource(
+                    if (chrome.config.unifiedInbox?.active == true) {
+                        R.string.inbox_all_inboxes
+                    } else {
+                        R.string.folder_inbox
+                    },
+                ),
                 // 🔴 Zero while loading, which suppresses the whole metadata line. The count is
                 // computed off lists this screen already holds, so it would happily render "21
                 // unread" over a panel of blank placeholders: a number the app cannot have yet,
@@ -1144,6 +1151,7 @@ fun GridlinkMessageListScreen(
             if (!hasMail && filter.isActive) {
                 GridlinkEmptyFiltered(
                     summary = gridlinkFilterSummary(
+                        resources = LocalResources.current,
                         filter = filter,
                         tagLabel = tagDefinitions
                             .firstOrNull { it.keyword == filter.tag }
@@ -1534,13 +1542,13 @@ private fun GridlinkSelectionMoreSheet(
 ) {
     GridlinkCenterSheet(onDismiss = onDismiss) {
         GridlinkSheetHeading(
-            title = if (count == 1) "1 message" else "$count messages",
+            title = pluralStringResource(R.plurals.gl_list_message_count, count, count),
             icon = Icons.Outlined.MoreHoriz,
         )
         GridlinkSheetDivider()
         GridlinkSelectionAction.entries.filterNot { it.inPill }.forEach { action ->
             GridlinkSheetAction(
-                label = action.label,
+                label = stringResource(action.label),
                 icon = action.icon,
                 onClick = { onAction(action) },
             )
@@ -1613,15 +1621,15 @@ private fun GridlinkSearchResults(
     if (current.failed) {
         GridlinkSearchEmpty(
             icon = Icons.Outlined.CloudOff,
-            title = "Search could not reach the server",
-            subline = "It will run again if you keep typing.",
+            title = stringResource(R.string.gl_list_search_failed_title),
+            subline = stringResource(R.string.gl_list_search_failed_hint),
         )
         return
     }
     if (current.results.isEmpty()) {
         GridlinkSearchEmpty(
             icon = Icons.Outlined.SearchOff,
-            title = "No results for “$query”",
+            title = stringResource(R.string.gl_list_search_no_results, query),
             subline = stringResource(R.string.gridlink_search_empty_hint),
         )
         return
@@ -1722,7 +1730,7 @@ private fun GridlinkSearchResults(
             // this list may not be the whole answer, and a list that ends in silence claims it is.
             item(key = "search-incomplete") {
                 GridlinkSearchStatus(
-                    "There may be more than what is shown. Try narrowing the search.",
+                    stringResource(R.string.gl_list_search_incomplete),
                     fill = false,
                 )
             }
@@ -1821,9 +1829,9 @@ private fun GridlinkPullIndicator(
             // of this that has to be right: it is the difference between a pull that committed and
             // one that is about to snap back, and there is no other cue for that.
             text = when {
-                refreshing -> "Syncing all accounts"
-                fraction >= 1f -> "Release to refresh"
-                else -> "Pull to refresh"
+                refreshing -> stringResource(R.string.gl_list_syncing_all_accounts)
+                fraction >= 1f -> stringResource(R.string.gl_list_pull_release)
+                else -> stringResource(R.string.gl_list_pull_to_refresh)
             },
             modifier = Modifier.padding(start = GridlinkSpacing.s8),
             style = GridlinkType.metadata,

@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import android.text.format.DateFormat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,8 +31,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import app.gridlink.R
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkRadii
 import app.gridlink.ui.theme.GridlinkSpacing
@@ -40,6 +45,7 @@ import app.gridlink.ui.theme.GridlinkType
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.YearMonth
+import java.time.format.DateTimeFormatter
 
 /**
  * Pick a day.
@@ -75,10 +81,16 @@ fun GridlinkDatePickerSheet(
         val first = month.atDay(1)
         first.minusDays(first.sundayIndex().toLong())
     }
+    // The month and year in the device's own order and spelling ("August 2026",
+    // "sierpień 2026"), not a fixed English pattern.
+    val locale = LocalConfiguration.current.locales[0]
+    val monthTitle = remember(locale) {
+        DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, "MMMMyyyy"), locale)
+    }
 
     GridlinkCenterSheet(onDismiss = onDismiss, modifier = modifier) {
         GridlinkSheetHeading(
-            title = month.atDay(1).format(MONTH_TITLE),
+            title = month.atDay(1).format(monthTitle),
             icon = Icons.Outlined.CalendarMonth,
         )
         Row(
@@ -314,8 +326,12 @@ fun GridlinkReminderPickerSheet(
 ) {
     val colors = GridlinkTheme.colors
     GridlinkCenterSheet(onDismiss = onDismiss, modifier = modifier) {
-        GridlinkSheetHeading(title = "Reminders", icon = Icons.Outlined.NotificationsNone)
+        GridlinkSheetHeading(
+            title = stringResource(R.string.gl_thread_reminders),
+            icon = Icons.Outlined.NotificationsNone,
+        )
         GridlinkSheetDivider()
+        val res = LocalContext.current.resources
         Column {
             REMINDER_OPTIONS.forEach { minutes ->
                 val isSelected = minutes in selected
@@ -352,7 +368,7 @@ fun GridlinkReminderPickerSheet(
                     ) {
                         Text(
                             // The form and the card share this wording; see [gridlinkReminderLabel].
-                            text = gridlinkReminderLabel(minutes),
+                            text = gridlinkReminderLabel(res, minutes),
                             style = GridlinkType.senderName,
                             color = if (isSelected) colors.accent else colors.textPrimary,
                         )
@@ -362,13 +378,13 @@ fun GridlinkReminderPickerSheet(
         }
         GridlinkSheetDivider()
         GridlinkSheetAction(
-            label = "Done",
+            label = stringResource(R.string.gl_thread_done),
             icon = Icons.Outlined.Check,
             onClick = onDismiss,
             // What the sheet is being left holding, in the same words the rows and the card use.
             subline = selected.sorted().takeIf { it.isNotEmpty() }
-                ?.joinToString(", ", transform = ::gridlinkReminderLabel)
-                ?: "No reminders",
+                ?.joinToString(", ") { gridlinkReminderLabel(res, it) }
+                ?: stringResource(R.string.gl_thread_no_reminders),
         )
         GridlinkSheetFooterSpace()
     }

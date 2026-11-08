@@ -1,9 +1,17 @@
 package app.gridlink.ui.gridlink
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+// Robolectric only for the summary line, which is built from plural resources (resolved in English).
+@RunWith(RobolectricTestRunner::class)
 class GridlinkContactImportTest {
+
+    private val context = ApplicationProvider.getApplicationContext<Context>()
 
     private fun card(name: String, email: String? = null, phone: String? = null) = buildString {
         append("BEGIN:VCARD\r\nVERSION:3.0\r\n")
@@ -58,11 +66,11 @@ class GridlinkContactImportTest {
     @Test
     fun `the summary leaves out what did not happen`() {
         val none = ContactImportPlan(emptyList(), 0, 0)
-        assertEquals("Imported 3.", contactImportSummary(3, none, 0, null))
+        assertEquals("Imported 3.", contactImportSummary(context, 3, none, 0, null))
         val some = ContactImportPlan(emptyList(), 2, 1)
         assertEquals(
             "Imported 3. 2 already in contacts. 1 unreadable. 4 not saved: no address book",
-            contactImportSummary(3, some, 4, "no address book"),
+            contactImportSummary(context, 3, some, 4, "no address book"),
         )
     }
 }

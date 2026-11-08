@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import android.content.res.Resources
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -34,8 +35,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.gridlink.R
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
 import app.gridlink.ui.theme.GridlinkRadii
@@ -206,12 +210,12 @@ fun GridlinkUndoBar(
                     // not left, so "Sent" would be the app saying something untrue for ten seconds
                     // while offering to take it back, which is how you teach someone not to trust
                     // the word. "Sending" is what is happening.
-                    text = "Sending",
+                    text = stringResource(R.string.gl_list_undo_sending),
                     style = GridlinkType.senderName,
                     color = colors.textPrimary,
                     maxLines = 1,
                 )
-                val to = gridlinkUndoRecipients(send.request.draft)
+                val to = gridlinkUndoRecipients(LocalResources.current, send.request.draft)
                 if (to != null) {
                     Text(
                         text = to,
@@ -238,13 +242,15 @@ fun GridlinkUndoBar(
  * printing "to nobody". A fresh composer with no recipients cannot really be sent, but this is a
  * prototype with a send button that always works, and a label that copes is cheaper than a rule.
  */
-private fun gridlinkUndoRecipients(draft: GridlinkComposeDraft): String? {
+private fun gridlinkUndoRecipients(resources: Resources, draft: GridlinkComposeDraft): String? {
     val names = draft.recipients.map { it.displayName }
     return when (names.size) {
         0 -> null
-        1 -> "to ${names[0]}"
-        2 -> "to ${names[0]} and ${names[1]}"
-        else -> "to ${names[0]} and ${names.size - 1} others"
+        1 -> resources.getString(R.string.gl_list_undo_to_one, names[0])
+        2 -> resources.getString(R.string.gl_list_undo_to_two, names[0], names[1])
+        else -> (names.size - 1).let { others ->
+            resources.getQuantityString(R.plurals.gl_list_undo_to_many, others, names[0], others)
+        }
     }
 }
 
@@ -311,7 +317,7 @@ private fun GridlinkUndoControl(
             )
         }
         Text(
-            text = "Undo",
+            text = stringResource(R.string.inbox_undo),
             style = GridlinkType.toolbarLabel,
             color = colors.accent,
             maxLines = 1,

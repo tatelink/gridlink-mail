@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -23,8 +24,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.gridlink.R
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
@@ -33,7 +37,6 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
-import java.time.format.DateTimeFormatter
 
 /**
  * The messages waiting to be sent later, opened from the drawer's Scheduled row.
@@ -81,7 +84,7 @@ fun GridlinkScheduledScreen(
     }
 
     GridlinkDetailFrame(
-        title = "Scheduled",
+        title = stringResource(R.string.scheduled_title),
         onBack = onClose,
         modifier = modifier,
         // Null is the honest bottom row: the one action a waiting send has is on the row itself.
@@ -91,8 +94,8 @@ fun GridlinkScheduledScreen(
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 GridlinkEmptyNotice(
                     icon = Icons.Outlined.Schedule,
-                    title = "Nothing waiting",
-                    subline = "Messages you schedule sit here until they go.",
+                    title = stringResource(R.string.gl_thread_scheduled_empty_title),
+                    subline = stringResource(R.string.gl_thread_scheduled_empty_subline),
                 )
             }
             return@GridlinkDetailFrame
@@ -151,7 +154,7 @@ private fun GridlinkScheduledRow(
                 .padding(start = GridlinkSpacing.s16),
         ) {
             Text(
-                text = "To ${send.to}",
+                text = stringResource(R.string.gl_thread_scheduled_to, send.to),
                 style = GridlinkType.senderName,
                 color = colors.textPrimary,
                 maxLines = 1,
@@ -159,14 +162,14 @@ private fun GridlinkScheduledRow(
             )
             Text(
                 // A scheduled send with no subject is legal; the row saying so beats a blank line.
-                text = send.subject.ifBlank { "(No subject)" },
+                text = send.subject.ifBlank { stringResource(R.string.widget_no_subject) },
                 style = GridlinkType.metadata,
                 color = colors.textSecondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = gridlinkScheduledLabel(send.sendAtMillis),
+                text = gridlinkScheduledLabel(LocalContext.current, send.sendAtMillis),
                 style = GridlinkType.metadata,
                 color = colors.accent,
                 maxLines = 1,
@@ -182,7 +185,7 @@ private fun GridlinkScheduledRow(
         ) {
             Icon(
                 imageVector = Icons.Outlined.Close,
-                contentDescription = "Cancel send",
+                contentDescription = stringResource(R.string.gl_thread_cancel_send),
                 tint = colors.textSecondary,
                 modifier = Modifier.size(20.dp),
             )
@@ -217,21 +220,20 @@ data class GridlinkScheduledContent(
  * and less checkable against what was tapped.
  */
 internal fun gridlinkScheduledLabel(
+    context: Context,
     sendAtMillis: Long,
     zone: ZoneId = ZoneId.systemDefault(),
     today: LocalDate = LocalDate.now(),
 ): String {
+    val clock = GridlinkClockFormat(context)
     val at = Instant.ofEpochMilli(sendAtMillis).atZone(zone)
-    val time = at.format(GRIDLINK_SCHEDULED_TIME)
+    val time = at.format(clock.time)
     return when (at.toLocalDate()) {
-        today -> "Today at $time"
-        today.plusDays(1) -> "Tomorrow at $time"
-        else -> "${at.format(GRIDLINK_SCHEDULED_DAY)} at $time"
+        today -> context.getString(R.string.gl_thread_scheduled_today, time)
+        today.plusDays(1) -> context.getString(R.string.gl_thread_scheduled_tomorrow, time)
+        else -> context.getString(R.string.gl_thread_scheduled_on, at.format(clock.day), time)
     }
 }
-
-private val GRIDLINK_SCHEDULED_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("h:mm a")
-private val GRIDLINK_SCHEDULED_DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM")
 
 /**
  * ⚠️ Sample data, matching the drawer sample's "2 waiting". Times are computed off now rather than

@@ -18,8 +18,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import app.gridlink.R
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkRadii
 import app.gridlink.ui.theme.GridlinkSpacing
@@ -128,35 +130,48 @@ fun GridlinkSignedRow(signed: GridlinkSigned, modifier: Modifier = Modifier) {
  * of certificates: "signed by" and "is not the sender" are things a person can act on, where
  * "signature validation failed" is a thing only a developer can.
  */
+@Composable
 private fun headlineFor(signed: GridlinkSigned): String {
     val who = signed.signer
     return when (signed.state) {
         GridlinkSignedState.VALID ->
-            if (who != null) "Signed by $who." else "Signed by the sender."
+            if (who != null) {
+                stringResource(R.string.gl_compose_signed_by, who)
+            } else {
+                stringResource(R.string.gl_compose_signed_by_sender)
+            }
         GridlinkSignedState.UNTRUSTED ->
-            if (who != null) "Signed by $who." else "Signed, but by nobody this phone can name."
+            if (who != null) {
+                stringResource(R.string.gl_compose_signed_by, who)
+            } else {
+                stringResource(R.string.gl_compose_signed_by_nobody)
+            }
         // Named first and named plainly. The useful half of a mismatch is WHO it really was.
         GridlinkSignedState.MISMATCH ->
-            if (who != null) "Signed by $who, who is not the sender." else "Signed by somebody else."
-        GridlinkSignedState.INVALID -> "This message was changed after it was signed."
-        GridlinkSignedState.UNSUPPORTED -> "This message carries a signature this app can't check."
+            if (who != null) {
+                stringResource(R.string.gl_compose_signed_by_not_sender, who)
+            } else {
+                stringResource(R.string.gl_compose_signed_by_somebody_else)
+            }
+        GridlinkSignedState.INVALID -> stringResource(R.string.gl_compose_signed_invalid)
+        GridlinkSignedState.UNSUPPORTED -> stringResource(R.string.gl_compose_signed_unsupported)
     }
 }
 
 /** The second line: what that first line does and does not prove. Null when it adds nothing. */
+@Composable
 private fun detailFor(signed: GridlinkSigned): String? {
-    val expired = "The certificate has expired since it signed this."
+    val expired = stringResource(R.string.gl_compose_signed_expired)
         .takeIf { signed.expired }
+    val issuer = signed.issuer
     val body = when (signed.state) {
         // Even here the claim stays narrow: a trusted chain says the certificate belongs to that
         // address, not that its owner is honest or that the mail is safe.
-        GridlinkSignedState.VALID -> signed.issuer?.let { "Certificate issued by $it." }
-        GridlinkSignedState.UNTRUSTED ->
-            "Nothing on this phone vouches for that certificate, so it proves nothing on its own."
-        GridlinkSignedState.MISMATCH ->
-            "A real signature from the wrong person is how a forgery looks. Treat it as unsigned."
-        GridlinkSignedState.INVALID ->
-            "What you're reading is not what was signed. Nothing here can be trusted."
+        GridlinkSignedState.VALID ->
+            if (issuer != null) stringResource(R.string.gl_compose_signed_issuer, issuer) else null
+        GridlinkSignedState.UNTRUSTED -> stringResource(R.string.gl_compose_signed_untrusted_detail)
+        GridlinkSignedState.MISMATCH -> stringResource(R.string.gl_compose_signed_mismatch_detail)
+        GridlinkSignedState.INVALID -> stringResource(R.string.gl_compose_signed_invalid_detail)
         GridlinkSignedState.UNSUPPORTED -> null
     }
     return listOfNotNull(body, expired).takeIf { it.isNotEmpty() }?.joinToString(" ")

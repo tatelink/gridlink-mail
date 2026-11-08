@@ -11,6 +11,7 @@ import org.junit.Test
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /**
@@ -30,6 +31,17 @@ class GridlinkInviteMappingTest {
     // same instant GMT-05:00, which is correct and unhelpful. Pinning both is what makes the
     // expected strings below assertions rather than a record of whatever this machine is set to.
     private val locale: Locale = Locale.US
+
+    // The words and patterns the app resolves from resources and the phone's settings, fixed here so
+    // the strings below stay exact. The patterns are the 24-hour ones the card was designed with.
+    private val text = GridlinkInviteText(
+        repeats = "Repeats",
+        noTitle = "(No title)",
+        moreClashes = { extra -> "and $extra more" },
+        dateTime = DateTimeFormatter.ofPattern("EEE d MMM yyyy, HH:mm z", locale),
+        dateOnly = DateTimeFormatter.ofPattern("EEE d MMM yyyy", locale),
+        timeOnly = DateTimeFormatter.ofPattern("HH:mm", locale),
+    )
 
     /** 2026-08-20 14:00 UTC, which is 09:00 in Ashvale in August. */
     private val startUtc = 1_787_234_400_000L
@@ -64,7 +76,7 @@ class GridlinkInviteMappingTest {
         // 🔴 The regression this exists for. The invitation states 14:00 UTC; a reader in Ashvale
         // has to be told 09:00, or they miss the meeting by five hours while looking at a card that
         // quoted the .ics perfectly.
-        val line = gridlinkInviteWhen(event(), chicago, locale)
+        val line = gridlinkInviteWhen(event(), chicago, text)
         assertEquals("Thu 20 Aug 2026, 09:00 CDT - 10:00", line)
     }
 
@@ -72,19 +84,19 @@ class GridlinkInviteMappingTest {
     fun `an all-day event has a date and no clock`() {
         // Its midnight boundary is a storage detail, not a time anybody is being asked to be
         // somewhere at, and "00:00 - 00:00" would invent one.
-        val line = gridlinkInviteWhen(event(allDay = true), chicago, locale)
+        val line = gridlinkInviteWhen(event(allDay = true), chicago, text)
         assertEquals("Thu 20 Aug 2026", line)
     }
 
     @Test
     fun `an end on another day repeats the date`() {
-        val line = gridlinkInviteWhen(event(end = startUtc + 26 * 60 * 60 * 1000), chicago, locale)
+        val line = gridlinkInviteWhen(event(end = startUtc + 26 * 60 * 60 * 1000), chicago, text)
         assertEquals("Thu 20 Aug 2026, 09:00 CDT - Fri 21 Aug 2026, 11:00 CDT", line)
     }
 
     @Test
     fun `an event with no end shows only its start`() {
-        assertEquals("Thu 20 Aug 2026, 09:00 CDT", gridlinkInviteWhen(event(end = null), chicago, locale))
+        assertEquals("Thu 20 Aug 2026, 09:00 CDT", gridlinkInviteWhen(event(end = null), chicago, text))
     }
 
     @Test
@@ -117,7 +129,7 @@ class GridlinkInviteMappingTest {
 
     @Test
     fun `the card gets the event's own details`() {
-        val invite = gridlinkInviteOf(event(), chicago, locale)
+        val invite = gridlinkInviteOf(event(), chicago, locale, text)
         assertEquals("Quarterly review", invite.title)
         assertEquals("Room 2", invite.location)
         assertEquals("Dara Chair", invite.organizer)
@@ -131,7 +143,7 @@ class GridlinkInviteMappingTest {
 
     @Test
     fun `a cancelled event says so and offers no reply`() {
-        val invite = gridlinkInviteOf(event(status = "CANCELLED"), chicago, locale)
+        val invite = gridlinkInviteOf(event(status = "CANCELLED"), chicago, locale, text)
         assertTrue(invite.cancelled)
         assertFalse(invite.canRsvp)
     }
@@ -140,7 +152,7 @@ class GridlinkInviteMappingTest {
     fun `a blank title is no title`() {
         // Blank is what a SUMMARY with nothing after the colon parses to, and a card drawing it
         // would show an empty line where the name of the meeting goes.
-        val invite = gridlinkInviteOf(event().copy(title = "   "), chicago, locale)
+        val invite = gridlinkInviteOf(event().copy(title = "   "), chicago, locale, text)
         assertNull(invite.title)
     }
 
@@ -165,7 +177,7 @@ class GridlinkInviteMappingTest {
     )
 
     private fun conflicts(vararg booked: CalendarOccurrence, on: ParsedEvent = event()) =
-        gridlinkInviteConflicts(on, booked.toList(), chicago, locale)
+        gridlinkInviteConflicts(on, booked.toList(), chicago, text)
 
     @Test
     fun `something booked over the invitation is named, with its time`() {
@@ -230,7 +242,7 @@ class GridlinkInviteMappingTest {
     @Test
     fun `past three clashes the rest are counted`() {
         val many = (1..5).map { booked(summary = "Meeting $it", uid = "uid-$it") }
-        val lines = gridlinkInviteConflictLines(gridlinkInviteConflicts(event(), many, chicago, locale))
+        val lines = gridlinkInviteConflictLines(gridlinkInviteConflicts(event(), many, chicago, text), text)
         assertEquals(
             listOf("Meeting 1, 09:30 - 09:45", "Meeting 2, 09:30 - 09:45", "Meeting 3, 09:30 - 09:45", "and 2 more"),
             lines,
@@ -240,7 +252,7 @@ class GridlinkInviteMappingTest {
     @Test
     fun `exactly three clashes are all named`() {
         val three = (1..3).map { booked(summary = "Meeting $it", uid = "uid-$it") }
-        val lines = gridlinkInviteConflictLines(gridlinkInviteConflicts(event(), three, chicago, locale))
+        val lines = gridlinkInviteConflictLines(gridlinkInviteConflicts(event(), three, chicago, text), text)
         assertEquals(three.size, lines.size)
     }
 }

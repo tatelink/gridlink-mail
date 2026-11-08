@@ -125,27 +125,23 @@ object GridlinkMailMapping {
     )
 
     /**
-     * The four pieces of text a mapped row can need that the message itself does not carry.
+     * The pieces of text a mapped row can need that the message itself does not carry.
      *
-     * ## Why these are English constants and not `R.string`
-     * ⚠️ Every label in `ui.gridlink` is hard-coded English: the package implements a written design
-     * brief and its wording is part of that brief. Two of these four (`(unknown sender)`,
-     * `(no subject)`) even exist as translated resources already, for upstream's list. Reaching for
-     * them here would leave the Gridlink list with two translated strings sitting beside two hundred
-     * untranslated ones, which is not "half done", it is a list that changes language mid-row.
-     *
-     * 🔴 So this is a **known debt with a shape**, deliberately taken in one place: when the Gridlink
-     * UI is localised, it is localised as a package, and this data class is where its list strings
-     * are already gathered and waiting to be handed in from resources instead of defaulted. Nothing
-     * else has to move.
+     * ## Where these come from
+     * String resources, translated in every shipped locale, like every other label in
+     * `ui.gridlink`. This file stays free of Android types, so it cannot read them itself: the view
+     * model resolves them (see `GridlinkMailViewModel.labels()`) and hands them in. There are no
+     * defaults on purpose. A default here would be an English string that quietly wins whenever a
+     * caller forgets to pass the real one, which is exactly how a list ends up changing language
+     * mid-row. `(unknown sender)` and `(no subject)` are the same resources upstream's list uses.
      */
     data class Labels(
-        val yesterday: String = "Yesterday",
-        val unknownSender: String = "(unknown sender)",
-        val noSubject: String = "(no subject)",
-        val bundleTitle: String = "Automated",
+        val yesterday: String,
+        val unknownSender: String,
+        val noSubject: String,
+        val bundleTitle: String,
         /** The sender of your own mail, in place of your bare address. */
-        val me: String = "Me",
+        val me: String,
     )
 
     /**

@@ -1,9 +1,13 @@
 package app.gridlink.ui.gridlink
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
 /**
  * What a reply and a forward actually carry of the message they answer.
@@ -13,7 +17,11 @@ import org.junit.Test
  * parts) and about the original's document furniture NOT surviving, which is the one way quoting an
  * HTML newsletter can visibly break the reply above it.
  */
+@RunWith(RobolectricTestRunner::class)
 class GridlinkQuoteTest {
+
+    // The attribution and forward lines are string resources; Robolectric resolves them in English.
+    private val context = ApplicationProvider.getApplicationContext<Context>()
 
     private fun message(
         body: String = "<p>Need coverage Saturday.</p>",
@@ -33,7 +41,7 @@ class GridlinkQuoteTest {
 
     @Test
     fun `a reply says who wrote it and when, with the real address`() {
-        val quote = gridlinkReplyQuote(message())
+        val quote = gridlinkReplyQuote(context, message())
         assertEquals("On 3:05 PM, M. Ridley <m.ridley@gridlink.me> wrote:", quote.attribution)
         // One line, so the composer's label above the block is one line.
         assertEquals(quote.attribution, quote.label)
@@ -41,7 +49,7 @@ class GridlinkQuoteTest {
 
     @Test
     fun `a forward states the header block, not a wrote line`() {
-        val quote = gridlinkForwardQuote(message())
+        val quote = gridlinkForwardQuote(context, message())
         val lines = quote.attribution.lines()
         assertEquals("---------- Forwarded message ----------", lines[0])
         assertEquals("From: M. Ridley <m.ridley@gridlink.me>", lines[1])
@@ -83,7 +91,7 @@ class GridlinkQuoteTest {
             <!-- START --><p>Your order has been confirmed.</p><!-- END -->
             </body>
         """.trimIndent()
-        val quote = gridlinkReplyQuote(message(body = html))
+        val quote = gridlinkReplyQuote(context, message(body = html))
         assertEquals("Your order has been confirmed.", quote.text)
         assertFalse(quote.text, quote.text.contains("-->"))
         assertFalse(quote.text, quote.text.contains("Outlook only"))
@@ -105,7 +113,7 @@ class GridlinkQuoteTest {
 
     @Test
     fun `a plain-text original is escaped and keeps its line breaks`() {
-        val quote = gridlinkReplyQuote(message(body = "one < two\nthree", plain = true))
+        val quote = gridlinkReplyQuote(context, message(body = "one < two\nthree", plain = true))
         assertEquals("one &lt; two<br>three", quote.html)
         // 🔴 Escaped, or the original's own text becomes markup in the reply.
         assertFalse(quote.html.contains("< two"))
@@ -114,7 +122,7 @@ class GridlinkQuoteTest {
 
     @Test
     fun `an HTML original is flattened for the plain part`() {
-        val quote = gridlinkReplyQuote(message(body = "<p>Line one</p><p>Line two</p>"))
+        val quote = gridlinkReplyQuote(context, message(body = "<p>Line one</p><p>Line two</p>"))
         assertEquals("Line one\nLine two", quote.text)
     }
 
@@ -163,7 +171,7 @@ class GridlinkQuoteTest {
     fun `the attribution is escaped into the html part`() {
         // 🔴 It carries an address in angle brackets. Unescaped, "<m.ridley@gridlink.me>" is an
         // unknown tag and the whole attribution line disappears from the sent message.
-        val out = gridlinkQuotedHtml("hi", gridlinkReplyQuote(message()))
+        val out = gridlinkQuotedHtml("hi", gridlinkReplyQuote(context, message()))
         assertTrue(out, out.contains("&lt;m.ridley@gridlink.me&gt;"))
         assertFalse(out.contains("<m.ridley@gridlink.me>"))
     }
@@ -172,8 +180,8 @@ class GridlinkQuoteTest {
 
     @Test
     fun `reply and forward both carry the original`() {
-        val reply = gridlinkReplyTo(message()).draft
-        val forward = gridlinkForward(message()).draft
+        val reply = gridlinkReplyTo(context, message()).draft
+        val forward = gridlinkForward(context, message()).draft
         listOf(reply, forward).forEach { draft ->
             val quote = requireNotNull(draft.quoted) { "${draft.title} carried no quote" }
             assertTrue(quote.text.contains("Need coverage Saturday"))
@@ -185,7 +193,10 @@ class GridlinkQuoteTest {
 
     @Test
     fun `reply all quotes the same original as reply`() {
-        assertEquals(gridlinkReplyTo(message()).draft.quoted, gridlinkReplyAllTo(message()).draft.quoted)
+        assertEquals(
+            gridlinkReplyTo(context, message()).draft.quoted,
+            gridlinkReplyAllTo(context, message()).draft.quoted,
+        )
     }
 
     @Test

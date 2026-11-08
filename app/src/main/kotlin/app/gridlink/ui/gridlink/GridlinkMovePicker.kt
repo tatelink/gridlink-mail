@@ -10,8 +10,11 @@ import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import app.gridlink.R
 import app.gridlink.ui.theme.GridlinkSpacing
 
 /**
@@ -66,9 +69,9 @@ fun GridlinkMovePicker(
 ) {
     GridlinkCenterSheet(onDismiss = onDismiss, modifier = modifier) {
         GridlinkSheetHeading(
-            title = if (count == 1) "Move 1 message" else "Move $count messages",
+            title = pluralStringResource(R.plurals.gl_thread_move_messages, count, count),
             icon = Icons.Outlined.DriveFileMove,
-            subline = "Choose a folder",
+            subline = stringResource(R.string.gl_thread_move_choose_folder),
         )
         GridlinkSheetDivider()
         // 🔴 Bounded and scrollable. A real account's tree runs to twenty-odd mailboxes and the sheet
@@ -86,16 +89,17 @@ fun GridlinkMovePicker(
                 // account whose only folders are the ones refused above), and silence there reads as
                 // the sheet having failed to load its own contents.
                 GridlinkSheetAction(
-                    label = "No other folders",
+                    label = stringResource(R.string.gl_thread_move_no_folders),
                     icon = Icons.Outlined.DriveFileMove,
                     onClick = null,
-                    subline = "This account has nowhere else to put them yet.",
+                    subline = stringResource(R.string.gl_thread_move_no_folders_subline),
                 )
             }
             rows.forEach { row ->
                 val refused = when {
-                    row.folder.id == excludeId -> "They are already here"
-                    row.folder.role == GridlinkFolderRole.DRAFTS -> "Drafts is for mail you wrote"
+                    row.folder.id == excludeId -> stringResource(R.string.gl_thread_move_already_here)
+                    row.folder.role == GridlinkFolderRole.DRAFTS ->
+                        stringResource(R.string.gl_thread_move_drafts_refused)
                     else -> null
                 }
                 GridlinkSheetAction(
@@ -121,7 +125,7 @@ fun GridlinkMovePicker(
         // outside: this sheet is the one place in the app where dismissing is a decision (nothing
         // has moved yet) rather than an acknowledgement.
         GridlinkTextButton(
-            label = "Cancel",
+            label = stringResource(R.string.inbox_cancel),
             onClick = onDismiss,
             modifier = Modifier
                 .align(Alignment.End)

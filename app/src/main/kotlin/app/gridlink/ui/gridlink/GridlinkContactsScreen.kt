@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -57,6 +58,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -67,6 +70,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
+import app.gridlink.R
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContactSection
 import app.gridlink.ui.theme.GridlinkDimens
@@ -243,7 +247,7 @@ fun GridlinkContactsScreen(
         sidePane = sidePane,
         header = {
             GridlinkHeader(
-                title = "Contacts",
+                title = stringResource(R.string.gl_people_contacts),
                 unread = 0,
                 // Same reasoning as the folder tree's "N mailboxes": the second line summarises
                 // the screen, and a phonebook's summary is how many entries are in it. "Loading"
@@ -251,10 +255,10 @@ fun GridlinkContactsScreen(
                 // zero is a claim that the account has nobody in it, which is a different thing
                 // from not having looked.
                 subline = when {
-                    book.contactsLoading -> "Loading"
+                    book.contactsLoading -> stringResource(R.string.gl_people_loading)
                     // Same rule as the calendar header: a failed sync outranks a count.
                     book.contactsError != null -> book.contactsError
-                    else -> "${book.contacts.size} people and teams"
+                    else -> pluralStringResource(R.plurals.gl_people_count, book.contacts.size, book.contacts.size)
                 },
             )
         },
@@ -270,7 +274,7 @@ fun GridlinkContactsScreen(
                 // Not "0 people", which the header already says one line up, and not a sync age either:
                 // this is the question the blank panel provokes, which is whether the app is broken or
                 // the book is genuinely empty.
-                subline = book.contactsError ?: "Nothing in this address book",
+                subline = book.contactsError ?: stringResource(R.string.gl_people_book_empty),
                 onNewContact = onCompose,
             )
             Row(
@@ -493,15 +497,15 @@ private fun GridlinkContactRow(
  */
 enum class GridlinkContactSort(
     /** What the pill says. Reads as the order itself, not as an instruction. */
-    val label: String,
+    @StringRes val label: Int,
 ) {
     /** Phonebook order: the surname (or the company, for org cards) files the card. The default,
      *  because it is what a phonebook does and what the app has always done. */
-    LAST_FIRST("Last, First"),
+    LAST_FIRST(R.string.gl_people_sort_last_first),
 
     /** Reading order: the given name files the card. Org cards and surname-less people keep filing
      *  under [GridlinkContact.filedUnder], which for them is the only word there is. */
-    FIRST_LAST("First Last"),
+    FIRST_LAST(R.string.gl_people_sort_first_last),
     ;
 
     val other: GridlinkContactSort
@@ -567,12 +571,12 @@ private fun GridlinkSortPill(
         Icon(
             imageVector = Icons.Outlined.SwapHoriz,
             // The description carries the action; the visible label carries the state.
-            contentDescription = "Change name order",
+            contentDescription = stringResource(R.string.gl_people_sort_change),
             tint = colors.textSecondary,
             modifier = Modifier.size(18.dp),
         )
         Text(
-            text = sort.label,
+            text = stringResource(sort.label),
             style = GridlinkType.metadata,
             color = colors.textSecondary,
             maxLines = 1,
@@ -605,7 +609,12 @@ private fun GridlinkImportPill(onPicked: (Uri) -> Unit, modifier: Modifier = Mod
             tint = colors.textSecondary,
             modifier = Modifier.size(18.dp),
         )
-        Text(text = "Import", style = GridlinkType.metadata, color = colors.textSecondary, maxLines = 1)
+        Text(
+            text = stringResource(R.string.gl_people_import),
+            style = GridlinkType.metadata,
+            color = colors.textSecondary,
+            maxLines = 1,
+        )
     }
 }
 

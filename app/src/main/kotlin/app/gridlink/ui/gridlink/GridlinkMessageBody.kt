@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.viewinterop.AndroidView
 import app.gridlink.GridlinkApplication
@@ -305,16 +306,17 @@ internal fun GridlinkMessageBody(
     // instead of hidden behind a "…".
     pendingLink?.let { link ->
         GridlinkDialog(
-            title = "Open this link?",
-            confirmLabel = "Open",
+            title = stringResource(R.string.message_open_link_title),
+            confirmLabel = stringResource(R.string.message_open_link_open),
             onConfirm = {
                 pendingLink = null
                 leaveOnce { openExternally(context, link) }
             },
             onDismiss = { pendingLink = null },
         ) {
+            val unknownSite = stringResource(R.string.gl_compose_link_unknown_site)
             Text(
-                text = link.host.orEmpty().ifBlank { "Unknown site" },
+                text = link.host.orEmpty().ifBlank { unknownSite },
                 style = GridlinkType.senderName,
                 color = GridlinkTheme.colors.textPrimary,
             )

@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import androidx.annotation.StringRes
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -50,6 +51,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -62,6 +64,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.gridlink.R
+import app.gridlink.appLocale
 import app.gridlink.ui.components.onAccentColor
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
@@ -70,11 +73,14 @@ import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
 import app.gridlink.ui.theme.gridlinkSenderBarColor
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * The four calendar views Tate asked for: "should default to monthly view but also have 3-day,
@@ -289,14 +295,13 @@ fun GridlinkCalendarScreen(
     // today. It now includes the week just past, so "upcoming" would miscount out loud; "events" is
     // what every view can honestly say.
     val countLine = when {
-        book.calendarLoading -> "Loading"
+        book.calendarLoading -> stringResource(R.string.gl_cal_loading)
         // A sync that failed outranks a count, because the count is then a count of whatever was
         // cached before the server stopped answering, and "0 events" over a calendar nobody could
         // reach is the lie this line exists not to tell.
         book.calendarError != null -> book.calendarError
-        !countable -> "Not synced this far out"
-        inRange.size == 1 -> "1 event"
-        else -> "${inRange.size} events"
+        !countable -> stringResource(R.string.gl_cal_not_synced)
+        else -> pluralStringResource(R.plurals.gl_cal_event_count, inRange.size, inRange.size)
     }
 
     // 🔴 The agenda's title has to be built from the SAME date its range was, or it names a window
@@ -472,19 +477,45 @@ fun GridlinkCalendarScreen(
 }
 
 /** The four views, in the order Tate named them. */
-enum class GridlinkCalendarView(val label: String) {
-    MONTH("Month"),
-    THREE_DAY("3 day"),
-    WEEK("Week"),
-    AGENDA("Agenda"),
+enum class GridlinkCalendarView(@StringRes val label: Int) {
+    MONTH(R.string.gl_cal_view_month),
+    THREE_DAY(R.string.gl_cal_view_three_day),
+    WEEK(R.string.gl_cal_view_week),
+    AGENDA(R.string.gl_cal_view_agenda),
+}
+
+private val CALENDAR_FORMATTERS = ConcurrentHashMap<Triple<Locale, String, String>, DateTimeFormatter>()
+
+/**
+ * A display formatter for [locale], built once per locale and pattern.
+ *
+ * 🔴 English keeps the exact day-first pattern this calendar has always drawn ("Thursday 30 July",
+ * "9 – 15 Aug"): the tests assert it, and Android's best pattern for
+ * en-US would turn it month-first. Every other language gets Android's best pattern for the same
+ * [skeleton], so the field order, the punctuation and the month names are that language's own.
+ *
+ * ⚠️ English never reaches [android.text.format.DateFormat], so plain JUnit tests that format an
+ * English date keep working without Robolectric.
+ */
+internal fun calendarFormatter(
+    skeleton: String,
+    english: String,
+    locale: Locale = appLocale,
+): DateTimeFormatter = CALENDAR_FORMATTERS.getOrPut(Triple(locale, skeleton, english)) {
+    val pattern = if (locale.language == Locale.ENGLISH.language) {
+        english
+    } else {
+        android.text.format.DateFormat.getBestDateTimePattern(locale, skeleton)
+    }
+    DateTimeFormatter.ofPattern(pattern, locale)
 }
 
 /** Internal so [GridlinkDatePickerSheet]'s grid heads its month the same way this screen does. */
-internal val MONTH_TITLE: DateTimeFormatter = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.US)
-private val RANGE_SAME_MONTH = DateTimeFormatter.ofPattern("d", Locale.US)
-private val RANGE_END = DateTimeFormatter.ofPattern("d MMM", Locale.US)
-private val AGENDA_DAY = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.US)
-private val COLUMN_DAY = DateTimeFormatter.ofPattern("EEE", Locale.US)
+internal val MONTH_TITLE: DateTimeFormatter get() = calendarFormatter("MMMMyyyy", "MMMM yyyy")
+private val RANGE_SAME_MONTH: DateTimeFormatter get() = calendarFormatter("d", "d")
+private val RANGE_END: DateTimeFormatter get() = calendarFormatter("MMMd", "d MMM")
+private val AGENDA_DAY: DateTimeFormatter get() = calendarFormatter("EEEEdMMMM", "EEEE d MMMM")
+private val COLUMN_DAY: DateTimeFormatter get() = calendarFormatter("EEE", "EEE")
 
 /**
  * 🔴 Sunday-first. Tate is US; a Monday-first grid puts the weekend in two different places.
@@ -493,7 +524,10 @@ private val COLUMN_DAY = DateTimeFormatter.ofPattern("EEE", Locale.US)
  * whose columns were offset by one from the calendar behind it would be a genuinely disorienting bug:
  * both grids are on screen at once.
  */
-internal val WEEKDAY_INITIALS = listOf("S", "M", "T", "W", "T", "F", "S")
+internal val WEEKDAY_INITIALS: List<String>
+    get() = SUNDAY_FIRST.map { it.getDisplayName(TextStyle.NARROW, appLocale) }
+
+private val SUNDAY_FIRST = listOf(DayOfWeek.SUNDAY) + DayOfWeek.entries.filter { it != DayOfWeek.SUNDAY }
 
 /** How many days back from this date to the Sunday that starts its week. */
 internal fun LocalDate.sundayIndex(): Int = dayOfWeek.value % 7
@@ -525,6 +559,7 @@ private fun GridlinkCalendarView.step(anchor: LocalDate, forward: Boolean): Loca
     }
 }
 
+@Composable
 private fun GridlinkCalendarView.title(anchor: LocalDate): String = when (this) {
     GridlinkCalendarView.MONTH -> anchor.format(MONTH_TITLE)
     // 🔴 The agenda names its WINDOW, not itself. It used to say "Agenda", which the selected pill
@@ -535,7 +570,7 @@ private fun GridlinkCalendarView.title(anchor: LocalDate): String = when (this) 
     // it runs a week back and three weeks on, and nothing on screen said where it stopped.
     GridlinkCalendarView.AGENDA -> {
         val (start, end) = rangeAround(anchor)
-        "${start.format(RANGE_END)} – ${end.format(RANGE_END)}"
+        stringResource(R.string.gl_cal_date_range, start.format(RANGE_END), end.format(RANGE_END))
     }
     else -> {
         val (start, end) = rangeAround(anchor)
@@ -547,7 +582,7 @@ private fun GridlinkCalendarView.title(anchor: LocalDate): String = when (this) 
         } else {
             start.format(RANGE_END)
         }
-        "$startText – ${end.format(RANGE_END)}"
+        stringResource(R.string.gl_cal_date_range, startText, end.format(RANGE_END))
     }
 }
 
@@ -611,6 +646,12 @@ private fun Modifier.gridlinkPageSwipe(
  * would look like two different times to anyone not counting characters.
  */
 internal fun LocalTime.compact(): String {
+    val locale = appLocale
+    // Other languages take the locale's own short time ("13:00", "13 h 30" and so on). The
+    // hand-written 12-hour form below is English's, and stays exactly as it was.
+    if (locale.language != Locale.ENGLISH.language) {
+        return format(calendarFormatter(skeleton = "jm", english = "h:mm a", locale = locale))
+    }
     val h = if (hour % 12 == 0) 12 else hour % 12
     val suffix = if (hour < 12) "AM" else "PM"
     return if (minute == 0) "$h $suffix" else "$h:${minute.toString().padStart(2, '0')} $suffix"
@@ -643,7 +684,9 @@ internal fun GridlinkStepButton(forward: Boolean, onClick: () -> Unit) {
             } else {
                 Icons.AutoMirrored.Filled.KeyboardArrowLeft
             },
-            contentDescription = if (forward) "Next" else "Previous",
+            contentDescription = stringResource(
+                if (forward) R.string.gl_cal_next else R.string.gl_cal_previous,
+            ),
             tint = colors.textSecondary,
             modifier = Modifier.size(22.dp),
         )
@@ -685,7 +728,7 @@ private fun GridlinkViewSwitcher(
         GridlinkPillTrack(modifier = Modifier.weight(1f)) {
             views.forEach { entry ->
                 GridlinkPillChoice(
-                    label = entry.label,
+                    label = stringResource(entry.label),
                     active = entry == selected,
                     onClick = { onSelect(entry) },
                     modifier = Modifier.weight(1f),
@@ -984,7 +1027,7 @@ private fun GridlinkMonthDayList(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = "Nothing scheduled",
+                    text = stringResource(R.string.gl_cal_nothing_scheduled),
                     style = GridlinkType.metadata,
                     color = colors.textSecondary,
                 )
@@ -1053,7 +1096,7 @@ internal fun GridlinkCalendarAgendaPane(
         book.events.filter { it.date >= range.first && it.date <= range.second }
     }
     GridlinkDetailFrame(
-        title = "Agenda",
+        title = stringResource(R.string.gl_cal_view_agenda),
         // Nothing to go back TO. This is what the pane shows when nothing is open, so the frame is
         // only being used for its shape; embedded draws no back control.
         onBack = {},
@@ -1400,7 +1443,7 @@ private fun GridlinkTimeGrid(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
-                        text = day.format(COLUMN_DAY).uppercase(Locale.US),
+                        text = day.format(COLUMN_DAY).uppercase(appLocale),
                         style = GridlinkType.badge,
                         color = if (isToday) colors.accent else colors.textSecondary,
                         maxLines = 1,
@@ -1938,7 +1981,7 @@ private fun GridlinkAgendaView(
                     )
                     if (date == today) {
                         Spacer(Modifier.width(GridlinkSpacing.s8))
-                        GridlinkCountBadge(text = "Today")
+                        GridlinkCountBadge(text = stringResource(R.string.widget_agenda_today))
                     }
                 }
             }
@@ -1947,7 +1990,7 @@ private fun GridlinkAgendaView(
                 // month day list uses for the same fact.
                 item(key = "empty-$date") {
                     Text(
-                        text = "Nothing scheduled",
+                        text = stringResource(R.string.gl_cal_nothing_scheduled),
                         style = GridlinkType.metadata,
                         color = colors.textSecondary,
                         modifier = Modifier.padding(
@@ -2014,24 +2057,30 @@ private fun agendaEntries(
  * naming the day the run ends at. A day further than a week from the run's start gets its date too,
  * since a bare weekday that far out is ambiguous.
  */
+@Composable
 private fun agendaFreeLine(entry: AgendaEntry, until: LocalDate, today: LocalDate): String {
     fun name(day: LocalDate) = when {
-        day == today -> "today"
-        day == today.plusDays(1) -> "tomorrow"
         day.isAfter(entry.first.plusDays(FREE_LINE_WEEKDAY_ONLY)) -> day.format(AGENDA_DAY)
         else -> day.format(FREE_LINE_DAY)
     }
+    // Today and tomorrow are whole sentences of their own rather than a word dropped into "Nothing
+    // until %1$s": several languages change the preposition or the case around them.
+    val resume = entry.last.plusDays(1)
     return when {
-        entry.first == entry.last && entry.first == today.plusDays(1) -> "Nothing tomorrow"
-        entry.first == entry.last -> "Nothing on ${name(entry.first)}"
-        entry.last == until -> "Nothing more through ${entry.last.format(AGENDA_DAY)}"
-        else -> "Nothing until ${name(entry.last.plusDays(1))}"
+        entry.first == entry.last && entry.first == today.plusDays(1) ->
+            stringResource(R.string.gl_cal_free_tomorrow)
+        entry.first == entry.last -> stringResource(R.string.gl_cal_free_on, name(entry.first))
+        entry.last == until ->
+            stringResource(R.string.gl_cal_free_through, entry.last.format(AGENDA_DAY))
+        resume == today -> stringResource(R.string.gl_cal_free_until_today)
+        resume == today.plusDays(1) -> stringResource(R.string.gl_cal_free_until_tomorrow)
+        else -> stringResource(R.string.gl_cal_free_until, name(resume))
     }
 }
 
 /** How far ahead a folded line may name a bare weekday before it adds the date. */
 private const val FREE_LINE_WEEKDAY_ONLY = 6L
-private val FREE_LINE_DAY = DateTimeFormatter.ofPattern("EEEE", Locale.US)
+private val FREE_LINE_DAY: DateTimeFormatter get() = calendarFormatter("EEEE", "EEEE")
 
 /**
  * One agenda line: when, then what.
@@ -2074,7 +2123,7 @@ private fun GridlinkAgendaRow(
         ) {
             if (event.allDay) {
                 Text(
-                    text = "All day",
+                    text = stringResource(R.string.widget_agenda_all_day),
                     style = GridlinkType.badge,
                     color = colors.textSecondary,
                     maxLines = 1,

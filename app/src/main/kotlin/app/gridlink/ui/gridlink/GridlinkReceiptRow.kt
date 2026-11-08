@@ -16,6 +16,8 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
+import app.gridlink.R
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkRadii
 import app.gridlink.ui.theme.GridlinkSpacing
@@ -81,9 +83,9 @@ fun GridlinkReceiptRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = when (receipt.state) {
-                    GridlinkReceiptState.Sent -> "You told ${receipt.requester} you read this."
-                    GridlinkReceiptState.Sending -> "Sending your receipt…"
-                    else -> "${receipt.requester} asked to be told when you read this."
+                    GridlinkReceiptState.Sent -> stringResource(R.string.gl_compose_receipt_sent, receipt.requester)
+                    GridlinkReceiptState.Sending -> stringResource(R.string.gl_compose_receipt_sending)
+                    else -> stringResource(R.string.gl_compose_receipt_asked, receipt.requester)
                 },
                 style = GridlinkType.metadata,
                 color = colors.textSecondary,
@@ -92,7 +94,7 @@ fun GridlinkReceiptRow(
                 Text(
                     // Nothing went out, so the sender knows nothing and tapping again is a retry
                     // rather than a second confirmation arriving.
-                    text = "Your receipt didn't send. Try again.",
+                    text = stringResource(R.string.gl_compose_receipt_failed),
                     style = GridlinkType.metadata,
                     color = colors.destructive,
                 )
@@ -114,7 +116,12 @@ fun GridlinkReceiptRow(
                     .clickable(onClick = onSend)
                     .padding(horizontal = GridlinkSpacing.s16, vertical = GridlinkSpacing.s8),
             ) {
-                Text(text = "Send receipt", style = GridlinkType.chip, color = colors.accent, maxLines = 1)
+                Text(
+                    text = stringResource(R.string.gl_compose_receipt_send),
+                    style = GridlinkType.chip,
+                    color = colors.accent,
+                    maxLines = 1,
+                )
             }
         }
     }

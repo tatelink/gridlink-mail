@@ -54,6 +54,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -69,6 +70,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import app.gridlink.R
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
 import app.gridlink.ui.theme.GridlinkRadii
@@ -256,7 +258,7 @@ fun GridlinkFormScreen(
                             onClose?.let {
                                 GridlinkCircleButton(
                                     icon = Icons.Outlined.Close,
-                                    label = "Discard",
+                                    label = stringResource(R.string.compose_discard),
                                     onClick = it,
                                 )
                             }
@@ -372,7 +374,7 @@ private fun GridlinkFormHeader(
         onClose?.let {
             GridlinkCircleButton(
                 icon = Icons.Outlined.Close,
-                label = "Discard",
+                label = stringResource(R.string.compose_discard),
                 onClick = it,
             )
         }

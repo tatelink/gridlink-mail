@@ -10,6 +10,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import app.gridlink.R
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkRadii
 import app.gridlink.ui.theme.GridlinkSpacing
@@ -50,7 +52,7 @@ fun GridlinkBodyErrorNotice(
         Text(
             // The headline states the FACT, not the failure: the message still exists and is still
             // on the server, and what went wrong is that this device could not read it just now.
-            text = "This message could not be loaded.",
+            text = stringResource(R.string.gl_compose_body_error_title),
             style = GridlinkType.body,
             color = colors.textPrimary,
         )
@@ -63,7 +65,7 @@ fun GridlinkBodyErrorNotice(
             color = colors.textSecondary,
         )
         Text(
-            text = "Open it again to try once more.",
+            text = stringResource(R.string.gl_compose_body_error_retry),
             style = GridlinkType.metadata,
             color = colors.textSecondary,
         )

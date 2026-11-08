@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import android.content.Context
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
@@ -13,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.test.core.app.ApplicationProvider
 import app.gridlink.ui.theme.GridlinkMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -132,7 +134,8 @@ class GridlinkComposeScreenTest {
         assertEquals(listOf("b@gridlink.me"), request.draft.recipients.map { it.email })
         assertEquals("", request.draft.recipientQuery)
         assertEquals("Schedule", request.draft.subject)
-        assertEquals("Compose", request.draft.title)
+        // Blank on the draft: the header draws the screen's own name for it, in the reader's language.
+        assertEquals("", request.draft.title)
     }
 
     @Test
@@ -197,14 +200,17 @@ class GridlinkComposeScreenTest {
     @Test
     fun scheduling_offersThePresets_andTomorrowReportsItsMoment() {
         show(initiallyScheduling = true)
+        // The time is spelt the phone's way (the ICU of the test SDK puts a narrow no-break space
+        // before "AM"), so it is read off the presets rather than typed out here.
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val expected = gridlinkSchedulePresets(context, ZonedDateTime.now()).first { it.label == "Tomorrow" }
         rule.onNodeWithText("SEND LATER").assertExists()
         rule.onNodeWithText("Tomorrow").assertExists()
-        rule.onNodeWithText("7:00 AM").assertExists()
+        rule.onNodeWithText(expected.time).assertExists()
         rule.onNodeWithText("Pick a time").assertExists()
 
         rule.onNodeWithText("Tomorrow").performClick()
         val (request, millis) = scheduled.single()
-        val expected = gridlinkSchedulePresets(ZonedDateTime.now()).first { it.label == "Tomorrow" }
         assertEquals(expected.millis, millis)
         assertEquals(GridlinkComposeDraft.Fresh.title, request.draft.title)
         assertTrue("schedule never closes by itself", closed.isEmpty())

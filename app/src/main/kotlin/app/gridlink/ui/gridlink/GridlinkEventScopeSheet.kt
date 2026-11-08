@@ -6,8 +6,9 @@ import androidx.compose.material.icons.outlined.Event
 import androidx.compose.material.icons.outlined.Repeat
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import app.gridlink.R
 import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 /**
  * "This event, or all of them?", asked once, between Save and the write.
@@ -39,23 +40,23 @@ fun GridlinkEventScopeSheet(
         GridlinkSheetHeading(
             title = event.title,
             icon = Icons.Outlined.Repeat,
-            subline = "This event repeats. Save the change to:",
+            subline = stringResource(R.string.gl_cal_scope_question),
         )
         GridlinkSheetDivider()
         GridlinkSheetAction(
-            label = "This event",
+            label = stringResource(R.string.gl_cal_scope_this),
             icon = Icons.Outlined.Event,
             onClick = { onPick(GridlinkEventEditScope.THIS_EVENT) },
-            subline = "Only " + event.date.format(SCOPE_DAY),
+            subline = stringResource(R.string.gl_cal_scope_only, event.date.format(SCOPE_DAY)),
         )
         GridlinkSheetAction(
-            label = "All events",
+            label = stringResource(R.string.gl_cal_scope_all),
             icon = Icons.Outlined.CalendarMonth,
             onClick = { onPick(GridlinkEventEditScope.ALL_EVENTS) },
-            subline = "Every occurrence, including past ones",
+            subline = stringResource(R.string.gl_cal_scope_all_subline),
         )
         GridlinkSheetFooterSpace()
     }
 }
 
-private val SCOPE_DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("EEEE d MMM", Locale.US)
+private val SCOPE_DAY: DateTimeFormatter get() = calendarFormatter("EEEEdMMM", "EEEE d MMM")

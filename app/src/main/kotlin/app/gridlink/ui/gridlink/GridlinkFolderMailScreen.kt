@@ -21,6 +21,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import app.gridlink.R
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
@@ -188,7 +190,7 @@ fun GridlinkFolderMailScreen(
     val emptyAction: (@Composable () -> Unit)? = if (emptiable && onEmpty != null && sections.isNotEmpty()) {
         {
             GridlinkDetailTextAction(
-                label = "Empty",
+                label = stringResource(R.string.gl_thread_folder_empty_action),
                 icon = Icons.Outlined.DeleteSweep,
                 onClick = { confirmingEmpty = true },
                 tint = GridlinkTheme.colors.destructive,
@@ -225,9 +227,9 @@ fun GridlinkFolderMailScreen(
                 // and calling that "Nothing in Archive" is the app stating a fact about the server's
                 // mailbox on the strength of a request that failed. See [GridlinkOpenFolder.failed].
                 headline = if (current?.failed == true) {
-                    "Couldn't load ${folder.name}"
+                    stringResource(R.string.gl_thread_folder_load_failed, folder.name)
                 } else {
-                    "Nothing in ${folder.name}"
+                    stringResource(R.string.gl_thread_folder_nothing_in, folder.name)
                 },
             )
         } else {
@@ -340,8 +342,8 @@ fun GridlinkFolderMailScreen(
     // folder holding four hundred is the app being precise about a number it made up.
     if (confirmingEmpty && onEmpty != null) {
         GridlinkDialog(
-            title = "Empty ${folder.name}?",
-            confirmLabel = "Empty",
+            title = stringResource(R.string.gl_thread_folder_empty_title, folder.name),
+            confirmLabel = stringResource(R.string.gl_thread_folder_empty_action),
             destructive = true,
             onConfirm = {
                 confirmingEmpty = false
@@ -350,8 +352,7 @@ fun GridlinkFolderMailScreen(
             onDismiss = { confirmingEmpty = false },
         ) {
             Text(
-                text = "Everything in ${folder.name} will be permanently deleted from the server. " +
-                    "This cannot be undone.",
+                text = stringResource(R.string.gl_thread_folder_empty_body, folder.name),
                 style = GridlinkType.body,
                 color = GridlinkTheme.colors.textSecondary,
             )
@@ -407,14 +408,14 @@ private fun GridlinkMessageActionSheet(
 
         if (role != GridlinkFolderRole.ARCHIVE) {
             GridlinkSheetAction(
-                label = "Archive",
+                label = stringResource(R.string.inbox_archive),
                 icon = Icons.Outlined.Archive,
                 onClick = { onAction(GridlinkMailAction.ARCHIVE) },
             )
         }
         if (onMove != null) {
             GridlinkSheetAction(
-                label = "Move to…",
+                label = stringResource(R.string.gl_thread_folder_move_to),
                 icon = Icons.Outlined.DriveFileMove,
                 onClick = onMove,
             )
@@ -424,20 +425,20 @@ private fun GridlinkMessageActionSheet(
             role != GridlinkFolderRole.DRAFTS
         ) {
             GridlinkSheetAction(
-                label = "Mark spam",
+                label = stringResource(R.string.gl_thread_folder_mark_spam),
                 icon = Icons.Outlined.Report,
                 onClick = { onAction(GridlinkMailAction.SPAM) },
             )
         }
         if (message.unread) {
             GridlinkSheetAction(
-                label = "Mark read",
+                label = stringResource(R.string.inbox_mark_read),
                 icon = Icons.Outlined.MarkEmailRead,
                 onClick = { onAction(GridlinkMailAction.MARK_READ) },
             )
         } else {
             GridlinkSheetAction(
-                label = "Mark unread",
+                label = stringResource(R.string.inbox_mark_unread),
                 icon = Icons.Outlined.MarkEmailUnread,
                 onClick = { onAction(GridlinkMailAction.MARK_UNREAD) },
             )
@@ -445,13 +446,17 @@ private fun GridlinkMessageActionSheet(
 
         GridlinkSheetDivider()
         GridlinkSheetAction(
-            label = "Delete",
+            label = stringResource(R.string.inbox_delete),
             icon = Icons.Outlined.Delete,
             onClick = { onAction(GridlinkMailAction.DELETE) },
             // Below the hairline and in the destructive colour, the treatment the folder sheet and
             // the thread toolbar already give it. The separation is the point: it is the one line
             // here whose result you cannot see coming from where you are standing.
-            subline = if (role == GridlinkFolderRole.TRASH) "Removes it for good" else null,
+            subline = if (role == GridlinkFolderRole.TRASH) {
+                stringResource(R.string.gl_thread_folder_delete_for_good)
+            } else {
+                null
+            },
             tint = colors.destructive,
         )
         GridlinkSheetFooterSpace()

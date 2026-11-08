@@ -22,6 +22,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.gridlink.EmailOpenTarget
 import app.gridlink.MailtoDraft
+import app.gridlink.R
 import app.gridlink.container
 import app.gridlink.core.data.account.StoredAccount
 import app.gridlink.core.data.settings.ThreadToolbarAction
@@ -241,7 +242,11 @@ fun GridlinkHomeHost(
         if (failed > 0) {
             Toast.makeText(
                 application,
-                if (failed == 1) "Couldn't attach that file." else "Couldn't attach $failed files.",
+                if (failed == 1) {
+                    application.getString(R.string.gl_vm_attach_failed)
+                } else {
+                    application.resources.getQuantityString(R.plurals.gl_vm_share_attach_failed, failed, failed)
+                },
                 Toast.LENGTH_LONG,
             ).show()
         }
@@ -285,7 +290,9 @@ fun GridlinkHomeHost(
                 }
                 // Held back one recomposition while a share's files stage. See [sharedFiles].
                 sharedFiles?.let {
-                    GridlinkOpenRequest.Compose(pendingMailto.toGridlinkDraft(it))
+                    GridlinkOpenRequest.Compose(
+                        pendingMailto.toGridlinkDraft(application.getString(R.string.inbox_compose), it),
+                    )
                 }
             }
             // Last, and deliberately: the other two name a specific thing the user asked for, and a
@@ -544,6 +551,8 @@ fun GridlinkHomeHost(
  * why `bcc` does not.
  */
 internal fun MailtoDraft.toGridlinkDraft(
+    /** The composer's heading, from resources (`R.string.inbox_compose`). */
+    title: String,
     /** A share's files, already staged by [GridlinkFileAttacher]. Empty for a plain `mailto:`. */
     attachments: List<GridlinkAttachment> = emptyList(),
 ): GridlinkComposeDraft {
@@ -565,7 +574,7 @@ internal fun MailtoDraft.toGridlinkDraft(
             )
         }
     return GridlinkComposeDraft(
-        title = "Compose",
+        title = title,
         recipients = recipients,
         // Empty: a link-driven draft must not open with a half-typed search sitting under chips the
         // user did not type. Guarded by a test, because this was inherited from a seeded default

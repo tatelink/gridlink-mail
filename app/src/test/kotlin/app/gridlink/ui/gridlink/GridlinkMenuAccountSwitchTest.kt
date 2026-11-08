@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import android.content.Context
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
@@ -8,6 +9,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.test.core.app.ApplicationProvider
 import app.gridlink.ui.theme.GridlinkMode
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -89,5 +91,32 @@ class GridlinkMenuAccountSwitchTest {
     fun `an unknown protocol claims none`() {
         assertEquals("Synced", gridlinkSyncLine("", "Synced"))
         assertEquals("JMAP · Synced", gridlinkSyncLine("JMAP", "Synced"))
+    }
+
+    @Test
+    fun `the sync age reads from resources with a plural per unit`() {
+        val res = ApplicationProvider.getApplicationContext<Context>().resources
+        val minute = 60_000L
+        assertEquals("just now", gridlinkSyncAge(res, 0L))
+        assertEquals("just now", gridlinkSyncAge(res, -3 * minute))
+        assertEquals("1 min ago", gridlinkSyncAge(res, minute))
+        assertEquals("5 min ago", gridlinkSyncAge(res, 5 * minute))
+        assertEquals("1 hr ago", gridlinkSyncAge(res, 60 * minute))
+        assertEquals("2 d ago", gridlinkSyncAge(res, 2 * 24 * 60 * minute))
+    }
+
+    @Test
+    fun `the sync sentence reads from resources`() {
+        val res = ApplicationProvider.getApplicationContext<Context>().resources
+        val now = 10_000_000L
+        val fiveMinutesAgo = now - 5 * 60_000L
+        assertEquals("Syncing all accounts", gridlinkSyncSentence(res, GridlinkSyncState.SYNCING, fiveMinutesAgo, now))
+        assertEquals("Synced", gridlinkSyncSentence(res, GridlinkSyncState.SYNCED, null, now))
+        assertEquals("Synced 5 min ago", gridlinkSyncSentence(res, GridlinkSyncState.SYNCED, fiveMinutesAgo, now))
+        assertEquals("Offline · never synced", gridlinkSyncSentence(res, GridlinkSyncState.OFFLINE, null, now))
+        assertEquals(
+            "Offline · synced 5 min ago",
+            gridlinkSyncSentence(res, GridlinkSyncState.OFFLINE, fiveMinutesAgo, now),
+        )
     }
 }

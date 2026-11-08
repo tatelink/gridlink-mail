@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import android.content.res.Resources
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -24,17 +25,20 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import app.gridlink.R
 import app.gridlink.core.data.mail.MailFilter
 import app.gridlink.core.data.settings.MailTag
 import app.gridlink.ui.theme.GridlinkDimens
@@ -105,7 +109,7 @@ fun GridlinkFilterBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         GridlinkFilterButton(
-            label = gridlinkFilterButtonLabel(filter, tagLabel),
+            label = gridlinkFilterButtonLabel(LocalResources.current, filter, tagLabel),
             active = filter.isActive,
             // Lit in the TAG's colour when the tag is the only thing narrowing the list, not the
             // accent. The dots on the rows below are that colour, and lighting the app accent
@@ -193,13 +197,13 @@ private fun GridlinkFilterButton(
  * plus signs is longer than the list column is wide and an ellipsised filter is a filter nobody can
  * identify. The empty state is the verb, not a noun: "Filter" is what tapping it does.
  */
-private fun gridlinkFilterButtonLabel(filter: MailFilter, tagLabel: String?): String {
-    if (filter.isEmpty) return "Filter"
-    if (filter.count > 1) return "${filter.count} filters"
+private fun gridlinkFilterButtonLabel(resources: Resources, filter: MailFilter, tagLabel: String?): String {
+    if (filter.isEmpty) return resources.getString(R.string.gl_list_filter)
+    if (filter.count > 1) return resources.getQuantityString(R.plurals.gl_list_filter_count, filter.count, filter.count)
     return when {
-        filter.unread -> "Unread"
-        filter.starred -> "Starred"
-        filter.hasAttachment -> "Attachments"
+        filter.unread -> resources.getString(R.string.gl_list_filter_unread)
+        filter.starred -> resources.getString(R.string.gl_list_filter_starred)
+        filter.hasAttachment -> resources.getString(R.string.gl_list_filter_attachments)
         // The label, and the keyword only as a fallback, for [gridlinkFilterSummary]'s reason: the
         // slug is an implementation detail the reader never typed.
         else -> tagLabel ?: filter.tag.orEmpty()
@@ -223,25 +227,31 @@ private fun GridlinkFilterSheet(
 ) {
     GridlinkCenterSheet(onDismiss = onDismiss) {
         GridlinkSheetHeading(
-            title = "Filter mail",
+            title = stringResource(R.string.gl_list_filter_sheet_title),
             icon = Icons.Outlined.FilterList,
-            subline = if (filter.isActive) "Tap a lit row to turn it off" else "Combine as many as you like",
+            subline = stringResource(
+                if (filter.isActive) {
+                    R.string.gl_list_filter_sheet_hint_active
+                } else {
+                    R.string.gl_list_filter_sheet_hint_idle
+                },
+            ),
         )
         GridlinkSheetDivider()
         GridlinkFilterSheetRow(
-            label = "Unread",
+            label = stringResource(R.string.gl_list_filter_unread),
             icon = Icons.Outlined.MarkEmailUnread,
             applied = filter.unread,
             onClick = { onFilter(filter.copy(unread = !filter.unread)) },
         )
         GridlinkFilterSheetRow(
-            label = "Starred",
+            label = stringResource(R.string.gl_list_filter_starred),
             icon = Icons.Filled.Star,
             applied = filter.starred,
             onClick = { onFilter(filter.copy(starred = !filter.starred)) },
         )
         GridlinkFilterSheetRow(
-            label = "Attachments",
+            label = stringResource(R.string.gl_list_filter_attachments),
             icon = Icons.Outlined.AttachFile,
             applied = filter.hasAttachment,
             onClick = { onFilter(filter.copy(hasAttachment = !filter.hasAttachment)) },
@@ -268,7 +278,7 @@ private fun GridlinkFilterSheet(
             // after. Everything off IS the answer, so leaving the card open over an unnarrowed list
             // would be the app waiting for an instruction that has already been given.
             GridlinkSheetAction(
-                label = "Clear filters",
+                label = stringResource(R.string.gl_list_filter_clear),
                 icon = Icons.Outlined.FilterListOff,
                 onClick = {
                     onDismiss()
@@ -396,19 +406,46 @@ fun GridlinkMessage.matchesFilter(filter: MailFilter): Boolean =
  * attachment", not "filters: unread, attachments"), because the reader's question at that moment is
  * "what did it just search for", not "what is switched on".
  */
-fun gridlinkFilterSummary(filter: MailFilter, tagLabel: String? = null): String {
-    if (filter.isEmpty) return "No mail here"
-    val head = when {
-        filter.unread && filter.starred -> "No unread starred mail"
-        filter.unread -> "No unread mail"
-        filter.starred -> "No starred mail"
-        else -> "No mail"
+fun gridlinkFilterSummary(resources: Resources, filter: MailFilter, tagLabel: String? = null): String {
+    if (filter.isEmpty) return resources.getString(R.string.gl_list_filter_empty_none)
+    // Every combination is its own whole sentence, because "with an attachment" and "tagged" do not
+    // bolt onto a noun phrase the same way in every language. Columns: plain, with an attachment,
+    // tagged, with an attachment and tagged.
+    val row = when {
+        filter.unread && filter.starred -> FILTER_SUMMARY_UNREAD_STARRED
+        filter.unread -> FILTER_SUMMARY_UNREAD
+        filter.starred -> FILTER_SUMMARY_STARRED
+        else -> FILTER_SUMMARY_ANY
     }
-    val withAttachment = if (filter.hasAttachment) "$head with an attachment" else head
     // 🔴 The label, and the keyword only as a fallback. A reader who called the tag "Tax 2026" reads
     // an empty state naming "tax-2026" as a different thing than the one they picked, and the slug
     // is an implementation detail they never typed.
-    val keyword = filter.tag ?: return withAttachment
-    val name = tagLabel ?: keyword
-    return "$withAttachment tagged “$name”"
+    val name = filter.tag?.let { tagLabel ?: it }
+    val column = (if (filter.hasAttachment) 1 else 0) + (if (name != null) 2 else 0)
+    return if (name == null) resources.getString(row[column]) else resources.getString(row[column], name)
 }
+
+private val FILTER_SUMMARY_UNREAD_STARRED = intArrayOf(
+    R.string.gl_list_filter_empty_unread_starred,
+    R.string.gl_list_filter_empty_unread_starred_attachment,
+    R.string.gl_list_filter_empty_unread_starred_tag,
+    R.string.gl_list_filter_empty_unread_starred_attachment_tag,
+)
+private val FILTER_SUMMARY_UNREAD = intArrayOf(
+    R.string.gl_list_filter_empty_unread,
+    R.string.gl_list_filter_empty_unread_attachment,
+    R.string.gl_list_filter_empty_unread_tag,
+    R.string.gl_list_filter_empty_unread_attachment_tag,
+)
+private val FILTER_SUMMARY_STARRED = intArrayOf(
+    R.string.gl_list_filter_empty_starred,
+    R.string.gl_list_filter_empty_starred_attachment,
+    R.string.gl_list_filter_empty_starred_tag,
+    R.string.gl_list_filter_empty_starred_attachment_tag,
+)
+private val FILTER_SUMMARY_ANY = intArrayOf(
+    R.string.gl_list_filter_empty_any,
+    R.string.gl_list_filter_empty_any_attachment,
+    R.string.gl_list_filter_empty_any_tag,
+    R.string.gl_list_filter_empty_any_attachment_tag,
+)

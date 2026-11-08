@@ -84,7 +84,7 @@ class GridlinkCalendarsTest {
             listOf(collection("jmap:calendar/a"), collection("jmap:calendar/b", order = 1)),
             hidden = emptySet(),
         )
-        val multi = GridlinkDavMapping.event(occurrence("jmap:calendar/b"), "gridlink.me", two)
+        val multi = GridlinkDavMapping.event(occurrence("jmap:calendar/b"), "gridlink.me", two, TEXT)
         assertEquals("jmap:calendar/b", multi.calendarId)
         assertEquals(GridlinkCalendarTint(null, 1), multi.calendarTint)
         assertEquals(
@@ -93,7 +93,7 @@ class GridlinkCalendarsTest {
         )
 
         // One calendar: the theme's accent (the organiser colour came out grey on a filled block).
-        val single = GridlinkDavMapping.event(occurrence("jmap:calendar/a"), "gridlink.me", two.take(1))
+        val single = GridlinkDavMapping.event(occurrence("jmap:calendar/a"), "gridlink.me", two.take(1), TEXT)
         assertNull(single.calendarTint)
         assertEquals(
             gridlinkColorsFor(GridlinkMode.DAY).accent,
@@ -140,3 +140,9 @@ class GridlinkCalendarsTest {
         assertEquals(true, list[1].isDefault)
     }
 }
+
+/** The English the app resolves from resources, fixed here so the mapping can be called on the JVM. */
+private val TEXT = GridlinkDavMapping.EventText(
+    untitled = "Untitled event",
+    sizes = GridlinkDavMapping.SizeUnits(bytes = "%1\$d B", kilobytes = "%1\$d KB", megabytes = "%1\$.1f MB"),
+)

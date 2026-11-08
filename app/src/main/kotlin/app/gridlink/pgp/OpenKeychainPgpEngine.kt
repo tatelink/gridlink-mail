@@ -2,6 +2,7 @@ package app.gridlink.pgp
 
 import android.content.Context
 import android.content.Intent
+import app.gridlink.R
 import app.gridlink.core.data.pgp.PgpDecrypted
 import app.gridlink.core.data.pgp.PgpEngine
 import app.gridlink.core.data.pgp.PgpResult
@@ -121,12 +122,15 @@ class OpenKeychainPgpEngine(
             OpenPgpApi.RESULT_CODE_SUCCESS -> onSuccess(result, output)
             OpenPgpApi.RESULT_CODE_USER_INTERACTION_REQUIRED -> {
                 val pi = result.getParcelableExtra<android.app.PendingIntent>(OpenPgpApi.RESULT_INTENT)
-                if (pi != null) PgpResult.UserInteractionRequired(pi)
-                else PgpResult.Error("Provider requested interaction without an intent")
+                if (pi != null) {
+                    PgpResult.UserInteractionRequired(pi)
+                } else {
+                    PgpResult.Error(appContext.getString(R.string.gl_misc_pgp_interaction_without_intent))
+                }
             }
             else -> {
                 val error = result.getParcelableExtra<OpenPgpError>(OpenPgpApi.RESULT_ERROR)
-                PgpResult.Error(error?.message ?: "OpenPGP provider error")
+                PgpResult.Error(error?.message ?: appContext.getString(R.string.settings_pgp_error))
             }
         }
     }
@@ -143,7 +147,11 @@ class OpenKeychainPgpEngine(
         if (userIdHint != null) intent.putExtra(OpenPgpApi.EXTRA_USER_ID, userIdHint)
         return mapResult(execute(intent, input = null, collectOutput = false)) { result, _ ->
             val keyId = result.getLongExtra(OpenPgpApi.EXTRA_SIGN_KEY_ID, 0L)
-            if (keyId != 0L) PgpResult.Success(keyId) else PgpResult.Error("No signing key selected")
+            if (keyId != 0L) {
+                PgpResult.Success(keyId)
+            } else {
+                PgpResult.Error(appContext.getString(R.string.gl_misc_pgp_no_signing_key))
+            }
         }
     }
 
@@ -155,8 +163,11 @@ class OpenKeychainPgpEngine(
         intent.putExtra(OpenPgpApi.EXTRA_USER_IDS, emails.toTypedArray())
         return mapResult(execute(intent, input = null, collectOutput = false)) { result, _ ->
             val ids = result.getLongArrayExtra(OpenPgpApi.RESULT_KEY_IDS)
-            if (ids != null && ids.size >= emails.size) PgpResult.Success(ids)
-            else PgpResult.Error("Missing public keys")
+            if (ids != null && ids.size >= emails.size) {
+                PgpResult.Success(ids)
+            } else {
+                PgpResult.Error(appContext.getString(R.string.gl_misc_pgp_missing_public_keys))
+            }
         }
     }
 
@@ -179,8 +190,11 @@ class OpenKeychainPgpEngine(
         return mapResult(execute(intent, input = data, collectOutput = false)) { result, _ ->
             val sig = result.getByteArrayExtra(OpenPgpApi.RESULT_DETACHED_SIGNATURE)
             val micalg = result.getStringExtra(OpenPgpApi.RESULT_SIGNATURE_MICALG) ?: "pgp-sha256"
-            if (sig != null) PgpResult.Success(PgpSignature(sig, micalg))
-            else PgpResult.Error("Provider returned no signature")
+            if (sig != null) {
+                PgpResult.Success(PgpSignature(sig, micalg))
+            } else {
+                PgpResult.Error(appContext.getString(R.string.gl_misc_pgp_no_signature))
+            }
         }
     }
 
@@ -197,8 +211,11 @@ class OpenKeychainPgpEngine(
         if (signKeyId != null) intent.putExtra(OpenPgpApi.EXTRA_SIGN_KEY_ID, signKeyId)
         intent.putExtra(OpenPgpApi.EXTRA_REQUEST_ASCII_ARMOR, true)
         return mapResult(execute(intent, input = data, collectOutput = true)) { _, output ->
-            if (output != null && output.isNotEmpty()) PgpResult.Success(output)
-            else PgpResult.Error("Provider returned no ciphertext")
+            if (output != null && output.isNotEmpty()) {
+                PgpResult.Success(output)
+            } else {
+                PgpResult.Error(appContext.getString(R.string.gl_misc_pgp_no_ciphertext))
+            }
         }
     }
 

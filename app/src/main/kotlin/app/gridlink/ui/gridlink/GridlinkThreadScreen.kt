@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import android.content.Context
 import android.text.format.DateFormat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -317,7 +318,9 @@ fun GridlinkThreadScreen(
                     // Names the state it will move TO, like every other toggle in the app. A control
                     // labelled with what it currently is reads as a status line to a screen reader
                     // and leaves "what happens if I press it" unanswered.
-                    label = if (starred) "Remove star" else "Star",
+                    label = stringResource(
+                        if (starred) R.string.a11y_unfavourite else R.string.settings_thread_action_star,
+                    ),
                     active = starred,
                     onClick = {
                         val next = !starred
@@ -365,7 +368,7 @@ fun GridlinkThreadScreen(
             }
             GridlinkDetailAccentButton(
                 icon = Icons.AutoMirrored.Filled.Reply,
-                label = "Reply",
+                label = stringResource(R.string.message_reply),
                 onClick = { onAction(GridlinkThreadAction.REPLY) },
             )
         },
@@ -635,8 +638,8 @@ fun GridlinkThreadScreen(
 
     if (confirmingUnsubscribe) {
         GridlinkDialog(
-            title = "Unsubscribe from ${message.sender}?",
-            confirmLabel = "Unsubscribe",
+            title = stringResource(R.string.gl_thread_unsubscribe_title, message.sender),
+            confirmLabel = stringResource(R.string.gl_thread_unsubscribe),
             onConfirm = {
                 confirmingUnsubscribe = false
                 onAction(GridlinkThreadAction.UNSUBSCRIBE)
@@ -761,7 +764,13 @@ private fun GridlinkThreadSender(
                     imageVector = Icons.Filled.ExpandMore,
                     // Names the thing behind the chevron rather than the chevron, because a screen
                     // reader user cannot see that the address is the part being withheld.
-                    contentDescription = if (expanded) "Hide sender details" else "Show sender details",
+                    contentDescription = stringResource(
+                        if (expanded) {
+                            R.string.gl_thread_sender_hide_details
+                        } else {
+                            R.string.gl_thread_sender_show_details
+                        },
+                    ),
                     tint = colors.textSecondary,
                     modifier = Modifier
                         .padding(start = GridlinkSpacing.s8)
@@ -791,7 +800,7 @@ private fun GridlinkThreadSender(
                 val readerAddress = LocalGridlinkChrome.current.config.account
                 if (readerAddress.isNotBlank()) {
                     Text(
-                        text = "to $readerAddress",
+                        text = stringResource(R.string.gl_thread_sender_to, readerAddress),
                         style = GridlinkType.metadata,
                         color = colors.textSecondary,
                         maxLines = 1,
@@ -856,15 +865,15 @@ private fun GridlinkImagesBanner(
         Text(
             // States the consequence, which is the entire reason the block exists. "Images blocked"
             // alone reads as a limitation of the app; this reads as a thing it did on purpose.
-            text = "Images blocked so $sender can't tell you opened this.",
+            text = stringResource(R.string.gl_thread_images_blocked, sender),
             style = GridlinkType.metadata,
             color = colors.textSecondary,
             modifier = Modifier
                 .weight(1f)
                 .padding(horizontal = GridlinkSpacing.s12),
         )
-        GridlinkImagesBannerAction(label = "Show", onClick = onShowOnce)
-        GridlinkImagesBannerAction(label = "Always", onClick = onAlwaysAllow)
+        GridlinkImagesBannerAction(label = stringResource(R.string.gl_thread_images_show), onClick = onShowOnce)
+        GridlinkImagesBannerAction(label = stringResource(R.string.gl_thread_images_always), onClick = onAlwaysAllow)
     }
 }
 
@@ -985,7 +994,7 @@ internal fun GridlinkAttachmentChip(
                     // Named for where it ends up, not for the mechanism: "download" is what the
                     // tap already did when it opened the file, and the difference the user cares
                     // about is that this one is still there tomorrow.
-                    contentDescription = "Save ${attachment.name} to the phone",
+                    contentDescription = stringResource(R.string.gl_thread_attachment_save, attachment.name),
                     tint = colors.textSecondary,
                     modifier = Modifier.size(20.dp),
                 )
@@ -1007,7 +1016,10 @@ internal fun GridlinkAttachmentChip(
                     // Named for what it does to the appointment, not to the chip. The file leaves
                     // the server, so "remove from this event" is the honest label and "clear" or
                     // "dismiss" would both suggest the chip is what is going away.
-                    contentDescription = "Remove ${attachment.name} from this event",
+                    contentDescription = stringResource(
+                        R.string.gl_thread_attachment_remove_from_event,
+                        attachment.name,
+                    ),
                     tint = colors.textSecondary,
                     modifier = Modifier.size(20.dp),
                 )
@@ -1088,18 +1100,21 @@ internal fun ThreadToolbarAction.gridlinkThreadAction(starred: Boolean): Gridlin
  * other action reads the same in the bar, in the More sheet and in settings, and it has to: the
  * settings screen is a map of this bar.
  */
-internal fun gridlinkToolbarLabel(action: ThreadToolbarAction, starred: Boolean): String = when (action) {
-    ThreadToolbarAction.REPLY_ALL -> "Reply all"
-    ThreadToolbarAction.FORWARD -> "Forward"
-    ThreadToolbarAction.ARCHIVE -> "Archive"
-    ThreadToolbarAction.DELETE -> "Delete"
-    ThreadToolbarAction.MOVE -> "Move"
-    ThreadToolbarAction.MARK_UNREAD -> "Mark unread"
-    ThreadToolbarAction.STAR -> if (starred) "Remove star" else "Star"
-    ThreadToolbarAction.PRINT -> "Print"
-    ThreadToolbarAction.JUNK -> "Junk"
-    ThreadToolbarAction.SNOOZE -> "Snooze"
-}
+@Composable
+internal fun gridlinkToolbarLabel(action: ThreadToolbarAction, starred: Boolean): String = stringResource(
+    when (action) {
+        ThreadToolbarAction.REPLY_ALL -> R.string.settings_thread_action_reply_all
+        ThreadToolbarAction.FORWARD -> R.string.settings_thread_action_forward
+        ThreadToolbarAction.ARCHIVE -> R.string.settings_thread_action_archive
+        ThreadToolbarAction.DELETE -> R.string.settings_thread_action_delete
+        ThreadToolbarAction.MOVE -> R.string.settings_thread_action_move
+        ThreadToolbarAction.MARK_UNREAD -> R.string.settings_thread_action_mark_unread
+        ThreadToolbarAction.STAR -> if (starred) R.string.a11y_unfavourite else R.string.settings_thread_action_star
+        ThreadToolbarAction.PRINT -> R.string.settings_thread_action_print
+        ThreadToolbarAction.JUNK -> R.string.settings_thread_action_junk
+        ThreadToolbarAction.SNOOZE -> R.string.settings_thread_action_snooze
+    },
+)
 
 /** The glyph for each, shared by the bar and the sheet so one action never wears two icons. */
 internal fun gridlinkToolbarIcon(action: ThreadToolbarAction, starred: Boolean): ImageVector = when (action) {
@@ -1225,7 +1240,7 @@ private fun GridlinkThreadActionPill(
         }
         if (layout.showMore) {
             GridlinkDetailActionItem(
-                label = "More",
+                label = stringResource(R.string.message_more),
                 icon = Icons.Outlined.MoreHoriz,
                 onClick = onMore,
                 modifier = Modifier.weight(1f),
@@ -1280,7 +1295,7 @@ private fun GridlinkThreadMoreSheet(
         // for on a message that has it.
         if (message.unsubscribe != null) {
             GridlinkSheetAction(
-                label = "Unsubscribe",
+                label = stringResource(R.string.gl_thread_unsubscribe),
                 icon = Icons.Outlined.Unsubscribe,
                 onClick = { onAction(GridlinkThreadAction.UNSUBSCRIBE) },
             )
@@ -1292,7 +1307,7 @@ private fun GridlinkThreadMoreSheet(
         // message rather than about the reader's chosen layout.
         if (onTags != null) {
             GridlinkSheetAction(
-                label = "Tags",
+                label = stringResource(R.string.settings_tags_title),
                 icon = Icons.Outlined.Sell,
                 onClick = onTags,
             )
@@ -1332,7 +1347,7 @@ private fun GridlinkThreadMoreSheet(
  * card, and falls back to a card built from the message header when it does not, which is what a
  * reply to a no-reply robot should look like.
  */
-internal fun gridlinkReplyTo(message: GridlinkMessage): GridlinkComposeRequest {
+internal fun gridlinkReplyTo(context: Context, message: GridlinkMessage): GridlinkComposeRequest {
     val known = GridlinkSampleContacts.forSender(message.sender, message.domain)
     val recipient = known ?: GridlinkContact(
         id = message.id,
@@ -1348,12 +1363,12 @@ internal fun gridlinkReplyTo(message: GridlinkMessage): GridlinkComposeRequest {
     }
     return GridlinkComposeRequest(
         draft = GridlinkComposeDraft(
-            title = "Reply",
+            title = context.getString(R.string.message_reply),
             recipients = listOf(recipient),
             recipientQuery = "",
             subject = subject,
             body = "",
-            quoted = gridlinkReplyQuote(message),
+            quoted = gridlinkReplyQuote(context, message),
             attachments = emptyList(),
         ),
         focus = GridlinkComposeField.BODY,
@@ -1370,9 +1385,9 @@ internal fun gridlinkReplyTo(message: GridlinkMessage): GridlinkComposeRequest {
  * account's own addresses, CC kept as CC) and adds the In-Reply-To and References. If that fetch
  * fails the reply goes to the sender only and the composer says so.
  */
-internal fun gridlinkReplyAllTo(message: GridlinkMessage): GridlinkComposeRequest {
-    val reply = gridlinkReplyTo(message)
-    return reply.copy(draft = reply.draft.copy(title = "Reply all"))
+internal fun gridlinkReplyAllTo(context: Context, message: GridlinkMessage): GridlinkComposeRequest {
+    val reply = gridlinkReplyTo(context, message)
+    return reply.copy(draft = reply.draft.copy(title = context.getString(R.string.message_reply_all)))
 }
 
 /**
@@ -1393,6 +1408,7 @@ internal fun gridlinkReplyAllTo(message: GridlinkMessage): GridlinkComposeReques
  * where there is no attacher and therefore no honest chip to show.
  */
 internal fun gridlinkForward(
+    context: Context,
     message: GridlinkMessage,
     attachments: List<GridlinkAttachment> = emptyList(),
 ): GridlinkComposeRequest {
@@ -1403,12 +1419,12 @@ internal fun gridlinkForward(
     }
     return GridlinkComposeRequest(
         draft = GridlinkComposeDraft(
-            title = "Forward",
+            title = context.getString(R.string.message_forward),
             recipients = emptyList(),
             recipientQuery = "",
             subject = subject,
             body = "",
-            quoted = gridlinkForwardQuote(message),
+            quoted = gridlinkForwardQuote(context, message),
             attachments = attachments,
         ),
         focus = GridlinkComposeField.TO,

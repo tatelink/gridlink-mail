@@ -567,12 +567,21 @@ private fun ruleSummary(context: Context, rule: FilterRule, tags: List<MailTag>)
 }
 
 private fun conditionSummary(context: Context, condition: RuleCondition): String {
-    val head = "${fieldLabel(context, condition.field)} ${matchLabel(context, condition.match)}"
+    val field = fieldLabel(context, condition.field)
+    val match = matchLabel(context, condition.match)
+    // One format string per shape, so a language can reorder the parts and quote the value its
+    // own way instead of inheriting English word order and straight quotes.
     return when (condition.field.kind) {
         // The match is already the whole sentence: "Attachment is present".
-        FieldKind.PRESENCE -> head
-        FieldKind.SIZE -> "$head ${condition.value} ${context.getString(R.string.settings_filter_size_unit)}"
-        FieldKind.TEXT -> "$head \"${condition.value}\""
+        FieldKind.PRESENCE -> context.getString(R.string.gl_misc_filter_condition, field, match)
+        FieldKind.SIZE -> context.getString(
+            R.string.gl_misc_filter_condition_size,
+            field,
+            match,
+            condition.value,
+            context.getString(R.string.settings_filter_size_unit),
+        )
+        FieldKind.TEXT -> context.getString(R.string.gl_misc_filter_condition_text, field, match, condition.value)
     }
 }
 

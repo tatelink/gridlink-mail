@@ -3,6 +3,7 @@ package app.gridlink.ui.settings
 import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.res.Resources
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -117,6 +118,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -139,6 +141,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import app.gridlink.BuildConfig
 import app.gridlink.R
+import app.gridlink.appLocale
 import app.gridlink.contacts.AndroidContacts
 import app.gridlink.core.data.account.AuthType
 import app.gridlink.core.data.account.ConnectionSecurity
@@ -186,6 +189,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.openintents.openpgp.util.OpenPgpProviderUtil
 import java.time.Instant
+import java.time.LocalTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -542,7 +546,7 @@ private fun SettingsHub(
                 SettingsCategoryRow(
                     Icons.Outlined.Person,
                     stringResource(R.string.settings_about_upstream),
-                    "Sterna Mail by emon",
+                    stringResource(R.string.gl_misc_about_upstream_credit),
                 ) { onOpenUrl(UPSTREAM_URL) }
                 // 🔴 This app collects nothing, so this row is the ONLY way a problem reaches
                 // anyone. Tate's call, 2026-08-10: a feedback address instead of telemetry.
@@ -1265,13 +1269,15 @@ private fun NotificationsBlockedNotice() {
  * picker, and the rest of the OS now agree.
  */
 private fun formatMinutes(minutes: Int, use24Hour: Boolean): String {
-    val hour24 = minutes / 60
-    val minute = minutes % 60
-    if (use24Hour) return "%02d:%02d".format(hour24, minute)
-    // 0 and 12 both display as 12; everything else is the remainder.
-    val hour12 = when (val h = hour24 % 12) { 0 -> 12; else -> h }
-    return "%d:%02d %s".format(hour12, minute, if (hour24 < 12) "AM" else "PM")
+    // The locale's own clock pattern for the chosen convention, so "AM"/"PM" and the separator
+    // come out in the reader's language rather than as hard-coded English.
+    val pattern = android.text.format.DateFormat.getBestDateTimePattern(appLocale, if (use24Hour) "Hm" else "hm")
+    val time = LocalTime.ofSecondOfDay(Math.floorMod(minutes, MINUTES_PER_DAY) * SECONDS_PER_MINUTE)
+    return DateTimeFormatter.ofPattern(pattern, appLocale).format(time)
 }
+
+private const val MINUTES_PER_DAY = 24 * 60
+private const val SECONDS_PER_MINUTE = 60L
 
 /** A row showing a time that opens a Material time picker when tapped. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1704,14 +1710,24 @@ private fun StorageScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val clearing by viewModel.clearing.collectAsStateWithLifecycle()
     var confirm by remember { mutableStateOf(false) }
+    val res = LocalResources.current
     DetailScaffold(title = stringResource(R.string.settings_storage_screen_title), onBack = onBack) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
         ) {
             SettingsSection(stringResource(R.string.settings_on_device_usage_section)) {
-                StorageStatRow(stringResource(R.string.settings_storage_total), formatBytes(state.totalBytes))
-                StorageStatRow(stringResource(R.string.settings_storage_messages_db), formatBytes(state.databaseBytes))
-                StorageStatRow(stringResource(R.string.settings_storage_attachments), formatBytes(state.attachmentBytes))
+                StorageStatRow(
+                    stringResource(R.string.settings_storage_total),
+                    formatBytes(res, state.totalBytes),
+                )
+                StorageStatRow(
+                    stringResource(R.string.settings_storage_messages_db),
+                    formatBytes(res, state.databaseBytes),
+                )
+                StorageStatRow(
+                    stringResource(R.string.settings_storage_attachments),
+                    formatBytes(res, state.attachmentBytes),
+                )
             }
             if (state.perAccount.isNotEmpty()) {
                 SettingsSection(stringResource(R.string.settings_cached_per_account_section)) {
@@ -1781,7 +1797,8 @@ private fun QuotaRow(quota: QuotaUi) {
     val label = stringResource(
         if (isStorage) R.string.settings_quota_storage else R.string.settings_quota_messages,
     )
-    fun fmt(value: Long) = if (isStorage) formatBytes(value) else value.toString()
+    val res = LocalResources.current
+    fun fmt(value: Long) = if (isStorage) formatBytes(res, value) else value.toString()
     val limit = quota.limit?.takeIf { it > 0 }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1866,14 +1883,14 @@ private fun syncWindowLabel(context: Context, window: SyncWindow): String = when
     SyncWindow.ALL -> context.getString(R.string.settings_sync_everything)
 }
 
-/** Human-readable byte size (B / KB / MB / GB). */
-private fun formatBytes(bytes: Long): String {
-    if (bytes < 1024) return "$bytes B"
+/** Human-readable byte size (B / KB / MB / GB), with the unit written the reader's way. */
+private fun formatBytes(res: Resources, bytes: Long): String {
+    if (bytes < 1024) return res.getString(R.string.gl_misc_size_bytes, bytes.toString())
     val kb = bytes / 1024.0
-    if (kb < 1024) return "%.0f KB".format(kb)
+    if (kb < 1024) return res.getString(R.string.gl_misc_size_kb, "%.0f".format(kb))
     val mb = kb / 1024.0
-    if (mb < 1024) return "%.1f MB".format(mb)
-    return "%.2f GB".format(mb / 1024.0)
+    if (mb < 1024) return res.getString(R.string.gl_misc_size_mb, "%.1f".format(mb))
+    return res.getString(R.string.gl_misc_size_gb, "%.2f".format(mb / 1024.0))
 }
 
 @Composable

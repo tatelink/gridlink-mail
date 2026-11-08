@@ -41,12 +41,15 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import app.gridlink.R
 import app.gridlink.core.data.settings.MailTag
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
@@ -417,7 +420,7 @@ fun GridlinkMessageRow(
                     if (message.starred) {
                         Icon(
                             imageVector = Icons.Filled.Star,
-                            contentDescription = "Starred",
+                            contentDescription = stringResource(R.string.a11y_flagged),
                             tint = colors.accent,
                             modifier = Modifier
                                 .padding(start = GridlinkSpacing.s8)
@@ -427,7 +430,7 @@ fun GridlinkMessageRow(
                     if (message.hasAttachment) {
                         Icon(
                             imageVector = Icons.Filled.AttachFile,
-                            contentDescription = "Has attachment",
+                            contentDescription = stringResource(R.string.a11y_has_attachment),
                             tint = colors.textSecondary,
                             modifier = Modifier
                                 .padding(start = GridlinkSpacing.s8)
@@ -549,7 +552,9 @@ private fun GridlinkThreadCount(
                 imageVector = Icons.Filled.KeyboardArrowDown,
                 // Says what the tap DOES, not what the row is, because that is what a screen reader
                 // user is choosing between. The count is already announced by the Text beside it.
-                contentDescription = if (expanded) "Collapse conversation" else "Expand conversation",
+                contentDescription = stringResource(
+                    if (expanded) R.string.gl_list_collapse_conversation else R.string.gl_list_expand_conversation,
+                ),
                 tint = colors.textSecondary,
                 modifier = Modifier
                     .size(14.dp)
@@ -615,7 +620,7 @@ private fun GridlinkSelectionSlot(
             if (selected) {
                 Icon(
                     imageVector = Icons.Filled.Check,
-                    contentDescription = "Selected",
+                    contentDescription = stringResource(R.string.gl_list_row_selected),
                     tint = colors.onAccent,
                     modifier = Modifier.size(14.dp),
                 )
@@ -727,10 +732,18 @@ fun GridlinkBundleRow(
                         color = colors.textPrimary,
                     )
                     Spacer(Modifier.weight(1f))
-                    GridlinkCountBadge(text = "${bundle.unreadCount} new")
+                    GridlinkCountBadge(
+                        text = pluralStringResource(
+                            R.plurals.gl_list_bundle_new_count,
+                            bundle.unreadCount,
+                            bundle.unreadCount,
+                        ),
+                    )
                     Icon(
                         imageVector = Icons.Filled.KeyboardArrowDown,
-                        contentDescription = if (expanded) "Collapse" else "Expand",
+                        contentDescription = stringResource(
+                            if (expanded) R.string.gl_list_collapse else R.string.gl_list_expand,
+                        ),
                         tint = colors.textSecondary,
                         modifier = Modifier
                             .padding(start = GridlinkSpacing.s8)

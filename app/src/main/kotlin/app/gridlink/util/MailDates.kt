@@ -25,9 +25,6 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object MailDates {
 
-    /** "4 Jul 2026, 09:12" in the app's language. */
-    private val fullFormatter = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", appLocale)
-
     /** "09:12" — a message from today is placed by its clock time. */
     private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm", appLocale)
 
@@ -77,9 +74,22 @@ object MailDates {
         }
     }
 
-    /** [iso] as a full local date + time, or "" when it is missing or unparseable. */
-    fun formatFull(iso: String?, zone: ZoneId = ZoneId.systemDefault()): String =
-        formatWith(iso, fullFormatter, zone)
+    /**
+     * [iso] as a full local date + time, or "" when it is missing or unparseable.
+     *
+     * The language's own medium date and short time ("Jul 4, 2026, 9:12 AM" in en-US,
+     * "04.07.2026, 09:12" in de), read from the locale on every call rather than written out as a
+     * fixed pattern, so the order of day and month and the clock style are the language's.
+     */
+    fun formatFull(
+        iso: String?,
+        zone: ZoneId = ZoneId.systemDefault(),
+        locale: Locale = appLocale,
+    ): String = formatWith(
+        iso,
+        DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT).withLocale(locale),
+        zone,
+    )
 
     /**
      * The stamp a list row carries, in three steps: today shows the time ("09:12"), an earlier day
@@ -96,11 +106,9 @@ object MailDates {
      * Both are parameters so the turn of the year and the language's order are testable; callers
      * leave them out.
      *
-     * One wart, known and left alone: [locale] is read on every call, whereas [formatFull] and the
-     * composer's attribution line use formatters that froze the language when this class loaded.
-     * After the reader changes the app language, list rows follow at once but a message's header
-     * still speaks the old one until the process restarts. Righting that means touching the quoted
-     * date the composer writes into outgoing mail, which is out of bounds here.
+     * The fixed "HH:mm" and "d MMM" steps here are upstream's list's, which no screen draws any
+     * more (the Gridlink list stamps itself with [formatGridlinkStamp], whose time and day-month
+     * come from the phone's own patterns). They stay as they are because this suite pins them.
      */
     fun formatListDate(
         iso: String?,
@@ -136,11 +144,11 @@ object MailDates {
      * current one. A 2019 message reading like a 2026 one is the same bug in either list.
      *
      * ## The two parameters that look like they should be constants
-     * [yesterday] is passed in because it is UI text and this file has no resources; the caller
-     * hands over `R.string.gridlink_yesterday` and the nine translations stay in the one place the
-     * parity test can see them. [locale] decides the weekday's spelling and whether the time reads
-     * "7:14 AM" or "07:14" — the language's own short-time pattern, not a hard-coded one, so the
-     * twelve-hour clock in the mock is what en-US gets rather than what everybody gets.
+     * [yesterday] is passed in, with no default, because it is UI text and this file has no
+     * resources; the caller hands over `R.string.gl_vm_yesterday`, translated in every shipped
+     * locale. [locale] decides the weekday's spelling and whether the time reads "7:14 AM" or
+     * "07:14" when no [style] is given: the language's own short-time pattern, not a hard-coded
+     * one, so the twelve-hour clock in the mock is what en-US gets rather than what everybody gets.
      *
      * [today] is the reference day in [zone] for [formatListDate]'s reason: near midnight the
      * reader's calendar and UTC disagree, and the row must follow the reader's.
@@ -150,7 +158,7 @@ object MailDates {
         zone: ZoneId = ZoneId.systemDefault(),
         today: LocalDate = LocalDate.now(zone),
         locale: Locale = appLocale,
-        yesterday: String = "Yesterday",
+        yesterday: String,
         style: StampStyle? = null,
     ): String {
         val zoned = zoned(iso, zone) ?: return ""
@@ -162,7 +170,7 @@ object MailDates {
             // sender's clock is wrong, or the mail was scheduled) must not come back as a weekday
             // that reads like last week's. It falls through to a date, which is at least unambiguous.
             date.isAfter(today.minusDays(7)) && date.isBefore(today) ->
-                zoned.format(weekdayFormatter.withLocale(locale))
+                zoned.format(style?.weekday ?: weekdayFormatter.withLocale(locale))
             date.year == today.year -> zoned.format(style?.dayMonth ?: dayMonthFormatter.withLocale(locale))
             else -> zoned.format(shortDateFormatter(locale))
         }
@@ -175,9 +183,15 @@ object MailDates {
      * system 12/24-hour switch), because this file stays free of Android types. Without it the list
      * mixed two registers on one screen: "8:24 PM" in the US style beside "27 Oct" in the British
      * one, since "d MMM" is a fixed order and not the language's. Null keeps the language-only
-     * fallback, which is what the JVM tests exercise.
+     * fallback, which is what the JVM tests exercise. [weekday] is the language's best pattern for
+     * a short weekday on its own (the stand-alone form, which Polish and Russian spell differently
+     * from the one inside a date); null falls back to the plain abbreviated weekday.
      */
-    data class StampStyle(val time: DateTimeFormatter, val dayMonth: DateTimeFormatter)
+    data class StampStyle(
+        val time: DateTimeFormatter,
+        val dayMonth: DateTimeFormatter,
+        val weekday: DateTimeFormatter? = null,
+    )
 
     /** "Tue" in the app's language: the short weekday name. */
     private val weekdayFormatter = DateTimeFormatter.ofPattern("EEE", appLocale)

@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import android.content.Context
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -40,12 +41,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.gridlink.R
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 import app.gridlink.ui.rememberLeaveOnce
 import app.gridlink.ui.theme.GridlinkDimens
@@ -145,14 +148,14 @@ fun GridlinkContactScreen(
                 // subject IS an address, beside a copy glyph, one word says it. The spoken label
                 // keeps the full phrase.
                 GridlinkDetailActionItem(
-                    label = "Copy",
-                    contentDescription = "Copy address",
+                    label = stringResource(R.string.gl_people_copy),
+                    contentDescription = stringResource(R.string.gl_people_copy_address),
                     icon = Icons.Outlined.ContentCopy,
                     onClick = { clipboard.setText(AnnotatedString(contact.email)) },
                     modifier = Modifier.weight(1f),
                 )
                 GridlinkDetailActionItem(
-                    label = "Write",
+                    label = stringResource(R.string.gl_people_write),
                     icon = Icons.Outlined.Email,
                     onClick = { onWrite(contact) },
                     modifier = Modifier.weight(1f),
@@ -160,7 +163,7 @@ fun GridlinkContactScreen(
             }
             GridlinkDetailAccentButton(
                 icon = Icons.Outlined.Edit,
-                label = "Edit",
+                label = stringResource(R.string.outbox_edit),
                 onClick = { onEdit(contact) },
             )
         },
@@ -183,17 +186,22 @@ fun GridlinkContactScreen(
             // The card's fields, each row doing the thing you would want that value for. The
             // company/title pair collapses into the header's role line when there is only one of
             // them, so the row appears only when it adds something the header has not said.
+            // Resolved before the list is built: the builder is a plain lambda, not a composable.
+            val emailLabel = stringResource(R.string.gl_people_email)
+            val phoneLabel = stringResource(R.string.gl_people_phone)
+            val addressLabel = stringResource(R.string.gl_people_address)
+            val companyLabel = stringResource(R.string.gl_people_company)
             val fields = buildList {
                 contact.allEmails.forEach { address ->
                     add(
-                        GridlinkContactField("Email", address, Icons.Outlined.Email) {
+                        GridlinkContactField(emailLabel, address, Icons.Outlined.Email) {
                             onWrite(contact.copy(email = address))
                         },
                     )
                 }
                 contact.phones.forEach { number ->
                     add(
-                        GridlinkContactField("Phone", number, Icons.Outlined.Call) {
+                        GridlinkContactField(phoneLabel, number, Icons.Outlined.Call) {
                             leaveOnce { gridlinkDial(context, number) }
                         },
                     )
@@ -203,13 +211,13 @@ fun GridlinkContactScreen(
                 // ContactCardGroup, so a patched card keeps its ADR lines byte-for-byte.
                 contact.addresses.forEach { place ->
                     add(
-                        GridlinkContactField("Address", place, Icons.Outlined.Place) {
+                        GridlinkContactField(addressLabel, place, Icons.Outlined.Place) {
                             leaveOnce { openMap(context, place) }
                         },
                     )
                 }
                 if (contact.company.isNotBlank() && contact.company != contact.role) {
-                    add(GridlinkContactField("Company", contact.company, Icons.Outlined.Business, onClick = null))
+                    add(GridlinkContactField(companyLabel, contact.company, Icons.Outlined.Business, onClick = null))
                 }
                 // User-defined fields, after the built-ins. These are the ONLY rows that still
                 // write their label out: the label is the user's own word for the value, and no
@@ -227,14 +235,14 @@ fun GridlinkContactScreen(
                 }
             }
             if (fields.isNotEmpty()) {
-                GridlinkSectionLabel(text = "Details")
+                GridlinkSectionLabel(text = stringResource(R.string.gl_people_details))
                 fields.forEach { field ->
                     GridlinkContactFieldRow(field)
                 }
             }
 
             if (contact.note.isNotBlank()) {
-                GridlinkSectionLabel(text = "Note")
+                GridlinkSectionLabel(text = stringResource(R.string.gl_people_note))
                 Text(
                     text = contact.note,
                     style = GridlinkType.body,
@@ -248,14 +256,14 @@ fun GridlinkContactScreen(
             }
 
             if (!book.contactsLive) {
-                GridlinkSectionLabel(text = "Recent mail")
+                GridlinkSectionLabel(text = stringResource(R.string.gl_people_recent_mail))
 
                 if (recent.isEmpty()) {
                     Text(
                         // ⚠️ States what is missing, not what went wrong. Most of the address book has
                         // never written, and a card that reads as an error for the ordinary case teaches
                         // the user to distrust the ones that are correct.
-                        text = "Nothing from this address yet.",
+                        text = stringResource(R.string.gl_people_no_recent_mail),
                         style = GridlinkType.body,
                         color = colors.textSecondary,
                         modifier = Modifier.padding(
@@ -293,9 +301,13 @@ fun GridlinkContactScreen(
  * Built here rather than copied from [GridlinkComposeDraft.Fresh] because the title differs: this is
  * a "New message" to a named person, not the compose button's blank sheet.
  */
-internal fun gridlinkWriteTo(contact: GridlinkContact): GridlinkComposeRequest = GridlinkComposeRequest(
+internal fun gridlinkWriteTo(context: Context, contact: GridlinkContact): GridlinkComposeRequest =
+    gridlinkWriteTo(contact, context.getString(R.string.gl_people_write_title))
+
+/** [gridlinkWriteTo] with the sheet's title already resolved. */
+private fun gridlinkWriteTo(contact: GridlinkContact, title: String): GridlinkComposeRequest = GridlinkComposeRequest(
     draft = GridlinkComposeDraft(
-        title = "New message",
+        title = title,
         recipients = listOf(contact),
         recipientQuery = "",
         subject = "",
@@ -372,7 +384,7 @@ private fun GridlinkContactHero(
         if (photo != null) {
             Image(
                 bitmap = photo,
-                contentDescription = "Photo of $name",
+                contentDescription = stringResource(R.string.gl_people_photo_of, name),
                 contentScale = ContentScale.Crop,
                 // Faces sit in the top half of a portrait, and the bottom is where the name lands.
                 // Cropping from the top keeps the head and spends the floor.
@@ -423,7 +435,7 @@ private fun GridlinkContactHero(
             if (badge != null) {
                 Image(
                     bitmap = badge,
-                    contentDescription = "Photo of $name",
+                    contentDescription = stringResource(R.string.gl_people_photo_of, name),
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .padding(bottom = GridlinkSpacing.s12)
@@ -649,7 +661,7 @@ private fun GridlinkContactMessageRow(
         if (message.hasAttachment) {
             Icon(
                 imageVector = Icons.Filled.AttachFile,
-                contentDescription = "Has attachment",
+                contentDescription = stringResource(R.string.a11y_has_attachment),
                 tint = colors.textSecondary,
                 modifier = Modifier
                     .padding(start = GridlinkSpacing.s8)

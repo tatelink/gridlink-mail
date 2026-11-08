@@ -1,9 +1,13 @@
 package app.gridlink.ui.gridlink
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -19,15 +23,24 @@ import java.time.ZonedDateTime
  *
  * The clock is passed in rather than read, because a test that reads the wall clock passes all week
  * and fails on a Saturday afternoon.
+ *
+ * Under Robolectric because the words and clock times are string resources and locale patterns,
+ * resolved here in US English. [plain] folds the narrow no-break space newer ICU puts before AM/PM.
  */
+@RunWith(RobolectricTestRunner::class)
 class GridlinkSnoozeTest {
 
+    private val context: Context = ApplicationProvider.getApplicationContext()
     private val zone: ZoneId = ZoneId.of("America/New_York")
+
+    private fun String.plain() = replace('\u202F', ' ')
 
     /** Wednesday 2026-08-12, 9am: a plain weekday morning with every preset still ahead of it. */
     private fun wednesdayMorning() = ZonedDateTime.of(2026, 8, 12, 9, 0, 0, 0, zone)
 
-    private fun labelsAt(now: ZonedDateTime) = gridlinkSnoozePresets(now).map { it.label }
+    private fun labelOf(preset: GridlinkSnoozePreset) = context.getString(preset.kind.label)
+
+    private fun labelsAt(now: ZonedDateTime) = gridlinkSnoozePresets(now).map(::labelOf)
 
     // ---- what is on offer ----------------------------------------------------------------------
 
@@ -84,31 +97,32 @@ class GridlinkSnoozeTest {
             val now = ZonedDateTime.of(2026, 8, 12, hour, 30, 0, 0, zone)
             val nowMillis = now.toInstant().toEpochMilli()
             gridlinkSnoozePresets(now).forEach {
-                assertTrue("${it.label} at $hour:30 is not in the future", it.millis > nowMillis)
+                assertTrue("${it.kind} at $hour:30 is not in the future", it.millis > nowMillis)
             }
         }
     }
 
     @Test
     fun `Tomorrow means eight in the morning, local`() {
-        val tomorrow = gridlinkSnoozePresets(wednesdayMorning()).first { it.label == "Tomorrow" }
+        val tomorrow = gridlinkSnoozePresets(wednesdayMorning()).first { labelOf(it) == "Tomorrow" }
         val moment = java.time.Instant.ofEpochMilli(tomorrow.millis).atZone(zone)
         assertEquals(LocalDate.of(2026, 8, 13), moment.toLocalDate())
         assertEquals(8, moment.hour)
-        assertEquals("8:00 AM", tomorrow.time)
+        assertEquals("8:00 AM", gridlinkSnoozePresetTime(context, tomorrow, zone).plain())
     }
 
     @Test
     fun `This weekend means the coming Saturday at nine`() {
-        val weekend = gridlinkSnoozePresets(wednesdayMorning()).first { it.label == "This weekend" }
+        val weekend = gridlinkSnoozePresets(wednesdayMorning()).first { labelOf(it) == "This weekend" }
         val moment = java.time.Instant.ofEpochMilli(weekend.millis).atZone(zone)
         assertEquals(LocalDate.of(2026, 8, 15), moment.toLocalDate())
         assertEquals(9, moment.hour)
+        assertEquals("Sat 9:00 AM", gridlinkSnoozePresetTime(context, weekend, zone).plain())
     }
 
     @Test
     fun `Next week means the coming Monday at eight`() {
-        val next = gridlinkSnoozePresets(wednesdayMorning()).first { it.label == "Next week" }
+        val next = gridlinkSnoozePresets(wednesdayMorning()).first { labelOf(it) == "Next week" }
         val moment = java.time.Instant.ofEpochMilli(next.millis).atZone(zone)
         assertEquals(LocalDate.of(2026, 8, 17), moment.toLocalDate())
         assertEquals(8, moment.hour)
@@ -124,22 +138,23 @@ class GridlinkSnoozeTest {
         val today = LocalDate.of(2026, 8, 12)
         assertEquals(
             "Back today at 6:00 PM",
-            gridlinkSnoozeLabel(millisAt(today, 18), zone, today),
+            gridlinkSnoozeLabel(context, millisAt(today, 18), zone, today).plain(),
         )
         assertEquals(
             "Back tomorrow at 8:00 AM",
-            gridlinkSnoozeLabel(millisAt(today.plusDays(1), 8), zone, today),
+            gridlinkSnoozeLabel(context, millisAt(today.plusDays(1), 8), zone, today).plain(),
         )
     }
 
     @Test
     fun `anything further out carries its date`() {
         // The day of the week leads, because "is that before or after the weekend" is the question
-        // being asked of a snoozed message, and 17 Aug does not answer it.
+        // being asked of a snoozed message, and 17 Aug does not answer it. The date is in the
+        // locale's own order, so US English reads "Mon, Aug 17".
         val today = LocalDate.of(2026, 8, 12)
         assertEquals(
-            "Back Mon 17 Aug at 8:00 AM",
-            gridlinkSnoozeLabel(millisAt(today.plusDays(5), 8), zone, today),
+            "Back Mon, Aug 17 at 8:00 AM",
+            gridlinkSnoozeLabel(context, millisAt(today.plusDays(5), 8), zone, today).plain(),
         )
     }
 }

@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import android.content.Context
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -7,6 +8,7 @@ import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.test.core.app.ApplicationProvider
 import app.gridlink.ui.theme.GridlinkMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -30,6 +32,7 @@ class GridlinkSnoozeScreenTest {
     @get:Rule
     val rule = createComposeRule()
 
+    private val context: Context = ApplicationProvider.getApplicationContext()
     private val woken = mutableListOf<GridlinkSnoozedKey>()
     private var closed = 0
 
@@ -67,8 +70,8 @@ class GridlinkSnoozeScreenTest {
             .map { rule.onNodeWithText(it).getUnclippedBoundsInRoot().top }
         assertTrue("expected soonest first, got tops $tops", tops[0] < tops[1] && tops[1] < tops[2])
         // Each row says when it comes back, in the same words the label function uses.
-        rule.onNodeWithText(gridlinkSnoozeLabel(tonight.untilMillis)).assertExists()
-        rule.onNodeWithText(gridlinkSnoozeLabel(nextWeek.untilMillis)).assertExists()
+        rule.onNodeWithText(gridlinkSnoozeLabel(context, tonight.untilMillis)).assertExists()
+        rule.onNodeWithText(gridlinkSnoozeLabel(context, nextWeek.untilMillis)).assertExists()
     }
 
     @Test
@@ -100,9 +103,11 @@ class GridlinkSnoozeScreenTest {
         var picked: Long? = null
         var custom = 0
         var dismissed = 0
+        val tomorrowAt8 = NOW.toLocalDate().plusDays(1).atTime(8, 0).atZone(NOW.zone).toInstant().toEpochMilli()
+        val mondayAt8 = tomorrowAt8 + 2_000L
         val presets = listOf(
-            GridlinkPresetTime("Tomorrow", "8:00 AM", 1_000L),
-            GridlinkPresetTime("Next week", "Mon 8:00 AM", 2_000L),
+            GridlinkSnoozePreset(GridlinkSnoozePresetKind.TOMORROW, tomorrowAt8),
+            GridlinkSnoozePreset(GridlinkSnoozePresetKind.NEXT_WEEK, mondayAt8),
         )
         rule.setContent {
             GridlinkApp(initialModeOverride = GridlinkMode.DAY) {
@@ -115,9 +120,10 @@ class GridlinkSnoozeScreenTest {
             }
         }
         rule.onNodeWithText("SNOOZE UNTIL").assertExists()
-        rule.onNodeWithText("8:00 AM").assertExists()
+        // The time beside the row is the device clock's own spelling ("8:00 AM" in US English).
+        rule.onNodeWithText(gridlinkSnoozePresetTime(context, presets[0], NOW.zone)).assertExists()
         rule.onNodeWithText("Next week").performClick()
-        assertEquals(2_000L, picked)
+        assertEquals(mondayAt8, picked)
         rule.onNodeWithText("Pick a date & time").performClick()
         assertEquals(1, custom)
         assertEquals("the sheet leaves closing to its caller", 0, dismissed)

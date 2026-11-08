@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import app.gridlink.R
 import app.gridlink.container
 import app.gridlink.core.data.account.AccountCredentials
 import app.gridlink.core.data.account.AuthType
@@ -271,7 +272,8 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
                         },
                         onFailure = { e ->
                             _accountSignIn.value = AccountSignIn.Failed(
-                                e.message ?: "sign-in failed", offerAppPassword = true,
+                                e.message ?: getApplication<Application>().getString(R.string.gl_misc_sign_in_failed),
+                                offerAppPassword = true,
                             )
                         },
                     )
@@ -280,7 +282,7 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
                     val msg = if (e is OAuthDeniedException) {
                         oauthFailureMessage(getApplication(), e.failure)
                     } else {
-                        e.message ?: "sign-in failed"
+                        e.message ?: getApplication<Application>().getString(R.string.gl_misc_sign_in_failed)
                     }
                     _accountSignIn.value = AccountSignIn.Failed(msg, offerAppPassword = true)
                 },

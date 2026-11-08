@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -55,10 +56,13 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import app.gridlink.R
 import app.gridlink.ui.theme.GridlinkMotion
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkSwipe
@@ -88,8 +92,8 @@ import kotlin.math.abs
  * called "Mark read/unread" and "Star/unstar". A swipe that always marks unread cannot honestly
  * carry either label, and the icon has to show the outcome for the row under the finger.
  */
-enum class GridlinkSwipeAction(val label: String, val icon: ImageVector) {
-    ARCHIVE("Archive", Icons.Outlined.Archive),
+enum class GridlinkSwipeAction(@StringRes val label: Int, val icon: ImageVector) {
+    ARCHIVE(R.string.inbox_archive, Icons.Outlined.Archive),
 
     /**
      * A literal filled dot, per the brief's own table, rather than an envelope glyph.
@@ -97,13 +101,13 @@ enum class GridlinkSwipeAction(val label: String, val icon: ImageVector) {
      * It is the same shape as the unread marker at the row's trailing edge, scaled up, so the
      * gesture names its own result: the thing this swipe puts back is that dot.
      */
-    MARK_UNREAD("Mark unread", Icons.Filled.Circle),
+    MARK_UNREAD(R.string.inbox_mark_unread, Icons.Filled.Circle),
 
     /** The same dot hollowed out, since what this swipe does is take that marker away. */
-    MARK_READ("Mark read", Icons.Outlined.Circle),
-    STAR("Star", Icons.Filled.Star),
-    UNSTAR("Unstar", Icons.Outlined.StarBorder),
-    DELETE("Delete", Icons.Outlined.Delete),
+    MARK_READ(R.string.inbox_mark_read, Icons.Outlined.Circle),
+    STAR(R.string.inbox_flag, Icons.Filled.Star),
+    UNSTAR(R.string.inbox_unflag, Icons.Outlined.StarBorder),
+    DELETE(R.string.inbox_delete, Icons.Outlined.Delete),
 
     /**
      * 🔴 The one action here that does not finish on release. Every other entry writes something
@@ -111,7 +115,7 @@ enum class GridlinkSwipeAction(val label: String, val icon: ImageVector) {
      * back, because a snooze with no moment attached is not a snooze. The row leaves when the
      * answer arrives, through the query that hides snoozed mail, not through [removesRow].
      */
-    SNOOZE("Snooze", Icons.Outlined.Snooze),
+    SNOOZE(R.string.settings_swipe_snooze, Icons.Outlined.Snooze),
     ;
 
     /**
@@ -225,6 +229,8 @@ fun GridlinkSwipeRow(
 ) {
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
+    // Read here because the semantics block below runs outside composition.
+    val resources = LocalResources.current
     var widthPx by remember { mutableIntStateOf(0) }
 
     /**
@@ -480,7 +486,7 @@ fun GridlinkSwipeRow(
                     listOfNotNull(actions.right, actions.leftShort, actions.leftLong)
                         .distinct()
                         .map { action ->
-                            CustomAccessibilityAction(action.label) {
+                            CustomAccessibilityAction(resources.getString(action.label)) {
                                 currentOnAction(action)
                                 true
                             }
@@ -603,7 +609,7 @@ fun GridlinkSwipeRow(
         actions.right?.let { right ->
             Icon(
                 imageVector = right.icon,
-                contentDescription = right.label,
+                contentDescription = stringResource(right.label),
                 tint = gridlinkOnAccent(archiveTrack),
                 modifier = Modifier
                     .align(Alignment.CenterStart)
@@ -648,7 +654,7 @@ fun GridlinkSwipeRow(
                     if (action != null) {
                         Icon(
                             imageVector = action.icon,
-                            contentDescription = action.label,
+                            contentDescription = stringResource(action.label),
                             tint = gridlinkOnAccent(leftTrack),
                             modifier = Modifier.size(iconSizeFor(action)),
                         )

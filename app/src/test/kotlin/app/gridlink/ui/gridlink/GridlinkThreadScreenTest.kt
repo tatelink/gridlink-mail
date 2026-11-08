@@ -331,7 +331,12 @@ class GridlinkThreadScreenTest {
         rule.onNodeWithText("Unsubscribe").performClick()
         assertTrue("the first tap must only ask", actions.isEmpty())
         rule.onNodeWithText("Unsubscribe from Dalton Energy?").assertExists()
-        rule.onNodeWithText(gridlinkUnsubscribeWarning(message(unsubscribe = method))).assertExists()
+        rule.onNodeWithText(
+            gridlinkUnsubscribeWarning(
+                ApplicationProvider.getApplicationContext<Context>(),
+                message(unsubscribe = method),
+            ),
+        ).assertExists()
 
         rule.onNodeWithText("Cancel").performClick()
         rule.onAllNodesWithText("Unsubscribe from Dalton Energy?").assertCountEquals(0)

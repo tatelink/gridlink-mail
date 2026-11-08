@@ -1,5 +1,8 @@
 package app.gridlink.ui.gridlink
 
+import android.content.res.Resources
+import androidx.annotation.PluralsRes
+import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
@@ -51,6 +54,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -93,10 +98,10 @@ import app.gridlink.ui.theme.isLightSurface
  */
 
 /** How the connection is doing, as the trailing edge of the chrome row states it. */
-enum class GridlinkSyncState(val label: String) {
-    SYNCED("Synced"),
-    SYNCING("Syncing"),
-    OFFLINE("Offline"),
+enum class GridlinkSyncState(@StringRes val label: Int) {
+    SYNCED(R.string.gl_list_sync_synced),
+    SYNCING(R.string.gl_list_sync_syncing),
+    OFFLINE(R.string.gl_list_sync_offline),
     ;
 
     /**
@@ -277,7 +282,9 @@ fun GridlinkMenuButton(
         ) { isClosing ->
             Icon(
                 imageVector = if (isClosing) Icons.Outlined.Close else Icons.Outlined.Menu,
-                contentDescription = if (isClosing) "Clear selection" else "Menu",
+                contentDescription = stringResource(
+                    if (isClosing) R.string.gl_list_clear_selection else R.string.inbox_menu,
+                ),
                 tint = colors.textSecondary,
                 modifier = Modifier.size(20.dp),
             )
@@ -333,7 +340,9 @@ fun GridlinkSelectAllButton(
     ) {
         Icon(
             imageVector = Icons.Outlined.DoneAll,
-            contentDescription = if (all) "Clear selection" else "Select all",
+            contentDescription = stringResource(
+                if (all) R.string.gl_list_clear_selection else R.string.inbox_select_all,
+            ),
             tint = if (all) colors.onAccent else colors.textSecondary,
             modifier = Modifier.size(20.dp),
         )
@@ -372,7 +381,7 @@ fun GridlinkSyncChip(
                 .background(sync.dotColor(), CircleShape),
         )
         Text(
-            text = sync.label,
+            text = stringResource(sync.label),
             modifier = Modifier.padding(start = GridlinkSpacing.s8),
             style = GridlinkType.metadata,
             color = colors.textSecondary,
@@ -399,16 +408,19 @@ fun GridlinkSyncChip(
  * compiles and is simply never drawn.
  */
 enum class GridlinkMenuItem(
-    val label: String,
+    @StringRes val label: Int,
     val icon: ImageVector,
-    /** What a count under this row is counting. Null on rows that cannot have one. */
-    val countNoun: String? = null,
+    /**
+     * How a count on this row is spoken ("3 waiting"), as a plural taking the count. Null on rows
+     * that cannot have one.
+     */
+    @PluralsRes val countSpoken: Int? = null,
 ) {
-    SCHEDULED("Scheduled", Icons.Outlined.Schedule, countNoun = "waiting"),
-    SNOOZED("Snoozed", Icons.Outlined.Snooze, countNoun = "waiting"),
-    DRAFTS("Drafts", Icons.Outlined.Drafts, countNoun = "unsent"),
-    ACCOUNTS("Accounts", Icons.Outlined.ManageAccounts),
-    SETTINGS("Settings", Icons.Outlined.Settings),
+    SCHEDULED(R.string.inbox_scheduled, Icons.Outlined.Schedule, countSpoken = R.plurals.gl_list_menu_count_waiting),
+    SNOOZED(R.string.inbox_snoozed, Icons.Outlined.Snooze, countSpoken = R.plurals.gl_list_menu_count_waiting),
+    DRAFTS(R.string.folder_drafts, Icons.Outlined.Drafts, countSpoken = R.plurals.gl_list_menu_count_unsent),
+    ACCOUNTS(R.string.settings_accounts_title, Icons.Outlined.ManageAccounts),
+    SETTINGS(R.string.inbox_settings, Icons.Outlined.Settings),
 }
 
 /**
@@ -546,6 +558,7 @@ fun GridlinkMenuPanel(
     // momentary object, so "4 min ago" cannot go stale while it is up, and picking a palette (which
     // recomposes everything in here) must not silently re-time the line underneath.
     val openedAt = remember { System.currentTimeMillis() }
+    val resources = LocalResources.current
 
     GridlinkSlideOutPanel(onDismiss = onDismiss, modifier = modifier) {
         Row(
@@ -602,7 +615,10 @@ fun GridlinkMenuPanel(
                         // Settings; whether it is talking JMAP at all is the thing that changes what
                         // the app can do, and it is the one line of this sheet a support question
                         // would ever ask for.
-                        text = gridlinkSyncLine(protocol, gridlinkSyncSentence(sync, lastSyncedAt, openedAt)),
+                        text = gridlinkSyncLine(
+                            protocol,
+                            gridlinkSyncSentence(resources, sync, lastSyncedAt, openedAt),
+                        ),
                         modifier = Modifier.padding(start = GridlinkSpacing.s8),
                         style = GridlinkType.metadata,
                         color = colors.textSecondary,
@@ -724,7 +740,7 @@ private fun MenuFolders(
         MenuFolderRow(folder, depth = 0, hideInbox = hideInbox, here = here, onSelectFolder = onSelectFolder)
     }
     GridlinkSheetAction(
-        label = "Manage folders",
+        label = stringResource(R.string.gl_list_manage_folders),
         icon = Icons.Outlined.CreateNewFolder,
         // The only route to the folder screen now that the pill has no seat for it. Named for the
         // verb rather than the place ("Folders" would read as a sixth mailbox in a list of mailboxes).
@@ -750,7 +766,13 @@ data class GridlinkHere(
 /** The unread count on the right of a mailbox row, absent at zero. */
 @Composable
 private fun UnreadCount(unread: Int) {
-    if (unread > 0) GridlinkSheetCount(unread, spoken = "$unread unread", attention = true)
+    if (unread > 0) {
+        GridlinkSheetCount(
+            unread,
+            spoken = pluralStringResource(R.plurals.gl_list_unread_count, unread, unread),
+            attention = true,
+        )
+    }
 }
 
 /** An account the drawer's address row can switch to. See [GridlinkMenuPanel]. */
@@ -802,7 +824,7 @@ private fun MenuUnifiedRows(
 ) {
     val colors = GridlinkTheme.colors
     GridlinkSheetAction(
-        label = "All inboxes",
+        label = stringResource(R.string.inbox_all_inboxes),
         icon = Icons.Outlined.AllInbox,
         // Counted, absent at zero, exactly as the folder rows do it. See [MenuFolderRow].
         trailing = unified.unread.takeIf { it > 0 }?.let { n -> { UnreadCount(n) } },
@@ -811,7 +833,7 @@ private fun MenuUnifiedRows(
         highlighted = onInbox && unified.active,
     )
     GridlinkSheetAction(
-        label = "Inbox",
+        label = stringResource(R.string.folder_inbox),
         icon = Icons.Outlined.Inbox,
         // The account, not a count. The number belongs to the row above (it is the sum) and the
         // tree's own Inbox is suppressed while this pair is up, so what this row is missing is not
@@ -873,16 +895,20 @@ private fun MenuRow(
     // the phrase is what a screen reader hears. Accounts keeps its line, because a lone "1" beside
     // it would look like a badge, and it counts itself rather than carrying a noun, because
     // "1 accounts" is the kind of thing that ships.
-    val count = item.countNoun?.let { noun -> counts[item]?.takeIf { it > 0 }?.let { it to noun } }
+    val count = item.countSpoken?.let { spoken -> counts[item]?.takeIf { it > 0 }?.let { it to spoken } }
     GridlinkSheetAction(
-        label = item.label,
+        label = stringResource(item.label),
         icon = item.icon,
         subline = if (item == GridlinkMenuItem.ACCOUNTS) {
-            if (accountCount == 1) "1 account" else "$accountCount accounts"
+            pluralStringResource(R.plurals.gl_list_account_count, accountCount, accountCount)
         } else {
             null
         },
-        trailing = count?.let { (n, noun) -> { GridlinkSheetCount(n, spoken = "$n $noun") } },
+        trailing = count?.let { (n, spoken) ->
+            {
+                GridlinkSheetCount(n, spoken = pluralStringResource(spoken, n, n))
+            }
+        },
         onClick = { onSelect(item) },
         highlighted = highlighted,
     )
@@ -901,12 +927,27 @@ private fun MenuRow(
  * answer it in different words. That is also why [now] is a parameter: the drawer freezes it at the
  * moment it opens, the empty state ticks it, and neither of those belongs in here.
  */
-internal fun gridlinkSyncSentence(sync: GridlinkSyncState, lastSyncedAt: Long?, now: Long): String {
-    val age = lastSyncedAt?.let { gridlinkSyncAge(now - it) }
+internal fun gridlinkSyncSentence(
+    resources: Resources,
+    sync: GridlinkSyncState,
+    lastSyncedAt: Long?,
+    now: Long,
+): String {
+    val age = lastSyncedAt?.let { gridlinkSyncAge(resources, now - it) }
     return when (sync) {
-        GridlinkSyncState.SYNCING -> "Syncing all accounts"
-        GridlinkSyncState.SYNCED -> if (age == null) "Synced" else "Synced $age"
-        GridlinkSyncState.OFFLINE -> if (age == null) "Offline · never synced" else "Offline · synced $age"
+        GridlinkSyncState.SYNCING -> resources.getString(R.string.gl_list_syncing_all_accounts)
+        GridlinkSyncState.SYNCED ->
+            if (age == null) {
+                resources.getString(R.string.gl_list_sync_synced)
+            } else {
+                resources.getString(R.string.gl_list_sync_synced_age, age)
+            }
+        GridlinkSyncState.OFFLINE ->
+            if (age == null) {
+                resources.getString(R.string.gl_list_sync_offline_never)
+            } else {
+                resources.getString(R.string.gl_list_sync_offline_age, age)
+            }
     }
 }
 
@@ -915,15 +956,21 @@ internal fun gridlinkSyncSentence(sync: GridlinkSyncState, lastSyncedAt: Long?, 
  * which needs a magnitude and not a duration: "2 hr ago" and "2 hr 14 min ago" lead to the same
  * decision and only one of them is short enough to sit under an email address.
  */
-internal fun gridlinkSyncAge(elapsedMs: Long): String {
+internal fun gridlinkSyncAge(resources: Resources, elapsedMs: Long): String {
     val minutes = elapsedMs / 60_000L
     return when {
         // Negative is possible: the stamp is a wall clock and the wall clock can move backwards.
         // "just now" is the honest answer to a sync in the future, and it beats "-3 min ago".
-        minutes < 1L -> "just now"
-        minutes < 60L -> "$minutes min ago"
-        minutes < 60L * 24L -> "${minutes / 60L} hr ago"
-        else -> "${minutes / (60L * 24L)} d ago"
+        minutes < 1L -> resources.getString(R.string.gl_list_sync_age_now)
+        minutes < 60L -> minutes.toInt().let {
+            resources.getQuantityString(R.plurals.gl_list_sync_age_minutes, it, it)
+        }
+        minutes < 60L * 24L -> (minutes / 60L).toInt().let {
+            resources.getQuantityString(R.plurals.gl_list_sync_age_hours, it, it)
+        }
+        else -> (minutes / (60L * 24L)).toInt().let {
+            resources.getQuantityString(R.plurals.gl_list_sync_age_days, it, it)
+        }
     }
 }
 

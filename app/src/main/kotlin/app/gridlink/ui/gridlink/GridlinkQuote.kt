@@ -1,6 +1,8 @@
 package app.gridlink.ui.gridlink
 
+import android.content.Context
 import androidx.compose.runtime.Immutable
+import app.gridlink.R
 import app.gridlink.core.data.text.HTML_COMMENT
 import app.gridlink.core.data.text.htmlEscapeMultiline
 import app.gridlink.core.data.text.htmlToText
@@ -52,9 +54,17 @@ data class GridlinkQuote(
  * a full date, because that is genuinely all a row carries. Every mail client writes an absolute date
  * here and this one will too the day the model has one; inventing one from a relative label would be
  * worse than the short form, since "9:00 AM" of an unstated day is at least not a wrong day.
+ *
+ * The line is written in the reader's language ([context]): it goes out in the body, under words
+ * the reader wrote in that language.
  */
-fun gridlinkReplyQuote(message: GridlinkMessage): GridlinkQuote = GridlinkQuote(
-    attribution = "On ${message.timestamp}, ${message.sender} <${message.address}> wrote:",
+fun gridlinkReplyQuote(context: Context, message: GridlinkMessage): GridlinkQuote = GridlinkQuote(
+    attribution = context.getString(
+        R.string.gl_compose_quote_attribution,
+        message.timestamp,
+        message.sender,
+        message.address,
+    ),
     html = gridlinkQuoteFragment(message),
     text = gridlinkQuoteText(message),
 )
@@ -66,12 +76,12 @@ fun gridlinkReplyQuote(message: GridlinkMessage): GridlinkQuote = GridlinkQuote(
  * matters more here than it does on a reply: a forward reaches someone who was not in the exchange,
  * so who it came from and when is the context, not a courtesy.
  */
-fun gridlinkForwardQuote(message: GridlinkMessage): GridlinkQuote = GridlinkQuote(
+fun gridlinkForwardQuote(context: Context, message: GridlinkMessage): GridlinkQuote = GridlinkQuote(
     attribution = buildString {
-        appendLine("---------- Forwarded message ----------")
-        appendLine("From: ${message.sender} <${message.address}>")
-        appendLine("Date: ${message.timestamp}")
-        append("Subject: ${message.subject}")
+        appendLine(context.getString(R.string.gl_compose_forward_header))
+        appendLine(context.getString(R.string.gl_compose_forward_from, message.sender, message.address))
+        appendLine(context.getString(R.string.gl_compose_forward_date, message.timestamp))
+        append(context.getString(R.string.gl_compose_forward_subject, message.subject))
     },
     html = gridlinkQuoteFragment(message),
     text = gridlinkQuoteText(message),

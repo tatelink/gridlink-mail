@@ -2,6 +2,7 @@ package app.gridlink.ui.gridlink
 
 import android.content.Context
 import android.net.Uri
+import app.gridlink.R
 import app.gridlink.core.data.contacts.ContactEdit
 import app.gridlink.core.data.contacts.ParsedContact
 import app.gridlink.core.data.contacts.VCard
@@ -26,14 +27,17 @@ internal data class ContactImportPlan(
 
 @Throws(IOException::class)
 internal fun readContactFile(context: Context, uri: Uri): String {
-    val input = context.contentResolver.openInputStream(uri) ?: throw IOException("The file could not be opened.")
+    val input = context.contentResolver.openInputStream(uri)
+        ?: throw IOException(context.getString(R.string.gl_people_import_open_failed))
     return input.use { stream ->
         val out = ByteArrayOutputStream()
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
         while (true) {
             val n = stream.read(buffer)
             if (n < 0) break
-            if (out.size() + n > MAX_IMPORT_BYTES) throw IOException("That file is too large to import.")
+            if (out.size() + n > MAX_IMPORT_BYTES) {
+                throw IOException(context.getString(R.string.gl_people_import_too_large))
+            }
             out.write(buffer, 0, n)
         }
         out.toString(Charsets.UTF_8.name())
@@ -75,13 +79,32 @@ internal fun planContactImport(
     return ContactImportPlan(edits, duplicates, unreadable)
 }
 
-internal fun contactImportSummary(imported: Int, plan: ContactImportPlan, failed: Int, firstError: String?): String =
-    buildList {
-        add("Imported $imported.")
-        if (plan.duplicates > 0) add("${plan.duplicates} already in contacts.")
-        if (plan.unreadable > 0) add("${plan.unreadable} unreadable.")
-        if (failed > 0) add("$failed not saved: ${firstError ?: "the server refused them."}")
+/**
+ * One line saying how an import went, in the reader's language. Each clause is its own sentence, so
+ * joining them with a space glues no grammar together.
+ */
+internal fun contactImportSummary(
+    context: Context,
+    imported: Int,
+    plan: ContactImportPlan,
+    failed: Int,
+    firstError: String?,
+): String {
+    val res = context.resources
+    return buildList {
+        add(res.getQuantityString(R.plurals.gl_people_import_imported, imported, imported))
+        if (plan.duplicates > 0) {
+            add(res.getQuantityString(R.plurals.gl_people_import_duplicates, plan.duplicates, plan.duplicates))
+        }
+        if (plan.unreadable > 0) {
+            add(res.getQuantityString(R.plurals.gl_people_import_unreadable, plan.unreadable, plan.unreadable))
+        }
+        if (failed > 0) {
+            val why = firstError ?: context.getString(R.string.gl_people_import_server_refused)
+            add(res.getQuantityString(R.plurals.gl_people_import_failed, failed, failed, why))
+        }
     }.joinToString(" ")
+}
 
 private fun vCardsIn(raw: String): List<String> {
     val cards = ArrayList<String>()

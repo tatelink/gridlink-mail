@@ -66,16 +66,34 @@ object GridlinkDavMapping {
         }
 
     /**
+     * The words an event entry can need that the occurrence does not carry, resolved from string
+     * resources by the caller (this object has no Android imports).
+     *
+     * @param untitled the title of an event that has none of its own.
+     * @param sizes the unit formats an attachment's size is written with.
+     */
+    data class EventText(val untitled: String, val sizes: SizeUnits)
+
+    /**
+     * An attachment size's three unit formats, each with one positional argument: "%1$d B",
+     * "%1$d KB", "%1$.1f MB" in English. Resources, because the symbols are not universal (French
+     * writes Ko and Mo, Russian КБ and МБ).
+     */
+    data class SizeUnits(val bytes: String, val kilobytes: String, val megabytes: String)
+
+    /**
      * @param calendars the account's calendars. Only with more than one does an event take its
      *   calendar's colour; a single-calendar account keeps the organiser colours it always had.
+     * @param text the untitled fallback and the size units, from resources.
      */
     fun event(
         occurrence: CalendarOccurrence,
         ownDomain: String,
         calendars: List<GridlinkCalendarInfo> = emptyList(),
+        text: EventText,
     ): GridlinkEvent = GridlinkEvent(
         id = PREFIX + occurrence.uid + "@" + occurrence.date + (occurrence.start?.let { "T$it" } ?: ""),
-        title = occurrence.summary?.takeIf { it.isNotBlank() } ?: "Untitled event",
+        title = occurrence.summary?.takeIf { it.isNotBlank() } ?: text.untitled,
         date = occurrence.date,
         start = occurrence.start,
         end = occurrence.end,
@@ -90,7 +108,7 @@ object GridlinkDavMapping {
         attachments = occurrence.attachments.map {
             GridlinkAttachment(
                 name = it.displayName,
-                size = it.size?.let(::byteLabel).orEmpty(),
+                size = it.size?.let { size -> byteLabel(size, text.sizes) }.orEmpty(),
                 // 🔴 The ticket the tap comes back with, prefixed like every other id here so
                 // nothing downstream can mistake it for one of the mail chips', whose id is an
                 // index into an open message's parts and would open the wrong file entirely.
@@ -197,11 +215,11 @@ object GridlinkDavMapping {
      * than a shared one, because this object is pure Kotlin with no Android or view-model imports
      * and reaching into `ui.home` for four lines would be the first crack in that.
      */
-    private fun byteLabel(bytes: Long): String = when {
+    private fun byteLabel(bytes: Long, units: SizeUnits): String = when {
         bytes <= 0 -> ""
-        bytes < BYTES_PER_KB -> "$bytes B"
-        bytes < BYTES_PER_KB * BYTES_PER_KB -> "${bytes / BYTES_PER_KB} KB"
-        else -> "%.1f MB".format(bytes.toDouble() / BYTES_PER_KB / BYTES_PER_KB)
+        bytes < BYTES_PER_KB -> units.bytes.format(bytes)
+        bytes < BYTES_PER_KB * BYTES_PER_KB -> units.kilobytes.format(bytes / BYTES_PER_KB)
+        else -> units.megabytes.format(bytes.toDouble() / BYTES_PER_KB / BYTES_PER_KB)
     }
 
     private const val BYTES_PER_KB = 1024L

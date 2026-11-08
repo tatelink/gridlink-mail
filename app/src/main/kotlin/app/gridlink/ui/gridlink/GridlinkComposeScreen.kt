@@ -1,5 +1,7 @@
 package app.gridlink.ui.gridlink
 
+import android.content.Context
+import android.text.format.DateFormat
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -71,6 +73,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.buildAnnotatedString
@@ -84,6 +87,8 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.gridlink.GridlinkApplication
+import app.gridlink.R
+import app.gridlink.appLocale
 import app.gridlink.contacts.AndroidContacts
 import app.gridlink.contacts.ContactSuggestion
 import app.gridlink.contacts.mergeSuggestions
@@ -108,6 +113,7 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
 import java.time.temporal.TemporalAdjusters
 
 /**
@@ -286,13 +292,17 @@ fun GridlinkComposeScreen(
         if (uris.isEmpty()) return
         attachScope.launch {
             attaching = true
-            attachNotice = if (uris.size == 1) "Attaching…" else "Attaching ${uris.size} files…"
+            attachNotice = context.resources.getQuantityString(
+                R.plurals.gl_compose_attaching_files,
+                uris.size,
+                uris.size,
+            )
             try {
                 uris.forEach { uri -> attachments = attachments + stage.stage(uri) }
                 attachNotice = null
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
-                attachNotice = t.message ?: "Couldn't attach that file."
+                attachNotice = t.message ?: context.getString(R.string.gl_compose_attach_failed)
             } finally {
                 attaching = false
             }
@@ -731,7 +741,8 @@ fun GridlinkComposeScreen(
                 .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.ime)),
         ) {
             GridlinkComposeHeader(
-                title = draft.title,
+                // A blank title is the compose button's: the screen's own name, in the reader's language.
+                title = draft.title.ifBlank { stringResource(R.string.inbox_compose) },
                 onClose = { onClose(closeRequest()) },
                 // 🔴 The send control is rendered by whichever slot currently owns it, and exactly
                 // one of them does. Both branches read the same `keyboardUp`, so there is no state
@@ -920,7 +931,7 @@ fun GridlinkComposeScreen(
                         // above it. TO needs a persistent one because it holds chips and a chip row
                         // with no label is a row of unexplained pills; a subject line is one string
                         // and the moment it has a value the label is restating the obvious.
-                        placeholder = "SUBJECT",
+                        placeholder = stringResource(R.string.compose_subject).uppercase(),
                         placeholderStyle = GridlinkType.sectionLabel,
                         style = GridlinkType.senderName,
                         focusRequester = subjectFocus,
@@ -943,7 +954,7 @@ fun GridlinkComposeScreen(
                         visualTransformation = GridlinkBodyMarks(bodySpans, colors.accent),
                         // Sentence case, unlike the two fields above it. Those labels name a slot in
                         // a form; this one is an invitation to write, and shouting it is wrong.
-                        placeholder = "Message",
+                        placeholder = stringResource(R.string.gl_compose_body_placeholder),
                         placeholderStyle = GridlinkType.body,
                         style = GridlinkType.body,
                         focusRequester = bodyFocus,
@@ -1147,7 +1158,7 @@ fun GridlinkComposeScreen(
             // minutes apart, and "Tonight" has to be judged against the clock the user is looking
             // at. `remember` inside this branch re-runs on every open because the branch leaves
             // composition in between.
-            presets = remember { gridlinkSchedulePresets(ZonedDateTime.now()) },
+            presets = remember { gridlinkSchedulePresets(context, ZonedDateTime.now()) },
             // 🔴 Hands the moment up, and deliberately does NOT open the undo window. The two
             // halves of §6c are different mechanisms and only one of them needs an escape hatch: an
             // undo window exists because a send you did not mean is already gone in ten seconds,
@@ -1340,7 +1351,9 @@ data class GridlinkComposeDraft(
          * wrong default looks like from the inside: three workarounds and no bug report.
          */
         val Fresh = GridlinkComposeDraft(
-            title = "Compose",
+            // Blank, and the header draws the screen's own name for it. A word here would be fixed
+            // in one language at class load, before anyone has asked which one the reader uses.
+            title = "",
             recipients = emptyList(),
             recipientQuery = "",
             subject = "",
@@ -1415,7 +1428,11 @@ data class GridlinkComposeDraft(
                 // Long enough to pass the fold on its own, because half the complaint is about what
                 // happens to text ABOVE the quote and a two-line body never leaves the top.
                 body = LONG_REPLY_BODY,
-                quoted = gridlinkReplyQuote(head).copy(
+                quoted = GridlinkQuote(
+                    attribution = "On ${head.timestamp}, ${head.sender} <${head.address}> wrote:",
+                    html = gridlinkQuoteFragment(head),
+                    text = gridlinkQuoteText(head),
+                ).copy(
                     // ⚠️ The HEAD's attribution is NOT repeated in here. `gridlinkReplyQuote`
                     // already put it in `attribution`, which the composer draws as the label above
                     // the block, so folding it in as well printed the same line twice.
@@ -1604,7 +1621,7 @@ private fun GridlinkTypedRecipientRow(
                 // States the fact rather than the instruction. "Use this address" would be a second
                 // way of saying what a tappable row already says; "not in your contacts" is the bit
                 // the user cannot see for themselves, and it explains why no suggestion matched.
-                text = "Not in your contacts",
+                text = stringResource(R.string.gl_compose_not_in_contacts),
                 style = GridlinkType.metadata,
                 color = colors.textSecondary,
                 maxLines = 1,
@@ -1650,7 +1667,7 @@ private fun GridlinkComposeHeader(
         // which is still lying.
         GridlinkCircleButton(
             icon = Icons.Outlined.Close,
-            label = "Close",
+            label = stringResource(R.string.message_headers_close),
             onClick = onClose,
         )
         Text(
@@ -1717,7 +1734,7 @@ private fun GridlinkSendButton(
     ) {
         Icon(
             imageVector = Icons.AutoMirrored.Filled.Send,
-            contentDescription = "Send",
+            contentDescription = stringResource(R.string.compose_send),
             tint = colors.onAccentWarm,
             // Scaled off the circle rather than fixed, so the 44dp and 64dp placements carry the
             // same glyph-to-circle ratio and the smaller one does not read as a shrunken version of
@@ -1739,10 +1756,10 @@ private fun GridlinkSendButton(
 private fun GridlinkAttachButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     GridlinkDetailActionPill(modifier = modifier) {
         GridlinkDetailActionItem(
-            label = "Attach",
+            label = stringResource(R.string.gl_compose_attach),
             icon = Icons.Outlined.AttachFile,
             onClick = onClick,
-            contentDescription = "Attach a file",
+            contentDescription = stringResource(R.string.gl_compose_attach_a_file),
             modifier = Modifier.width(ATTACH_SLOT_WIDTH),
         )
     }
@@ -1787,7 +1804,7 @@ private fun GridlinkRecipientField(
             ),
     ) {
         Text(
-            text = "TO",
+            text = stringResource(R.string.compose_to).uppercase(),
             style = GridlinkType.sectionLabel,
             color = colors.textSecondary,
         )
@@ -1856,7 +1873,7 @@ private fun GridlinkCcField(
             ),
     ) {
         Text(
-            text = "CC",
+            text = stringResource(R.string.compose_cc).uppercase(),
             style = GridlinkType.sectionLabel,
             color = colors.textSecondary,
         )
@@ -1916,7 +1933,7 @@ private fun GridlinkRecipientChip(
         ) {
             Icon(
                 imageVector = Icons.Outlined.Close,
-                contentDescription = "Remove ${contact.displayName}",
+                contentDescription = stringResource(R.string.gl_compose_remove_named, contact.displayName),
                 tint = colors.textSecondary,
                 modifier = Modifier.size(14.dp),
             )
@@ -2177,7 +2194,7 @@ private fun GridlinkAttachmentRow(
         ) {
             Icon(
                 imageVector = Icons.Outlined.Close,
-                contentDescription = "Remove ${attachment.name}",
+                contentDescription = stringResource(R.string.gl_compose_remove_named, attachment.name),
                 tint = colors.textSecondary,
                 modifier = Modifier.size(14.dp),
             )
@@ -2208,34 +2225,53 @@ data class GridlinkPresetTime(val label: String, val time: String, val millis: L
  * disabled option, it is a time that does not exist. "Monday" likewise stands down whenever
  * tomorrow already is Monday — two rows meaning the same morning would make the sheet look broken.
  */
-internal fun gridlinkSchedulePresets(now: ZonedDateTime): List<GridlinkPresetTime> = buildList {
+internal fun gridlinkSchedulePresets(context: Context, now: ZonedDateTime): List<GridlinkPresetTime> = buildList {
+    // The phone's own way of writing a time: the language picks the shape, the system 12/24-hour
+    // switch picks the clock. "7:00 AM" in English on a 12-hour phone, "07:00" on most others.
+    val locale = appLocale
+    val skeleton = if (DateFormat.is24HourFormat(context)) "Hm" else "hm"
+    val clock = DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, skeleton), locale)
     val today = now.toLocalDate()
     val tonight = today.atTime(18, 0).atZone(now.zone)
     if (tonight.isAfter(now)) {
-        add(GridlinkPresetTime("Tonight", "6:00 PM", tonight.toInstant().toEpochMilli()))
+        add(
+            GridlinkPresetTime(
+                context.getString(R.string.gl_compose_preset_tonight),
+                tonight.format(clock),
+                tonight.toInstant().toEpochMilli(),
+            ),
+        )
     }
     val tomorrow = today.plusDays(1)
+    val tomorrowAt = tomorrow.atTime(7, 0).atZone(now.zone)
     add(
         GridlinkPresetTime(
-            "Tomorrow",
-            "7:00 AM",
-            tomorrow.atTime(7, 0).atZone(now.zone).toInstant().toEpochMilli(),
+            context.getString(R.string.widget_agenda_tomorrow),
+            tomorrowAt.format(clock),
+            tomorrowAt.toInstant().toEpochMilli(),
         ),
     )
     val monday = today.with(TemporalAdjusters.next(DayOfWeek.MONDAY))
     if (monday != tomorrow) {
+        val mondayAt = monday.atTime(8, 0).atZone(now.zone)
         add(
             GridlinkPresetTime(
-                "Monday",
-                "8:00 AM",
-                monday.atTime(8, 0).atZone(now.zone).toInstant().toEpochMilli(),
+                // The weekday's own name from the locale, capitalised as a row label.
+                DayOfWeek.MONDAY.getDisplayName(TextStyle.FULL_STANDALONE, locale)
+                    .replaceFirstChar { it.titlecase(locale) },
+                mondayAt.format(clock),
+                mondayAt.toInstant().toEpochMilli(),
             ),
         )
     }
 }
 
-/** The time sheet's title for a picked day: the event form's own date spelling. */
-internal val SCHEDULE_DATE_TITLE: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM")
+/**
+ * The time sheet's title for a picked day, in the reader's language and order ("Tue 18 Aug",
+ * "Di., 18. Aug."). A getter so a language change shows on the next open.
+ */
+internal val SCHEDULE_DATE_TITLE: DateTimeFormatter
+    get() = DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(appLocale, "EEEdMMM"), appLocale)
 
 /**
  * Where the time list opens for a picked day: 8 AM for a future day, the next quarter hour for
@@ -2276,7 +2312,7 @@ private fun GridlinkScheduleSheet(
     val colors = GridlinkTheme.colors
     GridlinkCenterSheet(onDismiss = onDismiss) {
         Text(
-            text = "SEND LATER",
+            text = stringResource(R.string.gl_compose_send_later).uppercase(),
             style = GridlinkType.sectionLabel,
             color = colors.textSecondary,
             modifier = Modifier.padding(
@@ -2294,7 +2330,7 @@ private fun GridlinkScheduleSheet(
             )
         }
         GridlinkTimePresetRow(
-            label = "Pick a time",
+            label = stringResource(R.string.gl_compose_pick_a_time),
             trailing = null,
             // 🔴 The only accent row, because it is the only one that opens something else. The rows
             // above it are complete answers, and accenting them would make the sheet read as several

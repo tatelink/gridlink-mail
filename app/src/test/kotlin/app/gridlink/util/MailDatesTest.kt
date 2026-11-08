@@ -205,12 +205,26 @@ class MailDatesTest {
         // A US phone switched to 24-hour time: the clock follows the switch, not the language.
         assertEquals(
             "20:24",
-            MailDates.formatGridlinkStamp("2026-10-30T19:24:00Z", paris, today, Locale.US, style = phone),
+            MailDates.formatGridlinkStamp(
+                "2026-10-30T19:24:00Z",
+                paris,
+                today,
+                Locale.US,
+                yesterday = "Yesterday",
+                style = phone,
+            ),
         )
         // And an earlier day reads "Oct 20", the US order, instead of the fixed "20 Oct".
         assertEquals(
             "Oct 20",
-            MailDates.formatGridlinkStamp("2026-10-20T10:00:00Z", paris, today, Locale.US, style = phone),
+            MailDates.formatGridlinkStamp(
+                "2026-10-20T10:00:00Z",
+                paris,
+                today,
+                Locale.US,
+                yesterday = "Yesterday",
+                style = phone,
+            ),
         )
     }
 }

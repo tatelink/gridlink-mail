@@ -3,6 +3,7 @@ package app.gridlink.ui.gridlink
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -12,7 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
@@ -64,6 +65,7 @@ import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import app.gridlink.R
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkRadii
 import app.gridlink.ui.theme.GridlinkSpacing
@@ -181,21 +183,56 @@ fun GridlinkFormatToolbar(
         horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s4),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        GridlinkFormatButton(Icons.Outlined.FormatBold, "Bold", bold, onBold)
-        GridlinkFormatButton(Icons.Outlined.FormatItalic, "Italic", italic, onItalic)
-        GridlinkFormatButton(Icons.Outlined.FormatUnderlined, "Underline", underlined, onUnderline)
-        GridlinkFormatButton(Icons.Outlined.FormatStrikethrough, "Strikethrough", struck, onStrike)
-        GridlinkFormatButton(Icons.Outlined.FormatListBulleted, "Bulleted list", bulleted, onBulleted)
-        GridlinkFormatButton(Icons.Outlined.FormatListNumbered, "Numbered list", numbered, onNumbered)
-        GridlinkFormatButton(Icons.Outlined.FormatQuote, "Quote", quoted, onQuoted)
+        GridlinkFormatButton(Icons.Outlined.FormatBold, stringResource(R.string.gl_compose_format_bold), bold, onBold)
+        GridlinkFormatButton(
+            Icons.Outlined.FormatItalic,
+            stringResource(R.string.gl_compose_format_italic),
+            italic,
+            onItalic,
+        )
+        GridlinkFormatButton(
+            Icons.Outlined.FormatUnderlined,
+            stringResource(R.string.gl_compose_format_underline),
+            underlined,
+            onUnderline,
+        )
+        GridlinkFormatButton(
+            Icons.Outlined.FormatStrikethrough,
+            stringResource(R.string.gl_compose_format_strikethrough),
+            struck,
+            onStrike,
+        )
+        GridlinkFormatButton(
+            Icons.Outlined.FormatListBulleted,
+            stringResource(R.string.gl_compose_format_bulleted),
+            bulleted,
+            onBulleted,
+        )
+        GridlinkFormatButton(
+            Icons.Outlined.FormatListNumbered,
+            stringResource(R.string.gl_compose_format_numbered),
+            numbered,
+            onNumbered,
+        )
+        GridlinkFormatButton(
+            Icons.Outlined.FormatQuote,
+            stringResource(R.string.gl_compose_format_quote),
+            quoted,
+            onQuoted,
+        )
         // 🔴 Lettering, not a glyph. The icon set this app ships has nothing that says "heading
         // level one" — the nearest is a generic `Title` that would have to serve for both — and two
         // buttons a person cannot tell apart are worse than two they have to read.
-        GridlinkFormatTextButton("H1", "Heading", heading1, onHeading1)
-        GridlinkFormatTextButton("H2", "Subheading", heading2, onHeading2)
-        GridlinkFormatButton(Icons.Outlined.Link, "Link", linked, onLink)
+        GridlinkFormatTextButton("H1", stringResource(R.string.gl_compose_format_heading), heading1, onHeading1)
+        GridlinkFormatTextButton("H2", stringResource(R.string.gl_compose_format_subheading), heading2, onHeading2)
+        GridlinkFormatButton(Icons.Outlined.Link, stringResource(R.string.gl_compose_format_link), linked, onLink)
         if (canClear) {
-            GridlinkFormatButton(Icons.Outlined.FormatClear, "Plain text", active = false, onClick = onClear)
+            GridlinkFormatButton(
+                Icons.Outlined.FormatClear,
+                stringResource(R.string.gl_compose_format_plain),
+                active = false,
+                onClick = onClear,
+            )
         }
     }
 }
@@ -320,8 +357,10 @@ fun GridlinkLinkDialog(
     val shape = RoundedCornerShape(GridlinkRadii.pill)
 
     GridlinkDialog(
-        title = if (initialHref.isEmpty()) "Add link" else "Edit link",
-        confirmLabel = if (removing) "Remove" else "Link",
+        title = stringResource(
+            if (initialHref.isEmpty()) R.string.gl_compose_link_add_title else R.string.gl_compose_link_edit_title,
+        ),
+        confirmLabel = stringResource(if (removing) R.string.compose_remove else R.string.gl_compose_link_confirm),
         confirmEnabled = removing || href != null,
         destructive = removing,
         onConfirm = { if (removing || href != null) onConfirm(href.orEmpty()) },
@@ -353,9 +392,9 @@ fun GridlinkLinkDialog(
         // What is actually going to be sent, or why nothing is. Secondary text for the same reason
         // the folder rename dialog uses it: nothing is being destroyed and nothing is escalating.
         val note = when {
-            removing -> "Empty removes the link and keeps the text."
-            typed.isEmpty() -> "Web addresses and email addresses."
-            href == null -> "That is not a web or email address."
+            removing -> stringResource(R.string.gl_compose_link_note_removing)
+            typed.isEmpty() -> stringResource(R.string.gl_compose_link_note_hint)
+            href == null -> stringResource(R.string.gl_compose_link_note_invalid)
             href != typed -> href
             else -> null
         }

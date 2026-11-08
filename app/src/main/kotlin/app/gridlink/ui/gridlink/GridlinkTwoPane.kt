@@ -97,14 +97,13 @@ private val PLACEHOLDER_MARK_GAP = 20.dp
  */
 @Composable
 fun GridlinkThreadPlaceholder(
-    modifier: Modifier = Modifier,
     /**
      * What the pane is waiting for. Every destination with a detail view has its own pane and each
      * one is empty for its own reason, so "Select a message" beside a list of folders would be the
-     * app naming the wrong noun. Defaulted rather than required because the inbox is the caller that
-     * existed first and it should not have to restate the obvious.
+     * app naming the wrong noun. Required, and already translated by the caller.
      */
-    label: String = "Select a message",
+    label: String,
+    modifier: Modifier = Modifier,
 ) {
     val colors = GridlinkTheme.colors
     Box(

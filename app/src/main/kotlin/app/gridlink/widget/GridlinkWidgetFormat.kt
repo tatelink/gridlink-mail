@@ -1,5 +1,6 @@
 package app.gridlink.widget
 
+import android.text.format.DateFormat
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -10,7 +11,8 @@ import java.util.Locale
 
 /**
  * The widget's text rules, kept as pure functions so they can be tested without an
- * `AppWidgetManager`, a `Context` or a device clock.
+ * `AppWidgetManager`, a `Context` or a device clock. (The date skeletons go through
+ * [DateFormat.getBestDateTimePattern], so the unit test runs under Robolectric for ICU.)
  *
  * Nothing here reaches for a string resource. Every function that has an "and if there is nothing
  * to print?" case returns null and lets the caller name it, because the caller is the one holding
@@ -35,10 +37,15 @@ internal object GridlinkWidgetFormat {
      * Servers with a fast clock, and messages whose Date header is simply wrong, are both common
      * enough that "in -3m" would show up on real mail.
      *
-     * [justNowLabel] is passed in rather than written here because it is the one piece of this
-     * function that is a word: everything else is a number or comes out of [DateTimeFormatter]
-     * already localised, and hard-coding "now" would put an English string in the middle of a row
-     * that is otherwise translated.
+     * [justNowLabel] and [minutesPattern] are passed in rather than written here because they are
+     * the pieces of this function that are words: everything else comes out of [DateTimeFormatter]
+     * already localised, and hard-coding "now" or "5m" would put English in the middle of a row
+     * that is otherwise translated. [minutesPattern] is a format string taking the minute count as
+     * its one argument (`R.string.gl_misc_widget_minutes_ago`).
+     *
+     * The weekday and the day-and-month come from the locale's own skeleton patterns
+     * ([DateFormat.getBestDateTimePattern]), so each language gets its own order and punctuation
+     * rather than the English "d MMM".
      */
     fun relativeTime(
         nowMillis: Long,
@@ -46,10 +53,11 @@ internal object GridlinkWidgetFormat {
         zone: ZoneId,
         locale: Locale,
         justNowLabel: String,
+        minutesPattern: String,
     ): String {
         val minutes = (nowMillis - thenMillis) / 60_000L
         if (minutes < 1L) return justNowLabel
-        if (minutes < 60L) return "${minutes}m"
+        if (minutes < 60L) return String.format(locale, minutesPattern, minutes)
         val now = Instant.ofEpochMilli(nowMillis).atZone(zone)
         val then = Instant.ofEpochMilli(thenMillis).atZone(zone)
         val days = ChronoUnit.DAYS.between(then.toLocalDate(), now.toLocalDate())
@@ -58,8 +66,8 @@ internal object GridlinkWidgetFormat {
                 .withLocale(locale).format(then)
             // Under a week, and only then: at seven days the weekday name has come back round and
             // "Mon" stops distinguishing this Monday from the last one.
-            days < 7L -> DateTimeFormatter.ofPattern("EEE", locale).format(then)
-            else -> DateTimeFormatter.ofPattern("d MMM", locale).format(then)
+            days < 7L -> best(locale, "EEE").format(then)
+            else -> best(locale, "dMMM").format(then)
         }
     }
 
@@ -163,9 +171,12 @@ internal object GridlinkWidgetFormat {
     ): String = when (epochDay) {
         todayEpochDay -> todayLabel
         todayEpochDay + 1L -> tomorrowLabel
-        else -> DateTimeFormatter.ofPattern("EEE d MMM", locale)
-            .format(LocalDate.ofEpochDay(epochDay))
+        else -> best(locale, "EEEdMMM").format(LocalDate.ofEpochDay(epochDay))
     }
+
+    /** The locale's own pattern for [skeleton] ("EEE", "dMMM", ...), never a fixed English order. */
+    private fun best(locale: Locale, skeleton: String): DateTimeFormatter =
+        DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, skeleton), locale)
 
     /** An event's title, or null when it has none. Same collapse as a subject, same reason. */
     fun eventSummary(raw: String): String? = raw.collapseOrNull()

@@ -33,7 +33,7 @@ class GridlinkAttachmentTicketTest {
     )
 
     private fun mapped(attachment: CalendarAttachment) =
-        GridlinkDavMapping.event(occurrence(attachment), ownDomain = "gridlink.me").attachments.single()
+        GridlinkDavMapping.event(occurrence(attachment), ownDomain = "gridlink.me", text = TEXT).attachments.single()
 
     private fun attachment(
         href: String = "https://mail.gridlink.me/dav/cal/x/default/e.ics/.attachments/" +
@@ -107,3 +107,9 @@ class GridlinkAttachmentTicketTest {
         assertNull(GridlinkDavMapping.attachmentManagedId("2"))
     }
 }
+
+/** The English the app resolves from resources, fixed here so the mapping can be called on the JVM. */
+private val TEXT = GridlinkDavMapping.EventText(
+    untitled = "Untitled event",
+    sizes = GridlinkDavMapping.SizeUnits(bytes = "%1\$d B", kilobytes = "%1\$d KB", megabytes = "%1\$.1f MB"),
+)
