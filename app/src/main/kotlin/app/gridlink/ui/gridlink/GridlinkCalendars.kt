@@ -32,7 +32,7 @@ import app.gridlink.ui.theme.GridlinkSenderBars
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
-import app.gridlink.ui.theme.gridlinkSenderBarColor
+import app.gridlink.ui.theme.gridlinkColorsFor
 
 /**
  * How one calendar is coloured: the server's own colour when it carries one, else a slot in the
@@ -68,10 +68,15 @@ fun gridlinkCalendarColor(mode: GridlinkMode, tint: GridlinkCalendarTint): Color
 
 /**
  * An event's colour on the grid: its calendar's when the account has more than one (the mapping only
- * sets [GridlinkEvent.calendarTint] then), else the organiser-domain colour the calendar always used.
+ * sets [GridlinkEvent.calendarTint] then), else the theme's accent.
+ *
+ * The fallback used to be the organiser-domain colour from the sender-bar ramp. That ramp is built to
+ * be quiet (identity, not volume), and once the week grid filled its blocks with it, a one-calendar
+ * account's whole week came out slate grey on a navy grid and looked empty. The accent is what the
+ * app means by "yours", which is what an event on your own calendar is. (Polish pass, 2026-11-07.)
  */
 fun gridlinkEventColor(mode: GridlinkMode, event: GridlinkEvent): Color =
-    event.calendarTint?.let { gridlinkCalendarColor(mode, it) } ?: gridlinkSenderBarColor(mode, event.domain)
+    event.calendarTint?.let { gridlinkCalendarColor(mode, it) } ?: gridlinkColorsFor(mode).accent
 
 /**
  * A CalDAV `calendar-color` as ARGB, or null when it is absent or unreadable.

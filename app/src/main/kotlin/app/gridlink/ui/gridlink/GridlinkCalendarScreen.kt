@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -48,16 +49,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.Hyphens
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import app.gridlink.R
+import app.gridlink.ui.components.onAccentColor
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
 import app.gridlink.ui.theme.GridlinkRadii
@@ -1626,7 +1632,6 @@ private fun GridlinkDayColumn(
                 accent = gridlinkEventColor(mode, event),
                 onClick = { onOpenEvent(event) },
                 current = event.id == currentId,
-                showTime = heightDp >= 40.dp,
                 modifier = Modifier
                     .fillMaxWidth(1f / block.columns)
                     .offset(
@@ -1700,9 +1705,14 @@ private fun layOutOverlaps(events: List<GridlinkEvent>): List<GridlinkTimeBlock>
 /**
  * A coloured block in a time grid.
  *
- * Tinted fill plus a solid leading bar, matching the message row's identity bar exactly: same 3dp,
- * same colour source, same edge. A solid-filled block would be the loudest thing on the screen and
- * a seven-column week of them would be a bar chart.
+ * Filled with the event's colour, text in whichever of black or white reads on it. It used to be an
+ * 18% wash with a 3dp bar, on the reasoning that a solid week would read as a bar chart; in practice
+ * the wash was nearly the grid's own colour and a week with three meetings looked empty. (Polish
+ * pass, 2026-11-07.) Selection is a ring in the page's text colour, since a block that is already
+ * solid has no denser fill left to go to.
+ *
+ * The title takes as many lines as the block's real height holds (two in a 30-minute block), and
+ * the start time is added only when there is a line to spare beyond those.
  */
 @Composable
 private fun GridlinkEventBlock(
@@ -1715,62 +1725,68 @@ private fun GridlinkEventBlock(
 ) {
     val colors = GridlinkTheme.colors
     val shape = RoundedCornerShape(GridlinkSpacing.s4)
-    // 🔴 A block cannot be marked with `colors.selection` the way an agenda row is. That fill is a
-    // neutral wash laid over a transparent row; laid over a block that is already an 18% wash of its
-    // own accent it becomes a third muddy colour that differs per event, and on a week grid of them
-    // nothing reads as marked. So the block states it in its own colour instead: the same accent,
-    // denser, with a solid outline. Hue never changes, which is what keeps the identity readable.
-    val fill by animateColorAsState(
-        targetValue = accent.copy(alpha = if (current) 0.38f else 0.18f),
+    // The palette's own on-accent ink when the block is the accent, so it matches every other accent
+    // control (white on blue, not the black a bare contrast check picks); computed for any other hue.
+    val ink = if (accent == colors.accent) colors.onAccent else onAccentColor(accent)
+    val ring by animateColorAsState(
+        targetValue = if (current) colors.textPrimary else Color.Transparent,
         animationSpec = GridlinkMotion.standard(),
         label = "blockCurrent",
     )
-    Row(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(fill, shape)
-            .then(if (current) Modifier.border(1.5.dp, accent, shape) else Modifier)
-            .clickable(onClick = onClick),
+            .background(accent, shape)
+            .border(BLOCK_RING, ring, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = BLOCK_PAD_H, vertical = BLOCK_PAD_V),
     ) {
-        Box(
-            modifier = Modifier
-                .width(GridlinkDimens.senderBarWidth)
-                .fillMaxHeight()
-                .background(accent),
-        )
-        BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 2.dp),
-        ) {
-            // 🔴 Measured, not passed in by the caller. A seven-day column on a folded Fold is about
-            // 51dp wide, and 12sp bold "Callout" does not fit in it, so Compose broke the word and
-            // rendered "Callou / t cov…" — which reads as a rendering fault rather than as
-            // truncation. One line with an ellipsis is an honest "there is more here"; a hyphenless
-            // mid-word wrap is not. Below the threshold the start time goes too: the block's
-            // vertical position already states it and the hour gutter is two columns away.
-            val narrow = maxWidth < TIGHT_BLOCK_WIDTH
-            Column {
+        val lineDp = with(LocalDensity.current) { BLOCK_LINE.toDp() }
+        // A 30-minute block is about 25dp, so the line is 11.5sp and the padding half a dp. The
+        // slack only stops 22.99 flooring to one line.
+        val lines = ((maxHeight + LINE_SLACK) / lineDp).toInt().coerceAtLeast(1)
+        // A week column on a folded Fold is about 51dp. Titles still wrap there, but hyphenated:
+        // a bare mid-word break reads as a rendering fault, a hyphen reads as wrapping.
+        val narrow = maxWidth < TIGHT_BLOCK_WIDTH
+        val start = event.start
+        val withTime = showTime && !narrow && start != null && lines >= BLOCK_LINES_FOR_TIME
+        // Unbounded height, so [lines] decides how many lines show and not Text's own height check,
+        // which cut the second line of a 30-minute block. The block's clip still bounds the drawing.
+        Column(Modifier.wrapContentHeight(align = Alignment.Top, unbounded = true)) {
+            Text(
+                text = event.title,
+                style = BLOCK_TEXT.copy(hyphens = if (narrow) Hyphens.Auto else Hyphens.None),
+                color = ink,
+                maxLines = (if (withTime) lines - 1 else lines).coerceAtMost(BLOCK_MAX_TITLE_LINES),
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (withTime && start != null) {
                 Text(
-                    text = event.title,
-                    style = GridlinkType.badge,
-                    color = colors.textPrimary,
-                    maxLines = if (showTime && !narrow) 2 else 1,
-                    overflow = TextOverflow.Ellipsis,
+                    text = start.compact(),
+                    style = BLOCK_TEXT.copy(fontWeight = FontWeight.Medium),
+                    color = ink.copy(alpha = BLOCK_TIME_ALPHA),
+                    maxLines = 1,
                 )
-                if (showTime && !narrow && event.start != null) {
-                    Text(
-                        text = event.start.compact(),
-                        style = GridlinkType.badge,
-                        color = colors.textSecondary,
-                        maxLines = 1,
-                    )
-                }
             }
         }
     }
 }
+
+/** Block text: the badge face at 11sp on an 11.5sp line, so two lines fit a 30-minute block. */
+private val BLOCK_LINE = 11.5.sp
+private val BLOCK_TEXT = GridlinkType.badge.copy(
+    fontSize = 11.sp,
+    lineHeight = BLOCK_LINE,
+    lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),
+)
+private val BLOCK_PAD_H = 4.dp
+private val BLOCK_PAD_V = 0.5.dp
+private val BLOCK_RING = 1.5.dp
+private val LINE_SLACK = 0.5.dp
+private const val BLOCK_MAX_TITLE_LINES = 3
+private const val BLOCK_LINES_FOR_TIME = 3
+private const val BLOCK_TIME_ALPHA = 0.8f
 
 /**
  * The air between one day and the next on the agenda: under the day that ended, over the rule, and
