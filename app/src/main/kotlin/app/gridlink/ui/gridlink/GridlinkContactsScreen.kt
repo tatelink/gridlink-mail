@@ -692,8 +692,15 @@ private fun GridlinkAlphabetRail(
     // offered taps that go nowhere and made every letter smaller to fit them.
     val letters = remember(populated) { GridlinkSampleContacts.alphabet.filter { it in populated } }
 
-    val seedIndex = remember(initialScrubLetter) {
-        initialScrubLetter?.let { letters.indexOf(it.uppercaseChar()) }?.takeIf { it >= 0 }
+    // 🔴 Seeded against the whole alphabet, then mapped onto the rail. The rail only carries letters
+    // somebody is filed under, so a seed of an empty X is not on it at all; it lands on the nearest
+    // populated letter before it (W), or after it when nothing comes before, like a scrub does.
+    val seedIndex = remember(initialScrubLetter, letters) {
+        initialScrubLetter?.uppercaseChar()?.let { seed ->
+            val before = letters.lastOrNull { it <= seed }
+            val target = before ?: letters.firstOrNull { it > seed }
+            target?.let { letters.indexOf(it) }
+        }
     }
     var scrubbing by remember { mutableStateOf(seedIndex != null) }
     // Deliberately kept after the lift, so the collapse has a centre to shrink towards instead of
