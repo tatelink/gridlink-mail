@@ -1064,7 +1064,8 @@
     <string name="gl_compose_send_later">Отправить позже</string>
     <string name="gl_compose_pick_a_time">Выбрать время</string>
     <string name="gl_compose_preset_tonight">Сегодня вечером</string>
-    <string name="gl_compose_quote_attribution">%1$s, %2$s &lt;%3$s&gt; написал(а):</string>
+    <string name="gl_compose_quote_attribution">%1$s в %2$s, %3$s &lt;%4$s&gt; написал(а):</string>
+    <string name="gl_compose_quote_attribution_undated">%1$s &lt;%2$s&gt; написал(а):</string>
     <string name="gl_compose_forward_header">---------- Пересылаемое письмо ----------</string>
     <string name="gl_compose_forward_from">От: %1$s &lt;%2$s&gt;</string>
     <string name="gl_compose_forward_date">Дата: %1$s</string>

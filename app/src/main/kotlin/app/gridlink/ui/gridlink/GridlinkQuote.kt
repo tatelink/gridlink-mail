@@ -1,11 +1,16 @@
 package app.gridlink.ui.gridlink
 
 import android.content.Context
+import android.text.format.DateFormat
 import androidx.compose.runtime.Immutable
 import app.gridlink.R
 import app.gridlink.core.data.text.HTML_COMMENT
 import app.gridlink.core.data.text.htmlEscapeMultiline
 import app.gridlink.core.data.text.htmlToText
+import app.gridlink.util.MailDates
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /**
  * The original a reply or a forward carries under what you write.
@@ -31,7 +36,7 @@ import app.gridlink.core.data.text.htmlToText
  */
 @Immutable
 data class GridlinkQuote(
-    /** "On 7 Aug, Fandango Stream <no-reply@fandango.com> wrote:", or the forward's header block. */
+    /** "On Thu, Aug 7, 2026 at 9:12 AM, Fandango <no-reply@fandango.com> wrote:", or a forward's header. */
     val attribution: String,
     /** The original body as an HTML fragment, ready to drop inside a `<blockquote>`. */
     val html: String,
@@ -50,24 +55,65 @@ data class GridlinkQuote(
 /**
  * The reply quote for [message].
  *
- * ⚠️ The date is [GridlinkMessage.timestamp], which is a DISPLAY string ("9:00 AM", "7 Aug") and not
- * a full date, because that is genuinely all a row carries. Every mail client writes an absolute date
- * here and this one will too the day the model has one; inventing one from a relative label would be
- * worse than the short form, since "9:00 AM" of an unstated day is at least not a wrong day.
+ * "On Sat, Nov 8, 2026 at 11:40 AM, M. Ridley <m@x> wrote:", with the date and the time written the
+ * way the reader's language writes them. They come from [GridlinkMessage.receivedAt], the server's
+ * instant, and never from [GridlinkMessage.timestamp]: that one is the list's short label ("9:00 AM",
+ * "Yesterday"), which turned the line into "On Yesterday, ..." and, worse, kept saying "yesterday"
+ * in a mail read a month later.
+ *
+ * A message with no instant (only sample data) says who wrote it and nothing about when, rather than
+ * guessing a day.
  *
  * The line is written in the reader's language ([context]): it goes out in the body, under words
  * the reader wrote in that language.
  */
-fun gridlinkReplyQuote(context: Context, message: GridlinkMessage): GridlinkQuote = GridlinkQuote(
-    attribution = context.getString(
-        R.string.gl_compose_quote_attribution,
-        message.timestamp,
-        message.sender,
-        message.address,
-    ),
-    html = gridlinkQuoteFragment(message),
-    text = gridlinkQuoteText(message),
-)
+fun gridlinkReplyQuote(context: Context, message: GridlinkMessage): GridlinkQuote {
+    val stamp = gridlinkQuoteStamp(message.receivedAt, context.quoteLocale(), DateFormat.is24HourFormat(context))
+    return GridlinkQuote(
+        attribution = if (stamp != null) {
+            context.getString(
+                R.string.gl_compose_quote_attribution,
+                stamp.date,
+                stamp.time,
+                message.sender,
+                message.address,
+            )
+        } else {
+            context.getString(R.string.gl_compose_quote_attribution_undated, message.sender, message.address)
+        },
+        html = gridlinkQuoteFragment(message),
+        text = gridlinkQuoteText(message),
+    )
+}
+
+/** The date and the time of a quoted message, each already in the reader's format. */
+internal data class GridlinkQuoteStamp(val date: String, val time: String) {
+    /** Both together, for a forward's "Date:" line. */
+    val full: String get() = "$date, $time"
+}
+
+/**
+ * [iso] as the date and time a quote line prints, or null when there is none to print.
+ *
+ * The patterns come from the locale's own skeletons ("EEE, MMM d, yyyy" in en-US, "EEE, d. MMM
+ * yyyy" in de), so the order of the fields and the punctuation are the language's. [is24] follows
+ * the phone's clock setting, as every other time in the app does.
+ */
+internal fun gridlinkQuoteStamp(
+    iso: String?,
+    locale: Locale,
+    is24: Boolean,
+    zone: ZoneId = ZoneId.systemDefault(),
+): GridlinkQuoteStamp? {
+    val datePattern = DateFormat.getBestDateTimePattern(locale, "EEEdMMMyyyy")
+    val timePattern = DateFormat.getBestDateTimePattern(locale, if (is24) "HHmm" else "hmma")
+    val date = MailDates.formatWith(iso, DateTimeFormatter.ofPattern(datePattern, locale), zone)
+    if (date.isEmpty()) return null
+    return GridlinkQuoteStamp(date, MailDates.formatWith(iso, DateTimeFormatter.ofPattern(timePattern, locale), zone))
+}
+
+/** The language the quote line is written in: the one its strings resolve in. */
+private fun Context.quoteLocale(): Locale = resources.configuration.locales[0] ?: Locale.getDefault()
 
 /**
  * The forward quote for [message].
@@ -80,7 +126,12 @@ fun gridlinkForwardQuote(context: Context, message: GridlinkMessage): GridlinkQu
     attribution = buildString {
         appendLine(context.getString(R.string.gl_compose_forward_header))
         appendLine(context.getString(R.string.gl_compose_forward_from, message.sender, message.address))
-        appendLine(context.getString(R.string.gl_compose_forward_date, message.timestamp))
+        val stamp = gridlinkQuoteStamp(
+            message.receivedAt,
+            context.quoteLocale(),
+            DateFormat.is24HourFormat(context),
+        )
+        appendLine(context.getString(R.string.gl_compose_forward_date, stamp?.full ?: message.timestamp))
         append(context.getString(R.string.gl_compose_forward_subject, message.subject))
     },
     html = gridlinkQuoteFragment(message),

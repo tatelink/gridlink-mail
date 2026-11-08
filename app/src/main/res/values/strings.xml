@@ -1074,7 +1074,8 @@
     <string name="gl_compose_send_later">Send later</string>
     <string name="gl_compose_pick_a_time">Pick a time</string>
     <string name="gl_compose_preset_tonight">Tonight</string>
-    <string name="gl_compose_quote_attribution">On %1$s, %2$s &lt;%3$s&gt; wrote:</string>
+    <string name="gl_compose_quote_attribution">On %1$s at %2$s, %3$s &lt;%4$s&gt; wrote:</string>
+    <string name="gl_compose_quote_attribution_undated">%1$s &lt;%2$s&gt; wrote:</string>
     <string name="gl_compose_forward_header">---------- Forwarded message ----------</string>
     <string name="gl_compose_forward_from">From: %1$s &lt;%2$s&gt;</string>
     <string name="gl_compose_forward_date">Date: %1$s</string>

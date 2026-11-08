@@ -1390,7 +1390,7 @@ data class GridlinkComposeDraft(
             // why it reads like sample data: it is. The frame is §1d's, and this is the callout it
             // replies to.
             quoted = GridlinkQuote(
-                attribution = "On Yesterday 3:05 PM, M. Ridley <m.ridley@hrbenefits.example> wrote:",
+                attribution = "On Fri, Nov 6, 2026 at 3:05 PM, M. Ridley <m.ridley@hrbenefits.example> wrote:",
                 html = "Need coverage Saturday AM at 4090 Briarfield. Two callouts overnight and " +
                     "Perez has already picked up one of them.",
                 text = "Need coverage Saturday AM at 4090 Briarfield. Two callouts overnight and " +
@@ -1429,7 +1429,8 @@ data class GridlinkComposeDraft(
                 // happens to text ABOVE the quote and a two-line body never leaves the top.
                 body = LONG_REPLY_BODY,
                 quoted = GridlinkQuote(
-                    attribution = "On ${head.timestamp}, ${head.sender} <${head.address}> wrote:",
+                    // Sample messages carry no instant, so this is the undated line a live reply would write.
+                    attribution = "${head.sender} <${head.address}> wrote:",
                     html = gridlinkQuoteFragment(head),
                     text = gridlinkQuoteText(head),
                 ).copy(

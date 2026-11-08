@@ -1,13 +1,18 @@
 package app.gridlink.ui.gridlink
 
 import android.content.Context
+import android.text.format.DateFormat
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import java.time.ZoneOffset
+import java.util.Locale
 
 /**
  * What a reply and a forward actually carry of the message they answer.
@@ -26,12 +31,14 @@ class GridlinkQuoteTest {
     private fun message(
         body: String = "<p>Need coverage Saturday.</p>",
         plain: Boolean = false,
+        receivedAt: String? = null,
     ) = GridlinkMessage(
         id = "m1",
         sender = "M. Ridley",
         domain = "gridlink.me",
         subject = "Callout Saturday AM",
         timestamp = "3:05 PM",
+        receivedAt = receivedAt,
         body = body,
         bodyIsPlainText = plain,
         addressOverride = "m.ridley@gridlink.me",
@@ -40,20 +47,54 @@ class GridlinkQuoteTest {
     // ---- the attribution ------------------------------------------------------------------------
 
     @Test
-    fun `a reply says who wrote it and when, with the real address`() {
-        val quote = gridlinkReplyQuote(context, message())
-        assertEquals("On 3:05 PM, M. Ridley <m.ridley@gridlink.me> wrote:", quote.attribution)
+    fun `a reply says who wrote it and when, as an absolute date and time`() {
+        val quote = gridlinkReplyQuote(context, message(receivedAt = SAT_NOV_7))
+        val stamp = gridlinkQuoteStamp(SAT_NOV_7, Locale.US, DateFormat.is24HourFormat(context)).let(::checkNotNull)
+        assertEquals(
+            "On ${stamp.date} at ${stamp.time}, M. Ridley <m.ridley@gridlink.me> wrote:",
+            quote.attribution,
+        )
+        // 🔴 Never the list's label. "On 3:05 PM, ..." and "On Yesterday, ..." were both shipped.
+        assertFalse(quote.attribution, quote.attribution.contains("3:05 PM"))
         // One line, so the composer's label above the block is one line.
         assertEquals(quote.attribution, quote.label)
     }
 
     @Test
+    fun `the date and time are written in the reader's own format`() {
+        val utc = ZoneOffset.UTC
+        val us = gridlinkQuoteStamp(SAT_NOV_7, Locale.US, is24 = false, zone = utc).let(::checkNotNull)
+        assertEquals("Sat, Nov 7, 2026", us.date)
+        assertEquals("4:40 PM", us.time.replace(' ', ' '))
+        val de = gridlinkQuoteStamp(SAT_NOV_7, Locale.GERMANY, is24 = true, zone = utc).let(::checkNotNull)
+        assertEquals("Sa., 7. Nov. 2026", de.date)
+        assertEquals("16:40", de.time)
+    }
+
+    @Test
+    @Config(qualifiers = "de")
+    fun `a German reply reads as German, not a reworded English line`() {
+        val de = ApplicationProvider.getApplicationContext<Context>()
+        val quote = gridlinkReplyQuote(de, message(receivedAt = SAT_NOV_7))
+        val stamp = gridlinkQuoteStamp(SAT_NOV_7, Locale.GERMAN, DateFormat.is24HourFormat(de)).let(::checkNotNull)
+        assertEquals("Am ${stamp.date} um ${stamp.time} schrieb M. Ridley <m.ridley@gridlink.me>:", quote.attribution)
+    }
+
+    @Test
+    fun `a message with no instant says who wrote it and nothing about when`() {
+        val quote = gridlinkReplyQuote(context, message())
+        assertEquals("M. Ridley <m.ridley@gridlink.me> wrote:", quote.attribution)
+        assertNull(gridlinkQuoteStamp("not a date", Locale.US, is24 = false))
+    }
+
+    @Test
     fun `a forward states the header block, not a wrote line`() {
-        val quote = gridlinkForwardQuote(context, message())
+        val quote = gridlinkForwardQuote(context, message(receivedAt = SAT_NOV_7))
+        val stamp = gridlinkQuoteStamp(SAT_NOV_7, Locale.US, DateFormat.is24HourFormat(context)).let(::checkNotNull)
         val lines = quote.attribution.lines()
         assertEquals("---------- Forwarded message ----------", lines[0])
         assertEquals("From: M. Ridley <m.ridley@gridlink.me>", lines[1])
-        assertEquals("Date: 3:05 PM", lines[2])
+        assertEquals("Date: ${stamp.date}, ${stamp.time}", lines[2])
         assertEquals("Subject: Callout Saturday AM", lines[3])
         // The recipient of a forward was not in the exchange, so the subject is context, not repetition.
         assertEquals(4, lines.size)
@@ -202,5 +243,10 @@ class GridlinkQuoteTest {
     @Test
     fun `a fresh compose has nothing to quote`() {
         assertEquals(null, GridlinkComposeDraft.Fresh.quoted)
+    }
+
+    private companion object {
+        /** A Saturday afternoon in UTC, early enough in the evening to be the 7th in every US zone. */
+        const val SAT_NOV_7 = "2026-11-07T16:40:00Z"
     }
 }
