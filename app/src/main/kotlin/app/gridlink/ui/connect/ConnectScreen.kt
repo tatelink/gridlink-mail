@@ -3,7 +3,10 @@
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,7 +19,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.relocation.BringIntoViewRequester
@@ -41,7 +43,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -60,7 +61,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.AutofillType
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -69,19 +72,20 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.compose.ui.ExperimentalComposeUiApi
-import androidx.compose.ui.autofill.AutofillType
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import app.gridlink.R
+import app.gridlink.core.data.account.AuthType
+import app.gridlink.core.data.account.ConnectionSecurity
+import app.gridlink.core.data.account.MailProtocol
+import app.gridlink.core.data.mail.SignInStep
+import app.gridlink.core.data.mail.asClipboardText
 import app.gridlink.ui.components.AppPasswordHelpLink
 import app.gridlink.ui.components.PendingImportAccountsSection
 import app.gridlink.ui.components.autofill
@@ -91,12 +95,8 @@ import app.gridlink.ui.settings.SettingsViewModel
 import app.gridlink.ui.settings.applyAppLanguage
 import app.gridlink.ui.theme.GridlinkMaterialSkin
 import app.gridlink.ui.theme.GridlinkSpacing
+import app.gridlink.ui.theme.GridlinkType
 import app.gridlink.util.isValidEmail
-import app.gridlink.core.data.account.AuthType
-import app.gridlink.core.data.account.ConnectionSecurity
-import app.gridlink.core.data.account.MailProtocol
-import app.gridlink.core.data.mail.SignInStep
-import app.gridlink.core.data.mail.asClipboardText
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -350,7 +350,7 @@ fun ConnectScreen(
                     Spacer(Modifier.height(4.dp))
                     Text(
                         stringResource(R.string.connect_welcome_title),
-                        style = MaterialTheme.typography.headlineSmall,
+                        style = GridlinkType.pageTitle,
                     )
                     Text(
                         stringResource(R.string.connect_welcome_subtitle),
@@ -375,7 +375,7 @@ fun ConnectScreen(
                 // How to connect, asked once. The protocol and the provider used to be separate
                 // questions, and the second was invisible until the first was answered "IMAP" —
                 // so the shortcut for the commonest case sat behind a decision about protocols.
-                Text(stringResource(R.string.connect_provider_preset), style = MaterialTheme.typography.labelLarge)
+                ConnectSectionLabel(stringResource(R.string.connect_provider_preset))
                 SetupChoiceList(
                     selected = selectedChoice(preset, protocol),
                     onChoose = { choice ->
@@ -389,7 +389,7 @@ fun ConnectScreen(
                 )
 
                 if (protocol == MailProtocol.JMAP) {
-                    Text(stringResource(R.string.connect_auth_method), style = MaterialTheme.typography.labelLarge)
+                    ConnectSectionLabel(stringResource(R.string.connect_auth_method))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(
                             selected = !useApiToken,
@@ -424,18 +424,14 @@ fun ConnectScreen(
                             )
                         }
                     }
-                    TextButton(
+                    ConnectLinkButton(
+                        text = stringResource(
+                            if (showAdvanced) R.string.connect_advanced_hide else R.string.connect_advanced_show,
+                        ),
                         onClick = { showAdvanced = !showAdvanced },
-                        contentPadding = PaddingValues(0.dp),
-                    ) {
-                        Text(
-                            stringResource(
-                                if (showAdvanced) R.string.connect_advanced_hide else R.string.connect_advanced_show,
-                            ),
-                        )
-                    }
+                    )
                     if (showAdvanced) {
-                        OutlinedTextField(
+                        ConnectField(
                             value = server,
                             onValueChange = { server = it },
                             label = { Text(stringResource(R.string.connect_jmap_server)) },
@@ -476,7 +472,7 @@ fun ConnectScreen(
                             }
                         }
 
-                        Text(stringResource(R.string.connect_incoming_imap), style = MaterialTheme.typography.labelLarge)
+                        ConnectSectionLabel(stringResource(R.string.connect_incoming_imap))
                         HostPortRow(
                             host = preset.imapHost, onHost = { preset = preset.copy(imapHost = it) },
                             port = preset.imapPort, onPort = { preset = preset.copy(imapPort = it) },
@@ -484,7 +480,7 @@ fun ConnectScreen(
                         )
                         SecurityChips(preset.imapSecurity) { preset = preset.copy(imapSecurity = it) }
 
-                        Text(stringResource(R.string.connect_outgoing_smtp), style = MaterialTheme.typography.labelLarge)
+                        ConnectSectionLabel(stringResource(R.string.connect_outgoing_smtp))
                         HostPortRow(
                             host = preset.smtpHost, onHost = { preset = preset.copy(smtpHost = it) },
                             port = preset.smtpPort, onPort = { preset = preset.copy(smtpPort = it) },
@@ -512,7 +508,7 @@ fun ConnectScreen(
                     modifier = Modifier.bringIntoViewRequester(credentialReveal.block),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    OutlinedTextField(
+                    ConnectField(
                         value = accountName,
                         onValueChange = { accountName = it },
                         label = { Text(stringResource(R.string.connect_account_name_optional)) },
@@ -524,7 +520,7 @@ fun ConnectScreen(
                     // Flag an obviously malformed email (missing @ or a too-short/absent extension) as the
                     // user types, without hard-blocking: some IMAP servers accept a non-email username.
                     val emailLooksInvalid = username.isNotBlank() && !isValidEmail(username)
-                    OutlinedTextField(
+                    ConnectField(
                         value = username,
                         onValueChange = { username = it },
                         label = { Text(stringResource(R.string.connect_email_username)) },
@@ -543,7 +539,7 @@ fun ConnectScreen(
                     )
                     // In API-token mode this same secret field holds the token (labelled accordingly).
                     val tokenMode = route == ConnectRoute.JMAP_TOKEN
-                    OutlinedTextField(
+                    ConnectField(
                         value = password,
                         onValueChange = { viewModel.passwordDrafts.setForm(it) },
                         label = {
@@ -574,7 +570,12 @@ fun ConnectScreen(
                             .autofill(listOf(AutofillType.Password)) { viewModel.passwordDrafts.setForm(it) },
                     )
                     val busy = state is ConnectState.Connecting || state is ConnectState.Discovering
-                    Button(
+                    ConnectPrimaryButton(
+                        text = when (state) {
+                            is ConnectState.Discovering -> stringResource(R.string.connect_discovering)
+                            is ConnectState.Connecting -> stringResource(R.string.connect_connecting)
+                            else -> stringResource(R.string.connect_connect)
+                        },
                         onClick = {
                             when (route) {
                                 ConnectRoute.OUTLOOK_OAUTH -> viewModel.connectOutlookOAuth(username, accountName)
@@ -590,22 +591,16 @@ fun ConnectScreen(
                         },
                         enabled = !busy && ready,
                         modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(
-                            when (state) {
-                                is ConnectState.Discovering -> stringResource(R.string.connect_discovering)
-                                is ConnectState.Connecting -> stringResource(R.string.connect_connecting)
-                                else -> stringResource(R.string.connect_connect)
-                            },
-                        )
-                    }
+                    )
 
                     if (protocol == MailProtocol.JMAP && !useApiToken) {
-                        TextButton(
+                        ConnectLinkButton(
+                            text = stringResource(R.string.connect_oauth_button),
                             onClick = { viewModel.connectOAuth(username, server, accountName) },
                             enabled = !busy && username.isNotBlank(),
                             modifier = Modifier.fillMaxWidth(),
-                        ) { Text(stringResource(R.string.connect_oauth_button)) }
+                            textAlign = TextAlign.Center,
+                        )
                     }
                     // Outlook has no separate button — its provider chip launches the OAuth flow.
                 }
@@ -622,7 +617,7 @@ fun ConnectScreen(
                 // scroll is cheaper than every first-run user reading two file pickers as a third
                 // way to choose a provider. Do not move them back up without a new reason.
                 Spacer(Modifier.height(4.dp))
-                Text(stringResource(R.string.connect_import_header), style = MaterialTheme.typography.labelLarge)
+                ConnectSectionLabel(stringResource(R.string.connect_import_header))
                 OutlinedButton(
                     onClick = {
                         importK9Launcher.launch(
@@ -878,9 +873,9 @@ private fun ImportOAuthPanel(target: ConnectViewModel.SignInTarget, viewModel: C
     Spacer(Modifier.height(8.dp))
     Text(
         stringResource(R.string.connect_import_signin_title),
-        style = MaterialTheme.typography.headlineSmall,
+        style = GridlinkType.pageTitle,
     )
-    OutlinedTextField(
+    ConnectField(
         value = account.email,
         onValueChange = {},
         readOnly = true,
@@ -952,12 +947,12 @@ private fun ImportSignInPanel(target: ConnectViewModel.SignInTarget, viewModel: 
     Spacer(Modifier.height(8.dp))
     Text(
         stringResource(R.string.connect_import_signin_title),
-        style = MaterialTheme.typography.headlineSmall,
+        style = GridlinkType.pageTitle,
     )
     // Read-only email field: shows which account this is AND gives password managers a username
     // node so they match the right credential (matching is by username + domain, not the password
     // field alone). The account is fixed, so an autofilled username is ignored.
-    OutlinedTextField(
+    ConnectField(
         value = account.email,
         onValueChange = {},
         readOnly = true,
@@ -977,7 +972,7 @@ private fun ImportSignInPanel(target: ConnectViewModel.SignInTarget, viewModel: 
         )
         AppPasswordHelpLink()
     }
-    OutlinedTextField(
+    ConnectField(
         value = password,
         onValueChange = { viewModel.passwordDrafts.setImport(account.id, it) },
         label = { Text(stringResource(R.string.connect_password)) },
@@ -1057,7 +1052,7 @@ private fun HostPortRow(
     hostPlaceholder: String = "",
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
+        ConnectField(
             value = host,
             onValueChange = onHost,
             label = { Text(stringResource(R.string.connect_server)) },
@@ -1065,7 +1060,7 @@ private fun HostPortRow(
             singleLine = true,
             modifier = Modifier.weight(1f),
         )
-        OutlinedTextField(
+        ConnectField(
             value = port,
             onValueChange = { onPort(it.filter(Char::isDigit)) },
             label = { Text(stringResource(R.string.connect_port)) },
