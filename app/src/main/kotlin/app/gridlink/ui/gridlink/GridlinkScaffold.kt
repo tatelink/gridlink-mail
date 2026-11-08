@@ -2058,7 +2058,12 @@ fun GridlinkRoot(
                             // shifted behind nothing until the network answered.
                             awaitingOpenTravel = request.id
                         } else if (!twoPane) {
-                            progress.animateTo(1f, GridlinkMotion.standard())
+                            // On the screen's own scope, not this effect's. The acknowledgement
+                            // above clears `openRequest`, which is this effect's key, so the next
+                            // frame cancels the effect: an entrance run here died a frame in and
+                            // left the thread open at progress 0, invisible, with the message
+                            // already marked read.
+                            scope.launch { progress.animateTo(1f, GridlinkMotion.standard()) }
                         }
                     }
                     is GridlinkOpenRequest.Compose -> {
