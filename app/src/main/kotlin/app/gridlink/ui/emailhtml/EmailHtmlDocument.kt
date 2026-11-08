@@ -224,6 +224,11 @@ fun buildEmailHtmlDocument(
     inner = "<div aria-hidden=\"true\" style=\"height:${topSpacerCssPx}px\"></div>" + inner +
         "<div aria-hidden=\"true\" class=\"s-end\" style=\"height:${bottomSpacerCssPx}px\"></div>"
     val richHtml = htmlContent != null
+    // A designed newsletter (a fixed-width layout of 480px or more) brings its own padding, so the
+    // reader's 16px side margin only shrinks it and leaves a strip of card down each side. Such
+    // mail runs edge to edge instead; everything else keeps the margin, because simple HTML mail
+    // with no layout of its own would otherwise sit flush against the panel edge.
+    val bodyMargin = if (richHtml && isDesignedLayout(htmlContent.orEmpty())) "16px 0" else "16px"
     if (theme.dark && richHtml) {
         // Rich HTML carries its own (usually white) backgrounds we can't restyle reliably,
         // so render it light and invert the whole page. The filter MUST sit on the root
@@ -231,6 +236,21 @@ fun buildEmailHtmlDocument(
         // <body> out of any wrapper <div> — a div filter would then invert nothing (the
         // old "white frame" bug). The root always contains every node, wherever it lands.
         // hue-rotate keeps colours roughly intact; media is re-inverted to look normal.
+        //
+        // With a [EmailTheme.paper] colour the invert lands the sender's white on that colour
+        // instead of on pure black, so a designed newsletter sits on the reader card rather than
+        // in a black box pasted onto it. Same maths as invert + hue-rotate, rescaled; see
+        // [paperFilters].
+        val paper = theme.paper?.let { paperFilters(it) }
+        val pageFilter = if (paper != null) "url(#gl-paper)" else "invert(1) hue-rotate(180deg)"
+        val mediaFilter = if (paper != null) "url(#gl-paper-undo)" else "invert(1) hue-rotate(180deg)"
+        val filterDefs = paper?.let { (page, undo) ->
+            "<svg aria-hidden=\"true\" width=\"0\" height=\"0\" style=\"position:absolute\">" +
+                "<filter id=\"gl-paper\" color-interpolation-filters=\"sRGB\">" +
+                "<feColorMatrix type=\"matrix\" values=\"$page\"/></filter>" +
+                "<filter id=\"gl-paper-undo\" color-interpolation-filters=\"sRGB\">" +
+                "<feColorMatrix type=\"matrix\" values=\"$undo\"/></filter></svg>"
+        }.orEmpty()
         return """
             <!DOCTYPE html><html><head>
             $CSP_META
@@ -250,19 +270,19 @@ fun buildEmailHtmlDocument(
                  background many emails set via an inline style on <body> (which otherwise
                  leaves a bright band below the content where the body shows through).
                  Inner wrappers keep their own backgrounds and still get inverted. */
-              html { filter: invert(1) hue-rotate(180deg); background: transparent !important; }
+              html { filter: $pageFilter; background: transparent !important; }
               /* 🔴 margin is !important because the messages fight it: most marketing mail ships
                  its own body{margin:0} (as a later <style> or an inline attribute the parser merges
                  onto the real body), which silently won and put the text flush against the panel
                  edge. font-size is NOT !important on purpose: it only sets the default for mail
                  that never chose one, and mail that did chose its own design. */
-              body { margin: 16px !important; font-family: sans-serif; font-size: 15px;
+              body { margin: $bodyMargin !important; font-family: sans-serif; font-size: 15px;
                      line-height: 1.45; color: #111111;
                      background: transparent !important;
                      word-wrap: break-word; overflow-wrap: break-word; }
               /* Emoji are colour glyphs, so the page filter turns a yellow face blue (issue #58).
                  Counter-invert them exactly like media, restoring their real colours. */
-              img, picture, video, svg, iframe, .s-emo { filter: invert(1) hue-rotate(180deg); }
+              img, picture, video, svg, iframe, .s-emo { filter: $mediaFilter; }
               img { max-width: 100%; height: auto; }
               a { color: #0b57d0; }
               /* Bottom spacer reserving room for the overlaying Reply/Forward bar. Transparent so it
@@ -270,7 +290,7 @@ fun buildEmailHtmlDocument(
                  colour would invert to pure black (#fff -> #000), which doesn't match the app's dark
                  surface and left a visibly-off rectangle at the end of the mail. */
               .s-end { background: transparent; }
-            </style></head><body>${wrapEmoji(inner)}</body></html>
+            </style></head><body>$filterDefs${wrapEmoji(inner)}</body></html>
         """.trimIndent()
     }
     // Plain/simple text (or light mode): paint with the resolved theme colours directly,
@@ -299,7 +319,7 @@ fun buildEmailHtmlDocument(
           html { color-scheme: $colorScheme; }
           html, body { background-color: $bg; }
           /* margin/font-size rationale is on the dark branch's body rule; keep the two in step. */
-          body { margin: 16px !important; font-family: $family; font-size: 15px;
+          body { margin: $bodyMargin !important; font-family: $family; font-size: 15px;
                  line-height: 1.45; color: $fg;
                  word-wrap: break-word; overflow-wrap: break-word; }
           img { max-width: 100%; height: auto; }
@@ -312,8 +332,75 @@ fun buildEmailHtmlDocument(
     """.trimIndent()
 }
 
-/** Resolved theme colours (CSS hex) handed to the email WebView so it matches the app. */
-data class EmailTheme(val background: String, val text: String, val link: String, val dark: Boolean)
+/** A width attribute or style of this many CSS px or more marks a fixed-width designed layout. */
+private const val DESIGNED_LAYOUT_MIN_PX = 480
+
+private val FIXED_WIDTH = Regex("""\bwidth\s*[=:]\s*["']?\s*(\d{3,4})(?:px)?\b""", RegexOption.IGNORE_CASE)
+
+/**
+ * Whether [html] is laid out at a fixed width wide enough to be a designed newsletter (the usual
+ * 600px table). Such mail carries its own gutters, so the reader drops its side margin for it.
+ */
+internal fun isDesignedLayout(html: String): Boolean =
+    FIXED_WIDTH.findAll(html).any { (it.groupValues[1].toIntOrNull() ?: 0) >= DESIGNED_LAYOUT_MIN_PX }
+
+/**
+ * Resolved theme colours (CSS hex) handed to the email WebView so it matches the app.
+ *
+ * [paper] is the opaque colour of the card the body sits on (0xRRGGBB), used only by the dark
+ * branch for rich HTML: the sender's white is mapped onto it instead of onto pure black. Null keeps
+ * the plain invert.
+ */
+data class EmailTheme(
+    val background: String,
+    val text: String,
+    val link: String,
+    val dark: Boolean,
+    val paper: Int? = null,
+)
+
+/** CSS `hue-rotate(180deg)`, the exact matrix the spec defines (cos = -1, sin = 0). */
+private val HUE_180 = arrayOf(
+    doubleArrayOf(-0.574, 1.430, 0.144),
+    doubleArrayOf(0.426, 0.430, 0.144),
+    doubleArrayOf(0.426, 1.430, -0.856),
+)
+
+/**
+ * The two `feColorMatrix` value lists for the dark reader: the page filter and its undo for media.
+ *
+ * `invert(1) hue-rotate(180deg)` is `out = 1 - H·in`, which sends white to black. Rescaling each
+ * channel into `[paper, 1]` gives `out = 1 - (1 - paper)·H·in`: white lands exactly on the card,
+ * black text still lands on white, and every colour in between keeps the hue the old invert gave
+ * it. The undo is that map's inverse (H is its own inverse to the spec's precision), so photos and
+ * emoji come back with their real colours; only their deepest shadows lift to the card colour,
+ * because nothing darker than the card exists on the far side of the page filter.
+ */
+internal fun paperFilters(paper: Int): Pair<String, String> {
+    val c = doubleArrayOf(
+        ((paper shr 16) and 0xFF) / 255.0,
+        ((paper shr 8) and 0xFF) / 255.0,
+        (paper and 0xFF) / 255.0,
+    )
+    fun f(v: Double) = "%.4f".format(java.util.Locale.ROOT, v)
+    val page = StringBuilder()
+    val undo = StringBuilder()
+    for (i in 0..2) {
+        val scale = 1.0 - c[i]
+        for (j in 0..2) page.append(f(-scale * HUE_180[i][j])).append(' ')
+        page.append("0 1 ")
+        var offset = 0.0
+        for (j in 0..2) {
+            val k = HUE_180[i][j] / (1.0 - c[j])
+            undo.append(f(-k)).append(' ')
+            offset += k
+        }
+        undo.append("0 ").append(f(offset)).append(' ')
+    }
+    page.append("0 0 0 1 0")
+    undo.append("0 0 0 1 0")
+    return page.toString() to undo.toString()
+}
 
 private fun escapeHtml(text: String): String = text
     .replace("&", "&amp;")

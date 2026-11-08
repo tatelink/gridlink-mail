@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -125,7 +126,11 @@ internal fun GridlinkMessageBody(
     // The reader is a nav destination, so this is that destination's latch: it releases when the
     // user comes back from the browser.
     val leaveOnce = rememberLeaveOnce()
-    val theme = remember(text, link, dark) {
+    // The card's colour as it actually reads on screen: the panel's translucent surface over the
+    // page ground. A dark newsletter's white is mapped onto this, so it sits on the card instead of
+    // in a black box (see [EmailTheme.paper]). In OLED it is black, which is the old behaviour.
+    val paper = GridlinkTheme.colors.listSurface.compositeOver(GridlinkTheme.colors.background).toArgb() and 0xFFFFFF
+    val theme = remember(text, link, dark, paper) {
         EmailTheme(
             // 🔴 Transparent, and there is deliberately no background parameter to pass instead.
             // Upstream paints the WebView the app's surface colour because upstream's reader IS a
@@ -140,6 +145,7 @@ internal fun GridlinkMessageBody(
             text = text.toCssHex(),
             link = link.toCssHex(),
             dark = dark,
+            paper = paper,
         )
     }
     val plainFont = remember(context, plainText) {
