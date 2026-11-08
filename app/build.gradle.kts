@@ -117,10 +117,15 @@ android {
         if (name.contains("ArtProfile")) enabled = false
     }
 
-    // No Google dependency-metadata blob in the APK/AAB (required by IzzyOnDroid/F-Droid).
+    // 🔴 No Google dependency-metadata blob in any APK (required by IzzyOnDroid/F-Droid, which
+    // reject the signing-block entry it adds). includeInApk must stay false.
+    // includeInBundle is ON (2026-11-07, Brandon) so Play Console can run its SDK Index checks
+    // on the Play AAB. The DSL is module-wide, not per flavor, but it only touches .aab outputs:
+    // the F-Droid build ships as an APK (assembleFdroidRelease) and never builds a bundle, so
+    // in practice this is the play AAB only. Proven byte-identical F-Droid APK before and after.
     dependenciesInfo {
         includeInApk = false
-        includeInBundle = false
+        includeInBundle = true
     }
 
     // Release signing. If a git-ignored keystore.properties is present (real release
