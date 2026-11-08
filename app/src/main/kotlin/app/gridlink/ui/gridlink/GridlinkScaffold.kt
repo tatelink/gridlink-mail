@@ -317,6 +317,15 @@ fun GridlinkScaffold(
                         )
                         if (sidePane == null) {
                             Spacer(Modifier.width(GridlinkDimens.composeButton))
+                        } else {
+                            // 🔴 Two panes: the "+" sits HERE, at the end of the list column's own
+                            // line, exactly where it sits on a phone. It used to hang off the window's
+                            // far right, which put two identical accent circles side by side under
+                            // the message, Reply and New, and cost the reader's bar its Forward slot
+                            // and the sender its room. Writing something new belongs with the list;
+                            // the reading side's one loud button is Reply. It does not move while
+                            // the window stays two panes, selection or not.
+                            GridlinkComposeButton(onClick = onCompose, destination = destination)
                         }
                     }
                 }
@@ -462,16 +471,18 @@ fun GridlinkScaffold(
                  * The pane scrolls its own content and ends above the window's bottom padding, so
                  * what sits under the button is the tail of the fade, not a line of text.
                  */
-                GridlinkComposeButton(
-                    onClick = onCompose,
-                    destination = destination,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        // The same margins the control row uses, so the button keeps the nav pill's
-                        // baseline. The button and the pill are both [GRIDLINK_PILL_HEIGHT], so
-                        // matching the bottom matches the whole line.
-                        .padding(end = GridlinkSpacing.chrome, bottom = GridlinkSpacing.chrome),
-                )
+                if (sidePane == null) {
+                    GridlinkComposeButton(
+                        onClick = onCompose,
+                        destination = destination,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            // The same margins the control row uses, so the button keeps the nav
+                            // pill's baseline. The button and the pill are both
+                            // [GRIDLINK_PILL_HEIGHT], so matching the bottom matches the whole line.
+                            .padding(end = GridlinkSpacing.chrome, bottom = GridlinkSpacing.chrome),
+                    )
+                }
             }
         }
 

@@ -306,14 +306,9 @@ fun GridlinkFormScreen(
                     .padding(
                         start = GridlinkSpacing.chrome,
                         top = GridlinkSpacing.s16,
-                        // 🔴 In the pane, one compose button short of the window: the scaffold parks
-                        // its "+" at the bottom-right in two panes, and Save must stay reachable.
-                        // Same collision, same fix as [GridlinkDetailFrame]'s action row.
-                        end = if (embedded) {
-                            GridlinkSpacing.chrome + GridlinkDimens.composeButton + GridlinkSpacing.s16
-                        } else {
-                            GridlinkSpacing.chrome
-                        },
+                        // The full width in the pane as well: the scaffold's "+" sits at the end of
+                        // the list column in two panes now, so nothing shares this corner.
+                        end = GridlinkSpacing.chrome,
                         bottom = GridlinkSpacing.chrome,
                     ),
                 horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s16),

@@ -234,7 +234,13 @@ fun GridlinkDetailFrame(
                 // The title action rides in the SAME row as the text column rather than above it.
                 // A 44dp circle on its own line costs 44dp; beside two text lines it costs nothing,
                 // because the column is already taller than the circle.
-                Row(
+                //
+                // 🔴 The [header] (the thread's sender line) sits UNDER that row, across the band's
+                // full width, not inside the title column beside the circles. Beside two 44dp
+                // circles the sender had about half the pane and came out as "Jules Mar...". Under
+                // them it costs no extra height for a two-line subject, since the circles were
+                // already shorter than the text column.
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = LocalGridlinkPaneHeaderHeight.current)
@@ -248,34 +254,36 @@ fun GridlinkDetailFrame(
                             top = GridlinkSpacing.s8,
                             bottom = GridlinkSpacing.s4,
                         ),
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalArrangement = Arrangement.Center,
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        // 🔴 A BLANK title draws nothing at all, it is not an empty line. The band
-                        // exists to say what the pane is showing, and a screen whose content already
-                        // says it would otherwise print the same words twice, once here and once in
-                        // its own content, a finger apart. Tate on the contact card in two panes,
-                        // 2026-08-16: *"top of screen is duplicate name of person - its not
-                        // needed."* The band keeps its [LocalGridlinkPaneHeaderHeight] floor either
-                        // way, so the two panes' glass still starts on the same line.
-                        if (title.isNotBlank()) {
-                            Text(
-                                text = title,
-                                style = titleStyle,
-                                color = colors.textPrimary,
-                                // Two lines, not three. The third line is bought with body text, and
-                                // a subject long enough to need it is a subject whose tail is
-                                // marketing.
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            // 🔴 A BLANK title draws nothing at all, it is not an empty line. The band
+                            // exists to say what the pane is showing, and a screen whose content already
+                            // says it would otherwise print the same words twice, once here and once in
+                            // its own content, a finger apart. Tate on the contact card in two panes,
+                            // 2026-08-16: *"top of screen is duplicate name of person - its not
+                            // needed."* The band keeps its [LocalGridlinkPaneHeaderHeight] floor either
+                            // way, so the two panes' glass still starts on the same line.
+                            if (title.isNotBlank()) {
+                                Text(
+                                    text = title,
+                                    style = titleStyle,
+                                    color = colors.textPrimary,
+                                    // Two lines, not three. The third line is bought with body text,
+                                    // and a subject long enough to need it is a subject whose tail
+                                    // is marketing.
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
-                        header?.invoke()
+                        if (titleAction != null) {
+                            Spacer(Modifier.width(GridlinkSpacing.s12))
+                            titleAction()
+                        }
                     }
-                    if (titleAction != null) {
-                        Spacer(Modifier.width(GridlinkSpacing.s12))
-                        titleAction()
-                    }
+                    header?.invoke()
                 }
             } else if (!maximized) {
                 GridlinkDetailHeader(
@@ -340,26 +348,12 @@ fun GridlinkDetailFrame(
                         .padding(
                             start = GridlinkSpacing.chrome,
                             top = GridlinkSpacing.s16,
-                            // 🔴 In the pane, this row stops one compose button short of the window.
-                            // The scaffold parks its "+" at the far bottom-right whenever two panes
-                            // are showing, and this row's own trailing control is a round accent
-                            // button of exactly the same diameter with exactly the same fill sitting
-                            // on exactly the same baseline — Reply on a thread, Write on a contact or
-                            // an event. Without this they land on top of each other, and the one
-                            // underneath is unreachable.
-                            //
-                            // ⚠️ This is the mirror of the bug recorded further down this file, where
-                            // a standing thread's action pill overlapped the LIST's compose button
-                            // and archiving opened the composer. Same two controls, same corner, and
-                            // the fix there was to swallow the stray tap. Here there is no stray tap
-                            // to swallow: both controls are live and both are wanted, so the row
-                            // moves over instead.
-                            end = if (embedded && !maximized) {
-                                GridlinkSpacing.chrome + GridlinkDimens.composeButton +
-                                    GridlinkSpacing.s16
-                            } else {
-                                GridlinkSpacing.chrome
-                            },
+                            // The full width in the pane too. This row used to stop one compose
+                            // button short of the window, because the scaffold parked its "+" in
+                            // that corner; the "+" now sits at the end of the list column instead
+                            // (see [GridlinkScaffold]), so the reader's own accent button is the
+                            // only round one on this side and the pill gets the room back.
+                            end = GridlinkSpacing.chrome,
                             bottom = GridlinkSpacing.chrome,
                         ),
                     horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s16),

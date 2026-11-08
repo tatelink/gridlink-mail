@@ -345,7 +345,7 @@ fun GridlinkThreadScreen(
             val layout = gridlinkToolbarLayout(
                 enabled = toolbarActions,
                 hasUnsubscribe = message.unsubscribe != null,
-                slots = if (embedded) PANE_SLOTS else SLOTS,
+                slots = SLOTS,
                 hasSheetRows = hasSheetRows,
             )
             if (layout.inBar.isEmpty() && !layout.showMore) {
@@ -586,7 +586,7 @@ fun GridlinkThreadScreen(
             layout = gridlinkToolbarLayout(
                 enabled = toolbarActions,
                 hasUnsubscribe = message.unsubscribe != null,
-                slots = if (embedded) PANE_SLOTS else SLOTS,
+                slots = SLOTS,
                 hasSheetRows = hasSheetRows,
             ),
             starred = starred,
@@ -1175,15 +1175,10 @@ internal fun gridlinkToolbarLayout(
 /** Slots on the bar, More included. See [GridlinkThreadActionPill]. */
 private const val SLOTS = 3
 
-/**
- * The same bar in the two-pane reading pane, which is ~380dp narrower than a folded screen.
- *
- * Three labelled controls plus Reply plus the parked "+" fit there arithmetically and still read as
- * cramped, which is a thing only visible on the real device: *"the bottom menu bar that currently
- * contains forward, archive, and more - its gonna only be able to hold one control + more. three
- * causes it to still be cramped."* The folded bar is not crowded and does not change.
- */
-private const val PANE_SLOTS = 2
+// PANE_SLOTS (2) used to live here: the reading pane's bar held one control plus More, because three
+// slots plus Reply plus the scaffold's parked "+" read as cramped on the real device. The "+" now
+// sits with the list in two panes, so the pane's bar is the folded bar again (three slots, Forward
+// back on it) and the one-slot rule in [gridlinkToolbarLayout] is only reached by a narrow window.
 
 /**
  * The secondary actions, in the same shell the nav pill uses on the list.
