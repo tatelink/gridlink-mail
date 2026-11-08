@@ -708,7 +708,7 @@
     <string name="notif_auth_rejected_text">Сервер отклонил учётную запись %1$s. Почта для неё больше не приходит, пока вы не введёте пароль заново.</string>
     <string name="notif_channel_sync">Синхронизация почты</string>
     <string name="notif_channel_sync_desc">Поддерживает активное подключение к почтовому серверу для мгновенного получения писем.</string>
-    <string name="notif_watching">В полёте, высматриваю новые письма</string>
+    <string name="notif_watching">Проверяю новые письма</string>
     <string name="notif_new_message">Новое письмо</string>
     <string name="notif_mark_read">Отметить прочитанным</string>
     <string name="notif_delete">Удалить</string>

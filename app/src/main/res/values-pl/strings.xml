@@ -708,7 +708,7 @@
     <string name="notif_auth_rejected_text">Serwer odrzucił konto %1$s. Poczta dla tego konta nie będzie przychodzić, dopóki nie wpiszesz hasła ponownie.</string>
     <string name="notif_channel_sync">Synchronizacja poczty</string>
     <string name="notif_channel_sync_desc">Utrzymuje aktywne połączenie z serwerem poczty dla natychmiastowego odbioru wiadomości.</string>
-    <string name="notif_watching">W locie, wypatruję nowych wiadomości</string>
+    <string name="notif_watching">Sprawdzam nowe wiadomości</string>
     <string name="notif_new_message">Nowa wiadomość</string>
     <string name="notif_mark_read">Oznacz jako przeczytane</string>
     <string name="notif_delete">Usuń</string>

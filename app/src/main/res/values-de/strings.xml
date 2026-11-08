@@ -702,7 +702,7 @@
     <string name="notif_auth_rejected_text">%1$s wurde vom Server abgelehnt. Für dieses Konto kommen keine E-Mails mehr an, bis du das Passwort erneut eingibst.</string>
     <string name="notif_channel_sync">E-Mail-Synchronisierung</string>
     <string name="notif_channel_sync_desc">Hält eine aktive Verbindung zu deinem Mailserver für sofortige E-Mails aufrecht.</string>
-    <string name="notif_watching">Im Flug, Ausschau nach neuer Post</string>
+    <string name="notif_watching">Sucht nach neuer Post</string>
     <string name="notif_new_message">Neue Nachricht</string>
     <string name="notif_mark_read">Als gelesen markieren</string>
     <string name="notif_delete">Löschen</string>
