@@ -49,6 +49,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -1645,11 +1646,37 @@ private fun GridlinkSearchResults(
             .fillMaxSize()
             .gridlinkEdgeFade(),
         flingBehavior = rememberGridlinkFlingBehavior(),
+        // 🔴 s12 on top, the inbox's own figure, not the full fade. With the Filter row and its
+        // divider above, the 40dp read as an empty band before the first hit, the same gap the
+        // inbox gave back when its chips moved into the panel.
         contentPadding = PaddingValues(
-            top = GridlinkDimens.listFade,
+            top = GridlinkSpacing.s12,
             bottom = GridlinkDimens.listFade,
         ),
     ) {
+        // How many matched, first, in the seat the title had. An open search pill hides the screen
+        // title, so without this line nothing on screen said what you were looking at or how much
+        // of it there was. Shown while the answer is still arriving too, as "at least", so the rows
+        // do not jump down when the count lands.
+        item(key = "search-count") {
+            val count = current.results.size
+            Text(
+                text = pluralStringResource(
+                    if (current.complete && !current.searching) {
+                        R.plurals.search_result_count
+                    } else {
+                        R.plurals.search_result_count_capped
+                    },
+                    count,
+                    count,
+                ),
+                style = GridlinkType.senderName,
+                color = GridlinkTheme.colors.textPrimary,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = GridlinkSpacing.rowHorizontal + gutter, end = GridlinkSpacing.rowHorizontal),
+            )
+        }
         // Every section INCLUDING automated, unlike the inbox timeline. Real hits never carry
         // AUTOMATED (the view model re-states their day section, same as the folder list), but the
         // sample's robots keep it, and a results list has no bundle row to hide them in.
