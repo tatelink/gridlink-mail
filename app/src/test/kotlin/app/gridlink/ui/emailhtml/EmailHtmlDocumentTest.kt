@@ -44,9 +44,10 @@ class EmailHtmlDocumentTest {
     @Test
     fun `plain text uses the app face when given one`() {
         val light = EmailTheme("#ffffff", "#111111", "#0b5fff", false)
-        val doc = buildEmailHtmlDocument(null, textContent = "Hello", theme = light, plainFontDataUri = "data:font/ttf;base64,AA==")
+        val face = "data:font/ttf;base64,AA=="
+        val doc = buildEmailHtmlDocument(null, textContent = "Hello", theme = light, plainFontDataUri = face)
         assertTrue(doc.contains("font-family: 'GridlinkText', sans-serif"))
-        val rich = buildEmailHtmlDocument("<p>Hi</p>", theme = light, plainFontDataUri = "data:font/ttf;base64,AA==")
+        val rich = buildEmailHtmlDocument("<p>Hi</p>", theme = light, plainFontDataUri = face)
         assertFalse(rich.contains("GridlinkText"))
     }
 }

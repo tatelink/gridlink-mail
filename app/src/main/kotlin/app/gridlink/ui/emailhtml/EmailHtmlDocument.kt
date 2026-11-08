@@ -196,103 +196,16 @@ fun buildEmailHtmlDocument(
      */
     plainFontDataUri: String? = null,
 ): String {
-    var inner = htmlContent
-        ?: textContent?.let { "<pre class=\"plain\">${escapeHtml(reflowFormatFlowed(it))}</pre>" }
-        ?: "<p>${escapeHtml(preview ?: "(no content)")}</p>"
-    // Embed inline images: replace cid: references with their data URIs.
-    inlineImages.forEach { (cid, dataUri) ->
-        inner = inner.replace("cid:$cid", dataUri).replace("cid:<$cid>", dataUri)
-    }
-    // 🔴 After the cid inlining, so an inlined data: URI is never a candidate. See the function.
-    inner = upgradeResourceUrls(inner)
-    // Neutralise the email's own dark-mode styles. On a dark-mode device the WebView matches
-    // `prefers-color-scheme: dark`, so a marketing email renders its dark variant — which our
-    // invert then turns light (the "white band in dark theme" bug); declaring color-scheme is
-    // ignored by Android WebView, so we defang the media queries directly by appending an
-    // always-false condition. The email then always renders its light design, which we show
-    // as-is (light theme) or invert (dark theme).
-    inner = inner.replace(
-        Regex("""prefers-color-scheme\s*:\s*dark""", RegexOption.IGNORE_CASE),
-        "prefers-color-scheme:dark) and (max-width:0px",
+    val inner = assembleBody(
+        htmlContent, textContent, preview, inlineImages, topSpacerCssPx, bottomSpacerCssPx,
     )
-    // Bracket the content with two real DOCUMENT elements (scrollable, unlike body padding which Blink
-    // drops, or WebView view padding which clips the last lines): a transparent TOP spacer of the
-    // collapsing header's height so the header overlays blank space and content starts below it; and a
-    // BOTTOM spacer (class s-end) reserving room for the overlaying Reply/Forward bar so the last line
-    // clears it. The bottom spacer is COLOURED (.s-end in the CSS below) so it doesn't invert to white
-    // in dark mode. cid/data already inlined above; pure layout, no scripts.
-    inner = "<div aria-hidden=\"true\" style=\"height:${topSpacerCssPx}px\"></div>" + inner +
-        "<div aria-hidden=\"true\" class=\"s-end\" style=\"height:${bottomSpacerCssPx}px\"></div>"
     val richHtml = htmlContent != null
     // A designed newsletter (a fixed-width layout of 480px or more) brings its own padding, so the
     // reader's 16px side margin only shrinks it and leaves a strip of card down each side. Such
     // mail runs edge to edge instead; everything else keeps the margin, because simple HTML mail
     // with no layout of its own would otherwise sit flush against the panel edge.
     val bodyMargin = if (richHtml && isDesignedLayout(htmlContent.orEmpty())) "16px 0" else "16px"
-    if (theme.dark && richHtml) {
-        // Rich HTML carries its own (usually white) backgrounds we can't restyle reliably,
-        // so render it light and invert the whole page. The filter MUST sit on the root
-        // <html>: marketing emails are full <html> documents, and the parser hoists their
-        // <body> out of any wrapper <div> — a div filter would then invert nothing (the
-        // old "white frame" bug). The root always contains every node, wherever it lands.
-        // hue-rotate keeps colours roughly intact; media is re-inverted to look normal.
-        //
-        // With a [EmailTheme.paper] colour the invert lands the sender's white on that colour
-        // instead of on pure black, so a designed newsletter sits on the reader card rather than
-        // in a black box pasted onto it. Same maths as invert + hue-rotate, rescaled; see
-        // [paperFilters].
-        val paper = theme.paper?.let { paperFilters(it) }
-        val pageFilter = if (paper != null) "url(#gl-paper)" else "invert(1) hue-rotate(180deg)"
-        val mediaFilter = if (paper != null) "url(#gl-paper-undo)" else "invert(1) hue-rotate(180deg)"
-        val filterDefs = paper?.let { (page, undo) ->
-            "<svg aria-hidden=\"true\" width=\"0\" height=\"0\" style=\"position:absolute\">" +
-                "<filter id=\"gl-paper\" color-interpolation-filters=\"sRGB\">" +
-                "<feColorMatrix type=\"matrix\" values=\"$page\"/></filter>" +
-                "<filter id=\"gl-paper-undo\" color-interpolation-filters=\"sRGB\">" +
-                "<feColorMatrix type=\"matrix\" values=\"$undo\"/></filter></svg>"
-        }.orEmpty()
-        return """
-            <!DOCTYPE html><html><head>
-            $CSP_META
-            <meta name="viewport" content="width=device-width">
-            <meta name="color-scheme" content="only light">
-            <style>
-              /* Force the email to render its LIGHT design before we invert: many marketing
-                 emails ship a prefers-color-scheme:dark variant, which the WebView would pick
-                 on a dark-mode device — inverting an already-dark email yields a wrong, light
-                 result (e.g. a white band in dark theme). "only light" opts the page out of the
-                 system dark preference so its dark media queries don't fire. */
-              html { color-scheme: only light; }
-              /* Transparent page background: the filter only inverts the document's own
-                 painting, not the WebView's native background (set to the app surface).
-                 So empty areas show the app's dark surface instead of a pure-black box
-                 (white inverted) that clashed with it. !important beats the document-level
-                 background many emails set via an inline style on <body> (which otherwise
-                 leaves a bright band below the content where the body shows through).
-                 Inner wrappers keep their own backgrounds and still get inverted. */
-              html { filter: $pageFilter; background: transparent !important; }
-              /* 🔴 margin is !important because the messages fight it: most marketing mail ships
-                 its own body{margin:0} (as a later <style> or an inline attribute the parser merges
-                 onto the real body), which silently won and put the text flush against the panel
-                 edge. font-size is NOT !important on purpose: it only sets the default for mail
-                 that never chose one, and mail that did chose its own design. */
-              body { margin: $bodyMargin !important; font-family: sans-serif; font-size: 15px;
-                     line-height: 1.45; color: #111111;
-                     background: transparent !important;
-                     word-wrap: break-word; overflow-wrap: break-word; }
-              /* Emoji are colour glyphs, so the page filter turns a yellow face blue (issue #58).
-                 Counter-invert them exactly like media, restoring their real colours. */
-              img, picture, video, svg, iframe, .s-emo { filter: $mediaFilter; }
-              img { max-width: 100%; height: auto; }
-              a { color: #0b57d0; }
-              /* Bottom spacer reserving room for the overlaying Reply/Forward bar. Transparent so it
-                 shows the WebView's native surface (same trick as the page background above): a fixed
-                 colour would invert to pure black (#fff -> #000), which doesn't match the app's dark
-                 surface and left a visibly-off rectangle at the end of the mail. */
-              .s-end { background: transparent; }
-            </style></head><body>$filterDefs${wrapEmoji(inner)}</body></html>
-        """.trimIndent()
-    }
+    if (theme.dark && richHtml) return darkRichDocument(inner, theme.paper, bodyMargin)
     // Plain/simple text (or light mode): paint with the resolved theme colours directly,
     // so the body's background matches the app surface (no seam below the message).
     val bg = theme.background
@@ -332,6 +245,119 @@ fun buildEmailHtmlDocument(
     """.trimIndent()
 }
 
+/**
+ * The message's own markup, ready to drop into a `<body>`: the first content part that exists,
+ * inline images resolved, remote URLs upgraded, its dark-mode media queries defanged, and the
+ * two layout spacers around it. Split out of [buildEmailHtmlDocument].
+ */
+private fun assembleBody(
+    htmlContent: String?,
+    textContent: String?,
+    preview: String?,
+    inlineImages: Map<String, String>,
+    topSpacerCssPx: Int,
+    bottomSpacerCssPx: Int,
+): String {
+    var inner = htmlContent
+        ?: textContent?.let { "<pre class=\"plain\">${escapeHtml(reflowFormatFlowed(it))}</pre>" }
+        ?: "<p>${escapeHtml(preview ?: "(no content)")}</p>"
+    // Embed inline images: replace cid: references with their data URIs.
+    inlineImages.forEach { (cid, dataUri) ->
+        inner = inner.replace("cid:$cid", dataUri).replace("cid:<$cid>", dataUri)
+    }
+    // 🔴 After the cid inlining, so an inlined data: URI is never a candidate. See the function.
+    inner = upgradeResourceUrls(inner)
+    // Neutralise the email's own dark-mode styles. On a dark-mode device the WebView matches
+    // `prefers-color-scheme: dark`, so a marketing email renders its dark variant — which our
+    // invert then turns light (the "white band in dark theme" bug); declaring color-scheme is
+    // ignored by Android WebView, so we defang the media queries directly by appending an
+    // always-false condition. The email then always renders its light design, which we show
+    // as-is (light theme) or invert (dark theme).
+    inner = inner.replace(
+        Regex("""prefers-color-scheme\s*:\s*dark""", RegexOption.IGNORE_CASE),
+        "prefers-color-scheme:dark) and (max-width:0px",
+    )
+    // Bracket the content with two real DOCUMENT elements (scrollable, unlike body padding which Blink
+    // drops, or WebView view padding which clips the last lines): a transparent TOP spacer of the
+    // collapsing header's height so the header overlays blank space and content starts below it; and a
+    // BOTTOM spacer (class s-end) reserving room for the overlaying Reply/Forward bar so the last line
+    // clears it. The bottom spacer is COLOURED (.s-end in the CSS below) so it doesn't invert to white
+    // in dark mode. cid/data already inlined above; pure layout, no scripts.
+    inner = "<div aria-hidden=\"true\" style=\"height:${topSpacerCssPx}px\"></div>" + inner +
+        "<div aria-hidden=\"true\" class=\"s-end\" style=\"height:${bottomSpacerCssPx}px\"></div>"
+    return inner
+}
+
+/**
+ * The dark theme's document for rich HTML: rendered in its light design, then inverted
+ * wholesale (onto [paperColor] when there is one). Split out of [buildEmailHtmlDocument]; the
+ * reasoning for every rule is inline below.
+ */
+private fun darkRichDocument(inner: String, paperColor: Int?, bodyMargin: String): String {
+    // Rich HTML carries its own (usually white) backgrounds we can't restyle reliably,
+    // so render it light and invert the whole page. The filter MUST sit on the root
+    // <html>: marketing emails are full <html> documents, and the parser hoists their
+    // <body> out of any wrapper <div> — a div filter would then invert nothing (the
+    // old "white frame" bug). The root always contains every node, wherever it lands.
+    // hue-rotate keeps colours roughly intact; media is re-inverted to look normal.
+    //
+    // With a [EmailTheme.paper] colour the invert lands the sender's white on that colour
+    // instead of on pure black, so a designed newsletter sits on the reader card rather than
+    // in a black box pasted onto it. Same maths as invert + hue-rotate, rescaled; see
+    // [paperFilters].
+    val paper = paperColor?.let { paperFilters(it) }
+    val pageFilter = if (paper != null) "url(#gl-paper)" else "invert(1) hue-rotate(180deg)"
+    val mediaFilter = if (paper != null) "url(#gl-paper-undo)" else "invert(1) hue-rotate(180deg)"
+    val filterDefs = paper?.let { (page, undo) ->
+        "<svg aria-hidden=\"true\" width=\"0\" height=\"0\" style=\"position:absolute\">" +
+            "<filter id=\"gl-paper\" color-interpolation-filters=\"sRGB\">" +
+            "<feColorMatrix type=\"matrix\" values=\"$page\"/></filter>" +
+            "<filter id=\"gl-paper-undo\" color-interpolation-filters=\"sRGB\">" +
+            "<feColorMatrix type=\"matrix\" values=\"$undo\"/></filter></svg>"
+    }.orEmpty()
+    return """
+        <!DOCTYPE html><html><head>
+        $CSP_META
+        <meta name="viewport" content="width=device-width">
+        <meta name="color-scheme" content="only light">
+        <style>
+          /* Force the email to render its LIGHT design before we invert: many marketing
+             emails ship a prefers-color-scheme:dark variant, which the WebView would pick
+             on a dark-mode device — inverting an already-dark email yields a wrong, light
+             result (e.g. a white band in dark theme). "only light" opts the page out of the
+             system dark preference so its dark media queries don't fire. */
+          html { color-scheme: only light; }
+          /* Transparent page background: the filter only inverts the document's own
+             painting, not the WebView's native background (set to the app surface).
+             So empty areas show the app's dark surface instead of a pure-black box
+             (white inverted) that clashed with it. !important beats the document-level
+             background many emails set via an inline style on <body> (which otherwise
+             leaves a bright band below the content where the body shows through).
+             Inner wrappers keep their own backgrounds and still get inverted. */
+          html { filter: $pageFilter; background: transparent !important; }
+          /* 🔴 margin is !important because the messages fight it: most marketing mail ships
+             its own body{margin:0} (as a later <style> or an inline attribute the parser merges
+             onto the real body), which silently won and put the text flush against the panel
+             edge. font-size is NOT !important on purpose: it only sets the default for mail
+             that never chose one, and mail that did chose its own design. */
+          body { margin: $bodyMargin !important; font-family: sans-serif; font-size: 15px;
+                 line-height: 1.45; color: #111111;
+                 background: transparent !important;
+                 word-wrap: break-word; overflow-wrap: break-word; }
+          /* Emoji are colour glyphs, so the page filter turns a yellow face blue (issue #58).
+             Counter-invert them exactly like media, restoring their real colours. */
+          img, picture, video, svg, iframe, .s-emo { filter: $mediaFilter; }
+          img { max-width: 100%; height: auto; }
+          a { color: #0b57d0; }
+          /* Bottom spacer reserving room for the overlaying Reply/Forward bar. Transparent so it
+             shows the WebView's native surface (same trick as the page background above): a fixed
+             colour would invert to pure black (#fff -> #000), which doesn't match the app's dark
+             surface and left a visibly-off rectangle at the end of the mail. */
+          .s-end { background: transparent; }
+        </style></head><body>$filterDefs${wrapEmoji(inner)}</body></html>
+    """.trimIndent()
+}
+
 /** A width attribute or style of this many CSS px or more marks a fixed-width designed layout. */
 private const val DESIGNED_LAYOUT_MIN_PX = 480
 
@@ -366,6 +392,11 @@ private val HUE_180 = arrayOf(
     doubleArrayOf(0.426, 1.430, -0.856),
 )
 
+private const val RED_SHIFT = 16
+private const val GREEN_SHIFT = 8
+private const val CHANNEL_MASK = 0xFF
+private const val CHANNEL_MAX = 255.0
+
 /**
  * The two `feColorMatrix` value lists for the dark reader: the page filter and its undo for media.
  *
@@ -378,9 +409,9 @@ private val HUE_180 = arrayOf(
  */
 internal fun paperFilters(paper: Int): Pair<String, String> {
     val c = doubleArrayOf(
-        ((paper shr 16) and 0xFF) / 255.0,
-        ((paper shr 8) and 0xFF) / 255.0,
-        (paper and 0xFF) / 255.0,
+        ((paper shr RED_SHIFT) and CHANNEL_MASK) / CHANNEL_MAX,
+        ((paper shr GREEN_SHIFT) and CHANNEL_MASK) / CHANNEL_MAX,
+        (paper and CHANNEL_MASK) / CHANNEL_MAX,
     )
     fun f(v: Double) = "%.4f".format(java.util.Locale.ROOT, v)
     val page = StringBuilder()
