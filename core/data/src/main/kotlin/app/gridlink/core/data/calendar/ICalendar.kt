@@ -363,9 +363,8 @@ object ICalendar {
         val lines = ArrayList<String>()
         lines += "BEGIN:VCALENDAR"
         lines += "VERSION:2.0"
-        val repeatRule = if (allDay) null else safeRrule(rrule)
-        // A series in a zone that changes its clocks is spelled in that zone; see the doc above.
-        val seriesZone = zone.takeIf { repeatRule != null && !it.rules.isFixedOffset }
+        val repeatRule = rrule.takeUnless { allDay }?.let(::safeRrule)
+        val seriesZone = seriesZoneFor(repeatRule, zone)
         lines += "PRODID:-//Gridlink Mail//EN"
         seriesZone?.let { lines += vtimezone(it, start) }
         // No METHOD. A METHOD makes this an iTIP message rather than a calendar object, and the two
@@ -383,11 +382,7 @@ object ICalendar {
             lines += "DTSTART;VALUE=DATE:${DATE_ONLY.format(from)}"
             lines += "DTEND;VALUE=DATE:${DATE_ONLY.format(until)}"
         } else {
-            val spell: (LocalDateTime) -> String = if (seriesZone != null) {
-                { ";TZID=${seriesZone.id}:${DATE_TIME.format(it)}" }
-            } else {
-                { ":${UTC_DATE_TIME.format(it.atZone(zone))}" }
-            }
+            val spell = { at: LocalDateTime -> timeValue(at, zone, seriesZone) }
             lines += "DTSTART${spell(start)}"
             // Only when it is genuinely after the start. A DTEND at or before DTSTART is invalid
             // per RFC 5545 §3.8.2.2, and omitting it makes the event a point in time, which every
@@ -417,6 +412,21 @@ object ICalendar {
         return lines.joinToString("\r\n") { fold(it) } + "\r\n"
     }
 
+    /**
+     * The zone a series is spelled in, or null to spell it in UTC: only a repeating event, in a zone
+     * that changes its clocks, has anything to drift against. See [buildEvent].
+     */
+    private fun seriesZoneFor(repeatRule: String?, zone: ZoneId): ZoneId? =
+        zone.takeIf { repeatRule != null && !it.rules.isFixedOffset }
+
+    /** A DTSTART/DTEND value with its parameters: a wall time in [seriesZone], else a UTC instant. */
+    private fun timeValue(at: LocalDateTime, zone: ZoneId, seriesZone: ZoneId?): String =
+        if (seriesZone != null) {
+            ";TZID=${seriesZone.id}:${DATE_TIME.format(at)}"
+        } else {
+            ":${UTC_DATE_TIME.format(at.atZone(zone))}"
+        }
+
     /** How many years of clock changes [vtimezone] spells out after a series starts. */
     private const val VTIMEZONE_YEARS = 30L
 
@@ -443,7 +453,10 @@ object ICalendar {
         val lines = mutableListOf("BEGIN:VTIMEZONE", "TZID:${zone.id}")
         if (changes.isEmpty()) {
             val offset = offsetText(rules.getOffset(begin))
-            lines += listOf("BEGIN:STANDARD", "DTSTART:19700101T000000", "TZOFFSETFROM:$offset", "TZOFFSETTO:$offset", "END:STANDARD")
+            lines += listOf(
+                "BEGIN:STANDARD", "DTSTART:19700101T000000",
+                "TZOFFSETFROM:$offset", "TZOFFSETTO:$offset", "END:STANDARD",
+            )
         }
         changes.groupBy { Triple(rules.isDaylightSavings(it.instant), it.offsetBefore, it.offsetAfter) }
             .forEach { (key, group) ->
@@ -466,7 +479,9 @@ object ICalendar {
         val total = offset.totalSeconds
         val sign = if (total < 0) "-" else "+"
         val abs = kotlin.math.abs(total)
-        val hhmm = String.format(Locale.ROOT, "%02d%02d", abs / SECONDS_PER_HOUR, abs % SECONDS_PER_HOUR / SECONDS_PER_MINUTE)
+        val hours = abs / SECONDS_PER_HOUR
+        val minutes = abs % SECONDS_PER_HOUR / SECONDS_PER_MINUTE
+        val hhmm = String.format(Locale.ROOT, "%02d%02d", hours, minutes)
         val ss = abs % SECONDS_PER_MINUTE
         return sign + hhmm + if (ss != 0) String.format(Locale.ROOT, "%02d", ss) else ""
     }
