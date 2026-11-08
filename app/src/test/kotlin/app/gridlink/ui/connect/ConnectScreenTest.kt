@@ -115,7 +115,7 @@ class ConnectScreenTest {
         choice("JMAP").assertIsSelected()
         chip("Password").assertIsSelected()
         chip("API token").assertIsNotSelected()
-        rule.onNodeWithText("Just enter your email and password", substring = true).assertExists()
+        rule.onNodeWithText("Enter your email and password", substring = true).assertExists()
         field("JMAP server").assertDoesNotExist()
 
         rule.onNodeWithText("Advanced settings").tap()
