@@ -69,8 +69,12 @@ data class Attendee(val email: String, val cn: String?, val raw: String)
  * The calendar's counterpart to `ContactCardGroup`, and the same contract: a group not in the
  * touched set is never rewritten, so everything this app does not model (ORGANIZER, ATTENDEE,
  * X- properties, a second VEVENT in the same file) survives an edit byte for byte.
+ *
+ * [RECURRENCE] is the series' RRULE alone. Gridlink's own form never touches it; Android's Calendar
+ * app does, when "this and following" ends a series early by adding an UNTIL. EXDATEs and
+ * overrides are not part of it: a removed day is [ICalendar.excludeOccurrence]'s job.
  */
-enum class EventField { TITLE, TIME, LOCATION, NOTES, CATEGORY, REMINDERS }
+enum class EventField { TITLE, TIME, LOCATION, NOTES, CATEGORY, REMINDERS, RECURRENCE }
 
 /**
  * How far an edit of a repeating event reaches, the answer to the question every calendar has to
@@ -715,6 +719,7 @@ object ICalendar {
         if (EventField.LOCATION in touched) add("LOCATION")
         if (EventField.NOTES in touched) add("DESCRIPTION")
         if (EventField.CATEGORY in touched) add("CATEGORIES")
+        if (EventField.RECURRENCE in touched) add("RRULE")
     }
 
     /** The lines a touched field group writes back, minus the times (see [timeLines]). */
@@ -805,6 +810,8 @@ object ICalendar {
         reminders: List<Int>,
         recurrenceId: LocalDate? = null,
         keepTimeSpelling: Boolean = false,
+        /** The new RRULE value (no `RRULE:` prefix) when [EventField.RECURRENCE] is touched. */
+        rrule: String? = null,
     ): String? {
         if (touched.isEmpty()) return raw
         val terminator = if ("\r\n" in raw) "\r\n" else "\n"
@@ -817,6 +824,10 @@ object ICalendar {
             addAll(
                 fieldLines(touched, summary, location, description, category, reminders),
             )
+            // Only a master carries a rule; an override handed one would become a second series.
+            if (EventField.RECURRENCE in touched && recurrenceId == null) {
+                rrule?.trim()?.removePrefix("RRULE:")?.takeIf { it.isNotBlank() }?.let { add("RRULE:$it") }
+            }
             if (EventField.TIME in touched) {
                 addAll(timeLines(keep, allDay, start, end, zone))
                 add("SEQUENCE:${target.sequence + 1}")
@@ -917,6 +928,50 @@ object ICalendar {
                 written.forEach { out.addAll(fold(it).split("\r\n")) }
                 out += "END:VEVENT"
             }
+        }
+        return out.joinToString(terminator)
+    }
+
+    /**
+     * Remove ONE occurrence from a repeating event: an EXDATE on the master naming the day, and any
+     * override already detached for that day dropped from the file.
+     *
+     * This is what "delete this event only" means on a series. The EXDATE is spelled the way the
+     * master spells its DTSTART (the rule [detachOccurrence] follows for RECURRENCE-ID), or a reader
+     * comparing it against the generated instance would never match it and the day would still
+     * show. The master's SEQUENCE is bumped, because the set of occurrences changed.
+     *
+     * Returns null when the file holds no master for [uid], which the caller must treat as "cannot
+     * edit".
+     *
+     * @param instanceStart the occurrence's ORIGINAL start (midnight for an all-day series), a wall
+     *   time in the series' own zone.
+     */
+    fun excludeOccurrence(
+        raw: String,
+        uid: String,
+        instanceStart: LocalDateTime,
+        zone: ZoneId,
+    ): String? {
+        val terminator = if ("\r\n" in raw) "\r\n" else "\n"
+        val logicals = logicalLines(raw)
+        val master = locate(logicals, uid, recurrenceId = null, zone = zone) ?: return null
+        val override = locate(logicals, uid, recurrenceId = instanceStart.toLocalDate(), zone = zone)
+        val keep = spellingOf(propertyIn(logicals, master, "DTSTART"))
+        val exdate = "EXDATE" + recurrenceIdLine(keep, instanceStart, zone).removePrefix("RECURRENCE-ID")
+
+        val out = ArrayList<String>()
+        for (i in logicals.indices) {
+            if (override != null && i in override.begin..override.end) continue
+            if (i == master.begin) {
+                out.addAll(logicals[i])
+                out.addAll(bodyLines(logicals, master, remove = setOf("SEQUENCE"), dropAlarms = false))
+                out += exdate
+                out += "SEQUENCE:${master.sequence + 1}"
+                continue
+            }
+            if (i > master.begin && i < master.end) continue
+            out.addAll(logicals[i])
         }
         return out.joinToString(terminator)
     }

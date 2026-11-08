@@ -90,6 +90,13 @@ class DavAttachmentOutcome(
 data class DavWriteOutcome(
     val href: String? = null,
     val error: String? = null,
+    /**
+     * True when the server refused the write because the item changed since this device last saw
+     * it (a 412 on `If-Match`). The cache has already been resynced by then, so a caller that
+     * merges (the native-app uploader) can compare the fresh copy and decide; a caller that only
+     * shows [error] can ignore it.
+     */
+    val conflict: Boolean = false,
 ) {
     val succeeded: Boolean get() = error == null && href != null
 }
@@ -669,7 +676,7 @@ class DavRepository(
         val endAt = end?.let {
             val day = endDate ?: if (start != null && it <= start) date.plusDays(1) else date
             LocalDateTime.of(day, it)
-        }
+        } ?: endDate?.takeIf { allDay }?.let { LocalDateTime.of(it, LocalTime.MIDNIGHT) }
 
         // 🔴 A JMAP-keyed calendar cannot be written to over CalDAV: `jmap:calendar/<id>` is this
         // app's own key, not a URL, and a PUT against it would 404 (or worse, hit something else
@@ -775,6 +782,14 @@ class DavRepository(
         reminders: List<Int> = emptyList(),
         recurrenceDay: LocalDate? = null,
         scope: EventEditScope = EventEditScope.WHOLE_SERIES,
+        /**
+         * The day [end] falls on (for an all-day event: the exclusive end day), when the caller
+         * knows it. Gridlink's form passes null and keeps the inference below; Android's Calendar
+         * app can stretch an event over several days, and only this can say so.
+         */
+        endDate: LocalDate? = null,
+        /** The series' new RRULE, read only when [touched] holds [EventField.RECURRENCE]. */
+        rrule: String? = null,
     ): DavWriteOutcome {
         if (accountStore.account(accountId)?.syncSelection?.calendar != true) {
             return DavWriteOutcome(error = "Turn on calendar sync for this account to save events")
@@ -831,18 +846,23 @@ class DavRepository(
             // event starts, never how many days it covers, so a three-day conference moved a week
             // must still be three days long — collapsing it to one because the end never crossed
             // the form would be a silent loss.
-            val spanDays = (target ?: master)
-                ?.takeIf { it.allDay }
-                ?.let { parsed ->
-                    parsed.end?.let { ChronoUnit.DAYS.between(parsed.start.toLocalDate(), it.toLocalDate()) }
-                }
-                ?.coerceAtLeast(1L) ?: 1L
+            val spanDays = endDate?.let { ChronoUnit.DAYS.between(date, it).coerceAtLeast(1L) }
+                ?: (target ?: master)
+                    ?.takeIf { it.allDay }
+                    ?.let { parsed ->
+                        parsed.end?.let { ChronoUnit.DAYS.between(parsed.start.toLocalDate(), it.toLocalDate()) }
+                    }
+                    ?.coerceAtLeast(1L) ?: 1L
             LocalDateTime.of(startLdt.toLocalDate().plusDays(spanDays), LocalTime.MIDNIGHT)
         } else {
             // Same roll-forward createEvent does: an end at or before the start is the form's way
             // of spelling "ends tomorrow".
             end?.let {
-                val day = if (it <= start) editedDay.plusDays(1) else editedDay
+                val day = when {
+                    endDate != null -> editedDay.plusDays(ChronoUnit.DAYS.between(date, endDate))
+                    it <= start -> editedDay.plusDays(1)
+                    else -> editedDay
+                }
                 inWriteZone(LocalDateTime.of(day, it))
             }
         }
@@ -878,6 +898,7 @@ class DavRepository(
                 category = category,
                 reminders = reminders,
                 instance = instanceKey,
+                rrule = rrule,
             )
             if (patch.isEmpty()) return DavWriteOutcome(href = href)
             return writeOverJmap(accountId, server, dav) { client, session, jmapAccountId, auth ->
@@ -927,6 +948,7 @@ class DavRepository(
                 reminders = reminders,
                 recurrenceId = if (thisOne) recurrenceDay else null,
                 keepTimeSpelling = repeating,
+                rrule = rrule,
             )
         } ?: return DavWriteOutcome(error = "This event could not be read for editing. Sync first.")
 
@@ -938,24 +960,140 @@ class DavRepository(
                 // looking at the truth when they try again; merging silently would pick a winner
                 // for them.
                 syncCalendars(accountId)
-                return DavWriteOutcome(
-                    error = "Someone changed this event on another device. " +
-                        "The newer copy has been synced; try again.",
-                )
+                return eventConflict()
             }
             return DavWriteOutcome(error = describe(e))
         }
+        return cacheRewrittenEvent(accountId, row.collectionUrl, written.href, written.etag, patched)
+    }
 
-        val item = DavItem(href = written.href, etag = written.etag, data = patched)
-        val rows = DavMappers.events(accountId, row.collectionUrl, item, displayZone)
+    /** The answer to a 412 on an event write, after the resync has already run. */
+    private fun eventConflict() = DavWriteOutcome(
+        error = "Someone changed this event on another device. The newer copy has been synced; try again.",
+        conflict = true,
+    )
+
+    /**
+     * Rebuild the cached rows of one `.ics` file from the text that was just uploaded, so the local
+     * copy is what the next sync would produce. Shared by every DAV write that rewrites a file.
+     */
+    private suspend fun cacheRewrittenEvent(
+        accountId: String,
+        collectionUrl: String,
+        href: String,
+        etag: String?,
+        ics: String,
+    ): DavWriteOutcome {
+        val item = DavItem(href = href, etag = etag, data = ics)
+        val rows = DavMappers.events(accountId, collectionUrl, item, zone())
         if (rows.isEmpty()) {
             return DavWriteOutcome(
                 error = "Saved to the server, but this device could not read it back. Sync to see it.",
             )
         }
-        eventDao.deleteForFile(accountId, written.href, DavMappers.hrefPrefix(written.href))
+        eventDao.deleteForFile(accountId, href, DavMappers.hrefPrefix(href))
         eventDao.upsertAll(rows)
-        return DavWriteOutcome(href = written.href)
+        return DavWriteOutcome(href = href)
+    }
+
+    /**
+     * Remove a whole event (every occurrence, when it repeats) from the server, then from the cache.
+     *
+     * [deleteContact]'s rules, brought to the calendar: a JMAP-cached row ([CalendarEventEntity.remoteId])
+     * is destroyed over `CalendarEvent/set`; anything else is a CalDAV DELETE guarded by `If-Match`
+     * on the stored etag, and a 412 resyncs and answers with [DavWriteOutcome.conflict] set. An
+     * event the server no longer has (404) is already deleted, which is the outcome asked for. The
+     * local rows go only after the server said yes.
+     *
+     * @param href the event's FILE href (an override row's `#day` suffix is not a file).
+     */
+    @Suppress("ReturnCount")
+    suspend fun deleteEvent(accountId: String, href: String): DavWriteOutcome {
+        if (accountStore.account(accountId)?.syncSelection?.calendar != true) {
+            return DavWriteOutcome(error = "Turn on calendar sync for this account to delete events")
+        }
+        val (dav, server) = when (val access = access(accountId)) {
+            is Access.Refused -> return DavWriteOutcome(error = access.reason)
+            is Access.Ready -> access.dav to access.server
+        }
+        val row = eventDao.byHref(accountId, href)
+            ?: return DavWriteOutcome(error = "This event isn't synced to this device yet. Sync first.")
+
+        val remoteId = row.remoteId
+        if (remoteId != null) {
+            val jmapClient = jmap ?: return DavWriteOutcome(error = "This calendar is not available right now.")
+            val (session, jmapAccountId) = jmapCalendars(server, dav)
+                ?: return DavWriteOutcome(error = "This calendar is not available right now.")
+            try {
+                jmapClient.destroyCalendarEvent(session, jmapAccountId, remoteId, BasicAuth(dav.username, dav.password))
+            } catch (c: CancellationException) {
+                throw c
+            } catch (e: Exception) {
+                return DavWriteOutcome(error = describeJmap(e))
+            }
+        } else {
+            try {
+                client.delete(row.collectionUrl, href, dav, row.etag)
+            } catch (e: DavException) {
+                when (e.code) {
+                    // Already gone is what was asked for.
+                    404, 410 -> Unit
+                    412 -> {
+                        syncCalendars(accountId)
+                        return eventConflict()
+                    }
+                    else -> return DavWriteOutcome(error = describe(e))
+                }
+            }
+        }
+        eventDao.deleteForFile(accountId, href, DavMappers.hrefPrefix(href))
+        return DavWriteOutcome(href = href)
+    }
+
+    /**
+     * Remove ONE occurrence of a repeating event: an EXDATE ([ICalendar.excludeOccurrence]) over
+     * CalDAV, an `excluded` override ([JsCalendarWrite.exclude]) over JMAP. Guarded and resynced
+     * exactly as [updateEvent] is, including [DavWriteOutcome.conflict] on a 412.
+     *
+     * @param href the series' FILE href.
+     * @param day which occurrence, by its ORIGINAL day in the series' own zone.
+     */
+    @Suppress("ReturnCount")
+    suspend fun excludeOccurrence(accountId: String, href: String, day: LocalDate): DavWriteOutcome {
+        if (accountStore.account(accountId)?.syncSelection?.calendar != true) {
+            return DavWriteOutcome(error = "Turn on calendar sync for this account to save events")
+        }
+        val (dav, server) = when (val access = access(accountId)) {
+            is Access.Refused -> return DavWriteOutcome(error = access.reason)
+            is Access.Ready -> access.dav to access.server
+        }
+        val row = eventDao.byHref(accountId, href)
+            ?: return DavWriteOutcome(error = "This event isn't synced to this device yet. Sync first.")
+        val displayZone = zone()
+        val series = DavMappers.reparse(row, displayZone)
+            .firstOrNull { it.uid == row.uid && it.recurrenceId == null && it.rrule != null }
+            ?: return DavWriteOutcome(error = "This event does not repeat, so it has no single day to remove.")
+        val instance = LocalDateTime.of(day, if (series.allDay) LocalTime.MIDNIGHT else series.start.toLocalTime())
+
+        val remoteId = row.remoteId
+        if (remoteId != null) {
+            return writeOverJmap(accountId, server, dav) { client, session, jmapAccountId, auth ->
+                client.updateCalendarEvent(session, jmapAccountId, remoteId, JsCalendarWrite.exclude(instance), auth)
+                remoteId
+            }
+        }
+        val patched = ICalendar.excludeOccurrence(row.raw, row.uid, instance, series.zone)
+            ?: return DavWriteOutcome(error = "This event could not be read for editing. Sync first.")
+        val written = try {
+            client.update(row.collectionUrl, href, dav, DavKind.CALENDAR, patched, row.etag)
+        } catch (e: DavException) {
+            if (e.code == 412) {
+                syncCalendars(accountId)
+                return eventConflict()
+            }
+            return DavWriteOutcome(error = describe(e))
+        }
+        return cacheRewrittenEvent(accountId, row.collectionUrl, written.href, written.etag, patched)
     }
 
     /**

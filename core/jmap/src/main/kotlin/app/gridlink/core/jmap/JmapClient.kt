@@ -2116,6 +2116,44 @@ class JmapClient internal constructor(
     }
 
     /**
+     * Destroy a CalendarEvent outright (RFC 8620 §5.3 `destroy`), the whole series when it repeats.
+     * Throws [JmapException] with the server's reason when it was not destroyed.
+     *
+     * [destroyContactCard]'s contract: a `notFound` refusal is thrown like any other, and the
+     * caller decides what an already-gone event means for its cache.
+     */
+    suspend fun destroyCalendarEvent(
+        session: JmapSession,
+        accountId: String,
+        eventId: String,
+        auth: JmapAuth,
+    ): Unit = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.CALENDARS_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("CalendarEvent/set")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonArray("destroy") { add(eventId) }
+                    }
+                    add("cx2")
+                }
+            }
+        }
+        val args = methodResponseArgs(postJmap(session, auth, payload), "CalendarEvent/set")
+        val destroyed = (args["destroyed"] as? JsonArray)?.any { it.jsonPrimitive.contentOrNull == eventId } == true
+        if (!destroyed) {
+            throw JmapException(
+                "Couldn't delete the event" + (setErrorDetail(args, "notDestroyed", eventId)?.let { " ($it)" } ?: ""),
+            )
+        }
+    }
+
+    /**
      * The account's current CalendarEvent state string, or null when the server did not give one.
      *
      * ## 🔴 This, and not a `queryState`, is what seeds an incremental sync
