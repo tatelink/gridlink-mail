@@ -3,6 +3,7 @@ package app.gridlink.ui.gridlink
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Base64
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -33,6 +34,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.viewinterop.AndroidView
 import app.gridlink.GridlinkApplication
+import app.gridlink.R
 import app.gridlink.core.data.settings.MessageTextSize
 import app.gridlink.ui.emailhtml.EmailRemoteContent
 import app.gridlink.ui.emailhtml.EmailTheme
@@ -140,7 +142,10 @@ internal fun GridlinkMessageBody(
             dark = dark,
         )
     }
-    val document = remember(html, plainText, inlineImages, theme) {
+    val plainFont = remember(context, plainText) {
+        if (plainText) GridlinkBodyFont.dataUri(context) else null
+    }
+    val document = remember(html, plainText, inlineImages, theme, plainFont) {
         buildEmailHtmlDocument(
             // 🔴 The two are not interchangeable. Plain text goes through the format=flowed reflow
             // and is painted in the app's own colours; HTML carries its own design and is inverted
@@ -150,6 +155,7 @@ internal fun GridlinkMessageBody(
             textContent = html.takeIf { plainText },
             inlineImages = inlineImages,
             theme = theme,
+            plainFontDataUri = plainFont,
         )
     }
     // Height, in the only sense this screen uses it: zero means "not laid out yet, keep it hidden".
@@ -458,6 +464,23 @@ private fun openExternally(context: Context, uri: Uri): Boolean = try {
 } catch (t: Exception) {
     // Nothing on the device can open it. Silently ignoring beats crashing the reader.
     false
+}
+
+/**
+ * The Gridlink text face (Outfit Regular) as a `data:` URI for plain-text bodies.
+ *
+ * The document's CSP only lets fonts in as `data:`, so the face is inlined rather than served. It
+ * is read and encoded once per process and shared by every reader after that; a failure to read
+ * it just leaves the body on `sans-serif`, which is what it used before.
+ */
+private object GridlinkBodyFont {
+    @Volatile
+    private var cached: String? = null
+
+    fun dataUri(context: Context): String? = cached ?: runCatching {
+        val bytes = context.resources.openRawResource(R.font.outfit_regular).use { it.readBytes() }
+        "data:font/ttf;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+    }.getOrNull()?.also { cached = it }
 }
 
 /** A Compose colour as the CSS hex the document builder takes. */

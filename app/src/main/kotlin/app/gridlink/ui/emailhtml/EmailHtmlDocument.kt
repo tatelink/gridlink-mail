@@ -188,6 +188,13 @@ fun buildEmailHtmlDocument(
     theme: EmailTheme = EmailTheme("#ffffff", "#111111", "#0b5fff", false),
     topSpacerCssPx: Int = 0,
     bottomSpacerCssPx: Int = 0,
+    /**
+     * The app's own text face as a `data:` URI, used for PLAIN text only. A plain message has no
+     * design of its own, so it should read in the same typeface as the rest of the reader rather
+     * than the phone's stock font. Rich HTML keeps whatever the sender chose. Null falls back to
+     * `sans-serif` (the print path passes nothing).
+     */
+    plainFontDataUri: String? = null,
 ): String {
     var inner = htmlContent
         ?: textContent?.let { "<pre class=\"plain\">${escapeHtml(reflowFormatFlowed(it))}</pre>" }
@@ -275,21 +282,29 @@ fun buildEmailHtmlDocument(
     // the invert branch) so a prefers-color-scheme:dark email doesn't render dark on a
     // dark-mode device. Plain text follows the app theme.
     val colorScheme = if (richHtml) "only light" else if (theme.dark) "dark" else "light"
+    // Plain text only, and only when the caller handed over the face. Same size and leading as
+    // before: only the family changes.
+    val plainFont = plainFontDataUri?.takeIf { !richHtml }
+    val fontFace = plainFont?.let {
+        "@font-face { font-family: 'GridlinkText'; font-weight: 400; src: url($it) format('truetype'); }"
+    }.orEmpty()
+    val family = if (plainFont != null) "'GridlinkText', sans-serif" else "sans-serif"
     return """
         <!DOCTYPE html><html><head>
         $CSP_META
         <meta name="viewport" content="width=device-width">
         <meta name="color-scheme" content="$colorScheme">
         <style>
+          $fontFace
           html { color-scheme: $colorScheme; }
           html, body { background-color: $bg; }
           /* margin/font-size rationale is on the dark branch's body rule; keep the two in step. */
-          body { margin: 16px !important; font-family: sans-serif; font-size: 15px;
+          body { margin: 16px !important; font-family: $family; font-size: 15px;
                  line-height: 1.45; color: $fg;
                  word-wrap: break-word; overflow-wrap: break-word; }
           img { max-width: 100%; height: auto; }
           a { color: $link; }
-          pre.plain { white-space: pre-wrap; word-wrap: break-word; font-family: sans-serif; }
+          pre.plain { white-space: pre-wrap; word-wrap: break-word; font-family: $family; }
           /* Bottom spacer reserving room for the overlaying Reply/Forward bar; surface colour so it
              blends with the body background. */
           .s-end { background: $bg; }
