@@ -192,3 +192,25 @@ internal class BarReveal {
         return shown
     }
 }
+
+/**
+ * How the reader sizes the card around a body: [fitPx] is the measured height a short message ends
+ * its card at (null while unknown, or when the body is taller than the room), and [probing] is
+ * whether the body is still laid out in the hidden 1dp sliver that measures it.
+ */
+internal data class BodyFit(val fitPx: Int? = null, val probing: Boolean = true)
+
+/**
+ * Folds one height report into [BodyFit]. [shownPx] is the height of the box the body was in when
+ * it reported: the probe sliver, or the fitted card plus its end padding.
+ *
+ * Only a report taller than that box measures anything, because a WebView's scroll range is never
+ * shorter than its own viewport. 🔴 A report that is NOT taller still ends the probe. It used to be
+ * ignored, and when the body's height poll settled on the sliver's own height (the document read
+ * back before it had laid out, which is what happened to a short plain-text mail after a language
+ * switch) the body stayed in the invisible sliver for good: a full-height card with nothing in it,
+ * and no second report coming to rescue it. Giving up on fitting shows the body in the full room
+ * instead, which is the layout every long message gets anyway.
+ */
+internal fun BodyFit.afterReport(px: Int, shownPx: Int): BodyFit =
+    if (px > shownPx) BodyFit(fitPx = px, probing = false) else copy(probing = false)

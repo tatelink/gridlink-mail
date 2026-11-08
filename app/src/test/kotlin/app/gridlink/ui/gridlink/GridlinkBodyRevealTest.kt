@@ -362,4 +362,24 @@ class BarRevealTest {
         assertTrue(bar.scrolled(7080, 7080, threshold))
         assertFalse(bar.scrolled(3000, 7080, threshold))
     }
+    // The card fit around a short body (BodyFit). The probe sliver is 3 px on a 420 dpi phone.
+
+    @Test fun `a report taller than the probe fits the card to the body`() {
+        val fit = BodyFit().afterReport(px = 140, shownPx = 3)
+        assertEquals(BodyFit(fitPx = 140, probing = false), fit)
+    }
+
+    @Test fun `a report no taller than the probe still ends the probe so the body is shown`() {
+        // The blank "QA notification branch F" reader: the poll settled on the sliver's own height,
+        // and the body used to stay hidden in the sliver for good.
+        val fit = BodyFit().afterReport(px = 3, shownPx = 3)
+        assertFalse(fit.probing)
+        assertEquals(null, fit.fitPx)
+    }
+
+    @Test fun `a later report taller than the fitted card grows it, a shorter one keeps it`() {
+        val fitted = BodyFit(fitPx = 140, probing = false)
+        assertEquals(BodyFit(fitPx = 300, probing = false), fitted.afterReport(px = 300, shownPx = 164))
+        assertEquals(fitted, fitted.afterReport(px = 164, shownPx = 164))
+    }
 }

@@ -246,13 +246,13 @@ fun GridlinkThreadScreen(
     // ([BODY_PROBE_HEIGHT]); the range it reports from there is the real document height. Taller
     // than the room it has, it gets the room as before; shorter, the card ends at the text.
     // 🔴 Maximized skips all of it: that mode is a request for the whole window.
-    var bodyFitPx by remember(message.id, message.body) { mutableStateOf<Int?>(null) }
+    var bodyFit by remember(message.id, message.body) { mutableStateOf(BodyFit()) }
     var bodyRoomPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val bodyEndPadPx = with(density) { GridlinkSpacing.s8.roundToPx() }
     val bodyProbePx = with(density) { BODY_PROBE_HEIGHT.roundToPx() }
-    val probingBody = !maximized && bodyFitPx == null
-    val fitBodyPx = bodyFitPx?.takeIf { !maximized && bodyRoomPx > 0 && it + bodyEndPadPx < bodyRoomPx }
+    val probingBody = !maximized && bodyFit.probing
+    val fitBodyPx = bodyFit.fitPx?.takeIf { !maximized && bodyRoomPx > 0 && it + bodyEndPadPx < bodyRoomPx }
     // 🔴 Unsubscribe is the one action here that talks to someone else. Every other button
     // rearranges mail that is already on the device, and this one tells a sender you exist and are
     // reading. It gets asked first, wherever it was tapped from.
@@ -500,11 +500,12 @@ fun GridlinkThreadScreen(
                         dark = !mode.isLightSurface,
                         plainText = message.bodyIsPlainText,
                         inlineImages = message.inlineImages,
-                        // Only a report taller than the body's current box means anything: the
-                        // range is never shorter than the viewport, so an equal one says "fits".
+                        // Only a report taller than the body's current box is a measurement (the
+                        // range is never shorter than the viewport), but any report ends the probe.
+                        // See [afterReport].
                         onContentHeightPx = { px ->
-                            val shown = bodyFitPx?.plus(bodyEndPadPx) ?: bodyProbePx
-                            if (px > shown) bodyFitPx = px
+                            val shown = bodyFit.fitPx?.plus(bodyEndPadPx) ?: bodyProbePx
+                            bodyFit = bodyFit.afterReport(px, shown)
                         },
                         modifier = when {
                             probingBody ->
