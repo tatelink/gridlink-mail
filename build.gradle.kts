@@ -44,7 +44,12 @@ subprojects {
                 "src/main/kotlin",
                 "src/main/java",
                 "src/debug/kotlin",
+                // The app's store flavors (fdroid keeps Ko-fi, play carries the billing tip jar).
+                "src/fdroid/kotlin",
+                "src/play/kotlin",
                 "src/test/kotlin",
+                "src/testFdroid/kotlin",
+                "src/testPlay/kotlin",
                 "src/test/java",
             ),
         )

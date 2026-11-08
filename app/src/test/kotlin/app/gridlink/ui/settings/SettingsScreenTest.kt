@@ -240,14 +240,11 @@ class SettingsScreenTest {
         rule.onNodeWithText("Sterna Mail by emon").assertExists()
         rule.onNodeWithText("Send feedback").assertExists()
         rule.onNodeWithText("support@gridlink.me").assertExists()
-        // The tip jar is a card at the TOP of the screen now, not a row in About, so these are
-        // asserted as the one and only support surface on the scroll.
+        // The tip jar is a card at the TOP of the screen now, not a row in About, so its title is
+        // asserted as the one and only support surface on the scroll. What the card offers differs
+        // per store flavor (Ko-fi in fdroid, Play Billing tips in play), so its insides are held by
+        // FdroidSupportCardTest and PlaySupportCardTest in the flavor test source sets.
         rule.onNodeWithText("Support Gridlink").assertExists()
-        rule.onNodeWithText("Buy me a coffee on Ko-fi").assertExists()
-        rule.onNodeWithText(
-            "Gridlink is free, has no ads and no trackers, and is built by one person. " +
-                "A coffee keeps it going.",
-        ).assertExists()
     }
 
     @Test
@@ -261,8 +258,6 @@ class SettingsScreenTest {
             "Accounts", "Appearance", "Version", "Source code",
             "License", "Based on", "Send feedback",
         ).forEach { rule.onNodeWithText(it).assert(hasClickAction()) }
-        // The tip jar's button is the clickable part, not the card's heading.
-        rule.onNodeWithText("Buy me a coffee on Ko-fi").assert(hasClickAction())
     }
 
     @Test

@@ -71,6 +71,30 @@ android {
         resValue("string", "gridlink_account_type", if (testApp) "app.gridlink.test" else "app.gridlink")
     }
 
+    // 🔴 Two store flavors, one dimension. `fdroid` is the build F-Droid rebuilds from each tag and the
+    // APK published on GitHub releases (the recipe's `Binaries`); it must stay free of every Google
+    // dependency and keeps the Ko-fi tip pill. `play` is the Google Play build: the same app with
+    // Play Billing tips in place of Ko-fi, because Play forbids an outside tip link (Brandon's call,
+    // 2026-11-07). Same applicationId, same versionCode, same signing key.
+    //
+    // 🔴 Billing exists ONLY in src/play and only as `playImplementation`, so the fdroid flavor cannot
+    // compile against it, and F-Droid's scanner (which reads compile lines per built flavor) never
+    // sees it when building `gradle: [fdroid]`. Never move billing into src/main or plain
+    // `implementation`. Neither flavor sets a suffix or a field of its own, so the fdroid build's
+    // applicationId, versionName and resources are exactly what they were before the split.
+    flavorDimensions += "store"
+    productFlavors {
+        create("fdroid") {
+            dimension = "store"
+            // The variant Android Studio selects first. (Command-line tasks are always named per
+            // flavor: assembleFdroidRelease, bundlePlayRelease. A bare assembleRelease builds both.)
+            isDefault = true
+        }
+        create("play") {
+            dimension = "store"
+        }
+    }
+
     // Distinct launcher icon for the test app: a greyscale copy of the Gridlink mark overriding
     // the adaptive icon's foreground layer in both drawable/ and drawable-night/ (the tile and
     // the monochrome layer are untouched, so the test build still tracks the system theme).
@@ -226,6 +250,11 @@ dependencies {
     // don't run install-time dexopt from the embedded profile on all ROMs (verified on the S7).
     implementation(libs.androidx.profileinstaller)
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    // Google Play Billing, for the Play build's tip jar ONLY. 🔴 `playImplementation`, never plain
+    // `implementation`: see the productFlavors note above. It pulls Play services (base, basement,
+    // location, tasks) and Google's datatransport, none of which may reach the fdroid flavor.
+    "playImplementation"(libs.billing.ktx)
 
     testImplementation(libs.junit)
     // Virtual time + a background scope, to drive the unfolded conversations' live member stream
