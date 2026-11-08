@@ -153,7 +153,7 @@ internal fun GridlinkCalendarsSheet(
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(GridlinkSpacing.s12))
-                GridlinkOnOffPill(calendar.visible)
+                GridlinkOnOffSwitch(calendar.visible)
             }
         }
         GridlinkSheetFooterSpace()

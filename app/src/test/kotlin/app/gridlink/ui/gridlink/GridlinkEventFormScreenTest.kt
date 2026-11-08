@@ -7,6 +7,8 @@ import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isOff
+import androidx.compose.ui.test.isOn
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -125,8 +127,8 @@ class GridlinkEventFormScreenTest {
         row("Start", "9 AM").assertExists()
         row("End", "10 AM").assertExists()
 
-        rule.onNode(hasText("All day") and hasText("OFF")).performScrollTo().performClick()
-        rule.onNode(hasText("All day") and hasText("ON")).assertExists()
+        rule.onNode(hasText("All day") and isOff()).performScrollTo().performClick()
+        rule.onNode(hasText("All day") and isOn()).assertExists()
         rule.onNode(hasText("Start") and hasText("9 AM")).assertDoesNotExist()
         rule.onNode(hasText("End") and hasText("10 AM")).assertDoesNotExist()
 

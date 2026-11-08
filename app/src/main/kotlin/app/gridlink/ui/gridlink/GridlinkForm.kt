@@ -37,6 +37,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -56,6 +57,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
@@ -72,6 +75,7 @@ import app.gridlink.ui.theme.GridlinkRadii
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
+import app.gridlink.ui.theme.gridlinkSwitchColors
 
 /**
  * The shape every "fill this in and save it" screen takes: new event, new contact.
@@ -849,14 +853,17 @@ fun GridlinkFormPickRow(
 }
 
 /**
- * An on/off row: all-day.
+ * An on/off row: all-day, show password, sync calendar and contacts.
  *
- * A pill that reads ON or OFF rather than a Material switch, for the reason the app has no Material
- * controls anywhere else: the switch brings its own colour system, and the one thing it is certain to
- * get wrong is which of the three palettes it is in.
+ * ## 🔴 The same switch as Settings, not a pill of its own
+ * This used to draw a pill reading ON or OFF, while Settings used a real switch for exactly the same
+ * kind of choice, so the app had two controls for one job. Both now draw [GridlinkOnOffSwitch], a
+ * Material switch in [gridlinkSwitchColors], which is what fixed the old objection to the Material
+ * switch (it brought its own colours and got the palette wrong): it is coloured from the theme, in
+ * every palette, the same way the Settings rows are.
  *
- * 🔴 The off state is a bordered pill and NOT a dimmed on state. Same rule as everywhere else here:
- * alpha does not encode state, because a dimmed control reads as unavailable rather than as off.
+ * 🔴 The off state is still NOT a dimmed on state: an outlined track with a grey thumb, never the
+ * accent at low alpha, because a dimmed control reads as unavailable rather than as off.
  */
 @Composable
 fun GridlinkFormToggleRow(
@@ -873,7 +880,7 @@ fun GridlinkFormToggleRow(
     val colors = GridlinkTheme.colors
     if (contained) {
         // 🔴 The label goes on the VALUE line and the caption slot stays empty, which is the one
-        // place this deviates from the rows around it. A toggle has no value to name: the pill IS
+        // place this deviates from the rows around it. A toggle has no value to name: the switch IS
         // the value. Captioning "All day" over the word "Yes" says the same thing twice and makes
         // the box a line taller than every field it sits between.
         //
@@ -884,7 +891,7 @@ fun GridlinkFormToggleRow(
             active = false,
             modifier = modifier,
             onClick = { onToggle(!checked) },
-            trailing = { GridlinkOnOffPill(checked) },
+            trailing = { GridlinkOnOffSwitch(checked) },
         ) {
             Text(
                 text = label,
@@ -910,39 +917,24 @@ fun GridlinkFormToggleRow(
             color = colors.textPrimary,
             modifier = Modifier.weight(1f),
         )
-        GridlinkOnOffPill(checked)
+        GridlinkOnOffSwitch(checked)
     }
 }
 
 /**
- * The ON/OFF pill on its own, for rows that are not [GridlinkFormToggleRow].
+ * The on/off switch on its own, for rows that are not [GridlinkFormToggleRow] (a folder's notify
+ * toggle, a calendar's visibility).
  *
- * Extracted rather than copied because the off state is the fiddly half: a bordered pill in
- * [GridlinkColors.surface], never a dimmed copy of the on state. Two hand-written versions of that
- * rule is one version drifting into alpha.
+ * Display only: [Switch] gets no `onCheckedChange`, because every row that shows one is itself the
+ * tap target, and a second target inside it would toggle twice or swallow the tap. The state still
+ * reaches a screen reader through [toggleableState], which the row's merged semantics pick up.
  */
 @Composable
-fun GridlinkOnOffPill(checked: Boolean, modifier: Modifier = Modifier) {
-    val colors = GridlinkTheme.colors
-    val shape = RoundedCornerShape(GridlinkRadii.pill)
-    Box(
-        modifier = modifier
-            .clip(shape)
-            .then(
-                if (checked) {
-                    Modifier.background(gridlinkAccentFill(colors.accent))
-                } else {
-                    Modifier
-                        .background(colors.surface, shape)
-                        .border(GridlinkDimens.hairline, colors.surfaceBorder, shape)
-                },
-            )
-            .padding(horizontal = GridlinkSpacing.s16, vertical = GridlinkSpacing.s8),
-    ) {
-        Text(
-            text = if (checked) "ON" else "OFF",
-            style = GridlinkType.sectionLabel,
-            color = if (checked) colors.onAccent else colors.textSecondary,
-        )
-    }
+fun GridlinkOnOffSwitch(checked: Boolean, modifier: Modifier = Modifier) {
+    Switch(
+        checked = checked,
+        onCheckedChange = null,
+        modifier = modifier.semantics { toggleableState = ToggleableState(checked) },
+        colors = gridlinkSwitchColors(),
+    )
 }
