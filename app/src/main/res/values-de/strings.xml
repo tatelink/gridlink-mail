@@ -923,4 +923,6 @@
     <string name="settings_tags_adopt_all">Alle %1$d übernehmen</string>
     <string name="read_receipt_subject">Gelesen: %1$s</string>
     <string name="read_receipt_body">Ihre Nachricht wurde auf dem Gerät des Empfängers angezeigt. Das ist keine Garantie dafür, dass sie gelesen oder verstanden wurde.</string>
+    <string name="gridlink_full_screen">Vollbild</string>
+    <string name="gridlink_exit_full_screen">Vollbild beenden</string>
 </resources>

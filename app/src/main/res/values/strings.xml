@@ -960,4 +960,6 @@
     <string name="settings_tags_server_failed">Could not reach the server. This list is only from mail on this device.</string>
     <string name="settings_tags_adopt">Adopt</string>
     <string name="settings_tags_adopt_all">Adopt all %1$d</string>
+    <string name="gridlink_full_screen">Full screen</string>
+    <string name="gridlink_exit_full_screen">Exit full screen</string>
 </resources>

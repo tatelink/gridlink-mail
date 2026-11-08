@@ -929,4 +929,6 @@
     <string name="settings_tags_adopt_all">Adotar as %1$d</string>
     <string name="read_receipt_subject">Lido: %1$s</string>
     <string name="read_receipt_body">A sua mensagem foi apresentada no dispositivo do destinatário. Isto não garante que tenha sido lida ou compreendida.</string>
+    <string name="gridlink_full_screen">Tela cheia</string>
+    <string name="gridlink_exit_full_screen">Sair da tela cheia</string>
 </resources>

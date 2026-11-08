@@ -284,6 +284,7 @@ object GridlinkMailMapping {
                 locale = locale,
                 yesterday = labels.yesterday,
             ),
+            receivedAt = email.receivedAt,
             unread = threadUnread ?: !email.isSeen,
             starred = email.isFlagged,
             threadCount = threadCount,

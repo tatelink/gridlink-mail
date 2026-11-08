@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -161,6 +162,16 @@ fun GridlinkDetailFrame(
      * leaving for a compose button that is no longer on screen.
      */
     maximized: Boolean = false,
+    /**
+     * End the glass where the content ends instead of running it down to the bottom row. The space
+     * underneath stays empty and the bottom row stays where it always is, so only the panel's
+     * outline moves. [GridlinkThreadScreen] turns it on for a message short enough to fit, where a
+     * full-height card was mostly empty glass under two lines of text.
+     *
+     * ⚠️ The panel must then size itself: it gets its width but no height, so content that asks
+     * for fillMaxSize collapses to nothing. False everywhere else, which is the old behaviour.
+     */
+    fitToContent: Boolean = false,
     panel: @Composable BoxScope.() -> Unit,
 ) {
     val colors = GridlinkTheme.colors
@@ -263,20 +274,37 @@ fun GridlinkDetailFrame(
                 GridlinkDetailHeader(title = title, onBack = onBack, titleAction = titleAction)
             }
 
+            // The slot always takes the leftover height, so the bottom row never moves; the glass
+            // inside it either fills the slot or, with [fitToContent], stops under the content.
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = GridlinkSpacing.chrome)
-                    .clip(panelShape)
-                    .background(colors.listSurface, panelShape)
-                    .border(GridlinkDimens.hairline, colors.surfaceBorder, panelShape),
+                    .fillMaxWidth(),
             ) {
-                // 🔴 One layout in both cases now. The pane used to draw its title inside the glass
-                // over a hairline, which meant the panel had two shapes and the reading pane's
-                // content started a title row lower than the standing screen's. With the title
-                // above the glass in both, the panel is just the panel.
-                Box(modifier = Modifier.fillMaxSize(), content = panel)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (fitToContent) {
+                                Modifier.wrapContentHeight(Alignment.Top)
+                            } else {
+                                Modifier.fillMaxHeight()
+                            },
+                        )
+                        .padding(horizontal = GridlinkSpacing.chrome)
+                        .clip(panelShape)
+                        .background(colors.listSurface, panelShape)
+                        .border(GridlinkDimens.hairline, colors.surfaceBorder, panelShape),
+                ) {
+                    // 🔴 One layout in both cases now. The pane used to draw its title inside the
+                    // glass over a hairline, which meant the panel had two shapes and the reading
+                    // pane's content started a title row lower than the standing screen's. With the
+                    // title above the glass in both, the panel is just the panel.
+                    Box(
+                        modifier = if (fitToContent) Modifier.fillMaxWidth() else Modifier.fillMaxSize(),
+                        content = panel,
+                    )
+                }
             }
 
             if (bottom == null) {

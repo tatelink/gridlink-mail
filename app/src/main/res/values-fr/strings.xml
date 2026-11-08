@@ -928,4 +928,6 @@
     <string name="settings_tags_adopt_all">Adopter les %1$d</string>
     <string name="read_receipt_subject">Lu : %1$s</string>
     <string name="read_receipt_body">Votre message a été affiché sur l\'appareil du destinataire. Cela ne garantit pas qu\'il ait été lu ou compris.</string>
+    <string name="gridlink_full_screen">Plein écran</string>
+    <string name="gridlink_exit_full_screen">Quitter le plein écran</string>
 </resources>

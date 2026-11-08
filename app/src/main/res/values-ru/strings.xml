@@ -932,4 +932,6 @@
     <string name="settings_tags_adopt_all">Принять все (%1$d)</string>
     <string name="read_receipt_subject">Прочитано: %1$s</string>
     <string name="read_receipt_body">Ваше сообщение было отображено на устройстве получателя. Это не гарантирует, что оно прочитано или понято.</string>
+    <string name="gridlink_full_screen">Во весь экран</string>
+    <string name="gridlink_exit_full_screen">Выйти из полноэкранного режима</string>
 </resources>

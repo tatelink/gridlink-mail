@@ -925,4 +925,6 @@
     <string name="settings_tags_adopt_all">Adoptar las %1$d</string>
     <string name="read_receipt_subject">Leído: %1$s</string>
     <string name="read_receipt_body">Tu mensaje se mostró en el dispositivo del destinatario. Esto no garantiza que se haya leído ni comprendido.</string>
+    <string name="gridlink_full_screen">Pantalla completa</string>
+    <string name="gridlink_exit_full_screen">Salir de pantalla completa</string>
 </resources>
