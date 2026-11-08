@@ -8,6 +8,7 @@ import android.net.Uri
 import android.provider.ContactsContract
 import android.util.Base64
 import android.util.Log
+import app.gridlink.core.data.contacts.ContactEdit
 import app.gridlink.core.data.contacts.ContactPayload
 import app.gridlink.core.data.contacts.ParsedContact
 import app.gridlink.core.data.db.AddressBookContactEntity
@@ -16,11 +17,15 @@ import app.gridlink.core.data.db.AddressBookContactEntity
  * Publishes one mail account's cached CardDAV cards into Android's contacts provider, so they
  * reach caller ID, the dialler, and every app's people picker.
  *
- * ## 🔴 One direction, and the provider is told so
- * Each raw contact is written with `RAW_CONTACT_IS_READ_ONLY`, which is how the system Contacts app
- * knows not to offer an editor over these rows. Without it the user gets an edit screen that
- * appears to work and whose changes this mirror overwrites on its next pass. Editing lives in
- * Gridlink, where it reaches the server.
+ * ## 🔴 Two directions, and this is only the downward one
+ * The system Contacts app may edit, add and delete these rows. Its changes mark a row `DIRTY` or
+ * `DELETED`, and [ContactsUploader] sends them up before this runs. A row still marked here is an
+ * edit that could not be sent yet: this mirror neither rewrites nor sweeps it, or the user's
+ * change would be overwritten before it ever reached the server.
+ *
+ * Each row carries the two base hashes the uploader compares against: the server's (`SYNC2`,
+ * written with the row) and the provider's own (`SYNC3`, read back by [settle] once the row is in,
+ * because the provider rewrites some of what it is given).
  *
  * ## Where the fields come from
  * The parsed columns on [AddressBookContactEntity] are the address book's *list* view: a name, a
@@ -50,9 +55,10 @@ class ContactsMirror(private val resolver: ContentResolver) {
         for (contact in contacts) {
             val sourceId = SystemMirror.sourceId(accountId, contact.href)
             seen += sourceId
-            val fingerprint = SystemMirror.fingerprint(contact.etag, contact.raw)
+            val fingerprint = FORMAT + SystemMirror.fingerprint(contact.etag, contact.raw)
             val row = existing[sourceId]
-            if (row != null && row.fingerprint == fingerprint) continue
+            // 🔴 An edit not yet on the server. See the class note.
+            if (row != null && (row.pending || row.fingerprint == fingerprint)) continue
             // Changed cards are removed and rewritten rather than diffed field by field. A vCard
             // has no stable identity for "the second email address", so a diff would come down to
             // matching values against each other, which is what a rewrite does anyway.
@@ -66,13 +72,41 @@ class ContactsMirror(private val resolver: ContentResolver) {
         }
 
         for ((sourceId, row) in existing) {
-            if (sourceId !in seen) {
+            if (sourceId !in seen && !row.pending) {
                 ops += ContentProviderOperation.newDelete(rawContactUri(account, row.id)).build()
             }
         }
 
         apply(ops)
+        settle(account, prefix)
         return written
+    }
+
+    /**
+     * Take the provider-side base hashes of every row written since the last pass, as the provider
+     * now holds it. Only rows still clean: one the user has already touched would hand them their
+     * own edit as the base, and the edit would then look like no change at all.
+     */
+    private fun settle(account: Account, prefix: String) {
+        val reader = ContactsProviderReader(resolver, account)
+        val ids = ArrayList<Long>()
+        resolver.query(
+            syncUri(ContactsContract.RawContacts.CONTENT_URI, account),
+            arrayOf(ContactsContract.RawContacts._ID),
+            "${ContactsContract.RawContacts.ACCOUNT_NAME} = ? AND " +
+                "${ContactsContract.RawContacts.ACCOUNT_TYPE} = ? AND " +
+                "${ContactsContract.RawContacts.SOURCE_ID} LIKE ? AND " +
+                "${ContactsContract.RawContacts.DIRTY} = 0 AND ${ContactsContract.RawContacts.DELETED} = 0 AND " +
+                "(${ContactsContract.RawContacts.SYNC3} IS NULL OR ${ContactsContract.RawContacts.SYNC3} = '')",
+            arrayOf(account.name, account.type, "$prefix%"),
+            null,
+        )?.use { cursor -> while (cursor.moveToNext()) ids += cursor.getLong(0) }
+        for (id in ids) {
+            val base = NativeContactDiff.encode(NativeContactDiff.localHashes(reader.read(id)))
+            val values = ContentValues().apply { put(ContactsContract.RawContacts.SYNC3, base) }
+            runCatching { resolver.update(rawContactUri(account, id), values, null, null) }
+                .onFailure { Log.w(TAG, "could not settle raw contact $id", it) }
+        }
     }
 
     private fun appendInsert(
@@ -89,8 +123,10 @@ class ContactsMirror(private val resolver: ContentResolver) {
             .withValue(ContactsContract.RawContacts.ACCOUNT_TYPE, account.type)
             .withValue(ContactsContract.RawContacts.SOURCE_ID, sourceId)
             .withValue(ContactsContract.RawContacts.SYNC1, fingerprint)
-            // 🔴 The read-only declaration. See the class note.
-            .withValue(ContactsContract.RawContacts.RAW_CONTACT_IS_READ_ONLY, 1)
+            .withValue(
+                ContactsContract.RawContacts.SYNC2,
+                NativeContactDiff.encode(NativeContactDiff.serverHashes(ContactEdit.from(parsed))),
+            )
             .build()
 
         fun data(mimeType: String, build: ContentProviderOperation.Builder.() -> Unit) {
@@ -208,7 +244,8 @@ class ContactsMirror(private val resolver: ContentResolver) {
             .onFailure { Log.d(TAG, "could not set ungrouped visibility", it) }
     }
 
-    private data class RawRow(val id: Long, val fingerprint: String)
+    /** @param pending marked `DIRTY` or `DELETED`: a change in the provider not yet sent. */
+    private data class RawRow(val id: Long, val fingerprint: String, val pending: Boolean)
 
     private fun existingRawContacts(account: Account, prefix: String): Map<String, RawRow> {
         val out = HashMap<String, RawRow>()
@@ -216,6 +253,8 @@ class ContactsMirror(private val resolver: ContentResolver) {
             ContactsContract.RawContacts._ID,
             ContactsContract.RawContacts.SOURCE_ID,
             ContactsContract.RawContacts.SYNC1,
+            ContactsContract.RawContacts.DIRTY,
+            ContactsContract.RawContacts.DELETED,
         )
         resolver.query(
             syncUri(ContactsContract.RawContacts.CONTENT_URI, account),
@@ -226,9 +265,12 @@ class ContactsMirror(private val resolver: ContentResolver) {
             arrayOf(account.name, account.type, "$prefix%"),
             null,
         )?.use { cursor ->
+            val dirty = cursor.getColumnIndexOrThrow(ContactsContract.RawContacts.DIRTY)
+            val deleted = cursor.getColumnIndexOrThrow(ContactsContract.RawContacts.DELETED)
             while (cursor.moveToNext()) {
                 val sourceId = cursor.getString(1) ?: continue
-                out[sourceId] = RawRow(cursor.getLong(0), cursor.getString(2).orEmpty())
+                val pending = cursor.getInt(dirty) == 1 || cursor.getInt(deleted) == 1
+                out[sourceId] = RawRow(cursor.getLong(0), cursor.getString(2).orEmpty(), pending)
             }
         }
         return out
@@ -272,17 +314,18 @@ class ContactsMirror(private val resolver: ContentResolver) {
             .appendPath(id.toString())
             .build()
 
-    /** See [CalendarMirror] for why the sync-adapter flag is not optional. */
-    private fun syncUri(uri: Uri, account: Account): Uri = uri.buildUpon()
-        .appendQueryParameter(ContactsContract.CALLER_IS_SYNCADAPTER, "true")
-        .appendQueryParameter(ContactsContract.RawContacts.ACCOUNT_NAME, account.name)
-        .appendQueryParameter(ContactsContract.RawContacts.ACCOUNT_TYPE, account.type)
-        .build()
+    private fun syncUri(uri: Uri, account: Account): Uri = ContactsProviderReader.syncUri(uri, account)
 
     private companion object {
         const val TAG = "GridlinkSync"
         const val CHUNK = 300
         const val RAW_CONTACTS_PATH = "raw_contacts"
         const val MAX_PHOTO_BYTES = 512 * 1024
+
+        /**
+         * Fingerprint format. Bumped when what a row holds changes, which rewrites every row once:
+         * v2 dropped the read-only flag and added the base hashes.
+         */
+        const val FORMAT = "v2:"
     }
 }

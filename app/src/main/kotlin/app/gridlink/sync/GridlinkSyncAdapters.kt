@@ -33,8 +33,12 @@ private abstract class GridlinkSyncAdapter(context: Context) : AbstractThreadedS
 
     protected abstract val label: String
 
-    /** Fetch from the server and write the result into the system provider, for one mail account. */
-    protected abstract suspend fun sync(account: Account, accountId: String)
+    /**
+     * Fetch from the server, send the provider's own changes up, and write the result into the
+     * system provider, for one mail account. [primary] is true for the first mail account on this
+     * Android account, the one that takes rows created in the system app (see [ContactsUploader]).
+     */
+    protected abstract suspend fun sync(account: Account, accountId: String, primary: Boolean)
 
     final override fun onPerformSync(
         account: Account,
@@ -57,8 +61,8 @@ private abstract class GridlinkSyncAdapter(context: Context) : AbstractThreadedS
                 Log.i(TAG, "$label sync skipped: no mail account named ${account.name}")
                 return@runBlocking
             }
-            for (id in ids) {
-                runCatching { sync(account, id) }
+            for ((index, id) in ids.withIndex()) {
+                runCatching { sync(account, id, primary = index == 0) }
                     .onFailure {
                         Log.w(TAG, "$label sync failed for $id", it)
                         syncResult.stats.numIoExceptions++
@@ -78,14 +82,29 @@ private class ContactsSyncAdapter(context: Context) : GridlinkSyncAdapter(contex
 
     private val mirror = ContactsMirror(context.contentResolver)
 
-    override suspend fun sync(account: Account, accountId: String) {
-        val container = (context.applicationContext as Application).container
+    override suspend fun sync(account: Account, accountId: String, primary: Boolean) {
+        val repository = (context.applicationContext as Application).container.davRepository
         // Failure here is not failure of the pass; see the file note.
-        runCatching { container.davRepository.syncContacts(accountId) }
+        runCatching { repository.syncContacts(accountId) }
             .onFailure { Log.i(TAG, "CardDAV fetch failed; publishing the cache anyway", it) }
-        val cards = container.davRepository.allContacts(accountId)
+        // Same order as the calendar adapter, for the same reasons: download, upload, download
+        // again only if something was written, publish.
+        val uploaded = runCatching {
+            ContactsUploader(
+                accountId = accountId,
+                local = ProviderContactsLocal(context.contentResolver, account, accountId),
+                remote = RepositoryContactsRemote(repository, accountId),
+                includeNew = primary,
+            ).run()
+        }.onFailure { Log.w(TAG, "contacts upload failed; unsent edits stay marked for the next pass", it) }
+            .getOrNull()
+        if (uploaded?.wroteAnything == true) {
+            runCatching { repository.syncContacts(accountId) }
+                .onFailure { Log.i(TAG, "post-upload fetch failed; publishing the cache anyway", it) }
+        }
+        val cards = repository.allContacts(accountId)
         val written = mirror.publish(account, accountId, cards)
-        Log.i(TAG, "contacts mirror: ${cards.size} cached, $written written for $accountId")
+        Log.i(TAG, "contacts mirror: ${cards.size} cached, $written written, upload $uploaded for $accountId")
     }
 
     private companion object {
@@ -99,7 +118,7 @@ private class CalendarSyncAdapter(context: Context) : GridlinkSyncAdapter(contex
 
     private val mirror = CalendarMirror(context.contentResolver)
 
-    override suspend fun sync(account: Account, accountId: String) {
+    override suspend fun sync(account: Account, accountId: String, primary: Boolean) {
         val repository = (context.applicationContext as Application).container.davRepository
         runCatching { repository.syncCalendars(accountId) }
             .onFailure { Log.i(TAG, "CalDAV fetch failed; publishing the cache anyway", it) }

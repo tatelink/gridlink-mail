@@ -1103,8 +1103,16 @@ class DavRepository(
      * goes up as a ContactCard/set create into the default address book. Otherwise it is a vCard
      * PUT into the first synced CardDAV address book. A JMAP failure is reported, not silently
      * retried over DAV — the same card arriving twice under two UIDs is worse than an error.
+     *
+     * [uid] lets a caller that may retry (the system-contacts uploader) pick the UID up front, so
+     * a create whose answer was lost can be recognised on the server next time instead of being
+     * sent again as a second card.
      */
-    suspend fun createContact(accountId: String, edit: ContactEdit): DavWriteOutcome {
+    suspend fun createContact(
+        accountId: String,
+        edit: ContactEdit,
+        uid: String = UUID.randomUUID().toString(),
+    ): DavWriteOutcome {
         if (accountStore.account(accountId)?.syncSelection?.contacts != true) {
             return DavWriteOutcome(error = "Turn on contact sync for this account to save contacts")
         }
@@ -1112,7 +1120,6 @@ class DavRepository(
             is Access.Refused -> return DavWriteOutcome(error = access.reason)
             is Access.Ready -> access.dav to access.server
         }
-        val uid = UUID.randomUUID().toString()
 
         jmapContacts(server, dav)?.let { (session, jmapAccountId) ->
             val auth = BasicAuth(dav.username, dav.password)
@@ -1228,6 +1235,7 @@ class DavRepository(
                 return DavWriteOutcome(
                     error = "Someone changed this contact on another device. " +
                         "The newer copy has been synced; try again.",
+                    conflict = true,
                 )
             }
             return DavWriteOutcome(error = describe(e))
@@ -1280,6 +1288,7 @@ class DavRepository(
                 return DavWriteOutcome(
                     error = "Someone changed this contact on another device. " +
                         "The newer copy has been synced; try again.",
+                    conflict = true,
                 )
             }
             return DavWriteOutcome(error = describe(e))
