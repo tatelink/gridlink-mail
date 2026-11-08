@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import app.gridlink.ui.theme.GridlinkMode
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -29,6 +30,7 @@ class GridlinkCalendarsUiTest {
 
     private val toggles = mutableListOf<Pair<String, Boolean>>()
     private val saved = mutableListOf<GridlinkEvent>()
+    private val edits = mutableListOf<Triple<String, String, String?>>()
 
     private fun book(calendars: List<GridlinkCalendarInfo>) =
         GridlinkBook(calendar = GridlinkCalendarContent(emptyList(), DAY, calendars = calendars))
@@ -43,6 +45,22 @@ class GridlinkCalendarsUiTest {
                         onSetCalendarVisible = { id, visible -> toggles += id to visible },
                     )
                 }
+            }
+        }
+    }
+
+    private fun showSheet(calendars: List<GridlinkCalendarInfo>, result: GridlinkCalendarEditResult) {
+        rule.setContent {
+            GridlinkApp(initialModeOverride = GridlinkMode.DAY) {
+                GridlinkCalendarsSheet(
+                    calendars = calendars,
+                    onToggle = { _, _ -> },
+                    onDismiss = {},
+                    onEdit = { calendar, name, color ->
+                        edits += Triple(calendar.id, name, color)
+                        result
+                    },
+                )
             }
         }
     }
@@ -83,6 +101,59 @@ class GridlinkCalendarsUiTest {
         rule.onNodeWithTag("gridlink-calendar-toggle-0").performClick()
         rule.onNodeWithTag("gridlink-calendar-toggle-1").performClick()
         assertEquals(listOf("cal/personal" to false, "cal/work" to true), toggles)
+    }
+
+    @Test
+    fun calendarsSheet_editRenamesAndRecolours_andClosesOnSave() {
+        showSheet(listOf(PERSONAL, WORK), GridlinkCalendarEditResult())
+        rule.onNodeWithTag("gridlink-calendar-edit-1").performClick()
+        rule.onNodeWithTag("gridlink-calendar-edit-name").performTextReplacement("Work")
+        rule.onNodeWithTag("gridlink-calendar-color-3").performClick()
+        rule.onNode(hasText("Save") and hasClickAction()).performClick()
+        rule.waitForIdle()
+
+        assertEquals(listOf(Triple("cal/work", "Work", "#43A047")), edits)
+        rule.onNodeWithTag("gridlink-calendar-edit-name").assertDoesNotExist()
+        rule.onNodeWithTag("gridlink-calendar-kept-on-device", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun calendarsSheet_editWithNoNewColour_offersTheCurrentOne() {
+        showSheet(listOf(PERSONAL, TEAM), GridlinkCalendarEditResult())
+        rule.onNodeWithTag("gridlink-calendar-edit-2").performClick()
+        rule.onNode(hasText("Save") and hasClickAction()).performClick()
+        rule.waitForIdle()
+        assertEquals(listOf(Triple("cal/team", "Team", "#3366CC")), edits)
+    }
+
+    @Test
+    fun calendarsSheet_aRefusedEditIsSaidOnce_andTheRowSaysDeviceOnly() {
+        showSheet(listOf(PERSONAL.copy(localOnly = true), WORK), GridlinkCalendarEditResult(deviceOnly = true))
+        rule.onNodeWithText("On this device only").assertExists()
+        rule.onNodeWithTag("gridlink-calendar-edit-0").performClick()
+        rule.onNode(hasText("Save") and hasClickAction()).performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("gridlink-calendar-kept-on-device", useUnmergedTree = true).assertExists()
+    }
+
+    @Test
+    fun calendarsSheet_aFailedEditStaysOpenWithTheReason() {
+        showSheet(listOf(PERSONAL, WORK), GridlinkCalendarEditResult(error = "Sign-in was refused."))
+        rule.onNodeWithTag("gridlink-calendar-edit-0").performClick()
+        rule.onNode(hasText("Save") and hasClickAction()).performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Sign-in was refused.").assertExists()
+        rule.onNodeWithTag("gridlink-calendar-edit-name").assertExists()
+    }
+
+    @Test
+    fun calendarsSheet_aBlankNameCannotBeSaved() {
+        showSheet(listOf(PERSONAL, WORK), GridlinkCalendarEditResult())
+        rule.onNodeWithTag("gridlink-calendar-edit-0").performClick()
+        rule.onNodeWithTag("gridlink-calendar-edit-name").performTextReplacement("  ")
+        rule.onNodeWithText("A calendar needs a name.").assertExists()
+        rule.onNode(hasText("Save") and hasClickAction()).performClick()
+        assertEquals(emptyList<Triple<String, String, String?>>(), edits)
     }
 
     @Test

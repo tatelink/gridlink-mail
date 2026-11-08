@@ -3,6 +3,7 @@ package app.gridlink.core.data.dav
 import app.gridlink.core.data.account.AccountStore
 import app.gridlink.core.data.account.AuthType
 import app.gridlink.core.data.account.JMAP_CALENDAR_KEY
+import app.gridlink.core.data.account.calendarPrefKey
 import app.gridlink.core.data.calendar.CalendarAttachment
 import app.gridlink.core.data.calendar.CalendarAttachmentSource
 import app.gridlink.core.data.calendar.CalendarOccurrence
@@ -96,6 +97,15 @@ data class DavWriteOutcome(
 ) {
     val succeeded: Boolean get() = error == null && href != null
 }
+
+/**
+ * What [DavRepository.editCalendar] did. [error] non-null: nothing changed, and why. Else the change
+ * is on the server, or, with [deviceOnly], kept on this device only because the server refused it.
+ */
+data class CalendarEditOutcome(
+    val error: String? = null,
+    val deviceOnly: Boolean = false,
+)
 
 /**
  * The Calendar and Contacts tabs' offline-first store.
@@ -1112,6 +1122,90 @@ class DavRepository(
     }
 
     /**
+     * Rename and/or recolour one calendar on the server: CalDAV `PROPPATCH` of `displayname` and
+     * Apple's `calendar-color`, or JMAP `Calendar/set` of `name` and `color`, whichever protocol
+     * cached it.
+     *
+     * [name] and [color] (`#RRGGBB`, null: none chosen) are the calendar as the user now wants it;
+     * only what differs from the server's copy is sent. Once the server holds it, any local
+     * override is dropped. A server that refuses (read-only, shared, no such property) keeps the
+     * change as a local override instead and the outcome says so; one that cannot be reached
+     * changes nothing.
+     */
+    suspend fun editCalendar(
+        accountId: String,
+        calendarUrl: String,
+        name: String?,
+        color: String?,
+    ): CalendarEditOutcome {
+        val collection = collectionDao.forKind(accountId, DavCollectionEntity.KIND_CALENDAR)
+            .firstOrNull { it.url == calendarUrl }
+            ?: return CalendarEditOutcome(error = "That calendar isn't synced to this device yet. Sync first.")
+        val key = calendarPrefKey(collection)
+        val newName = name?.trim()?.takeIf { it.isNotEmpty() && it != collection.displayName }
+        // By the RGB digits: Apple writes `#RRGGBBAA`, and the alpha alone is not a change.
+        val newColor = color?.takeIf { rgbDigits(it) != rgbDigits(collection.color) }
+        val changes = newName != null || newColor != null
+        val failure = if (changes) writeCalendar(accountId, collection, newName, newColor) else null
+        return when {
+            failure == null -> {
+                if (changes) {
+                    val written = collection.copy(
+                        displayName = newName ?: collection.displayName,
+                        color = newColor ?: collection.color,
+                    )
+                    collectionDao.upsertAll(listOf(written))
+                }
+                accountStore.clearCalendarOverride(accountId, key)
+                CalendarEditOutcome()
+            }
+            failure.refused -> {
+                accountStore.clearCalendarOverride(accountId, key)
+                accountStore.setCalendarOverride(accountId, key, newName, newColor)
+                CalendarEditOutcome(deviceOnly = true)
+            }
+            else -> CalendarEditOutcome(error = failure.reason)
+        }
+    }
+
+    /** Why a calendar write failed, and whether the server [refused] it rather than being unreachable. */
+    private data class CalendarWriteFailure(val reason: String, val refused: Boolean)
+
+    /** [editCalendar]'s server half: null once the server holds the change. */
+    private suspend fun writeCalendar(
+        accountId: String,
+        collection: DavCollectionEntity,
+        name: String?,
+        color: String?,
+    ): CalendarWriteFailure? {
+        val (dav, server) = when (val access = access(accountId)) {
+            is Access.Refused -> return CalendarWriteFailure(access.reason, refused = false)
+            is Access.Ready -> access.dav to access.server
+        }
+        val remoteId = collection.remoteId
+        val jmapClient = jmap
+        val jmapTarget = if (remoteId != null && jmapClient != null) jmapCalendars(server, dav) else null
+        if (remoteId != null && jmapTarget == null) {
+            return CalendarWriteFailure("This calendar is not available right now.", refused = false)
+        }
+        return try {
+            if (remoteId != null && jmapTarget != null && jmapClient != null) {
+                val auth = BasicAuth(dav.username, dav.password)
+                jmapClient.updateCalendar(jmapTarget.first, jmapTarget.second, remoteId, name, color, auth)
+            } else {
+                client.updateCollection(collection.url, dav, name, color)
+            }
+            null
+        } catch (c: CancellationException) {
+            throw c
+        } catch (e: DavException) {
+            CalendarWriteFailure(describe(e), refused = refusedByServer(e.code))
+        } catch (e: JmapException) {
+            CalendarWriteFailure(describeJmap(e), refused = e.errorType != null || refusedByServer(e.httpCode))
+        }
+    }
+
+    /**
      * Save a new contact to the server, then cache it locally.
      *
      * JMAP-first: when the account's session advertises `urn:ietf:params:jmap:contacts`, the card
@@ -2047,6 +2141,19 @@ class DavRepository(
         else -> e.message ?: "Sync failed"
     }
 }
+
+/**
+ * HTTP codes that mean "the server will not take this change" rather than "could not reach it": the
+ * calendar is read-only or shared (403), the server has no PROPPATCH or no such property (405, 501),
+ * or it rejects the value (409, 422, and 424 for a property failed along with another).
+ */
+private val REFUSED_BY_SERVER = setOf(403, 405, 409, 422, 424, 501)
+
+internal fun refusedByServer(code: Int?): Boolean = code != null && code in REFUSED_BY_SERVER
+
+internal fun rgbDigits(color: String?): String? = color?.trim()?.removePrefix("#")?.take(RGB_DIGITS)?.uppercase()
+
+private const val RGB_DIGITS = 6
 
 /** Hrefs per DELETE. SQLite caps host parameters, and a large calendar can exceed it. */
 /** The server refused a write because the copy we based it on is out of date. */

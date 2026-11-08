@@ -280,6 +280,10 @@
     <string name="calendars_title">Calendars</string>
     <string name="calendars_unnamed">Calendar %1$d</string>
     <string name="calendars_hidden_note">Hidden calendars keep syncing. They are only left off the grid.</string>
+    <string name="calendar_edit_title">Edit calendar</string>
+    <string name="calendar_device_only">On this device only</string>
+    <string name="calendar_edit_needs_name">A calendar needs a name.</string>
+    <string name="calendar_edit_kept_on_device">The server would not take that change, so it is kept on this device only.</string>
     <string name="event_form_calendar">Calendar</string>
     <!-- Read receipt (MDN). Translated because these two strings LEAVE the device: they are read by
          the person who asked for the receipt, who is not the person holding this phone. -->

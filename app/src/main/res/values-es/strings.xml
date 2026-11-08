@@ -201,6 +201,10 @@
     <string name="calendars_title">Calendarios</string>
     <string name="calendars_unnamed">Calendario %1$d</string>
     <string name="calendars_hidden_note">Los calendarios ocultos siguen sincronizándose. Solo no se muestran en la cuadrícula.</string>
+    <string name="calendar_edit_title">Editar calendario</string>
+    <string name="calendar_device_only">Solo en este dispositivo</string>
+    <string name="calendar_edit_needs_name">Un calendario necesita un nombre.</string>
+    <string name="calendar_edit_kept_on_device">El servidor no aceptó el cambio, así que se guarda solo en este dispositivo.</string>
     <string name="event_form_calendar">Calendario</string>
     <string name="snooze_in_1_hour">En 1 hora</string>
     <string name="snooze_this_evening">Esta tarde, 18:00</string>

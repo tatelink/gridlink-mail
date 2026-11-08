@@ -2893,6 +2893,7 @@ fun GridlinkRoot(
                             destination = destination,
                             onSelectDestination = { destination = it },
                             onSetCalendarVisible = calendarWriter::setCalendarVisible,
+                            onEditCalendar = calendarWriter::editCalendar,
                             onNewEvent = { day -> creating = GridlinkCreation.Event(day) },
                             initialView = initialCalendarView,
                             initialDate = calendarStart,

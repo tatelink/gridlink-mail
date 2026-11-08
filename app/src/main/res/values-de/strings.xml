@@ -201,6 +201,10 @@
     <string name="calendars_title">Kalender</string>
     <string name="calendars_unnamed">Kalender %1$d</string>
     <string name="calendars_hidden_note">Ausgeblendete Kalender werden weiter synchronisiert. Sie erscheinen nur nicht im Raster.</string>
+    <string name="calendar_edit_title">Kalender bearbeiten</string>
+    <string name="calendar_device_only">Nur auf diesem Gerät</string>
+    <string name="calendar_edit_needs_name">Ein Kalender braucht einen Namen.</string>
+    <string name="calendar_edit_kept_on_device">Der Server hat die Änderung nicht angenommen. Sie gilt deshalb nur auf diesem Gerät.</string>
     <string name="event_form_calendar">Kalender</string>
     <string name="snooze_in_1_hour">In 1 Stunde</string>
     <string name="snooze_this_evening">Heute Abend, 18 Uhr</string>

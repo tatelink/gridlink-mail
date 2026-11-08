@@ -24,6 +24,7 @@ import app.gridlink.core.jmap.OutgoingLimits
 import app.gridlink.ui.gridlink.DEFAULT_DURATION_MINUTES
 import app.gridlink.ui.gridlink.GridlinkAttachment
 import app.gridlink.ui.gridlink.GridlinkCalendarContent
+import app.gridlink.ui.gridlink.GridlinkCalendarEditResult
 import app.gridlink.ui.gridlink.GridlinkCalendarInfo
 import app.gridlink.ui.gridlink.GridlinkCalendarWriter
 import app.gridlink.ui.gridlink.GridlinkContactContent
@@ -288,6 +289,21 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
                     ?.let(::calendarPrefKey) ?: calendarId
                 store.setCalendarHidden(id, key, calendarId, hidden = !visible)
             }
+        }
+
+        override suspend fun editCalendar(
+            calendarId: String,
+            name: String,
+            color: String?,
+        ): GridlinkCalendarEditResult {
+            val id = accountId.value ?: return GridlinkCalendarEditResult(error = "No account is signed in.")
+            val outcome = repo.editCalendar(id, calendarId, name, color)
+            when {
+                outcome.error != null -> Log.w(TAG, "edit calendar failed: ${outcome.error}")
+                outcome.deviceOnly -> Log.i(TAG, "edit calendar kept on this device only: $calendarId")
+                else -> Log.i(TAG, "edited calendar on the server: $calendarId")
+            }
+            return GridlinkCalendarEditResult(error = outcome.error, deviceOnly = outcome.deviceOnly)
         }
 
         override suspend fun update(

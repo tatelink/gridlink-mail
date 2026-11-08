@@ -179,6 +179,8 @@ fun GridlinkCalendarScreen(
      * row whose only effect is an empty grid is a trap, not a setting.
      */
     onSetCalendarVisible: (String, Boolean) -> Unit = { _, _ -> },
+    /** Rename and recolour one calendar from the Calendars sheet. Null: the sheet offers no edit. */
+    onEditCalendar: (suspend (String, String, String?) -> GridlinkCalendarEditResult)? = null,
 ) {
     // 🔴 The book, not [GridlinkSampleTree], and `book` is a remember KEY below rather than only a
     // source. Without it there the filtered list is cached against the range alone, so an event saved
@@ -212,6 +214,7 @@ fun GridlinkCalendarScreen(
             calendars = book.calendars,
             onToggle = { calendar, visible -> onSetCalendarVisible(calendar.id, visible) },
             onDismiss = { showingCalendars = false },
+            onEdit = onEditCalendar?.let { edit -> { calendar, name, color -> edit(calendar.id, name, color) } },
         )
     }
 

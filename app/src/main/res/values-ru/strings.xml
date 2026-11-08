@@ -201,6 +201,10 @@
     <string name="calendars_title">Календари</string>
     <string name="calendars_unnamed">Календарь %1$d</string>
     <string name="calendars_hidden_note">Скрытые календари продолжают синхронизироваться. Они просто не показываются в сетке.</string>
+    <string name="calendar_edit_title">Изменить календарь</string>
+    <string name="calendar_device_only">Только на этом устройстве</string>
+    <string name="calendar_edit_needs_name">У календаря должно быть название.</string>
+    <string name="calendar_edit_kept_on_device">Сервер не принял изменение, поэтому оно сохранено только на этом устройстве.</string>
     <string name="event_form_calendar">Календарь</string>
     <string name="snooze_in_1_hour">Через 1 час</string>
     <string name="snooze_this_evening">Сегодня вечером, 18:00</string>

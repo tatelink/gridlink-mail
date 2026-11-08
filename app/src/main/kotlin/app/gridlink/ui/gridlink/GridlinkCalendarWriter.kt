@@ -84,7 +84,21 @@ interface GridlinkCalendarWriter {
      * content, like a saved event does. No-op where nothing behind the screen has calendars.
      */
     fun setCalendarVisible(calendarId: String, visible: Boolean) = Unit
+
+    /**
+     * Rename and recolour one calendar ([GridlinkCalendarInfo.id]) on the server. [color] is
+     * `#RRGGBB`, or null when none was chosen. A server that refuses keeps the change on this device
+     * only, and the result says so. The change comes back through the content.
+     */
+    suspend fun editCalendar(calendarId: String, name: String, color: String?): GridlinkCalendarEditResult =
+        GridlinkCalendarEditResult(error = "Calendars can't be changed here.")
 }
+
+/**
+ * What [GridlinkCalendarWriter.editCalendar] did. [error] non-null: nothing changed, and why. Else the
+ * change is on the server, or, with [deviceOnly], kept on this device only because the server refused.
+ */
+data class GridlinkCalendarEditResult(val error: String? = null, val deviceOnly: Boolean = false)
 
 /**
  * Which occurrences an edit to a repeating event is meant for.
