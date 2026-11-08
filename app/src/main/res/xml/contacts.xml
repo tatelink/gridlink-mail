@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  What the system Contacts app may edit on a Gridlink contact. Without an EditSchema the account is
+  not offered for editing at all; with one, only the kinds listed here are shown and edited.
+
+  The kinds are the ones Gridlink's contact model can carry back to the server (one name, a photo,
+  phone numbers, email addresses, a company and job title, a note). Postal addresses are listed so
+  they still show, but a change made to one is not sent: Gridlink reads addresses and has no way to
+  write them, so ContactsUploader puts the server's copy back. Name prefixes, middle names, suffixes
+  and phonetic names are left out because the server card has nowhere to keep them.
+-->
+<ContactsAccountType xmlns:android="http://schemas.android.com/apk/res/android">
+    <EditSchema>
+        <DataKind
+            kind="name"
+            maxOccurs="1"
+            supportsDisplayName="true"
+            supportsPrefix="false"
+            supportsMiddleName="false"
+            supportsSuffix="false"
+            supportsPhoneticFamilyName="false"
+            supportsPhoneticMiddleName="false"
+            supportsPhoneticGivenName="false" />
+        <DataKind kind="photo" maxOccurs="1" />
+        <DataKind kind="phone">
+            <Type type="mobile" />
+            <Type type="home" />
+            <Type type="work" />
+            <Type type="other" />
+        </DataKind>
+        <DataKind kind="email">
+            <Type type="home" />
+            <Type type="work" />
+            <Type type="mobile" />
+            <Type type="other" />
+        </DataKind>
+        <DataKind kind="organization" maxOccurs="1" />
+        <DataKind kind="note" maxOccurs="1" />
+        <DataKind kind="postal" needsStructured="false">
+            <Type type="home" />
+            <Type type="work" />
+            <Type type="other" />
+        </DataKind>
+    </EditSchema>
+</ContactsAccountType>

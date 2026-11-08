@@ -98,6 +98,8 @@ object JsCalendarWrite {
         category: String? = null,
         reminders: List<Int> = emptyList(),
         instance: LocalDateTime? = null,
+        /** The new RRULE text when [EventField.RECURRENCE] is touched; null or blank ends the rule. */
+        rrule: String? = null,
     ): Map<String, JsonElement> {
         val prefix = instance?.let { "recurrenceOverrides/${pointerEscape(it.stamp())}/" }.orEmpty()
         val patch = LinkedHashMap<String, JsonElement>()
@@ -124,8 +126,26 @@ object JsCalendarWrite {
         if (EventField.REMINDERS in touched) {
             set("alerts", if (reminders.isEmpty()) JsonNull else alerts(reminders))
         }
+        // A rule belongs to the series, never to one instance's override.
+        if (EventField.RECURRENCE in touched && instance == null) {
+            val rule = rrule?.trim()?.removePrefix("RRULE:")?.takeIf { it.isNotBlank() }?.let { toRecurrenceRule(it) }
+            set("recurrenceRules", rule?.let { JsonArray(listOf(it)) } ?: JsonNull)
+        }
         return patch
     }
+
+    /**
+     * The patch that removes one occurrence of a series: an override for [instance] (the
+     * occurrence's ORIGINAL start, in the series' zone) that says only `excluded: true`.
+     *
+     * JSCalendar's spelling of an EXDATE (RFC 8984 §4.3.5). Written as the whole override object,
+     * so an override that had already moved or renamed that day is replaced rather than left
+     * standing beside the exclusion.
+     */
+    fun exclude(instance: LocalDateTime): Map<String, JsonElement> = mapOf(
+        "recurrenceOverrides/${pointerEscape(instance.stamp())}" to
+            JsonObject(mapOf("excluded" to JsonPrimitive(true))),
+    )
 
     /**
      * An `RRULE` line's value as the JSCalendar object that means the same thing, or null when the

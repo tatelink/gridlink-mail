@@ -326,6 +326,10 @@
             <meta-data
                 android:name="android.content.SyncAdapter"
                 android:resource="@xml/contacts_syncadapter" />
+            <!-- What the system Contacts app may edit; without it the contacts stay read-only there. -->
+            <meta-data
+                android:name="android.provider.CONTACTS_STRUCTURE"
+                android:resource="@xml/contacts" />
         </service>
 
         <service

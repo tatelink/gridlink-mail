@@ -39,7 +39,73 @@ data class ContactCardWrite(
     val note: String? = null,
     val photo: ContactCardPhoto? = null,
     val customFields: List<ContactCardCustomField> = emptyList(),
+    /** Each address's kind words ([ContactTypes]), keyed by the address; absent means none. */
+    val emailTypes: Map<String, Set<String>> = emptyMap(),
+    /** Each number's kind words ([ContactTypes]), keyed by the number; absent means none. */
+    val phoneTypes: Map<String, Set<String>> = emptyMap(),
 )
+
+/**
+ * The kind words on an email address or a phone number ("work", "cell", "fax"), spelled the
+ * vCard way (RFC 6350 §6.4.1 TYPE, lower case) whichever protocol they came from.
+ *
+ * vCard is the common spelling because it is the richer of the two and the one CardDAV hands
+ * over verbatim: a token JSContact has no word for still survives a CardDAV round trip. JSContact
+ * splits the same words in two (RFC 9553 §1.5.1 `contexts`, §2.3.3 `features`); the
+ * translation below follows RFC 9555's vCard conversion (`home` is `private`, `cell` is
+ * `mobile`), so a card the server converts between the two reads the same through either door.
+ *
+ * `pref` is not a kind word: it is a ranking, and both readers turn it into list order.
+ */
+object ContactTypes {
+
+    /** [tokens] lower-cased and trimmed, blanks and `pref` dropped. */
+    fun clean(tokens: Iterable<String>): Set<String> =
+        tokens.map { it.trim().trim('"').lowercase() }
+            .filterTo(LinkedHashSet()) { it.isNotEmpty() && it != PREF }
+
+    /** JSContact `contexts` for these words: `home` is spelled `private` there. */
+    fun contexts(tokens: Set<String>): Map<String, Boolean> = buildMap {
+        if (HOME in tokens) put("private", true)
+        if (WORK in tokens) put(WORK, true)
+    }
+
+    /** JSContact phone `features` for these words. */
+    fun phoneFeatures(tokens: Set<String>): Map<String, Boolean> = buildMap {
+        tokens.forEach { token -> FEATURE_OF[token]?.let { put(it, true) } }
+    }
+
+    /** The vCard words a JSContact entry's `contexts` and `features` spell. */
+    fun fromJmap(contexts: Map<String, Boolean>, features: Map<String, Boolean> = emptyMap()): Set<String> =
+        buildSet {
+            contexts.filterValues { it }.keys.forEach { context ->
+                when (context.lowercase()) {
+                    "private" -> add(HOME)
+                    WORK -> add(WORK)
+                }
+            }
+            features.filterValues { it }.keys.forEach { feature ->
+                TOKEN_OF[feature.lowercase()]?.let(::add)
+            }
+        }
+
+    private const val PREF = "pref"
+    private const val HOME = "home"
+    private const val WORK = "work"
+
+    /** vCard TEL type -> JSContact phone feature. `cell` and `main` are the two spelled apart. */
+    private val FEATURE_OF = mapOf(
+        "cell" to "mobile",
+        "main" to "main-number",
+        "voice" to "voice",
+        "fax" to "fax",
+        "pager" to "pager",
+        "text" to "text",
+        "video" to "video",
+        "textphone" to "textphone",
+    )
+    private val TOKEN_OF = FEATURE_OF.entries.associate { (token, feature) -> feature to token }
+}
 
 /**
  * A contact photo ready for the wire: already scaled, already encoded. Base64 rather than
@@ -65,7 +131,7 @@ data class ContactCardCustomField(
 /**
  * The Card property groups [ContactCardWrite] covers. An update names the touched ones;
  * untouched groups are never mentioned in the patch, which is what preserves the richness
- * a group may carry beyond this model (email labels, phone features, name suffixes).
+ * a group may carry beyond this model (email labels, name suffixes).
  *
  * ⚠️ PHOTO patches the whole `media` map. JSContact `media` can also carry logos and sounds;
  * replacing it for a photo edit would drop those. Accepted: no client this app syncs with
@@ -127,6 +193,16 @@ data class JmapContactCard(
     /** Phone numbers, most preferred first, in the server's own formatting. */
     fun phoneNumbers(): List<String> =
         phones.values.preferredOrder { it.pref }.mapNotNull { it.number?.trim()?.takeIf(String::isNotEmpty) }
+
+    /** Each address's kind words ([ContactTypes]), keyed as [emailAddresses] spells it. */
+    fun emailTypes(): Map<String, Set<String>> = typesBy(emails.values, { it.address }) {
+        ContactTypes.fromJmap(it.contexts)
+    }
+
+    /** Each number's kind words ([ContactTypes]), keyed as [phoneNumbers] spells it. */
+    fun phoneTypes(): Map<String, Set<String>> = typesBy(phones.values, { it.number }) {
+        ContactTypes.fromJmap(it.contexts, it.features)
+    }
 
     /** Every note on the card as one block, blank lines between them. Usually there is one. */
     fun noteText(): String? =
@@ -195,6 +271,20 @@ data class JmapContactCard(
 
 private const val GRIDLINK_FIELD = "x-gridlink-field"
 
+/** Kind words per value; a value listed twice gets the words of both. */
+private fun <T> typesBy(
+    entries: Collection<T>,
+    value: (T) -> String?,
+    types: (T) -> Set<String>,
+): Map<String, Set<String>> {
+    val out = LinkedHashMap<String, MutableSet<String>>()
+    entries.forEach { entry ->
+        val key = value(entry)?.trim()?.takeIf(String::isNotEmpty) ?: return@forEach
+        out.getOrPut(key) { LinkedHashSet() } += types(entry)
+    }
+    return out
+}
+
 /** A jCard entry is `[name, params, type, value]`, so the value is the fourth element. */
 private const val VCARD_PROP_VALUE_INDEX = 3
 
@@ -251,6 +341,8 @@ data class JmapCardPhone(
     val number: String? = null,
     val pref: Int? = null,
     val contexts: Map<String, Boolean> = emptyMap(),
+    /** `mobile`, `voice`, `fax` and the rest (RFC 9553 §2.3.3); see [ContactTypes]. */
+    val features: Map<String, Boolean> = emptyMap(),
 )
 
 /** One free-text note. */
