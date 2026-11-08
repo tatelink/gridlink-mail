@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -34,9 +35,11 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -611,6 +614,29 @@ fun Modifier.gridlinkEdgeFade(fadeTop: Boolean = true): Modifier = this
  * that tells you where you are about to land.
  */
 private const val THREAD_PARALLAX = 0.28f
+
+/**
+ * Puts the shared detail travel back at 0 whenever nothing is open and nothing is moving it.
+ *
+ * 🔴 The fix for *"double-tap during a fling leaves a blank pane until relaunch."* The open paths set
+ * an id and launch `animateTo(1f)` as two separate steps, and the only reset was keyed on
+ * `detail == null` CHANGING. When the id was set and lost again inside one busy frame (two taps
+ * landing while a fling was still settling, a close finishing under a fresh open), `detail` never
+ * became non-null, that key never moved, and the entrance ran to 1 with nothing to show: the list
+ * parked 28% to the left under the scrim, the right side empty, and every tab inheriting it because
+ * the travel is shared. This watches the state itself instead of a transition of it, so any path
+ * that ends with nothing open and the travel stopped short of home is put right on the spot.
+ *
+ * Never fights a real animation: it waits while [progress] is running, and the close paths animate
+ * to 0 BEFORE clearing the id, so by the time nothing is open they are already home.
+ */
+internal suspend fun returnStrandedTravel(
+    progress: Animatable<Float, AnimationVector1D>,
+    nothingOpen: () -> Boolean,
+) {
+    snapshotFlow { nothingOpen() && !progress.isRunning && progress.value != 0f }
+        .collect { stranded -> if (stranded) progress.snapTo(0f) }
+}
 
 /** How dark the list goes once the thread is fully in. Enough to recede, not enough to look off. */
 private const val THREAD_RECEDE_SCRIM = 0.34f
@@ -1792,6 +1818,10 @@ fun GridlinkRoot(
     LaunchedEffect(detail == null) {
         if (detail == null) progress.snapTo(0f)
     }
+    // The effect above only fires when `detail` CHANGES to null. This one covers the case where it
+    // never became non-null at all. See [returnStrandedTravel].
+    val nothingOpen by rememberUpdatedState(detail == null)
+    LaunchedEffect(progress) { returnStrandedTravel(progress) { nothingOpen } }
 
     /**
      * True while the open message has the whole display: no list, no chrome, no system bars.
