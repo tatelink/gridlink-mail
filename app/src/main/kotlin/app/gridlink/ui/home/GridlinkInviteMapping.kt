@@ -114,10 +114,9 @@ internal class GridlinkInviteText(
  * A repeat rule said in [locale]'s own words, from string resources: "Alle 2 Wochen am Dienstag, 4-mal".
  *
  * The translated counterpart of [RecurrenceText], which stays the English sentence. It says the
- * frequency and interval, the weekdays of a weekly rule, the date of a monthly or yearly one, and
- * the end (a count or an until date). It does not try the ordinal forms ("the second Tuesday"):
- * those have grammar no single format string can carry in eight languages, so a monthly rule by
- * weekday position says only its frequency, which is still true.
+ * frequency and interval, the weekdays of a weekly rule, the date of a monthly or yearly one, a
+ * monthly rule's weekday position ("am zweiten Dienstag", see [nthWeekday]), and the end (a count
+ * or an until date).
  */
 internal fun gridlinkRepeatText(res: Resources, locale: Locale, rrule: String?, start: LocalDate): String? {
     val rule = Recurrence.parse(rrule) ?: return null
@@ -158,8 +157,13 @@ private fun repeatHead(res: Resources, locale: Locale, rule: RecurrenceRule, sta
             res.getString(R.string.gl_rec_on, every, names)
         }
         Freq.MONTHLY -> {
+            val nth = nthWeekday(rule)
             val day = rule.byMonthDay.singleOrNull() ?: start.dayOfMonth.takeIf { rule.byDay.isEmpty() }
-            if (day != null && day > 0) res.getString(R.string.gl_rec_on_day, every, day) else every
+            when {
+                nth != null -> res.getString(nth, every)
+                day != null && day > 0 -> res.getString(R.string.gl_rec_on_day, every, day)
+                else -> every
+            }
         }
         Freq.YEARLY -> {
             val month = rule.byMonth.firstOrNull()?.let(Month::of) ?: start.month
@@ -169,6 +173,57 @@ private fun repeatHead(res: Resources, locale: Locale, rule: RecurrenceRule, sta
             res.getString(R.string.gl_rec_on, every, date)
         }
     }
+
+/**
+ * The whole-phrase string for a monthly rule on one weekday of one week ("the second Tuesday",
+ * "the last Friday"), or null for any other shape.
+ *
+ * Each position and weekday pair is its own string because the ordinal agrees with the weekday:
+ * Russian says "во второй вторник" but "во вторую среду", Italian "il primo lunedì" but "la prima
+ * domenica", and the preposition can change with it. A rule naming several weekdays, a position
+ * past the fifth, or a count from the end other than the last falls back to the bare frequency.
+ */
+private fun nthWeekday(rule: RecurrenceRule): Int? {
+    val byDay = rule.byDay.singleOrNull()?.takeIf { rule.byMonthDay.isEmpty() } ?: return null
+    val week = when (val n = byDay.ordinal) {
+        LAST_WEEK -> NTH_WEEKDAY.lastIndex
+        in 1..NTH_WEEKDAY.size - 1 -> n?.minus(1)
+        else -> null
+    }
+    return week?.let { NTH_WEEKDAY[it][byDay.day.value - 1] }
+}
+
+/** RFC 5545's "-1", the last such weekday in the month. */
+private const val LAST_WEEK = -1
+
+/** Rows are the first to fifth week, then the last; columns run Monday to Sunday. */
+private val NTH_WEEKDAY: List<List<Int>> = listOf(
+    listOf(
+        R.string.gl_rec_nth_1_mon, R.string.gl_rec_nth_1_tue, R.string.gl_rec_nth_1_wed, R.string.gl_rec_nth_1_thu,
+        R.string.gl_rec_nth_1_fri, R.string.gl_rec_nth_1_sat, R.string.gl_rec_nth_1_sun,
+    ),
+    listOf(
+        R.string.gl_rec_nth_2_mon, R.string.gl_rec_nth_2_tue, R.string.gl_rec_nth_2_wed, R.string.gl_rec_nth_2_thu,
+        R.string.gl_rec_nth_2_fri, R.string.gl_rec_nth_2_sat, R.string.gl_rec_nth_2_sun,
+    ),
+    listOf(
+        R.string.gl_rec_nth_3_mon, R.string.gl_rec_nth_3_tue, R.string.gl_rec_nth_3_wed, R.string.gl_rec_nth_3_thu,
+        R.string.gl_rec_nth_3_fri, R.string.gl_rec_nth_3_sat, R.string.gl_rec_nth_3_sun,
+    ),
+    listOf(
+        R.string.gl_rec_nth_4_mon, R.string.gl_rec_nth_4_tue, R.string.gl_rec_nth_4_wed, R.string.gl_rec_nth_4_thu,
+        R.string.gl_rec_nth_4_fri, R.string.gl_rec_nth_4_sat, R.string.gl_rec_nth_4_sun,
+    ),
+    listOf(
+        R.string.gl_rec_nth_5_mon, R.string.gl_rec_nth_5_tue, R.string.gl_rec_nth_5_wed, R.string.gl_rec_nth_5_thu,
+        R.string.gl_rec_nth_5_fri, R.string.gl_rec_nth_5_sat, R.string.gl_rec_nth_5_sun,
+    ),
+    listOf(
+        R.string.gl_rec_nth_last_mon, R.string.gl_rec_nth_last_tue, R.string.gl_rec_nth_last_wed,
+        R.string.gl_rec_nth_last_thu, R.string.gl_rec_nth_last_fri, R.string.gl_rec_nth_last_sat,
+        R.string.gl_rec_nth_last_sun,
+    ),
+)
 
 /** How the series ends ("once", "4 times", "until 31 Dec 2026"), or null when it does not. */
 private fun repeatBound(res: Resources, locale: Locale, rule: RecurrenceRule): String? {

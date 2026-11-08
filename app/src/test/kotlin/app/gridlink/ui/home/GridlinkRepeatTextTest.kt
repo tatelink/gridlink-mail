@@ -46,6 +46,21 @@ class GridlinkRepeatTextTest {
     }
 
     @Test
+    fun `a monthly rule on the second Tuesday names the week and the day`() {
+        assertEquals("Monatlich am zweiten Dienstag", gridlinkRepeatText(res, german, "FREQ=MONTHLY;BYDAY=2TU", start))
+        assertEquals(
+            "Alle 3 Monate am letzten Freitag, 6-mal",
+            gridlinkRepeatText(res, german, "FREQ=MONTHLY;INTERVAL=3;BYDAY=-1FR;COUNT=6", start),
+        )
+    }
+
+    @Test
+    fun `a monthly position the strings cannot say falls back to the frequency`() {
+        assertEquals("Monatlich", gridlinkRepeatText(res, german, "FREQ=MONTHLY;BYDAY=-2MO", start))
+        assertEquals("Monatlich", gridlinkRepeatText(res, german, "FREQ=MONTHLY;BYDAY=1MO,3MO", start))
+    }
+
+    @Test
     fun `no rule is no line`() {
         assertNull(gridlinkRepeatText(res, german, null, start))
     }
