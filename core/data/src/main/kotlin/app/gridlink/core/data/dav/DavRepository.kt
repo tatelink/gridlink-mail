@@ -23,6 +23,7 @@ import app.gridlink.core.data.db.DavCollectionDao
 import app.gridlink.core.data.db.DavCollectionEntity
 import app.gridlink.core.data.net.DavSrv
 import app.gridlink.core.data.net.SrvResolver
+import app.gridlink.core.data.storage.OrphanedAccountCache
 import app.gridlink.core.dav.DavClient
 import app.gridlink.core.dav.DavCollection
 import app.gridlink.core.dav.DavCredentials
@@ -1908,12 +1909,33 @@ class DavRepository(
         return DavWriteOutcome(href = row.href)
     }
 
-    /** Forget everything cached for one account (sign-out, or clearing its cache). */
+    /**
+     * Forget everything cached for one account (sign-out, or clearing its cache). One runCatching
+     * per table, so a failure in one never leaves the other tables' rows of that account behind.
+     */
     suspend fun clearAccount(accountId: String) {
-        eventDao.deleteForAccount(accountId)
-        contactDao.deleteForAccount(accountId)
-        collectionDao.deleteForAccount(accountId)
+        runCatching { eventDao.deleteForAccount(accountId) }
+        runCatching { contactDao.deleteForAccount(accountId) }
+        runCatching { collectionDao.deleteForAccount(accountId) }
     }
+
+    /**
+     * Sweep the cached events, contacts and collections of accounts that no longer exist, given a
+     * reader of the accounts that DO. Returns the ids swept.
+     *
+     * The calendar and contacts half of what [app.gridlink.core.data.storage.StorageRepository.purgeOrphanedAccounts]
+     * does for mail. Every query here is scoped by account, so these rows never show anywhere; they
+     * just sit in the database for good, with the removed account's appointments and address book
+     * in them, because nothing syncs or prunes an account that is gone. The inventory is taken
+     * before the account list is read, and an empty list sweeps nothing (see
+     * [app.gridlink.core.data.storage.OrphanedAccountCache.sweep]).
+     */
+    suspend fun purgeOrphanedAccounts(knownAccountIds: () -> Collection<String>): List<String> =
+        OrphanedAccountCache.sweep(
+            inventory = { collectionDao.accountIds() + eventDao.accountIds() + contactDao.accountIds() },
+            knownAccountIds = knownAccountIds,
+            clear = { clearAccount(it) },
+        )
 
     /**
      * What an account needs before any DAV request can be made on its behalf, or why it cannot.
