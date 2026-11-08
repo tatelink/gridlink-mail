@@ -187,19 +187,11 @@ fun GridlinkSnoozeScreen(
     ) {
         if (items.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "Nothing snoozed",
-                        style = GridlinkType.senderName,
-                        color = colors.textPrimary,
-                    )
-                    Text(
-                        text = "Messages you snooze wait here until they come back.",
-                        style = GridlinkType.metadata,
-                        color = colors.textSecondary,
-                        modifier = Modifier.padding(top = GridlinkSpacing.s8),
-                    )
-                }
+                GridlinkEmptyNotice(
+                    icon = Icons.Outlined.Snooze,
+                    title = "Nothing snoozed",
+                    subline = "Messages you snooze wait here until they come back.",
+                )
             }
             return@GridlinkDetailFrame
         }

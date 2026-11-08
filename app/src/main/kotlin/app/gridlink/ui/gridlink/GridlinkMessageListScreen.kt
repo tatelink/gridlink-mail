@@ -24,7 +24,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.pullToRefresh
@@ -44,12 +46,15 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.gridlink.GridlinkApplication
+import app.gridlink.R
 import app.gridlink.core.data.mail.MailFilter
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
@@ -1605,11 +1610,19 @@ private fun GridlinkSearchResults(
         return
     }
     if (current.failed) {
-        GridlinkSearchStatus("Search could not reach the server. It will run again if you keep typing.")
+        GridlinkSearchEmpty(
+            icon = Icons.Outlined.CloudOff,
+            title = "Search could not reach the server",
+            subline = "It will run again if you keep typing.",
+        )
         return
     }
     if (current.results.isEmpty()) {
-        GridlinkSearchStatus("No results for “$query”")
+        GridlinkSearchEmpty(
+            icon = Icons.Outlined.SearchOff,
+            title = "No results for “$query”",
+            subline = stringResource(R.string.gridlink_search_empty_hint),
+        )
         return
     }
 
@@ -1690,7 +1703,15 @@ private fun GridlinkSearchResults(
     }
 }
 
-/** One quiet line where rows would be: the no-results, failed and may-be-more states. */
+/** The no-results and failed states: the shared empty notice, centred where the rows would be. */
+@Composable
+private fun GridlinkSearchEmpty(icon: ImageVector, title: String, subline: String) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        GridlinkEmptyNotice(icon = icon, title = title, subline = subline)
+    }
+}
+
+/** One quiet line where rows would be: the may-be-more caveat under a list of results. */
 @Composable
 private fun GridlinkSearchStatus(text: String, fill: Boolean = true) {
     Box(

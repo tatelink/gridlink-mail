@@ -928,4 +928,5 @@
     <string name="read_receipt_body">Je bericht is weergegeven op het apparaat van de ontvanger. Dat is geen garantie dat het gelezen of begrepen is.</string>
     <string name="gridlink_full_screen">Volledig scherm</string>
     <string name="gridlink_exit_full_screen">Volledig scherm sluiten</string>
+    <string name="gridlink_search_empty_hint">Probeer minder of andere woorden. Zoeken kijkt al in alle mappen.</string>
 </resources>
