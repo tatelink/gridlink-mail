@@ -2116,6 +2116,57 @@ class JmapClient internal constructor(
     }
 
     /**
+     * Rename and/or recolour one calendar with `Calendar/set`. A null [name] or [color] leaves that
+     * property as it is; both null sends nothing.
+     *
+     * A refusal by the server (the id under `notUpdated`, or a method-level error) throws a
+     * [JmapException] carrying the error type in [JmapException.errorType], so a caller can tell
+     * "the server will not take this" apart from "the server could not be reached".
+     */
+    suspend fun updateCalendar(
+        session: JmapSession,
+        accountId: String,
+        calendarId: String,
+        name: String?,
+        color: String?,
+        auth: JmapAuth,
+    ): Unit = withContext(Dispatchers.IO) {
+        if (name == null && color == null) return@withContext
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.CALENDARS_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Calendar/set")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("update") {
+                            putJsonObject(calendarId) {
+                                name?.let { put("name", it) }
+                                color?.let { put("color", it) }
+                            }
+                        }
+                    }
+                    add("cs1")
+                }
+            }
+        }
+        val args = methodResponseArgs(postJmap(session, auth, payload), "Calendar/set")
+        // As with CalendarEvent/set: a 200 with the id missing from `updated` is a refusal.
+        if ((args["updated"] as? JsonObject)?.containsKey(calendarId) != true) {
+            val type = (args["notUpdated"] as? JsonObject)?.get(calendarId)
+                ?.let { it as? JsonObject }?.get("type")?.jsonPrimitive?.contentOrNull
+            throw JmapException(
+                "Couldn't change the calendar" +
+                    (setErrorDetail(args, "notUpdated", calendarId)?.let { " ($it)" } ?: ""),
+                errorType = type ?: "notUpdated",
+            )
+        }
+    }
+
+    /**
      * The account's current CalendarEvent state string, or null when the server did not give one.
      *
      * ## 🔴 This, and not a `queryState`, is what seeds an incremental sync

@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -34,9 +35,11 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,8 +55,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.text.HtmlCompat
+import app.gridlink.R
 import app.gridlink.core.data.contacts.ContactEdit
 import app.gridlink.core.data.mail.MailFilter
 import app.gridlink.core.data.settings.ThreadToolbarAction
@@ -610,6 +615,29 @@ fun Modifier.gridlinkEdgeFade(fadeTop: Boolean = true): Modifier = this
  */
 private const val THREAD_PARALLAX = 0.28f
 
+/**
+ * Puts the shared detail travel back at 0 whenever nothing is open and nothing is moving it.
+ *
+ * 🔴 The fix for *"double-tap during a fling leaves a blank pane until relaunch."* The open paths set
+ * an id and launch `animateTo(1f)` as two separate steps, and the only reset was keyed on
+ * `detail == null` CHANGING. When the id was set and lost again inside one busy frame (two taps
+ * landing while a fling was still settling, a close finishing under a fresh open), `detail` never
+ * became non-null, that key never moved, and the entrance ran to 1 with nothing to show: the list
+ * parked 28% to the left under the scrim, the right side empty, and every tab inheriting it because
+ * the travel is shared. This watches the state itself instead of a transition of it, so any path
+ * that ends with nothing open and the travel stopped short of home is put right on the spot.
+ *
+ * Never fights a real animation: it waits while [progress] is running, and the close paths animate
+ * to 0 BEFORE clearing the id, so by the time nothing is open they are already home.
+ */
+internal suspend fun returnStrandedTravel(
+    progress: Animatable<Float, AnimationVector1D>,
+    nothingOpen: () -> Boolean,
+) {
+    snapshotFlow { nothingOpen() && !progress.isRunning && progress.value != 0f }
+        .collect { stranded -> if (stranded) progress.snapTo(0f) }
+}
+
 /** How dark the list goes once the thread is fully in. Enough to recede, not enough to look off. */
 private const val THREAD_RECEDE_SCRIM = 0.34f
 
@@ -925,6 +953,12 @@ fun GridlinkRoot(
      */
     onLoadHeaders: (suspend (emailId: String) -> List<GridlinkHeader>)? = null,
     /**
+     * Fetch what a reply needs from the original (everyone on it, its Message-ID and References) by
+     * its row key, on the account it belongs to. Null in the gallery, where a reply is addressed
+     * from the row alone and carries no threading.
+     */
+    onLoadReplyOriginal: (suspend (rowKey: String) -> GridlinkReplyOriginal)? = null,
+    /**
      * The composer's From choices, active account first. Empty in the gallery, which hides the From
      * line. See [GridlinkComposeScreen]'s parameter of the same name.
      */
@@ -1151,6 +1185,7 @@ fun GridlinkRoot(
     // ⚠️ Declared here rather than beside the thread-animation state below, because [sendWithUndo]
     // is a local function and Kotlin will not let it close over a val declared after it.
     val scope = rememberCoroutineScope()
+    val replyAllFallback = stringResource(R.string.reply_all_original_unavailable)
 
     /** Send: close the composer, start the clock, keep everything needed to put it back. */
     fun sendWithUndo(request: GridlinkComposeRequest) {
@@ -1783,6 +1818,10 @@ fun GridlinkRoot(
     LaunchedEffect(detail == null) {
         if (detail == null) progress.snapTo(0f)
     }
+    // The effect above only fires when `detail` CHANGES to null. This one covers the case where it
+    // never became non-null at all. See [returnStrandedTravel].
+    val nothingOpen by rememberUpdatedState(detail == null)
+    LaunchedEffect(progress) { returnStrandedTravel(progress) { nothingOpen } }
 
     /**
      * True while the open message has the whole display: no list, no chrome, no system bars.
@@ -2215,10 +2254,32 @@ fun GridlinkRoot(
                         // Every answer to a message goes out from the account it arrived at, which
                         // in the unified inbox is often not the active one. See
                         // [gridlinkSentFromOwner]; the From line can still change it.
-                        GridlinkThreadAction.REPLY ->
-                            composing = gridlinkSentFromOwner(gridlinkReplyTo(message), message.id)
-                        GridlinkThreadAction.REPLY_ALL ->
-                            composing = gridlinkSentFromOwner(gridlinkReplyAllTo(message), message.id)
+                        //
+                        // With a host, both read the original first: its Message-ID and References
+                        // thread the answer, and reply-all needs everyone who was on it, which the
+                        // list row does not carry. A plain reply whose original cannot be fetched
+                        // still opens (to the sender, unthreaded); a reply-all says it fell back.
+                        GridlinkThreadAction.REPLY, GridlinkThreadAction.REPLY_ALL -> {
+                            val all = action == GridlinkThreadAction.REPLY_ALL
+                            val rowBuilt = gridlinkSentFromOwner(
+                                if (all) gridlinkReplyAllTo(message) else gridlinkReplyTo(message),
+                                message.id,
+                            )
+                            val load = onLoadReplyOriginal
+                            if (load == null) {
+                                composing = rowBuilt
+                            } else {
+                                scope.launch {
+                                    composing = runCatching { load(message.id) }.fold(
+                                        onSuccess = { gridlinkAddressedReply(rowBuilt, it, all) },
+                                        onFailure = {
+                                            if (all) sendError = replyAllFallback
+                                            rowBuilt
+                                        },
+                                    )
+                                }
+                            }
+                        }
                         // 🔴 The files are taken over BEFORE the composer opens, the same way
                         // resuming a draft does it above, and for a related reason. A forward's
                         // chips used to be the reader's own, whose ids are part indexes no attacher
@@ -2862,6 +2923,7 @@ fun GridlinkRoot(
                             destination = destination,
                             onSelectDestination = { destination = it },
                             onSetCalendarVisible = calendarWriter::setCalendarVisible,
+                            onEditCalendar = calendarWriter::editCalendar,
                             onNewEvent = { day -> creating = GridlinkCreation.Event(day) },
                             initialView = initialCalendarView,
                             initialDate = calendarStart,

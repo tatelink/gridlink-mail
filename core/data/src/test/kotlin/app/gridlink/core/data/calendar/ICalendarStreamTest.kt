@@ -83,6 +83,54 @@ class ICalendarStreamTest {
         assertEquals(LocalTime.of(3, 30), occurrence.start)
     }
 
+    /** The live account's "1:1 with Priya", as CalDAV serves it: a bare UTC start and a weekly rule. */
+    private val utcWeekly = wrap(
+        """
+        BEGIN:VEVENT
+        UID:one-to-one-priya@gridlink.me
+        DTSTART:20260728T150000Z
+        DTEND:20260728T153000Z
+        SUMMARY:1:1 with Priya
+        RRULE:FREQ=WEEKLY;BYDAY=MO
+        END:VEVENT
+        """.trimIndent(),
+    )
+
+    @Test
+    fun `a weekly UTC series keeps its UTC instant across the daylight saving change`() {
+        val event = ICalendarStream.parse(utcWeekly, eastern).single()
+        // 🔴 Its zone is UTC, not the device zone. RFC 5545 repeats a UTC start at the same instant.
+        assertEquals(ZoneId.of("Etc/UTC"), event.zone)
+
+        val occurrences = ICalendarStream.occurrences(
+            listOf(event),
+            LocalDate.parse("2026-10-26")..LocalDate.parse("2026-11-09"),
+            eastern,
+        )
+        assertEquals(
+            listOf("2026-10-26", "2026-11-02", "2026-11-09").map(LocalDate::parse),
+            occurrences.map { it.date },
+        )
+        // 15:00Z is 11 AM while New York is on daylight time, and 10 AM once it ends on 1 November,
+        // which is what the same event read over JMAP (`timeZone: Etc/UTC`) shows. Pinning the wall
+        // time showed 11 AM on the 2nd and 9th, an hour away from the server's instant.
+        assertEquals(LocalTime.of(11, 0), occurrences[0].start)
+        assertEquals(LocalTime.of(10, 0), occurrences[1].start)
+        assertEquals(LocalTime.of(10, 30), occurrences[1].end)
+        assertEquals(LocalTime.of(10, 0), occurrences[2].start)
+    }
+
+    @Test
+    fun `the same series read over JMAP lands on the same times`() {
+        val dav = ICalendarStream.parse(utcWeekly, eastern).single()
+        val jmap = dav.copy(start = java.time.LocalDateTime.parse("2026-07-28T15:00"), zone = ZoneId.of("Etc/UTC"))
+        val window = LocalDate.parse("2026-10-26")..LocalDate.parse("2026-11-09")
+        assertEquals(
+            ICalendarStream.occurrences(listOf(jmap), window, eastern).map { it.date to it.start },
+            ICalendarStream.occurrences(listOf(dav), window, eastern).map { it.date to it.start },
+        )
+    }
+
     @Test
     fun `a UTC stamp is converted, not read as a wall time`() {
         val event = ICalendarStream.parse(

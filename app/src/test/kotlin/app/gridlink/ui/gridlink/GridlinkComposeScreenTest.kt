@@ -286,4 +286,31 @@ class GridlinkComposeScreenTest {
         tapSend()
         assertEquals(GridlinkFrom("work", "tate@work.test"), sent.single().draft.from)
     }
+
+    @Test
+    fun aReplyAllsCcRow_showsTheCopiedPeople_andSendKeepsThemInCcWithTheThreading() {
+        val draft = GridlinkComposeDraft.Fresh.copy(
+            title = "Reply all",
+            recipients = listOf(gridlinkTypedRecipient("b@gridlink.me")!!),
+            cc = listOf(gridlinkTypedRecipient("c@gridlink.me")!!, gridlinkTypedRecipient("d@gridlink.me")!!),
+            subject = "Re: Plan",
+            inReplyTo = listOf("orig@example.com"),
+            references = listOf("root@example.com", "orig@example.com"),
+        )
+        show(draft = draft)
+        rule.onNodeWithText("CC").assertExists()
+        rule.onNodeWithContentDescription("Remove d@gridlink.me").performClick()
+        tapSend()
+        val sentDraft = sent.single().draft
+        assertEquals(listOf("b@gridlink.me"), sentDraft.recipients.map { it.email })
+        assertEquals(listOf("c@gridlink.me"), sentDraft.cc.map { it.email })
+        assertEquals(listOf("orig@example.com"), sentDraft.inReplyTo)
+        assertEquals(listOf("root@example.com", "orig@example.com"), sentDraft.references)
+    }
+
+    @Test
+    fun noCc_drawsNoCcRow() {
+        show()
+        rule.onNodeWithText("CC").assertDoesNotExist()
+    }
 }

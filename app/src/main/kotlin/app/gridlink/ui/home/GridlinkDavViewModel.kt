@@ -10,6 +10,9 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.gridlink.container
+import app.gridlink.core.data.account.CalendarPrefs
+import app.gridlink.core.data.account.calendarPrefKey
+import app.gridlink.core.data.account.calendarPrefsFor
 import app.gridlink.core.data.calendar.CalendarOccurrence
 import app.gridlink.core.data.calendar.EventEditScope
 import app.gridlink.core.data.calendar.EventField
@@ -21,6 +24,7 @@ import app.gridlink.core.jmap.OutgoingLimits
 import app.gridlink.ui.gridlink.DEFAULT_DURATION_MINUTES
 import app.gridlink.ui.gridlink.GridlinkAttachment
 import app.gridlink.ui.gridlink.GridlinkCalendarContent
+import app.gridlink.ui.gridlink.GridlinkCalendarEditResult
 import app.gridlink.ui.gridlink.GridlinkCalendarInfo
 import app.gridlink.ui.gridlink.GridlinkCalendarWriter
 import app.gridlink.ui.gridlink.GridlinkContactContent
@@ -37,6 +41,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onEach
@@ -149,8 +154,9 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
     /**
      * The account's calendars, each with its colour and whether the user has it switched on.
      *
-     * The hidden set is read off the account record so a toggle made here survives a restart, and
-     * so this flow re-emits on its own when [setCalendarVisible] writes it.
+     * The hidden set, local names and colours and the server's default are read off the store's
+     * calendar choices (filed by login, so they also survive removing and re-adding the account),
+     * and this flow re-emits on its own when [setCalendarVisible] or a rename writes them.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val calendarList: Flow<List<GridlinkCalendarInfo>> = accountId
@@ -158,9 +164,13 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
             if (id == null) {
                 flowOf(emptyList())
             } else {
-                combine(repo.observeCalendars(id), store.accountsFlow) { collections, accounts ->
-                    val hidden = accounts.firstOrNull { it.id == id }?.hiddenCalendars.orEmpty()
-                    GridlinkDavMapping.calendars(collections, hidden)
+                combine(
+                    repo.observeCalendars(id),
+                    store.accountsFlow,
+                    store.calendarPrefsFlow,
+                ) { collections, accounts, all ->
+                    val prefs = accounts.firstOrNull { it.id == id }?.let { calendarPrefsFor(it, all) }
+                    GridlinkDavMapping.calendars(collections = collections, prefs = prefs ?: CalendarPrefs())
                 }
             }
         }
@@ -274,7 +284,26 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
 
         override fun setCalendarVisible(calendarId: String, visible: Boolean) {
             val id = accountId.value ?: return
-            viewModelScope.launch(Dispatchers.IO) { store.setCalendarHidden(id, calendarId, hidden = !visible) }
+            viewModelScope.launch(Dispatchers.IO) {
+                val key = repo.observeCalendars(id).first().firstOrNull { it.url == calendarId }
+                    ?.let(::calendarPrefKey) ?: calendarId
+                store.setCalendarHidden(id, key, calendarId, hidden = !visible)
+            }
+        }
+
+        override suspend fun editCalendar(
+            calendarId: String,
+            name: String,
+            color: String?,
+        ): GridlinkCalendarEditResult {
+            val id = accountId.value ?: return GridlinkCalendarEditResult(error = "No account is signed in.")
+            val outcome = repo.editCalendar(id, calendarId, name, color)
+            when {
+                outcome.error != null -> Log.w(TAG, "edit calendar failed: ${outcome.error}")
+                outcome.deviceOnly -> Log.i(TAG, "edit calendar kept on this device only: $calendarId")
+                else -> Log.i(TAG, "edited calendar on the server: $calendarId")
+            }
+            return GridlinkCalendarEditResult(error = outcome.error, deviceOnly = outcome.deviceOnly)
         }
 
         override suspend fun update(
@@ -283,6 +312,12 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
             scope: GridlinkEventEditScope,
         ): String? {
             val id = accountId.value ?: return "No account is signed in."
+            val moveTo = edited.calendarId?.takeIf { it != before.calendarId }
+            // A calendar holds the whole file, so a move takes every occurrence with it. Asked for
+            // one day only, it would quietly move the rest too, so it is refused before any write.
+            if (moveTo != null && before.repeating && scope == GridlinkEventEditScope.THIS_EVENT) {
+                return "Moving to another calendar moves every occurrence. Choose All events to move it."
+            }
             // 🔴 Diffed against [before] — the event that SEEDED the form — never against server
             // truth. A multi-day all-day event's occurrence carries the day being looked at, not
             // the event's start date, so a server-truth diff would mark TIME touched on an
@@ -328,12 +363,25 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
                     GridlinkEventEditScope.ALL_EVENTS -> EventEditScope.WHOLE_SERIES
                 },
             )
-            if (outcome.succeeded) {
-                Log.i(TAG, "updated event ${outcome.href}")
-            } else {
+            if (!outcome.succeeded) {
                 Log.w(TAG, "update event failed: ${outcome.error}")
+                return outcome.error
             }
-            return outcome.error
+            Log.i(TAG, "updated event ${outcome.href}")
+            // After the field edit, so the move carries the edited copy, and from the href that edit
+            // answered with (a JMAP edit can re-key the row).
+            return moveTo?.let { moveEvent(id, outcome.href ?: href, it, recurrenceDay) }
+        }
+
+        /** Move an event to another calendar, returning why it could not be done, or null. */
+        private suspend fun moveEvent(accountId: String, href: String, calendarUrl: String, day: LocalDate?): String? {
+            val moved = repo.moveEvent(accountId, href, calendarUrl, day)
+            if (moved.succeeded) {
+                Log.i(TAG, "moved event to another calendar: ${moved.href}")
+            } else {
+                Log.w(TAG, "move event failed: ${moved.error}")
+            }
+            return moved.error
         }
     }
 

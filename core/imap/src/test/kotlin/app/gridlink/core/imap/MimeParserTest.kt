@@ -376,4 +376,19 @@ class MimeParserTest {
         assertEquals("Réunion", headers["X-Legacy"])
         assertEquals("=?utf-8?B?UsOpdW5pb24=?=", headers["X-Encoded"])
     }
+
+    /** A folded header keeps its folds (as `\n` plus the continuation's own whitespace), like JMAP's raw form. */
+    @Test
+    fun rawHeadersKeepFoldedContinuationLines() {
+        val raw = "Received: from a.example\r\n\tby b.example;\r\n    Sat, 7 Nov 2026\r\n" +
+            "Subject: Hi\r\n\r\nbody"
+        val headers = MimeParser.rawHeaders(raw)
+        assertEquals(
+            listOf(
+                "Received" to "from a.example\n\tby b.example;\n    Sat, 7 Nov 2026",
+                "Subject" to "Hi",
+            ),
+            headers,
+        )
+    }
 }

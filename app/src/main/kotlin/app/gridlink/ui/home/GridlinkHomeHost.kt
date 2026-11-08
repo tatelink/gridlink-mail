@@ -471,6 +471,7 @@ fun GridlinkHomeHost(
             onSetTag = viewModel::setTag,
             onManageTags = manageTags,
             onLoadHeaders = viewModel::rawHeaders,
+            onLoadReplyOriginal = viewModel::replyOriginal,
             fromChoices = fromChoices,
             onOpenAttachment = viewModel::openAttachment,
             // 🔴 No picker on anything modern. Android's document picker is another app's UI, in

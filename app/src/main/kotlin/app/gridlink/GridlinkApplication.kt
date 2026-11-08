@@ -104,6 +104,9 @@ class AppContainer(context: Context) {
         appScope.launch {
             runCatching { storageRepository.purgeOrphanedAccounts { accountStore.accounts().map { it.id } } }
                 .onFailure { android.util.Log.w("Gridlink", "orphaned-cache sweep failed; retried next start", it) }
+            // The same for calendars and contacts, which sign-out used to leave behind entirely.
+            runCatching { davRepository.purgeOrphanedAccounts { accountStore.accounts().map { it.id } } }
+                .onFailure { android.util.Log.w("Gridlink", "orphaned DAV sweep failed; retried next start", it) }
         }
         // Re-arm any send left mid-flight (WorkManager persists jobs, but re-checking is a safety net).
         appScope.launch {

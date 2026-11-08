@@ -148,6 +148,7 @@
     <string name="message_headers_title">En-têtes du message</string>
     <string name="message_headers_empty">Aucun en-tête à afficher</string>
     <string name="message_headers_error">Impossible de charger les en-têtes :\n%1$s</string>
+    <string name="reply_all_original_unavailable">Impossible de charger tous les destinataires de l\'original : cette réponse ira uniquement à l\'expéditeur.</string>
     <string name="message_headers_loading">Chargement des en-têtes…</string>
     <string name="message_headers_copy">Tout copier</string>
     <string name="message_headers_close">Fermer</string>
@@ -200,6 +201,10 @@
     <string name="calendars_title">Agendas</string>
     <string name="calendars_unnamed">Agenda %1$d</string>
     <string name="calendars_hidden_note">Les agendas masqués continuent de se synchroniser. Ils sont seulement retirés de la grille.</string>
+    <string name="calendar_edit_title">Modifier l\'agenda</string>
+    <string name="calendar_device_only">Sur cet appareil uniquement</string>
+    <string name="calendar_edit_needs_name">Un agenda doit avoir un nom.</string>
+    <string name="calendar_edit_kept_on_device">Le serveur a refusé la modification, elle est donc conservée sur cet appareil uniquement.</string>
     <string name="event_form_calendar">Agenda</string>
     <string name="snooze_in_1_hour">Dans 1 heure</string>
     <string name="snooze_this_evening">Ce soir, 18 h</string>

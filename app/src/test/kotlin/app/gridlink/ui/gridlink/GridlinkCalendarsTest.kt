@@ -1,6 +1,7 @@
 package app.gridlink.ui.gridlink
 
 import androidx.compose.ui.graphics.Color
+import app.gridlink.core.data.account.CalendarPrefs
 import app.gridlink.core.data.calendar.CalendarOccurrence
 import app.gridlink.core.data.db.DavCollectionEntity
 import app.gridlink.ui.theme.GridlinkMode
@@ -107,5 +108,35 @@ class GridlinkCalendarsTest {
         // All hidden still lands somewhere real rather than nowhere.
         assertEquals(a, gridlinkDefaultCalendar(listOf(a, b.copy(visible = false))))
         assertNull(gridlinkDefaultCalendar(emptyList()))
+    }
+
+    @Test fun `the server default wins over list order, unless the user hid it`() {
+        val tint = GridlinkCalendarTint(null, 0)
+        val shared = GridlinkCalendarInfo("jmap:calendar/s", "Team", tint)
+        val own = GridlinkCalendarInfo("jmap:calendar/b", "Mine", tint, isDefault = true)
+        assertEquals(own, gridlinkDefaultCalendar(listOf(shared, own)))
+        // Hidden default: the first shown one, as before, so the new event is on screen.
+        assertEquals(shared, gridlinkDefaultCalendar(listOf(shared, own.copy(visible = false))))
+    }
+
+    @Test fun `local name and colour overrides show over the server's and are flagged as local`() {
+        val list = GridlinkDavMapping.calendars(
+            listOf(
+                collection("jmap:calendar/a", "Personal", "#112233"),
+                collection("jmap:calendar/b", "Work", order = 1),
+            ),
+            prefs = CalendarPrefs(
+                names = mapOf("jmap:calendar/a" to "Home"),
+                colors = mapOf("jmap:calendar/a" to "#2A9D8F"),
+                serverDefaults = setOf("jmap:calendar/b"),
+            ),
+        )
+        assertEquals("Home", list[0].name)
+        assertEquals(0xFF2A9D8FL, list[0].tint.argb)
+        assertEquals(true, list[0].localOnly)
+        assertEquals(false, list[0].isDefault)
+        assertEquals("Work", list[1].name)
+        assertEquals(false, list[1].localOnly)
+        assertEquals(true, list[1].isDefault)
     }
 }

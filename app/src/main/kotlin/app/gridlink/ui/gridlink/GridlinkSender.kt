@@ -190,6 +190,12 @@ class GridlinkOutboxSender(
             fromName = origin.fromName,
             fromEmail = origin.fromEmail,
             to = draft.recipients.map { it.email },
+            cc = draft.cc.map { it.email },
+            // Threads the answer under the original on both engines (JMAP sets the Email's
+            // inReplyTo/references, SMTP writes the headers), and a reply closed to Drafts and sent
+            // later still threads.
+            inReplyTo = draft.inReplyTo,
+            references = draft.references,
             subject = draft.subject,
             // 🔴 The quote is appended HERE, at the write, and not folded into the body when the
             // composer opens. The body the user edits stays the words they typed, which is what lets
@@ -222,7 +228,7 @@ class GridlinkOutboxSender(
         // message, not about the address: someone recalled and retyped is still someone this user
         // was writing to, and the alternative is that the address they most recently used is the one
         // the field is slowest to learn.
-        runCatching { repository.rememberRecipients(draft.recipients.map { it.email }) }
+        runCatching { repository.rememberRecipients((draft.recipients + draft.cc).map { it.email }) }
         return {
             // Row first, worker second, matching the order the stock composer uses: the row is the
             // user-visible artifact, and if the cancel turns out to be a no-op a later worker run
@@ -236,8 +242,8 @@ class GridlinkOutboxSender(
         val draft = request.draft
         val origin = origin(draft) ?: error("No account to keep a draft on.")
         val credentials = origin.credentials
-        val emptied = draft.recipients.isEmpty() && draft.subject.isBlank() && draft.body.isBlank() &&
-            draft.attachments.isEmpty()
+        val emptied = draft.recipients.isEmpty() && draft.cc.isEmpty() && draft.subject.isBlank() &&
+            draft.body.isBlank() && draft.attachments.isEmpty()
         if (emptied) {
             // The composer only reports an empty draft when there IS a server copy to retire
             // (an emptied fresh compose reports null and never reaches here): the user opened a
@@ -253,6 +259,12 @@ class GridlinkOutboxSender(
             fromName = origin.fromName,
             fromEmail = origin.fromEmail,
             to = draft.recipients.map { it.email },
+            cc = draft.cc.map { it.email },
+            // Threads the answer under the original on both engines (JMAP sets the Email's
+            // inReplyTo/references, SMTP writes the headers), and a reply closed to Drafts and sent
+            // later still threads.
+            inReplyTo = draft.inReplyTo,
+            references = draft.references,
             subject = draft.subject,
             // ⚠️ The quote is written into the SAVED draft too, and it has to be: the stored draft
             // is the whole message, and a reply saved and reopened tomorrow has no [GridlinkQuote]
@@ -292,6 +304,7 @@ class GridlinkOutboxSender(
             ScheduledSendEntity(
                 accountId = origin.credentials.id,
                 recipients = draft.recipients.joinToString(",") { it.email },
+                cc = draft.cc.joinToString(",") { it.email }.ifBlank { null },
                 subject = draft.subject,
                 textBody = gridlinkQuotedPlain(formattedPlain(draft.formattedBody()), draft.quoted),
                 htmlBody = gridlinkQuotedHtml(formattedHtml(draft.formattedBody()), draft.quoted),
@@ -300,8 +313,8 @@ class GridlinkOutboxSender(
                 // at send time", which on JMAP is not the identity the composer showed.
                 fromName = origin.fromName,
                 fromEmail = origin.fromEmail,
-                inReplyTo = null,
-                references = null,
+                inReplyTo = draft.inReplyTo.joinToString(" ").ifBlank { null },
+                references = draft.references.joinToString(" ").ifBlank { null },
                 sendAtMillis = sendAtMillis,
                 // So the worker retires the server draft when the send finally goes out.
                 draftEmailId = origin.draftEmailId,

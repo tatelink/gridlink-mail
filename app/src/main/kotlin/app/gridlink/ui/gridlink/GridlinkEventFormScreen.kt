@@ -126,16 +126,17 @@ fun GridlinkEventFormScreen(
     var category by remember { mutableStateOf(TextFieldValue(initial?.category.orEmpty())) }
     var reminders by remember { mutableStateOf(initial?.reminders.orEmpty().distinct().sorted()) }
     var picking by remember { mutableStateOf<GridlinkEventPicker?>(null) }
-    // Which calendar a NEW event goes into. Resolved against the live list on every frame rather
-    // than frozen at open, so a list that arrives a moment after the form still lands on a real
-    // calendar, and a calendar removed by a sync falls back to the default instead of to nothing.
+    // Which calendar the event goes into (a new one) or stays in (an edit, until another is picked).
+    // Resolved against the live list on every frame rather than frozen at open, so a list that
+    // arrives a moment after the form still lands on a real calendar, and a calendar removed by a
+    // sync falls back to the default instead of to nothing.
     val calendars = LocalGridlinkBook.current.calendars
-    var calendarPick by remember { mutableStateOf<String?>(null) }
+    var calendarPick by remember { mutableStateOf(initial?.calendarId) }
     val calendar = calendars.firstOrNull { it.id == calendarPick } ?: gridlinkDefaultCalendar(calendars)
-    // 🔴 New events only, and only with a real choice. Moving an existing event to another calendar
-    // is a delete on one collection and a create on another, which the writer does not do; a row
-    // that looked editable on an edit would silently keep the event where it was.
-    val choosesCalendar = initial == null && calendars.size > 1
+    // Only with a real choice. 🔴 On an edit, only when the event's own calendar is in the list: the
+    // row would otherwise show the default as if the event were in it, and saving would move it.
+    val choosesCalendar = calendars.size > 1 &&
+        (initial == null || calendars.any { it.id == initial.calendarId })
 
     val titleFocus = remember { FocusRequester() }
     val locationFocus = remember { FocusRequester() }
@@ -182,7 +183,9 @@ fun GridlinkEventFormScreen(
                     // Verbatim, like the id: the ticket the writer issued must come back to it
                     // unchanged, and a new event has none until a writer gives it one.
                     handle = initial?.handle.orEmpty(),
-                    calendarId = initial?.calendarId ?: calendar?.id,
+                    // An edit names a calendar only when one was really picked or kept, never the
+                    // fallback default: a different id here is what makes the writer move it.
+                    calendarId = if (initial != null) calendarPick else calendar?.id,
                 ),
             )
         },

@@ -1,5 +1,7 @@
 package app.gridlink.ui.gridlink
 
+import app.gridlink.core.data.account.CalendarPrefs
+import app.gridlink.core.data.account.calendarPrefKey
 import app.gridlink.core.data.calendar.CalendarAttachmentSource
 import app.gridlink.core.data.calendar.CalendarOccurrence
 import app.gridlink.core.data.contacts.ContactEdit
@@ -39,15 +41,27 @@ object GridlinkDavMapping {
      */
     /**
      * The account's calendars as the screens take them, in the order given (the DAO's discovery
-     * order), with [hidden] (see `StoredAccount.hiddenCalendars`) switched off.
+     * order), with the account's [prefs] applied: hidden ones (and any in [hidden]) switched off,
+     * local names and colours (for a server that refused a rename) shown over the server's, and the
+     * server's default marked. [prefs] files each calendar under its `calendarPrefKey`.
      */
-    fun calendars(collections: List<DavCollectionEntity>, hidden: Set<String>): List<GridlinkCalendarInfo> =
+    fun calendars(
+        collections: List<DavCollectionEntity>,
+        hidden: Set<String> = emptySet(),
+        prefs: CalendarPrefs = CalendarPrefs(),
+    ): List<GridlinkCalendarInfo> =
         collections.mapIndexed { index, collection ->
+            val key = calendarPrefKey(collection)
+            val name = prefs.names[key]?.takeIf { it.isNotBlank() }
+            val color = prefs.colors[key]?.let(::gridlinkParseCalendarColor)
             GridlinkCalendarInfo(
                 id = collection.url,
-                name = collection.displayName?.takeIf { it.isNotBlank() },
-                tint = GridlinkCalendarTint(gridlinkParseCalendarColor(collection.color), index),
-                visible = collection.url !in hidden,
+                name = name ?: collection.displayName?.takeIf { it.isNotBlank() },
+                tint = GridlinkCalendarTint(color ?: gridlinkParseCalendarColor(collection.color), index),
+                visible = collection.url !in hidden && key !in hidden && !prefs.isHidden(collection),
+                isDefault = prefs.isServerDefault(collection),
+                localOnly = name != null || color != null,
+                prefKey = key,
             )
         }
 

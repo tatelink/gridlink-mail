@@ -1,5 +1,7 @@
 package app.gridlink.core.data.storage
 
+import kotlinx.coroutines.CancellationException
+
 /**
  * Which cached accounts no longer exist — the decision behind
  * [StorageRepository.purgeOrphanedAccounts], kept as a pure function so the guard below can be
@@ -34,5 +36,28 @@ object OrphanedAccountCache {
         if (knownAccountIds.isEmpty()) return emptyList()
         val known = knownAccountIds.toSet()
         return cachedAccountIds.distinct().filterNot { it in known }
+    }
+
+    /**
+     * Takes the [inventory] of cached account ids FIRST, then reads [knownAccountIds], and hands
+     * each orphan to [clear]. Returns the ids swept.
+     *
+     * ⛔ The order of the two reads is the fix: everything cached after the inventory belongs to an
+     * account the later read is guaranteed to list, so an account added while this runs is never
+     * mistaken for an orphan. A [clear] that throws is skipped, never the end of the sweep: one bad
+     * account must not leave the rest behind. The empty-list guard of [orphans] applies.
+     */
+    suspend fun sweep(
+        inventory: suspend () -> Collection<String>,
+        knownAccountIds: () -> Collection<String>,
+        clear: suspend (String) -> Unit,
+    ): List<String> {
+        val cached = inventory()
+        val swept = orphans(knownAccountIds(), cached)
+        swept.forEach { accountId ->
+            // Best-effort housekeeping: a failure is left for the next sweep, a cancel is not eaten.
+            runCatching { clear(accountId) }.onFailure { if (it is CancellationException) throw it }
+        }
+        return swept
     }
 }

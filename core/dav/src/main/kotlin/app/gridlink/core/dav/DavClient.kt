@@ -69,6 +69,12 @@ data class DavCollection(
     val displayName: String?,
     /** `#RRGGBB` if the server carries a colour. Stalwart does not, so this is normally null. */
     val color: String?,
+    /**
+     * True for the one calendar the server names as the account's default (RFC 6638
+     * `schedule-default-calendar-URL`). False for every address book, and for every calendar on a
+     * server that names none.
+     */
+    val isDefault: Boolean = false,
 )
 
 /** One item (a `.ics` or a `.vcf`) as a sync reported it. */
@@ -228,7 +234,55 @@ class DavClient internal constructor(
             else -> null
         } ?: throw DavException("Server did not report a ${kind.name.lowercase()} home collection")
 
-        collections(resolve(homeBase, home), credentials, kind)
+        val found = collections(resolve(homeBase, home), credentials, kind)
+        if (kind != DavKind.CALENDAR || principal == null) return@withContext found
+        val default = scheduleDefault(resolve(answeredAt, principal), credentials) ?: return@withContext found
+        found.map { if (sameCollection(it.url, default)) it.copy(isDefault = true) else it }
+    }
+
+    /**
+     * The calendar the server names as the account's default, or null when it names none.
+     *
+     * RFC 6638 puts `schedule-default-calendar-URL` on the scheduling inbox, which the principal
+     * points at (`schedule-inbox-URL`); some servers also answer it on the principal itself, so that
+     * is asked first, in the same request. Best effort: a server without scheduling answers 404 or
+     * leaves the properties out, and discovery must not fail over a nicety, so every failure here
+     * is "no default".
+     */
+    private fun scheduleDefault(principalUrl: HttpUrl, credentials: DavCredentials): HttpUrl? = try {
+        val (principalAnswer, principalAt) = propfindTracked(
+            url = principalUrl,
+            credentials = credentials,
+            depth = 0,
+            props = listOf(PropKey.SCHEDULE_DEFAULT_CALENDAR_URL, PropKey.SCHEDULE_INBOX_URL),
+        )
+        val direct = principalAnswer.responses.firstNotNullOfOrNull { it.prop(PropKey.SCHEDULE_DEFAULT_CALENDAR_URL) }
+        val inbox = principalAnswer.responses.firstNotNullOfOrNull { it.prop(PropKey.SCHEDULE_INBOX_URL) }
+        when {
+            direct != null -> resolve(principalAt, direct)
+            inbox != null -> {
+                val (inboxAnswer, inboxAt) = propfindTracked(
+                    url = resolve(principalAt, inbox),
+                    credentials = credentials,
+                    depth = 0,
+                    props = listOf(PropKey.SCHEDULE_DEFAULT_CALENDAR_URL),
+                )
+                inboxAnswer.responses.firstNotNullOfOrNull { it.prop(PropKey.SCHEDULE_DEFAULT_CALENDAR_URL) }
+                    ?.let { resolve(inboxAt, it) }
+            }
+            else -> null
+        }
+    } catch (_: DavException) {
+        null
+    } catch (_: java.io.IOException) {
+        null
+    }
+
+    /** Whether [url] and [other] name the same collection, trailing slash or not. */
+    private fun sameCollection(url: String, other: HttpUrl): Boolean {
+        val mine = url.toHttpUrlOrNull() ?: return false
+        return mine.host.equals(other.host, ignoreCase = true) &&
+            mine.encodedPath.trimEnd('/') == other.encodedPath.trimEnd('/')
     }
 
     /** List the collections directly inside [homeUrl]. */
@@ -446,6 +500,88 @@ class DavClient internal constructor(
             }
             if (response.code == HTTP_NOT_FOUND) return@use
             if (!response.isSuccessful) throw DavException(errorFor(response), response.code)
+        }
+    }
+
+    /**
+     * Move one item from the collection it is in to [targetCollectionUrl], keeping its file name.
+     *
+     * `MOVE` with `Overwrite: F` (never replace something already at the destination) and `If-Match`
+     * on the stored etag (never move a version this device has not seen). One request, so the item
+     * is never in both calendars or in neither: the server does it or does not.
+     *
+     * Throws [DavException] with the server's code. A 412 means the item changed since the last
+     * sync. See [moveUnsupported] for the codes a server answers when it does not move across
+     * collections at all, which callers turn into a copy and a delete.
+     */
+    suspend fun move(
+        collectionUrl: String,
+        href: String,
+        targetCollectionUrl: String,
+        credentials: DavCredentials,
+        etag: String?,
+    ): DavWriteResult = withContext(Dispatchers.IO) {
+        val collection = collectionUrl.toHttpUrlOrNull()
+            ?: throw DavException("Bad collection URL: $collectionUrl")
+        val target = targetCollectionUrl.toHttpUrlOrNull()
+            ?: throw DavException("Bad collection URL: $targetCollectionUrl")
+        val source = resolve(collection, href)
+        val destination = target.newBuilder().addPathSegment(source.pathSegments.last()).build()
+        val request = Request.Builder()
+            .url(source)
+            .method("MOVE", null)
+            .header("Destination", destination.toString())
+            .header("Overwrite", "F")
+            .apply { if (etag != null) header("If-Match", "\"$etag\"") }
+            .header("Authorization", credentials.authorizationHeader())
+            .build()
+        call(request).use { response ->
+            if (response.code == 412) {
+                throw DavException("This item changed on the server since the last sync", 412)
+            }
+            if (!response.isSuccessful) throw DavException(errorFor(response), response.code)
+            DavWriteResult(
+                url = destination.toString(),
+                href = "/" + destination.pathSegments.joinToString("/"),
+                etag = response.header("ETag")?.trim('"', ' ')?.takeIf { it.isNotBlank() },
+            )
+        }
+    }
+
+    /**
+     * Rename and/or recolour a calendar (`PROPPATCH` of `displayname` and Apple's `calendar-color`).
+     * A null leaves that property alone.
+     *
+     * 🔴 A 207 is not a yes. PROPPATCH answers per property inside the multistatus, and a server
+     * that refuses one (read-only, or not a property it stores) still answers 207 with a 403 or 409
+     * propstat. So the answer is read per property, and a refusal of either throws with its code.
+     */
+    suspend fun updateCollection(
+        collectionUrl: String,
+        credentials: DavCredentials,
+        displayName: String?,
+        color: String?,
+    ): Unit = withContext(Dispatchers.IO) {
+        if (displayName == null && color == null) return@withContext
+        val url = collectionUrl.toHttpUrlOrNull() ?: throw DavException("Bad collection URL: $collectionUrl")
+        val body = buildString {
+            append("""<?xml version="1.0" encoding="utf-8"?>""")
+            append("""<D:propertyupdate xmlns:D="DAV:" xmlns:A="http://apple.com/ns/ical/"><D:set><D:prop>""")
+            displayName?.let { append("<D:displayname>").append(it.xmlEscaped()).append("</D:displayname>") }
+            color?.let { append("<A:calendar-color>").append(it.xmlEscaped()).append("</A:calendar-color>") }
+            append("</D:prop></D:set></D:propertyupdate>")
+        }
+        val request = Request.Builder()
+            .url(url)
+            .method("PROPPATCH", body.toRequestBody(XML))
+            .header("Authorization", credentials.authorizationHeader())
+            .build()
+        call(request).use { response ->
+            if (!response.isSuccessful) throw DavException(errorFor(response), response.code)
+            if (response.code != HTTP_MULTI_STATUS) return@use
+            refusedPropstat(response.body?.string().orEmpty())?.let { code ->
+                throw DavException("The server refused the change (HTTP $code)", code)
+            }
         }
     }
 
@@ -1064,6 +1200,24 @@ class DavClient internal constructor(
 
         /** An item the server does not have. [delete] treats it as the outcome it asked for. */
         private const val HTTP_NOT_FOUND = 404
+
+        /** A per-property answer, which PROPPATCH gives even when it refused a property. */
+        private const val HTTP_MULTI_STATUS = 207
+
+        /** The first status of 300 or above inside a PROPPATCH multistatus, else null. */
+        private val PROPSTAT_STATUS = Regex("""status>\s*HTTP/\d(?:\.\d)?\s+(\d{3})""")
+
+        internal fun refusedPropstat(body: String): Int? = PROPSTAT_STATUS.findAll(body)
+            .mapNotNull { it.groupValues[1].toIntOrNull() }
+            .firstOrNull { it >= 300 }
+
+        /**
+         * The answers to a [move] that mean "this server does not move items between collections",
+         * as opposed to "this move failed": Method Not Allowed, Not Implemented, Bad Gateway (RFC 4918
+         * section 9.9.4, the destination is on another server or collection the server will not
+         * write to) and Forbidden (the same, on servers that answer that way).
+         */
+        fun moveUnsupported(code: Int?): Boolean = code in setOf(403, 405, 501, 502)
 
         /** Redirect hops [call] follows before handing the last response back unfollowed. */
         private const val MAX_REDIRECTS = 5

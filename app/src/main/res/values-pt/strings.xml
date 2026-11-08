@@ -148,6 +148,7 @@
     <string name="message_headers_title">Cabeçalhos da mensagem</string>
     <string name="message_headers_empty">Nenhum cabeçalho para mostrar</string>
     <string name="message_headers_error">Não foi possível carregar os cabeçalhos:\n%1$s</string>
+    <string name="reply_all_original_unavailable">Não foi possível carregar todos os destinatários do original, por isso esta resposta vai só para o remetente.</string>
     <string name="message_headers_loading">A carregar os cabeçalhos…</string>
     <string name="message_headers_copy">Copiar tudo</string>
     <string name="message_headers_close">Fechar</string>
@@ -200,6 +201,10 @@
     <string name="calendars_title">Calendários</string>
     <string name="calendars_unnamed">Calendário %1$d</string>
     <string name="calendars_hidden_note">Os calendários ocultos continuam a sincronizar. Apenas não aparecem na grelha.</string>
+    <string name="calendar_edit_title">Editar calendário</string>
+    <string name="calendar_device_only">Apenas neste dispositivo</string>
+    <string name="calendar_edit_needs_name">Um calendário precisa de um nome.</string>
+    <string name="calendar_edit_kept_on_device">O servidor não aceitou a alteração, por isso fica apenas neste dispositivo.</string>
     <string name="event_form_calendar">Calendário</string>
     <string name="snooze_in_1_hour">Em 1 hora</string>
     <string name="snooze_this_evening">Hoje à noite, 18h</string>

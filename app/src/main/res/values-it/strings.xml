@@ -148,6 +148,7 @@
     <string name="message_headers_title">Intestazioni del messaggio</string>
     <string name="message_headers_empty">Nessuna intestazione da mostrare</string>
     <string name="message_headers_error">Impossibile caricare le intestazioni:\n%1$s</string>
+    <string name="reply_all_original_unavailable">Impossibile caricare tutti i destinatari dell\'originale, quindi questa risposta va solo al mittente.</string>
     <string name="message_headers_loading">Caricamento delle intestazioni…</string>
     <string name="message_headers_copy">Copia tutto</string>
     <string name="message_headers_close">Chiudi</string>
@@ -200,6 +201,10 @@
     <string name="calendars_title">Calendari</string>
     <string name="calendars_unnamed">Calendario %1$d</string>
     <string name="calendars_hidden_note">I calendari nascosti continuano a sincronizzarsi. Semplicemente non compaiono nella griglia.</string>
+    <string name="calendar_edit_title">Modifica calendario</string>
+    <string name="calendar_device_only">Solo su questo dispositivo</string>
+    <string name="calendar_edit_needs_name">Un calendario deve avere un nome.</string>
+    <string name="calendar_edit_kept_on_device">Il server non ha accettato la modifica, quindi resta solo su questo dispositivo.</string>
     <string name="event_form_calendar">Calendario</string>
     <string name="snooze_in_1_hour">Tra 1 ora</string>
     <string name="snooze_this_evening">Stasera, 18:00</string>

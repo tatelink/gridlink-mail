@@ -388,6 +388,40 @@ class JmapClientCalendarsTest {
         assertTrue(failure?.message.orEmpty().contains("invalidPatch"))
     }
 
+    @Test fun updateCalendar_sendsOnlyTheChangedProperties() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody("""{"methodResponses":[["Calendar/set",{"updated":{"b":null}},"cs1"]]}"""),
+        )
+
+        client.updateCalendar(calendarSession(), "d", "b", name = "Work", color = null, auth = BasicAuth("u", "p"))
+
+        val body = server.takeRequest().body.readUtf8()
+        assertTrue(body.contains("\"Calendar/set\""))
+        assertTrue(body.contains("\"update\":{\"b\":{\"name\":\"Work\"}}"))
+    }
+
+    @Test fun updateCalendar_aRefusalCarriesItsType() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"methodResponses":[["Calendar/set",{"updated":{},"notUpdated":
+                    {"b":{"type":"forbidden"}}},"cs1"]]}""",
+            ),
+        )
+
+        val failure = runCatching {
+            client.updateCalendar(
+                calendarSession(), "d", "b", name = null, color = "#30a46c", auth = BasicAuth("u", "p"),
+            )
+        }.exceptionOrNull()
+        assertTrue(failure is JmapException)
+        assertEquals("forbidden", (failure as JmapException).errorType)
+    }
+
+    @Test fun updateCalendar_withNothingToChange_sendsNothing() = runBlocking {
+        client.updateCalendar(calendarSession(), "d", "b", name = null, color = null, auth = BasicAuth("u", "p"))
+        assertEquals(0, server.requestCount)
+    }
+
     private companion object {
         /** Verbatim Stalwart `Calendar/get`, trimmed to two rights blocks for length. */
         val CALENDARS_JSON = """

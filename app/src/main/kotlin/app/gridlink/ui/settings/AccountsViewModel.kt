@@ -37,6 +37,7 @@ import kotlinx.coroutines.withContext
 class AccountsViewModel(application: Application) : AndroidViewModel(application) {
     private val store = application.container.accountStore
     private val storage = application.container.storageRepository
+    private val dav = application.container.davRepository
     private val mail = application.container.mailRepository
     private val pgp = application.container.pgpEngine
     private val settings = application.container.settingsRepository
@@ -448,12 +449,16 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
             removed.forEach {
                 mail.disconnectImap(it)
                 storage.purgeAccount(it)
+                // Its calendars and address books too: without this a removed account's events and
+                // contacts stayed in the database for good, out of sight but never deleted.
+                dav.clearAccount(it)
             }
             // Then anything else left by an account that is no longer configured (Codeberg
             // #121): the per-id purges above only cover what THIS sign-out removed, and a row
             // whose account went by any other path is exactly the ghost the unified list used to
             // draw unlabelled. Sweeps nothing while the store lists no account at all.
             storage.purgeOrphanedAccounts { store.accounts().map { it.id } }
+            dav.purgeOrphanedAccounts { store.accounts().map { it.id } }
         }
         PushController.apply(app, userInitiated = true)
     }

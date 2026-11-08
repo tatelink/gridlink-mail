@@ -148,6 +148,7 @@
     <string name="message_headers_title">Nagłówki wiadomości</string>
     <string name="message_headers_empty">Brak nagłówków do wyświetlenia</string>
     <string name="message_headers_error">Nie można wczytać nagłówków:\n%1$s</string>
+    <string name="reply_all_original_unavailable">Nie można wczytać wszystkich odbiorców oryginału, więc ta odpowiedź trafi tylko do nadawcy.</string>
     <string name="message_headers_loading">Wczytywanie nagłówków…</string>
     <string name="message_headers_copy">Kopiuj wszystko</string>
     <string name="message_headers_close">Zamknij</string>
@@ -200,6 +201,10 @@
     <string name="calendars_title">Kalendarze</string>
     <string name="calendars_unnamed">Kalendarz %1$d</string>
     <string name="calendars_hidden_note">Ukryte kalendarze nadal się synchronizują. Po prostu nie są widoczne w siatce.</string>
+    <string name="calendar_edit_title">Edytuj kalendarz</string>
+    <string name="calendar_device_only">Tylko na tym urządzeniu</string>
+    <string name="calendar_edit_needs_name">Kalendarz musi mieć nazwę.</string>
+    <string name="calendar_edit_kept_on_device">Serwer nie przyjął zmiany, więc obowiązuje ona tylko na tym urządzeniu.</string>
     <string name="event_form_calendar">Kalendarz</string>
     <string name="snooze_in_1_hour">Za 1 godzinę</string>
     <string name="snooze_this_evening">Dziś wieczorem, 18:00</string>

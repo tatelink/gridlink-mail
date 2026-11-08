@@ -148,6 +148,7 @@
     <string name="message_headers_title">Berichtheaders</string>
     <string name="message_headers_empty">Geen headers om weer te geven</string>
     <string name="message_headers_error">Kan headers niet laden:\n%1$s</string>
+    <string name="reply_all_original_unavailable">Kan niet iedereen van het origineel laden, dus dit antwoord gaat alleen naar de afzender.</string>
     <string name="message_headers_loading">Headers laden…</string>
     <string name="message_headers_copy">Alles kopiëren</string>
     <string name="message_headers_close">Sluiten</string>
@@ -200,6 +201,10 @@
     <string name="calendars_title">Agenda\'s</string>
     <string name="calendars_unnamed">Agenda %1$d</string>
     <string name="calendars_hidden_note">Verborgen agenda\'s blijven synchroniseren. Ze worden alleen niet in het raster getoond.</string>
+    <string name="calendar_edit_title">Agenda bewerken</string>
+    <string name="calendar_device_only">Alleen op dit apparaat</string>
+    <string name="calendar_edit_needs_name">Een agenda heeft een naam nodig.</string>
+    <string name="calendar_edit_kept_on_device">De server nam de wijziging niet aan, dus die blijft alleen op dit apparaat.</string>
     <string name="event_form_calendar">Agenda</string>
     <string name="snooze_in_1_hour">Over 1 uur</string>
     <string name="snooze_this_evening">Vanavond, 18:00</string>

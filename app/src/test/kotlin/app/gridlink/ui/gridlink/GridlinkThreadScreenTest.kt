@@ -132,6 +132,34 @@ class GridlinkThreadScreenTest {
     }
 
     @Test
+    fun viewHeaders_foldedLinesShowUnfolded_andCopyAllKeepsTheOriginalFolds() {
+        // JMAP's raw form: the value starts with the space after the colon and each fold is CRLF
+        // plus the continuation line's own whitespace.
+        val folded = listOf(
+            GridlinkHeader(
+                "DKIM-Signature",
+                " v=1; a=rsa-sha256; d=example.com;\r\n\ts=mail; h=from:to:subject;\r\n        b=abc123",
+            ),
+            GridlinkHeader("Subject", " Hi"),
+        )
+        show(loadHeaders = { folded })
+        rule.onNodeWithText("More").performClick()
+        rule.onNodeWithText("View headers").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText(
+            "DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=mail; h=from:to:subject; b=abc123",
+        ).assertExists()
+        rule.onNodeWithText("Copy all").performClick()
+        val clipboard = ApplicationProvider.getApplicationContext<Context>()
+            .getSystemService(ClipboardManager::class.java)
+        assertEquals(
+            "DKIM-Signature: v=1; a=rsa-sha256; d=example.com;\n\ts=mail; h=from:to:subject;\n        b=abc123\n" +
+                "Subject: Hi",
+            clipboard.primaryClip?.getItemAt(0)?.text.toString(),
+        )
+    }
+
+    @Test
     fun viewHeaders_aFailedFetchSaysWhy() {
         show(loadHeaders = { error("HTTP 503") })
         rule.onNodeWithText("More").performClick()

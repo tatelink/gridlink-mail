@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -33,6 +34,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -214,6 +216,8 @@ fun GridlinkComposeScreen(
     val mailRepository = container?.mailRepository
     var focused by remember(draft) { mutableStateOf(initialFocus) }
     var recipients by remember(draft) { mutableStateOf(draft.recipients) }
+    // CC arrives filled only from a reply-all or a resumed draft, and can only be trimmed here.
+    var cc by remember(draft) { mutableStateOf(draft.cc) }
     var attachments by remember(draft) { mutableStateOf(draft.attachments) }
     var scheduling by remember(draft) { mutableStateOf(initiallyScheduling) }
     // Who this goes out as. The draft's own value until the user picks, so an untouched From never
@@ -539,6 +543,7 @@ fun GridlinkComposeScreen(
         return GridlinkComposeRequest(
             draft = draft.copy(
                 recipients = outgoing,
+                cc = cc,
                 recipientQuery = if (typed == null) query.text else "",
                 subject = subject.text,
                 body = body.text,
@@ -563,6 +568,7 @@ fun GridlinkComposeScreen(
      */
     fun closeRequest(): GridlinkComposeRequest? {
         val untouched = recipients == draft.recipients &&
+            cc == draft.cc &&
             query.text == draft.recipientQuery &&
             subject.text == draft.subject &&
             body.text == draft.body &&
@@ -851,6 +857,16 @@ fun GridlinkComposeScreen(
                         onNext = { if (!commitTypedRecipient()) subjectFocus.requestFocus() },
                         onRemove = { gone -> recipients = recipients.filterNot { it.id == gone.id } },
                     )
+                    // CC only when there is one: a reply-all keeps the people who were copied as
+                    // copied, and a resumed draft keeps the CC it was saved with. Nothing adds to it
+                    // here; a chip comes off with its x like one in TO.
+                    if (cc.isNotEmpty()) {
+                        GridlinkFormDivider()
+                        GridlinkCcField(
+                            cc = cc,
+                            onRemove = { gone -> cc = cc.filterNot { it.id == gone.id } },
+                        )
+                    }
                     // Suggestions live inside the field's own block, above the divider that closes
                     // it, because they are part of answering "who" and not a separate section. The
                     // divider under them is therefore the field's divider, arriving later.
@@ -1289,6 +1305,20 @@ data class GridlinkComposeDraft(
      * on A where that id means nothing.
      */
     val draftAccountId: String? = null,
+    /**
+     * CC, for a reply-all that keeps the people who were copied as copied (see
+     * [gridlinkReplyAllAddressing]), and for a resumed draft that had a CC line. Empty is the
+     * ordinary case, and then the composer draws no CC row at all.
+     */
+    val cc: List<GridlinkContact> = emptyList(),
+    /**
+     * The Message-ID(s) this answers and the conversation's References (RFC 5322 section 3.6.4).
+     * Set by a reply from the original ([gridlinkAddressedReply]) and carried through send, Send
+     * Later and the saved draft, so the answer files under the conversation on every client instead
+     * of starting a new one. Opaque ids, without angle brackets.
+     */
+    val inReplyTo: List<String> = emptyList(),
+    val references: List<String> = emptyList(),
 ) {
     /**
      * [body] and [bodySpans] as the single value the formatting core takes, so that every write path
@@ -1723,6 +1753,7 @@ private fun GridlinkAttachButton(onClick: () -> Unit, modifier: Modifier = Modif
  * The label stays even when the field is full, unlike SUBJECT's. A row of name pills with nothing
  * naming them is ambiguous the moment CC exists, and CC exists.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun GridlinkRecipientField(
     recipients: List<GridlinkContact>,
@@ -1749,7 +1780,12 @@ private fun GridlinkRecipientField(
             color = colors.textSecondary,
         )
         Spacer(Modifier.height(GridlinkSpacing.s8))
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // A FlowRow, not a Row: a reply-all opens with several chips, and in a Row they pushed the
+        // caret (and the last of themselves) off the right edge. They wrap onto the next line now.
+        FlowRow(
+            verticalArrangement = Arrangement.spacedBy(GridlinkSpacing.s8),
+            itemVerticalAlignment = Alignment.CenterVertically,
+        ) {
             recipients.forEach { contact ->
                 GridlinkRecipientChip(
                     contact = contact,
@@ -1777,9 +1813,50 @@ private fun GridlinkRecipientField(
                     // chips are already resolved, and a field that claimed the whole width would
                     // push every chip off the left edge as soon as there were two of them.
                     .weight(1f)
+                    .widthIn(min = RECIPIENT_FIELD_MIN_WIDTH)
                     .focusRequester(focusRequester)
                     .onFocusChanged { if (it.isFocused) onFocused() },
             )
+        }
+    }
+}
+
+private val RECIPIENT_FIELD_MIN_WIDTH = 96.dp
+
+/**
+ * CC: the same caps label and chips as TO, without a caret. It exists for what a reply-all or a
+ * resumed draft brings in, and only while there is something in it.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun GridlinkCcField(
+    cc: List<GridlinkContact>,
+    onRemove: (GridlinkContact) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = GridlinkTheme.colors
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(
+                horizontal = GridlinkSpacing.rowHorizontal,
+                vertical = GridlinkSpacing.s12,
+            ),
+    ) {
+        Text(
+            text = "CC",
+            style = GridlinkType.sectionLabel,
+            color = colors.textSecondary,
+        )
+        Spacer(Modifier.height(GridlinkSpacing.s8))
+        FlowRow(verticalArrangement = Arrangement.spacedBy(GridlinkSpacing.s8)) {
+            cc.forEach { contact ->
+                GridlinkRecipientChip(
+                    contact = contact,
+                    onRemove = { onRemove(contact) },
+                    modifier = Modifier.padding(end = GridlinkSpacing.s8),
+                )
+            }
         }
     }
 }
