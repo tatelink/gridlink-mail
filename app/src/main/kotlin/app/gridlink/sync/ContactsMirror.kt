@@ -46,6 +46,7 @@ class ContactsMirror(private val resolver: ContentResolver) {
     fun publish(account: Account, accountId: String, contacts: List<AddressBookContactEntity>): Int {
         ensureVisible(account)
         val prefix = SystemMirror.prefix(accountId)
+        sweepForeign(account, prefix)
         val existing = existingRawContacts(account, prefix)
 
         val ops = ArrayList<ContentProviderOperation>()
@@ -147,7 +148,11 @@ class ContactsMirror(private val resolver: ContentResolver) {
         }
         // The raw-contact operation comes first so the chunking in [apply] keeps the card whole.
         // SYNC3 is cleared so [settle] takes the new local base from what is written here.
+        // RAW_CONTACT_IS_READ_ONLY is cleared on purpose: 2.1.3 wrote every card read-only, and an
+        // account it left behind is adopted with its rows (see SystemAccountPlanner). Its old
+        // fingerprints carry no FORMAT prefix, so each such card comes through here once.
         ops += ContentProviderOperation.newUpdate(rawContactUri(account, existingId))
+            .withValue(ContactsContract.RawContacts.RAW_CONTACT_IS_READ_ONLY, 0)
             .withValue(ContactsContract.RawContacts.SYNC1, fingerprint(contact))
             .withValue(ContactsContract.RawContacts.SYNC2, serverBase)
             .withValue(ContactsContract.RawContacts.SYNC3, "")
@@ -282,6 +287,30 @@ class ContactsMirror(private val resolver: ContentResolver) {
 
     /** @param pending marked `DIRTY` or `DELETED`: a change in the provider not yet sent. */
     private data class RawRow(val id: Long, val fingerprint: String, val pending: Boolean)
+
+    /**
+     * Delete the cards in [account] that carry another Gridlink account's id.
+     *
+     * 🔴 Each Android account publishes for exactly one Gridlink account now (see
+     * [SystemAccountPlanner]), so such a card is debris that nothing else would ever remove: 2.1.3
+     * published every account sharing a login into one Android account, and an account removed and
+     * registered again under the same name before the provider swept it keeps the old rows (seen on
+     * the emulator, 2026-11-08: every card twice). Cards with no source id are new ones made in the
+     * Contacts app and waiting to be uploaded, and are left alone.
+     */
+    private fun sweepForeign(account: Account, prefix: String) {
+        val removed = runCatching {
+            resolver.delete(
+                syncUri(ContactsContract.RawContacts.CONTENT_URI, account),
+                "${ContactsContract.RawContacts.ACCOUNT_NAME} = ? AND " +
+                    "${ContactsContract.RawContacts.ACCOUNT_TYPE} = ? AND " +
+                    "${ContactsContract.RawContacts.SOURCE_ID} IS NOT NULL AND " +
+                    "${ContactsContract.RawContacts.SOURCE_ID} NOT LIKE ?",
+                arrayOf(account.name, account.type, "$prefix%"),
+            )
+        }.onFailure { Log.w(TAG, "could not sweep foreign cards", it) }.getOrDefault(0)
+        if (removed > 0) Log.i(TAG, "contacts mirror: removed $removed cards of another account")
+    }
 
     private fun existingRawContacts(account: Account, prefix: String): Map<String, RawRow> {
         val out = HashMap<String, RawRow>()

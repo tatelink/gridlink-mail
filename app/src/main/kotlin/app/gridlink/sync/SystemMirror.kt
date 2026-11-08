@@ -7,6 +7,8 @@ import android.content.pm.PackageManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import app.gridlink.core.data.account.AccountStore
+import app.gridlink.core.data.account.MailProtocol
+import app.gridlink.core.data.account.StoredAccount
 import app.gridlink.core.data.settings.SettingsRepository
 import kotlinx.coroutines.flow.first
 
@@ -34,11 +36,11 @@ object SystemMirror {
     /**
      * What a mirrored row's identity begins with.
      *
-     * 🔴 The local account id, not the server href. Two mail accounts that share a login are one
-     * Android account (see [GridlinkSystemAccount]), and their hrefs come out of the same server
-     * namespace, so an href alone would have one account's contacts overwriting the other's. The
-     * prefix is also what scopes every query and every delete, which is why it ends in a separator
-     * that cannot appear in an id.
+     * 🔴 The local account id, not the server href. Two mail accounts that share a login have
+     * hrefs out of the same server namespace, so an href alone would have one account's contacts
+     * overwriting the other's, and 2.1.3 published both into one Android account. Each now has its
+     * own Android account (see [SystemAccountPlanner]), and the prefix still scopes every query and
+     * every delete, which is why it ends in a separator that cannot appear in an id.
      */
     fun prefix(accountId: String): String = "$accountId|"
 
@@ -120,27 +122,46 @@ object SystemMirror {
      * Gridlink reaches the system without the user going back to Settings.
      */
     suspend fun apply(context: Context, accountStore: AccountStore, settings: SettingsRepository) {
-        val wanted = if (settings.systemAccountMirror.first() && hasPermissions(context)) {
-            accountStore.accounts()
-                .filter { it.syncSelection.calendar || it.syncSelection.contacts }
-                .map { it.username }
-                .filter { it.isNotBlank() }
-                .toSet()
-        } else {
-            emptySet()
+        val on = settings.systemAccountMirror.first() && hasPermissions(context)
+        val sources = accountStore.accounts().map { stored ->
+            MirrorSource(
+                id = stored.id,
+                label = stored.label(),
+                username = stored.username,
+                host = hostOf(stored),
+                wanted = on && (stored.syncSelection.calendar || stored.syncSelection.contacts),
+            )
         }
+        val registered = GridlinkSystemAccount.all(context).map {
+            RegisteredAccount(it.name, GridlinkSystemAccount.accountId(context, it))
+        }
+        val plan = SystemAccountPlanner.plan(sources, registered)
 
-        val existing = GridlinkSystemAccount.all(context)
-        for (account in existing) {
-            if (account.name !in wanted) {
-                Log.i(TAG, "unregistering ${account.name}; its mirrored rows go with it")
-                GridlinkSystemAccount.remove(context, account)
-            }
+        for (name in plan.remove) {
+            Log.i(TAG, "unregistering a system account; its mirrored rows go with it")
+            GridlinkSystemAccount.remove(context, GridlinkSystemAccount.account(context, name))
         }
-        for (name in wanted) {
-            val account = GridlinkSystemAccount.ensure(context, name)
-            if (existing.none { it.name == name }) GridlinkSystemAccount.requestSync(account)
+        for ((name, id) in plan.keep) GridlinkSystemAccount.ensure(context, name, id)
+        // An adopted 2.1.3 account is synced straight away too: its rows are still read-only in
+        // the system apps until the first pass of this version rewrites them.
+        for ((name, id) in plan.adopt + plan.create) {
+            GridlinkSystemAccount.requestSync(GridlinkSystemAccount.ensure(context, name, id))
         }
+        Log.i(
+            TAG,
+            "system accounts: keep ${plan.keep.size}, adopt ${plan.adopt.size}, " +
+                "create ${plan.create.size}, remove ${plan.remove.size}",
+        )
+    }
+
+    /**
+     * The server a mail account lives on, for telling apart two accounts that read the same. The
+     * IMAP host for IMAP, the host of the session URL otherwise.
+     */
+    private fun hostOf(stored: StoredAccount): String {
+        if (stored.protocol == MailProtocol.IMAP && stored.imapHost.isNotBlank()) return stored.imapHost
+        return runCatching { java.net.URI(stored.server.trim()).host }.getOrNull()
+            ?: stored.server.trim().substringAfter("://").substringBefore('/')
     }
 
     /** Ask both adapters to run now, for every registered account. */
@@ -149,11 +170,19 @@ object SystemMirror {
     }
 
     /**
-     * The local account ids that publish under [account].
+     * The local account ids that publish under [account]: the one stored on it.
      *
-     * Normally one. More than one when several mail accounts share a login, which is the case the
-     * [prefix] scheme exists for.
+     * A 2.1.3 account with no id yet is matched by login, but only when that login is unambiguous;
+     * otherwise nothing is published until [apply] has sorted it out on the next app start, which
+     * is better than writing one account's rows into another's.
      */
-    suspend fun accountIdsFor(account: Account, accountStore: AccountStore): List<String> =
-        accountStore.accounts().filter { it.username == account.name }.map { it.id }
+    suspend fun accountIdsFor(context: Context, account: Account, accountStore: AccountStore): List<String> {
+        val accounts = accountStore.accounts()
+        val id = GridlinkSystemAccount.accountId(context, account)
+        if (id == null) {
+            // singleOrNull is null when two accounts share the login, which is the point.
+            return listOfNotNull(accounts.singleOrNull { it.username == account.name }?.id)
+        }
+        return accounts.filter { it.id == id }.map { it.id }
+    }
 }

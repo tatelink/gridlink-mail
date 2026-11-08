@@ -53,12 +53,12 @@ private abstract class GridlinkSyncAdapter(context: Context) : AbstractThreadedS
         }
         val container = (context.applicationContext as Application).container
         runBlocking {
-            val ids = SystemMirror.accountIdsFor(account, container.accountStore)
+            val ids = SystemMirror.accountIdsFor(context, account, container.accountStore)
             if (ids.isEmpty()) {
                 // The mail account is gone but its system account has not been swept yet. Nothing
                 // to publish, and nothing to clean up either: unregistering the account is what
                 // deletes the rows, and SystemMirror.apply does that on the next app start.
-                Log.i(TAG, "$label sync skipped: no mail account named ${account.name}")
+                Log.i(TAG, "$label sync skipped: no mail account for this system account")
                 return@runBlocking
             }
             for ((index, id) in ids.withIndex()) {
@@ -141,7 +141,11 @@ private class CalendarSyncAdapter(context: Context) : GridlinkSyncAdapter(contex
         }
         val calendars = repository.calendars(accountId)
         val events = repository.allEvents(accountId)
-        val written = mirror.publish(account, accountId, calendars, events)
+        // The calendar's owner is the mail address, which is what calendar apps match an
+        // invitation's attendees against; the Android account name is only a label now.
+        val owner = (context.applicationContext as Application).container.accountStore.accounts()
+            .firstOrNull { it.id == accountId }?.username?.takeIf { it.isNotBlank() } ?: account.name
+        val written = mirror.publish(account, accountId, calendars, events, owner)
         Log.i(TAG, "calendar mirror: ${events.size} cached, $written written, upload $uploaded for $accountId")
     }
 

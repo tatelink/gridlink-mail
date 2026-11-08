@@ -42,6 +42,9 @@ class CalendarMirror(private val resolver: ContentResolver) {
     /**
      * Reconcile the provider to [calendars] and [events].
      *
+     * [owner] is the calendars' owner address (the mail login), not the Android account's name,
+     * which is a display label and may carry a server or a number to keep two accounts apart.
+     *
      * Returns the number of event rows written, for the log line only. Deletions of calendars
      * cascade to their events in the provider, so removing a calendar needs no event sweep.
      */
@@ -50,8 +53,10 @@ class CalendarMirror(private val resolver: ContentResolver) {
         accountId: String,
         calendars: List<DavCollectionEntity>,
         events: List<CalendarEventEntity>,
+        owner: String = account.name,
     ): Int {
         val prefix = SystemMirror.prefix(accountId)
+        sweepForeign(account, prefix)
         val existing = existingCalendars(account, prefix)
         val wanted = calendars.associateBy { SystemMirror.sourceId(accountId, it.url) }
 
@@ -67,7 +72,7 @@ class CalendarMirror(private val resolver: ContentResolver) {
 
         val calendarIds = HashMap<String, Long>()
         for ((syncId, collection) in wanted) {
-            val values = calendarValues(account, syncId, collection)
+            val values = calendarValues(account, syncId, collection, owner)
             val id = existing[syncId]
             if (id == null) {
                 val uri = resolver.insert(syncUri(CalendarContract.Calendars.CONTENT_URI, account), values)
@@ -132,10 +137,30 @@ class CalendarMirror(private val resolver: ContentResolver) {
         return written
     }
 
+    /**
+     * Delete the calendars in [account] that carry another Gridlink account's id, and with them
+     * their events. Same reasoning as the contacts mirror's sweep: each Android account publishes
+     * for one Gridlink account now, so anything else in it is 2.1.3 debris nothing would remove.
+     */
+    private fun sweepForeign(account: Account, prefix: String) {
+        val removed = runCatching {
+            resolver.delete(
+                syncUri(CalendarContract.Calendars.CONTENT_URI, account),
+                "${CalendarContract.Calendars.ACCOUNT_NAME} = ? AND " +
+                    "${CalendarContract.Calendars.ACCOUNT_TYPE} = ? AND " +
+                    "${CalendarContract.Calendars._SYNC_ID} IS NOT NULL AND " +
+                    "${CalendarContract.Calendars._SYNC_ID} NOT LIKE ?",
+                arrayOf(account.name, account.type, "$prefix%"),
+            )
+        }.onFailure { Log.w(TAG, "could not sweep foreign calendars", it) }.getOrDefault(0)
+        if (removed > 0) Log.i(TAG, "calendar mirror: removed $removed calendars of another account")
+    }
+
     private fun calendarValues(
         account: Account,
         syncId: String,
         collection: DavCollectionEntity,
+        owner: String,
     ): ContentValues = ContentValues().apply {
         put(CalendarContract.Calendars.ACCOUNT_NAME, account.name)
         put(CalendarContract.Calendars.ACCOUNT_TYPE, account.type)
@@ -145,7 +170,7 @@ class CalendarMirror(private val resolver: ContentResolver) {
             CalendarContract.Calendars.CALENDAR_DISPLAY_NAME,
             collection.displayName?.takeIf { it.isNotBlank() } ?: account.name,
         )
-        put(CalendarContract.Calendars.OWNER_ACCOUNT, account.name)
+        put(CalendarContract.Calendars.OWNER_ACCOUNT, owner)
         // 🔴 Editable in other apps; their edits are uploaded. See the class note.
         put(CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL, CalendarContract.Calendars.CAL_ACCESS_OWNER)
         put(CalendarContract.Calendars.VISIBLE, 1)
