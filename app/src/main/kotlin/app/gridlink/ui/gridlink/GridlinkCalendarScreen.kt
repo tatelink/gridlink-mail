@@ -1801,14 +1801,15 @@ private const val BLOCK_TIME_ALPHA = 0.8f
 private val AGENDA_DAY_GAP = GridlinkSpacing.s28
 
 /**
- * The agenda: a fixed four-week window as one continuous list, every day present.
+ * The agenda: a fixed four-week window as one continuous list, every day accounted for.
  *
  * Tate: "agenda needs to be a continuous list including the last week, plus up to 3 weeks in
- * the future. empty days need to be represented as well." So this is a diary page rather than a
- * filtered list: each day in [from]..[until] gets its header whether or not anything is on it, and
- * an empty day says so in one quiet line. This reverses the earlier design, which skipped empty
- * days for density; the point of showing them is that on an agenda the gap IS information — a
- * free Thursday is something you go looking for — and density is the month view's job.
+ * the future. empty days need to be represented as well." The gap IS information (a free Thursday
+ * is something you go looking for), so empty days are still on the list, but a run of them is now
+ * ONE thin line, "Nothing until Monday", instead of a heading and a "Nothing scheduled" each.
+ * (Polish pass, 2026-11-07.) Four of five rows were empty days and you scrolled past blank
+ * headings to reach one meeting; the folded line keeps the gap and its length, and costs one row.
+ * Today keeps its own heading even when it is empty, because the list opens on it.
  *
  * 🔴 The list OPENS at today, a third of the way down, not at the top. The top is last week;
  * opening there would greet every launch with seven days already lived through, and the view would
@@ -1853,50 +1854,52 @@ private fun GridlinkAgendaView(
             }
             .toList()
     }
-    // Where the anchor day's header lands in the flattened list: one header per day plus its rows, an
-    // empty day spending one row on its "Nothing scheduled" line. Only the INITIAL position —
-    // the items are keyed, so once the list is up, later data arriving re-anchors on the same
-    // day header instead of yanking the scroll.
+    val entries = remember(byDay, today) { agendaEntries(byDay, today) }
+    // Where the anchor day lands in the flattened list: every entry but the first draws a rule, a
+    // day is its heading plus its rows (an empty today spends one row on "Nothing scheduled"), and
+    // a folded run is one line. Only the INITIAL position; the items are keyed, so later data
+    // re-anchors on the same entry instead of yanking the scroll.
     //
-    // 🔴 The separator counts as an item, and every day but the first draws one. Miss that and the
-    // list opens one row further up per day behind today, which after a week is the view landing on
-    // last Wednesday and looking like the scroll restore is broken.
-    val anchorIndex = remember(byDay, anchor) {
+    // 🔴 The rule counts as an item. Miss that and the list opens one row further up per entry
+    // behind today, which looks like the scroll restore is broken.
+    val anchorIndex = remember(entries, anchor) {
         var index = 0
-        for ((dayIndex, day) in byDay.withIndex()) {
-            val (date, dayEvents) = day
-            if (date >= anchor) break
-            index += (if (dayIndex > 0) 1 else 0) + 1 + maxOf(dayEvents.size, 1)
+        var found = false
+        for ((entryIndex, entry) in entries.withIndex()) {
+            if (anchor in entry.first..entry.last) {
+                found = true
+                break
+            }
+            index += (if (entryIndex > 0) 1 else 0) + entry.rows
         }
-        // The rule ABOVE the anchor's heading, so its own separator is scrolled past rather than
-        // left as the first thing on screen with the heading tucked under it.
-        if (byDay.firstOrNull()?.first != anchor && byDay.any { it.first == anchor }) {
-            index + 1
-        } else {
-            index
-        }
+        // Past the rule ABOVE the anchor's entry, so its own separator is not left as the first
+        // thing on screen with the heading tucked under it.
+        if (found && entries.firstOrNull()?.let { anchor in it.first..it.last } == false) index + 1 else index
     }
-    // Which day each row belongs to, so the top of the list can be named without asking the items.
+    // Which days each row stands for, so the top of the list can be named without asking the items.
     //
-    // 🔴 The same arithmetic [anchorIndex] does, in the other direction, and the two have to stay
-    // in step: a rule, then a heading, then the day's rows or its one "Nothing scheduled" line. If
-    // one of them ever learns about a row the other does not, a tap would scroll somewhere the
-    // report then contradicts, and the grid and the list would argue with each other every gesture.
-    //
-    // ⚠️ The rule belongs to the day BELOW it, which is the day it introduces. It is drawn as part
-    // of arriving at that day, so a list stopped on the rule is a list showing that day.
-    val dayByIndex = remember(byDay) {
+    // 🔴 The same arithmetic [anchorIndex] does, in the other direction, and the two have to stay in
+    // step. The rule belongs to the entry BELOW it, the one it introduces.
+    val daysByIndex = remember(entries) {
         buildList {
-            byDay.forEachIndexed { dayIndex, (date, dayEvents) ->
-                if (dayIndex > 0) add(date)
-                add(date)
-                repeat(maxOf(dayEvents.size, 1)) { add(date) }
+            entries.forEachIndexed { entryIndex, entry ->
+                val days = entry.first..entry.last
+                if (entryIndex > 0) add(days)
+                repeat(entry.rows) { add(days) }
             }
         }
     }
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = anchorIndex)
-    val topDay by remember(dayByIndex, listState) {
-        derivedStateOf { dayByIndex.getOrNull(listState.firstVisibleItemIndex) }
+    val currentAnchor = rememberUpdatedState(anchor)
+    // ⚠️ A folded line stands for several days. When the day asked for is one of them, that day is
+    // the one being shown; otherwise it is the run's first. Without this, tapping a free Wednesday
+    // in the month beside the pane would scroll to the fold and report Tuesday straight back.
+    val topDay by remember(daysByIndex, listState) {
+        derivedStateOf {
+            daysByIndex.getOrNull(listState.firstVisibleItemIndex)?.let { days ->
+                if (currentAnchor.value in days) currentAnchor.value else days.start
+            }
+        }
     }
 
     /**
@@ -1942,35 +1945,37 @@ private fun GridlinkAgendaView(
         // every day above it is breathing.
         contentPadding = PaddingValues(bottom = GridlinkDimens.listFade + AGENDA_DAY_GAP),
     ) {
-        byDay.forEachIndexed { dayIndex, (date, dayEvents) ->
-            // 🔴 A rule between days, full width. Tate, 2026-08-12: "draw a horizontal line
-            // separator between days on agenda/schedule view". The day headings alone were carrying
-            // the whole structure of the list, and on a run of empty days the page is nothing but
-            // headings and one grey line each, which reads as one long column rather than as a
-            // week: the eye has no boundary to count. The line is what turns it back into days.
-            //
-            // ⚠️ Not before the first one. A hairline against the top edge of the panel reads as a
-            // seam in the glass rather than as a divider between two things, and above the first day
-            // there is nothing to divide it FROM.
-            if (dayIndex > 0) {
+        entries.forEachIndexed { entryIndex, entry ->
+            val date = entry.first
+            val dayEvents = entry.events
+            // 🔴 A rule between entries, full width. Tate, 2026-08-12: "draw a horizontal line
+            // separator between days on agenda/schedule view". Not before the first one: a hairline
+            // against the top edge of the panel reads as a seam in the glass. The air around the
+            // rule is the point ("agenda is too cramped and busy"), so it carries AGENDA_DAY_GAP.
+            if (entryIndex > 0) {
                 item(key = "rule-$date") {
-                    // No start inset, unlike the message list's. There the inset lines the rule up
-                    // under the text so rows read as one stack; here the rule is separating whole
-                    // days, and a day is the full width of the panel.
-                    //
-                    // 🔴 The air around the rule is the point, not the rule. Tate, 2026-08-12:
-                    // "agenda is too cramped and busy… i think its just too tight." With the day
-                    // packed to 4dp above and below, the hairline landed inside the text rather
-                    // than between two blocks, and a week of free days came out as a stack of
-                    // stripes. AGENDA_DAY_GAP under the day that just ended plus the heading's own
-                    // top inset over the one starting means every rule sits in its own band of
-                    // empty space, which is what makes the boundary legible without the line
-                    // having to be darker.
                     GridlinkRowDivider(
                         startInset = 0.dp,
                         modifier = Modifier.padding(top = AGENDA_DAY_GAP),
                     )
                 }
+            }
+            if (entry.folded) {
+                // A run of free days, as one line in the metadata style: present, so the gap still
+                // reads, and cheap, so it costs one row however long it is.
+                item(key = "free-$date") {
+                    Text(
+                        text = agendaFreeLine(entry, until, today),
+                        style = GridlinkType.metadata,
+                        color = colors.textSecondary,
+                        modifier = Modifier.padding(
+                            start = GridlinkSpacing.rowHorizontal,
+                            end = GridlinkSpacing.rowHorizontal,
+                            top = GridlinkSpacing.s16,
+                        ),
+                    )
+                }
+                return@forEachIndexed
             }
             item(key = "day-$date") {
                 Row(
@@ -1981,8 +1986,7 @@ private fun GridlinkAgendaView(
                             end = GridlinkSpacing.rowHorizontal,
                             // Deliberately unequal: more over the heading than under it, so the
                             // date binds to the day it heads instead of floating midway between
-                            // two of them. The gap above is doing the separating; the 12 below is
-                            // just enough to keep the first line off the words.
+                            // two of them.
                             top = AGENDA_DAY_GAP,
                             bottom = GridlinkSpacing.s12,
                         ),
@@ -2000,14 +2004,8 @@ private fun GridlinkAgendaView(
                 }
             }
             if (dayEvents.isEmpty()) {
-                // The same words the month day list uses for the same fact, in metadata style so
-                // a run of free days reads as texture rather than as a column of claims. One line,
-                // not a full row height: an empty day should be visible and cheap to scroll past.
-                //
-                // ⚠️ Its own padding is gone, not reduced. The line is the day's only content, so
-                // the space it needs is the day's trailing gap, which now lives on the rule below
-                // it — padding here as well was double-counting that gap and pushing a run of free
-                // days back to the packed rhythm this change exists to open up.
+                // Only today reaches here empty: every other free day is folded. Same words the
+                // month day list uses for the same fact.
                 item(key = "empty-$date") {
                     Text(
                         text = "Nothing scheduled",
@@ -2031,6 +2029,70 @@ private fun GridlinkAgendaView(
         }
     }
 }
+
+/**
+ * One thing on the agenda: a day with its events (or today, empty), or a folded run of free days.
+ *
+ * [first]..[last] is the span it stands for; a day is a span of one.
+ */
+private data class AgendaEntry(
+    val first: LocalDate,
+    val last: LocalDate,
+    val events: List<GridlinkEvent>,
+    val folded: Boolean,
+) {
+    /** Rows it occupies after its rule: a fold is one line, a day its heading plus at least one row. */
+    val rows: Int get() = if (folded) 1 else 1 + maxOf(events.size, 1)
+}
+
+/** [byDay] with every run of free days other than [today] folded into one entry. */
+private fun agendaEntries(
+    byDay: List<Pair<LocalDate, List<GridlinkEvent>>>,
+    today: LocalDate,
+): List<AgendaEntry> = buildList {
+    var runStart: LocalDate? = null
+    var runEnd: LocalDate? = null
+    fun closeRun() {
+        val start = runStart ?: return
+        add(AgendaEntry(start, runEnd ?: start, emptyList(), folded = true))
+        runStart = null
+        runEnd = null
+    }
+    byDay.forEach { (date, dayEvents) ->
+        if (dayEvents.isEmpty() && date != today) {
+            if (runStart == null) runStart = date
+            runEnd = date
+        } else {
+            closeRun()
+            add(AgendaEntry(date, date, dayEvents, folded = false))
+        }
+    }
+    closeRun()
+}
+
+/**
+ * The words on a folded run: "Nothing on Tuesday" for one day, "Nothing until Monday" for more,
+ * naming the day the run ends at. A day further than a week from the run's start gets its date too,
+ * since a bare weekday that far out is ambiguous.
+ */
+private fun agendaFreeLine(entry: AgendaEntry, until: LocalDate, today: LocalDate): String {
+    fun name(day: LocalDate) = when {
+        day == today -> "today"
+        day == today.plusDays(1) -> "tomorrow"
+        day.isAfter(entry.first.plusDays(FREE_LINE_WEEKDAY_ONLY)) -> day.format(AGENDA_DAY)
+        else -> day.format(FREE_LINE_DAY)
+    }
+    return when {
+        entry.first == entry.last && entry.first == today.plusDays(1) -> "Nothing tomorrow"
+        entry.first == entry.last -> "Nothing on ${name(entry.first)}"
+        entry.last == until -> "Nothing more through ${entry.last.format(AGENDA_DAY)}"
+        else -> "Nothing until ${name(entry.last.plusDays(1))}"
+    }
+}
+
+/** How far ahead a folded line may name a bare weekday before it adds the date. */
+private const val FREE_LINE_WEEKDAY_ONLY = 6L
+private val FREE_LINE_DAY = DateTimeFormatter.ofPattern("EEEE", Locale.US)
 
 /**
  * One agenda line: when, then what.
