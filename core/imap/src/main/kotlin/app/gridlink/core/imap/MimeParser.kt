@@ -199,7 +199,8 @@ object MimeParser {
 
     /**
      * Every top-level header field of a raw message, in original order with duplicates kept
-     * (folded continuation lines joined) — the IMAP counterpart of JMAP's `headers` property,
+     * (folded continuation lines kept, each after a `\n` with its own leading whitespace, as in
+     * JMAP's raw form) — the IMAP counterpart of JMAP's `headers` property,
      * for the reader's "view headers" action (issue #60). Values are otherwise unaltered:
      * encoded-words are NOT decoded here, this screen shows the header as it was sent.
      *
@@ -221,7 +222,10 @@ object MimeParser {
         for (line in splitHeaders(raw).first.split(Regex("\\r?\\n"))) {
             if (line.isEmpty()) continue
             if (line[0] == ' ' || line[0] == '\t') {
-                sb.append(' ').append(line.trim()) // folded continuation
+                // Folded continuation, kept as its own line with its leading whitespace, so the
+                // value reads like JMAP's raw header form: the View headers sheet shows it unfolded
+                // and still copies the block exactly as the message carried it.
+                sb.append('\n').append(line.trimEnd())
             } else {
                 if (sb.isNotEmpty()) flush()
                 sb.append(line)

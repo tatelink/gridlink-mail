@@ -5062,12 +5062,15 @@ class MailRepository(
         // is member-only and refused on a delegated sub-account ("You are not an owner",
         // issue #31; Stalwart answers a method-level "forbidden" for a shared account), and
         // connect() refreshes the stored server identities anyway.
-        val from = if (!fromEmail.isNullOrBlank()) {
-            EmailAddress(name = fromName, email = fromEmail)
-        } else {
-            val stored = accountStore.identities(credentials.id).firstOrNull()
-            EmailAddress(name = stored?.name, email = stored?.email ?: credentials.username)
-        }
+        val storedIdentities = accountStore.identities(credentials.id)
+        val from = jmapFrom(
+            fromName,
+            fromEmail,
+            fallback = storedIdentities.firstOrNull().let {
+                EmailAddress(name = it?.name, email = it?.email ?: credentials.username)
+            },
+            known = storedIdentities.map { EmailAddress(name = it.name, email = it.email) },
+        )
         val draftsId = ctx.rolesToMailboxId["drafts"]
             ?: error("This account has no Drafts folder.")
         val blobs = jmapDraftAttachments(credentials, attachments)
@@ -5575,8 +5578,12 @@ class MailRepository(
         val identity = fromEmail?.let { email -> serverIdentities.firstOrNull { it.email.equals(email, true) } }
             ?: serverIdentities.firstOrNull()
             ?: error("This account has no sending identity.")
-        val from = if (!fromEmail.isNullOrBlank()) EmailAddress(name = fromName, email = fromEmail)
-        else EmailAddress(name = identity.name, email = identity.email)
+        val from = jmapFrom(
+            fromName,
+            fromEmail,
+            fallback = EmailAddress(name = identity.name, email = identity.email),
+            known = serverIdentities.map { EmailAddress(name = it.name, email = it.email) },
+        )
         // Mailbox ids are per-account: an on-behalf send stages and files in the login's
         // account, so its roles must come from there, not from the sub-account's context.
         val submissionRoles = if (onBehalf) {
@@ -6007,9 +6014,29 @@ class MailRepository(
                     ).withSplitSignature()
                 }
             accountStore.setServerIdentities(credentials.id, serverIdentities)
-        }
+        }.onFailure { android.util.Log.w("MailSync", "identity refresh failed: ${it.message}") }
         val mailboxes = client.getMailboxes(session, accountId, auth)
         val roles = mailboxes.mapNotNull { mb -> mb.role?.let { it to mb.id } }.toMap()
         return Context(credentials, session, accountId, auth, roles, mailboxes).also { context = it }
     }
+}
+
+/**
+ * The From of a message written over JMAP. [fromEmail] is the composer's chosen address (blank: send
+ * as [fallback]). A chosen address with no name of its own takes the name of the identity that owns
+ * it in [known], so the message carries the identity's display name as an IMAP/SMTP send does,
+ * rather than a bare `<address>`. A blank name is never sent.
+ */
+internal fun jmapFrom(
+    fromName: String?,
+    fromEmail: String?,
+    fallback: EmailAddress,
+    known: List<EmailAddress>,
+): EmailAddress {
+    val email = fromEmail?.takeIf { it.isNotBlank() } ?: fallback.email
+    val owner = known.firstOrNull { it.email.equals(email, ignoreCase = true) && !it.name.isNullOrBlank() }
+    val name = fromName?.takeIf { it.isNotBlank() }
+        ?: owner?.name
+        ?: fallback.name?.takeIf { it.isNotBlank() && fallback.email.equals(email, ignoreCase = true) }
+    return EmailAddress(name = name, email = email)
 }

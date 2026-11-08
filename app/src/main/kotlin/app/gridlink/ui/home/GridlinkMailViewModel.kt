@@ -4,11 +4,13 @@ import android.app.Application
 import android.content.ContentResolver
 import android.content.ContentValues
 import android.content.Intent
+import android.content.res.Resources
 import android.database.sqlite.SQLiteConstraintException
 import android.net.Uri
 import android.os.Build
 import android.provider.CalendarContract
 import android.provider.MediaStore
+import android.text.format.DateFormat
 import android.util.Log
 import android.widget.Toast
 import androidx.annotation.RequiresApi
@@ -42,6 +44,7 @@ import app.gridlink.send.ScheduledSends
 import app.gridlink.snooze.Snoozes
 import app.gridlink.ui.components.AccountPalette
 import app.gridlink.ui.components.resolveAccountColors
+import app.gridlink.ui.gridlink.GridlinkAddress
 import app.gridlink.ui.gridlink.GridlinkAttachment
 import app.gridlink.ui.gridlink.GridlinkComposeDraft
 import app.gridlink.ui.gridlink.GridlinkFolder
@@ -62,6 +65,7 @@ import app.gridlink.ui.gridlink.GridlinkOpenFolder
 import app.gridlink.ui.gridlink.GridlinkOpenMessage
 import app.gridlink.ui.gridlink.GridlinkReceipt
 import app.gridlink.ui.gridlink.GridlinkReceiptState
+import app.gridlink.ui.gridlink.GridlinkReplyOriginal
 import app.gridlink.ui.gridlink.GridlinkRowKey
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 import app.gridlink.ui.gridlink.GridlinkScheduledContent
@@ -74,6 +78,7 @@ import app.gridlink.ui.gridlink.GridlinkUnsubscribe
 import app.gridlink.ui.gridlink.gridlinkTypedRecipient
 import app.gridlink.ui.gridlink.gridlinkUnsubscribeOf
 import app.gridlink.ui.gridlink.parseFormattedHtml
+import app.gridlink.util.MailDates
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -103,7 +108,9 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Real mail for the Gridlink screens: the cached inbox as a flow, and the four things a tap can ask
@@ -739,7 +746,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             // senders AUTOMATED for the inbox bundle, and a results list has no bundle row to
             // put them in. Every hit gets the day heading its date earns.
             results = emails.map { email ->
-                GridlinkMailMapping.message(email, LABELS, zone, today)
+                GridlinkMailMapping.message(email, labels(), zone, today, viewer = viewer())
                     .copy(section = GridlinkMailMapping.section(email, zone, today))
             },
             searching = searching,
@@ -861,12 +868,13 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                             key to emails.map { email ->
                                 GridlinkMailMapping.message(
                                     email = email,
-                                    labels = LABELS,
+                                    labels = labels(),
                                     zone = zone,
                                     today = today,
                                     // The children are rows too: they are selectable and swipeable,
                                     // so their keys have to be qualified exactly as their parent's is.
                                     account = w.rowAccount(account),
+                                    viewer = viewer(),
                                 ).copy(section = GridlinkMailMapping.section(email, zone, today))
                             }
                         }
@@ -903,10 +911,11 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             val zone = ZoneId.systemDefault()
             val mapped = GridlinkMailMapping.map(
                 rows = listRows,
-                labels = LABELS,
+                labels = labels(),
                 zone = zone,
                 today = LocalDate.now(zone),
                 bundleAutomated = bundling,
+                viewer = viewer(),
             )
             GridlinkMailContent(
                 humans = mapped.humans,
@@ -1026,10 +1035,11 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                         // nothing is hidden.
                         GridlinkMailMapping.message(
                             email = email,
-                            labels = LABELS,
+                            labels = labels(),
                             zone = zone,
                             today = today,
                             showRecipient = showRecipient,
+                            viewer = viewer(),
                         ).copy(section = GridlinkMailMapping.section(email, zone, today))
                     },
                     loading = emails.isEmpty() && w.mailboxId !in fetched,
@@ -1551,7 +1561,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             opened.value = GridlinkOpenMessage(
                 id = rowKey,
                 html = readable.content,
-                attachments = attachmentsOf(parts),
+                attachments = attachmentsOf(parts, getApplication<Application>().resources),
                 plainText = readable.plainText,
                 // 🔴 Handed over even when the body is plain text. A text part cannot reference a
                 // cid:, so the map is simply unused there, and branching on it would only add a way
@@ -1568,7 +1578,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 // button; the app does not answer for the reader. Not shown on the user's own mail:
                 // a message in Sent or Drafts carries the request it was written WITH, and prompting
                 // someone to confirm they read their own outbox is nonsense.
-                receipt = if (body.email.isDraft || isOwnAddress(body.email.from)) {
+                receipt = if (body.email.isDraft || isOwnAddress(credentials, body.email.from)) {
                     null
                 } else {
                     Mdn.requestedBy(body.email.dispositionNotificationTo)
@@ -1634,7 +1644,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             if (event == null) {
                 GridlinkInvite(failed = true)
             } else {
-                gridlinkInviteOf(event, ZoneId.systemDefault(), Locale.getDefault())
+                gridlinkInviteOf(event, ZoneId.systemDefault(), Locale.getDefault(), inviteText())
             }
         }
         if (event != null) loadInviteConflicts(rowKey, event)
@@ -1684,16 +1694,17 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
      * weekly standup from 2019 has to be able to clash with next Tuesday.
      */
     private suspend fun loadInviteConflicts(rowKey: String, event: ParsedEvent) {
-        val id = accountId.value ?: return
+        // The calendar of the account the invitation came to. In All inboxes that is often not the
+        // bound one, and an invite to B checked against A's calendar reports A's meetings as B's.
+        val id = accountFor(rowKey) ?: return
         val zone = ZoneId.systemDefault()
         val from = Instant.ofEpochMilli(event.startMillis).atZone(zone).toLocalDate()
         val to = Instant.ofEpochMilli(event.endMillis ?: event.startMillis).atZone(zone).toLocalDate()
         val conflicts = try {
             val occurrences = dav.observeOccurrences(id, from, maxOf(to, from)).first()
             withContext(Dispatchers.Default) {
-                gridlinkInviteConflictLines(
-                    gridlinkInviteConflicts(event, occurrences, zone, Locale.getDefault()),
-                )
+                val text = inviteText()
+                gridlinkInviteConflictLines(gridlinkInviteConflicts(event, occurrences, zone, text), text)
             }
         } catch (c: CancellationException) {
             throw c
@@ -1829,7 +1840,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         val account = accountFor(current.id) ?: return handInviteToCalendarApp(current.id, event)
         if (savingInvite) return false
         savingInvite = true
-        setInvite(current.id) { it.copy(note = "Saving to your calendar…") }
+        setInvite(current.id) { it.copy(note = text(R.string.gl_vm_invite_saving)) }
         viewModelScope.launch {
             try {
                 val calendar = dav.defaultCalendar(account)
@@ -1846,7 +1857,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 throw c
             } catch (t: Throwable) {
                 Log.w(TAG, "invite save failed", t)
-                setInvite(current.id) { it.copy(note = "Couldn't save the event.") }
+                setInvite(current.id) { it.copy(note = text(R.string.gl_vm_invite_save_failed)) }
             } finally {
                 savingInvite = false
             }
@@ -1891,9 +1902,10 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             endDate = if (event.allDay) null else endAt?.toLocalDate(),
         )
         return if (outcome.succeeded) {
-            "Saved to ${calendarName ?: "your calendar"}."
+            calendarName?.let { text(R.string.gl_vm_invite_saved_to, it) }
+                ?: text(R.string.gl_vm_invite_saved_to_your_calendar)
         } else {
-            outcome.error ?: "Couldn't save the event."
+            outcome.error ?: text(R.string.gl_vm_invite_save_failed)
         }
     }
 
@@ -1924,7 +1936,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             Log.w(TAG, "no calendar app", t)
             // Said on the card rather than in a toast: it is a fact about this invitation on this
             // phone, and the reader is already looking at the thing it is about.
-            setInvite(messageId) { it.copy(note = "No calendar app on this phone.") }
+            setInvite(messageId) { it.copy(note = text(R.string.gl_vm_invite_no_calendar_app)) }
             false
         }
     }
@@ -1944,7 +1956,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         val (credentials, emailId) = resolve(current.id) ?: return
         openingAttachment = true
         val app = getApplication<Application>()
-        setInvite(current.id) { it.copy(note = "Opening the invitation…") }
+        setInvite(current.id) { it.copy(note = text(R.string.gl_vm_invite_opening)) }
         viewModelScope.launch {
             try {
                 val bytes = repo.downloadAttachment(credentials, part, emailId, DownloadLimits.CALENDAR_MAX_BYTES)
@@ -1959,25 +1971,99 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 // the shared leave guard on. Opening a file twice also creates nothing, which is
                 // what makes a latch enough here where Add to calendar needs the real guard.
                 app.startActivity(
-                    Intent.createChooser(view, "Open with").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    Intent.createChooser(view, text(R.string.gl_vm_open_with)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 )
                 setInvite(current.id) { it.copy(note = null) }
             } catch (c: CancellationException) {
                 throw c
             } catch (t: Throwable) {
                 Log.w(TAG, "invitation open failed", t)
-                setInvite(current.id) { it.copy(note = "Couldn't open the invitation.") }
+                setInvite(current.id) { it.copy(note = text(R.string.gl_vm_invite_open_failed)) }
             } finally {
                 openingAttachment = false
             }
         }
     }
 
-    /** Whether one of [from] is this account's own address, so its mail is not prompted about. */
-    private fun isOwnAddress(from: List<EmailAddress>): Boolean {
-        val me = accountId.value?.let { store.credentials(it) }?.username ?: return false
-        return from.any { it.email.equals(me, ignoreCase = true) }
+    /**
+     * Whether one of [from] is an address of the account behind [credentials], so its mail is not
+     * prompted about.
+     *
+     * The account the message belongs to, not the bound one: in All inboxes a message of account B's
+     * that B itself sent would otherwise be judged against A's login, and B's own outbox would be
+     * offered a read receipt. Every identity counts, not only the login.
+     */
+    private fun isOwnAddress(credentials: AccountCredentials, from: List<EmailAddress>): Boolean {
+        val own = ownAddresses(credentials)
+        return from.any { it.email.trim().lowercase() in own }
     }
+
+    /**
+     * The reader as the list rows see them: every address on the phone, and the phone's own way of
+     * writing a time and a date. Read at map time, like the calendar, so a new account or a flipped
+     * 24-hour switch shows on the next emission.
+     */
+    private fun viewer(): GridlinkMailMapping.Viewer {
+        val own = store.accounts().flatMap { account ->
+            account.resolvedIdentities().map { it.email } + account.username
+        }.map { it.trim().lowercase() }.filter { '@' in it }.toSet()
+        val app = getApplication<Application>()
+        val is24 = DateFormat.is24HourFormat(app)
+        val locale = app.resources.configuration.locales[0]
+        val style = stampStyles.getOrPut(locale to is24) {
+            fun best(skeleton: String) =
+                DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, skeleton), locale)
+            MailDates.StampStyle(
+                time = best(if (is24) "Hm" else "hm"),
+                dayMonth = best("MMMd"),
+                weekday = best("EEE"),
+            )
+        }
+        return GridlinkMailMapping.Viewer(ownAddresses = own, stampStyle = style)
+    }
+
+    /**
+     * The strings a mapped row can need that the message itself does not carry.
+     *
+     * They come from string resources, translated in every shipped locale, and are read at map
+     * time like [viewer], so a change of app language shows on the next emission rather than
+     * after a restart. Shared by the inbox, every folder list, search and unfolded threads.
+     */
+    private fun labels(): GridlinkMailMapping.Labels {
+        val app = getApplication<Application>()
+        return GridlinkMailMapping.Labels(
+            yesterday = app.getString(R.string.gl_vm_yesterday),
+            unknownSender = app.getString(R.string.message_unknown_sender),
+            noSubject = app.getString(R.string.message_no_subject),
+            bundleTitle = app.getString(R.string.gl_vm_bundle_automated),
+            me = app.getString(R.string.gl_vm_me),
+        )
+    }
+
+    /** The invitation card's words and date patterns, in the app's language and the phone's clock. */
+    private fun inviteText(): GridlinkInviteText {
+        val app = getApplication<Application>()
+        return GridlinkInviteText.of(app, app.resources.configuration.locales[0])
+    }
+
+    /** A string resource in the app's language, for the notes, statuses and chooser titles.
+     *
+     * With no [args] the resource comes back as written, unformatted, which is what a caller that
+     * formats later (a size unit) needs; passing an empty array would run it through the formatter.
+     */
+    private fun text(id: Int, vararg args: Any): String {
+        val app = getApplication<Application>()
+        return if (args.isEmpty()) app.getString(id) else app.getString(id, *args)
+    }
+
+    /** One stamp style per language and clock, since a list asks for one on every emission. */
+    private val stampStyles = ConcurrentHashMap<Pair<Locale, Boolean>, MailDates.StampStyle>()
+
+    /** The login and every identity address of the account behind [credentials], lower case. */
+    private fun ownAddresses(credentials: AccountCredentials): Set<String> = buildSet {
+        add(credentials.username.trim().lowercase())
+        store.account(credentials.id)?.resolvedIdentities()?.forEach { add(it.email.trim().lowercase()) }
+    }.filter { it.isNotEmpty() }.toSet()
 
     /**
      * Send the read receipt the open message asked for, because the reader tapped the button.
@@ -2122,7 +2208,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 ?.takeIf { it.isNotBlank() }
                 ?.let { parseFormattedHtml(it) }
             draftEdit.value = GridlinkComposeDraft(
-                title = "Draft",
+                title = text(R.string.draft_label),
                 recipients = email.to.filter { it.email.isNotBlank() }.map { address ->
                     // The composer's own typed-address builder, so a resumed recipient is
                     // indistinguishable from one typed just now — same id scheme, same rendering.
@@ -2139,6 +2225,18 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 recipientQuery = "",
                 subject = email.subject.orEmpty(),
                 body = formatted?.text ?: draftText(email),
+                // A resumed reply keeps its CC line and its place in the conversation.
+                cc = email.cc.filter { it.email.isNotBlank() }.map { address ->
+                    gridlinkTypedRecipient(address.email) ?: GridlinkContact(
+                        id = "typed:${address.email.lowercase()}",
+                        given = "",
+                        family = address.email,
+                        role = "",
+                        email = address.email,
+                    )
+                },
+                inReplyTo = email.inReplyTo,
+                references = email.references,
                 quoted = null,
                 attachments = emptyList(),
                 // What turns the eventual save into a replace and the eventual send into one that
@@ -2178,7 +2276,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         val (credentials, emailId) = resolve(current.id) ?: return
         openingAttachment = true
         val app = getApplication<Application>()
-        status(messageId, "Opening ${attachment.name}…")
+        status(messageId, text(R.string.gl_vm_attachment_opening, attachment.name))
         viewModelScope.launch {
             try {
                 val bytes = repo.downloadAttachment(credentials, part, emailId)
@@ -2196,7 +2294,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 // hang the shared leave guard on. Same reasoning, same latch, as the reader's own
                 // openAttachment, which this was written from.
                 app.startActivity(
-                    Intent.createChooser(view, "Open with").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    Intent.createChooser(view, text(R.string.gl_vm_open_with)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 )
                 status(messageId, null)
             } catch (c: CancellationException) {
@@ -2205,12 +2303,11 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 // Our own refusal, said plainly. The constant is the ceiling the repository enforces.
                 status(
                     messageId,
-                    "${attachment.name} is too big to open here " +
-                        "(over ${DownloadLimits.ATTACHMENT_MAX_BYTES / (1024 * 1024)} MB).",
+                    text(R.string.gl_vm_attachment_too_big_open, attachment.name, ATTACHMENT_MAX_MB),
                 )
             } catch (t: Throwable) {
                 Log.w(TAG, "attachment open failed: ${attachment.name} (account ${credentials.id})", t)
-                status(messageId, "Couldn't open ${attachment.name}.")
+                status(messageId, text(R.string.gl_vm_attachment_open_failed, attachment.name))
             } finally {
                 // Released when the chooser is up or the attempt failed, not when the user comes
                 // back: the file is theirs to open again as often as they like.
@@ -2248,25 +2345,24 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         // belong to another account, and a blob fetched with the wrong login comes back 404.
         val (credentials, emailId) = resolve(current.id) ?: return
         val app = getApplication<Application>()
-        status(messageId, "Saving ${attachment.name}…")
+        status(messageId, text(R.string.gl_vm_attachment_saving, attachment.name))
         viewModelScope.launch {
             try {
                 val bytes = repo.downloadAttachment(credentials, part, emailId)
                 val saved = withContext(Dispatchers.IO) {
                     writeIntoDownloads(app.contentResolver, attachment.name, part.type, bytes)
                 }
-                status(messageId, "Saved $saved to Downloads.")
+                status(messageId, text(R.string.gl_vm_attachment_saved_downloads, saved))
             } catch (c: CancellationException) {
                 throw c
             } catch (t: ContentTooLargeException) {
                 status(
                     messageId,
-                    "${attachment.name} is too big to save here " +
-                        "(over ${DownloadLimits.ATTACHMENT_MAX_BYTES / (1024 * 1024)} MB).",
+                    text(R.string.gl_vm_attachment_too_big_save, attachment.name, ATTACHMENT_MAX_MB),
                 )
             } catch (t: Throwable) {
                 Log.w(TAG, "attachment save failed: ${attachment.name} (account ${credentials.id})", t)
-                status(messageId, "Couldn't save ${attachment.name}.")
+                status(messageId, text(R.string.gl_vm_attachment_save_failed, attachment.name))
             }
         }
     }
@@ -2359,7 +2455,7 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         // belong to another account, and a blob fetched with the wrong login comes back 404.
         val (credentials, emailId) = resolve(current.id) ?: return
         val app = getApplication<Application>()
-        status(messageId, "Saving ${attachment.name}…")
+        status(messageId, text(R.string.gl_vm_attachment_saving, attachment.name))
         viewModelScope.launch {
             try {
                 val bytes = repo.downloadAttachment(credentials, part, emailId)
@@ -2370,18 +2466,17 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                     app.contentResolver.openOutputStream(destination, "wt")?.use { it.write(bytes) }
                         ?: error("no output stream")
                 }
-                status(messageId, "Saved ${attachment.name}.")
+                status(messageId, text(R.string.gl_vm_attachment_saved, attachment.name))
             } catch (c: CancellationException) {
                 throw c
             } catch (t: ContentTooLargeException) {
                 status(
                     messageId,
-                    "${attachment.name} is too big to save here " +
-                        "(over ${DownloadLimits.ATTACHMENT_MAX_BYTES / (1024 * 1024)} MB).",
+                    text(R.string.gl_vm_attachment_too_big_save, attachment.name, ATTACHMENT_MAX_MB),
                 )
             } catch (t: Throwable) {
                 Log.w(TAG, "attachment save failed: ${attachment.name} (account ${credentials.id})", t)
-                status(messageId, "Couldn't save ${attachment.name}.")
+                status(messageId, text(R.string.gl_vm_attachment_save_failed, attachment.name))
             }
         }
     }
@@ -2588,9 +2683,10 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             if (skipped > 0) {
                 // Said out loud, because the rows have already animated out of the list and their
                 // coming back at the next sync would otherwise be the only sign anything went wrong.
+                val app = getApplication<Application>()
                 Toast.makeText(
-                    getApplication(),
-                    "$skipped message(s) stayed put: no matching folder in their account.",
+                    app,
+                    app.resources.getQuantityString(R.plurals.gl_vm_move_skipped, skipped, skipped),
                     Toast.LENGTH_LONG,
                 ).show()
             }
@@ -2657,11 +2753,11 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                 // tap of a double-tap lands on a dialog that is already gone. The other hand-off in
                 // this class, [openAttachment], holds a latch instead because its tap has no dialog.
                 app.startActivity(
-                    Intent.createChooser(view, "Open with").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    Intent.createChooser(view, text(R.string.gl_vm_open_with)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 )
             } catch (t: Throwable) {
                 Log.w(TAG, "unsubscribe page failed to open", t)
-                Toast.makeText(app, "Couldn't open the unsubscribe page.", Toast.LENGTH_LONG).show()
+                Toast.makeText(app, app.getString(R.string.gl_vm_unsubscribe_page_failed), Toast.LENGTH_LONG).show()
             }
             return
         }
@@ -2670,12 +2766,10 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             // Said either way. A silent failure here is the worst outcome of the three: the message is
             // filed regardless, so the user would believe they had unsubscribed and only find out
             // next month.
-            val text = if (sent) {
-                "Unsubscribe request sent."
-            } else {
-                "Couldn't reach them. The message is archived, but you're still subscribed."
-            }
-            Toast.makeText(app, text, Toast.LENGTH_LONG).show()
+            val said = app.getString(
+                if (sent) R.string.gl_vm_unsubscribe_sent else R.string.gl_vm_unsubscribe_failed,
+            )
+            Toast.makeText(app, said, Toast.LENGTH_LONG).show()
         }
     }
 
@@ -2760,6 +2854,30 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
         return repo.rawHeaders(credentials, emailId).map { GridlinkHeader(it.name, it.value) }
     }
 
+    /**
+     * What a reply to one message needs from the original: everyone on it, its Message-ID and
+     * References, and the sending account's own addresses so reply-all can leave them off.
+     *
+     * A row key for [rawHeaders]' reason: in the unified inbox the original belongs to the account
+     * its key names, and that account is also the one the reply goes out from. Not marked read: a
+     * reply opened from the list must not flip the message on the server as a side effect.
+     */
+    suspend fun replyOriginal(rowKey: String): GridlinkReplyOriginal {
+        val (credentials, emailId) = checkNotNull(resolve(rowKey)) { "no account for this message" }
+        val email = repo.fetchEmail(credentials, emailId)
+        val own = ownAddresses(credentials)
+        fun List<EmailAddress>.converted() =
+            filter { it.email.isNotBlank() }.map { GridlinkAddress(it.name.orEmpty(), it.email) }
+        return GridlinkReplyOriginal(
+            messageId = email.messageId,
+            references = email.references,
+            from = email.from.converted(),
+            to = email.to.converted(),
+            cc = email.cc.converted(),
+            ownAddresses = own,
+        )
+    }
+
     fun setTag(rowKey: String, keyword: String, applied: Boolean) {
         // A row key, for [open]'s reason: this is called with the OPEN message's identity, and in
         // the unified inbox that identity carries the account the message came from.
@@ -2789,15 +2907,10 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
          */
         const val ONE_CLICK_TIMEOUT_MS = 15_000
 
-        /**
-         * The four strings a mapped row can need that the message itself does not carry.
-         *
-         * One instance, shared by the inbox and by every folder list. They are hard-coded English
-         * defaults (see [GridlinkMailMapping.Labels] on why this package is not translated), so
-         * there is nothing per-account or per-locale in them to go stale.
-         */
-        val LABELS = GridlinkMailMapping.Labels()
         const val MILLIS_PER_DAY = 24L * 60L * 60L * 1000L
+
+        /** The attachment ceiling the repository enforces, in whole megabytes, for the refusal. */
+        const val ATTACHMENT_MAX_MB = DownloadLimits.ATTACHMENT_MAX_BYTES / (1024 * 1024)
 
         /**
          * The mailboxes you wrote the mail in, where the row names its recipient.
@@ -2893,22 +3006,24 @@ private fun attachmentPartsOf(email: Email): List<EmailBodyPart> = email.fileAtt
  * this and [GridlinkMailViewModel.openedParts] must be fed from the same [attachmentPartsOf] call —
  * see the note there.
  */
-private fun attachmentsOf(parts: List<EmailBodyPart>): List<GridlinkAttachment> =
+private fun attachmentsOf(parts: List<EmailBodyPart>, res: Resources): List<GridlinkAttachment> =
     parts.mapIndexed { index, part ->
         GridlinkAttachment(
-            name = part.displayName(),
-            size = formatBytes(part.size),
+            name = part.displayName(res),
+            size = formatBytes(part.size, res),
             id = index.toString(),
         )
     }
 
 /** A file name for a part that may not have one (an inline forward, a bare `application/pdf`). */
-private fun EmailBodyPart.displayName(): String =
-    name?.takeIf { it.isNotBlank() } ?: type?.takeIf { it.isNotBlank() } ?: "Attachment"
+private fun EmailBodyPart.displayName(res: Resources): String =
+    name?.takeIf { it.isNotBlank() } ?: type?.takeIf { it.isNotBlank() }
+        ?: res.getString(R.string.gl_vm_attachment_fallback)
 
-private fun formatBytes(bytes: Long): String = when {
+/** A size as the chip states it. The unit symbols are resources: French writes Ko and Mo. */
+private fun formatBytes(bytes: Long, res: Resources): String = when {
     bytes <= 0 -> ""
-    bytes < 1024 -> "$bytes B"
-    bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-    else -> "%.1f MB".format(bytes / 1024.0 / 1024.0)
+    bytes < 1024 -> res.getString(R.string.gl_vm_size_bytes, bytes)
+    bytes < 1024 * 1024 -> res.getString(R.string.gl_vm_size_kb, bytes / 1024)
+    else -> res.getString(R.string.gl_vm_size_mb, bytes / 1024.0 / 1024.0)
 }

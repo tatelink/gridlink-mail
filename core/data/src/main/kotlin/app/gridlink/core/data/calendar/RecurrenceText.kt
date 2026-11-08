@@ -1,5 +1,6 @@
 package app.gridlink.core.data.calendar
 
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.Month
 import java.time.format.DateTimeFormatter
@@ -26,8 +27,8 @@ import java.util.Locale
  * ## ⚠️ What it does NOT promise
  * Not a full RFC 5545 rendering, and deliberately not: [Recurrence] itself only reads the parts of a
  * rule that move an occurrence to a different day, so this can only speak about those. Anything it
- * cannot phrase (a rule with BYSETPOS, say) degrades to the plain frequency word rather than to
- * nothing, because "Monthly" is still true and still more than "Repeats" was.
+ * cannot phrase (BYSETPOS over an odd set of weekdays, say) degrades to the plain frequency word
+ * rather than to nothing, because "Monthly" is still true and still more than "Repeats" was.
  */
 object RecurrenceText {
 
@@ -85,14 +86,14 @@ object RecurrenceText {
     }
 
     /**
-     * "the 10th", "the second Tuesday", "the last Friday".
+     * "the 10th", "the second Tuesday", "the first and third Monday", "the last weekday".
      *
      * BYDAY outranks BYMONTHDAY when a rule carries both, because the weekday form is the one a
      * human would have said ("the second Tuesday", not "the 8th, 9th, 10th…").
      */
     private fun monthlyOn(rule: RecurrenceRule, start: LocalDate?, locale: Locale): String? {
         rule.byDay.takeIf { it.isNotEmpty() }?.let { days ->
-            return list(days.map { nthDay(it, locale) })
+            return if (rule.bySetPos.isEmpty()) byDays(days, locale) else setPosition(days, rule.bySetPos, locale)
         }
         val days = rule.byMonthDay.takeIf { it.isNotEmpty() }
             ?: listOfNotNull(start?.dayOfMonth)
@@ -116,16 +117,53 @@ object RecurrenceText {
         else -> null
     }
 
+    /**
+     * "the first and third Monday" when every entry pins a week of the same weekday, which is how a
+     * person says it; otherwise each entry in turn ("the first Monday and the third Wednesday").
+     */
+    private fun byDays(days: List<ByDay>, locale: Locale): String {
+        val ordinals = days.mapNotNull { it.ordinal }
+        val day = days.map { it.day }.distinct().singleOrNull()
+        if (days.size < 2 || day == null || ordinals.size != days.size) return list(days.map { nthDay(it, locale) })
+        return "the ${list(inOrder(ordinals).map(::position))} ${day.name(locale)}"
+    }
+
+    /**
+     * BYSETPOS over a set of weekdays: "the last weekday", "the first and last weekend day", "the
+     * second Monday". Null for a set with no everyday name, which leaves the bare frequency.
+     *
+     * 🔴 Never the weekdays listed one by one: `BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1` is ONE day a month,
+     * and "Monday, Tuesday, Wednesday, Thursday and Friday" would say it is twenty.
+     */
+    private fun setPosition(days: List<ByDay>, setPos: List<Int>, locale: Locale): String? {
+        if (days.any { it.ordinal != null }) return null
+        val set = days.map { it.day }.toSet()
+        val target = when (set) {
+            WEEKDAYS -> "weekday"
+            WEEKEND -> "weekend day"
+            ALL_DAYS -> "day"
+            else -> set.singleOrNull()?.name(locale)
+        } ?: return null
+        return "the ${list(inOrder(setPos).map(::position))} $target"
+    }
+
     /** "the second Tuesday", "the last Friday", or a plain weekday when the rule pins no week. */
     private fun nthDay(byDay: ByDay, locale: Locale): String {
         val day = byDay.day.name(locale)
         val ordinal = byDay.ordinal ?: return day
-        return when {
-            ordinal == -1 -> "the last $day"
-            ordinal < 0 -> "the ${ordinal(-ordinal)} last $day"
-            else -> "the ${WEEK_WORDS.getOrNull(ordinal - 1) ?: ordinal(ordinal)} $day"
-        }
+        return "the ${position(ordinal)} $day"
     }
+
+    /** "second", "5th", "last", "2nd last": a BYDAY ordinal or BYSETPOS value as a person says it. */
+    private fun position(n: Int): String = when {
+        n == -1 -> "last"
+        n < 0 -> "${ordinal(-n)} last"
+        else -> WEEK_WORDS.getOrNull(n - 1) ?: ordinal(n)
+    }
+
+    /** Counted from the start first, then from the end, so "the first and last" reads that way round. */
+    private fun inOrder(positions: List<Int>): List<Int> =
+        positions.distinct().sortedWith(compareBy<Int>({ it < 0 }, { it }))
 
     /** "the 10th", or "the last day" for the RFC's negative form. */
     private fun monthDay(day: Int): String = when {
@@ -167,6 +205,12 @@ object RecurrenceText {
 
     /** How a person says a BYDAY ordinal. Past the fourth, "5th Tuesday" is what they say. */
     private val WEEK_WORDS = listOf("first", "second", "third", "fourth")
+
+    private val WEEKDAYS = setOf(
+        DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY,
+    )
+    private val WEEKEND = setOf(DayOfWeek.SATURDAY, DayOfWeek.SUNDAY)
+    private val ALL_DAYS = DayOfWeek.entries.toSet()
 
     private val UNTIL: DateTimeFormatter = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)
 }

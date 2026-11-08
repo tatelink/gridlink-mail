@@ -169,6 +169,33 @@ class JmapClientContactsTest {
         assertFalse(sent.contains("Chadwick"))
     }
 
+    @Test fun updateContactCard_writesTypesAsContextsAndFeatures() = runBlocking {
+        server.enqueue(MockResponse().setBody(UPDATE_JSON))
+
+        client.updateContactCard(
+            contactsSession(), "d", "card9",
+            ContactCardWrite(
+                uid = "u-1",
+                fullName = "Kenna Chadwick",
+                emails = listOf("k@acme.example", "k@home.example"),
+                phones = listOf("+1 555 0100", "+1 555 0122"),
+                emailTypes = mapOf("k@acme.example" to setOf("work"), "k@home.example" to setOf("home")),
+                phoneTypes = mapOf("+1 555 0100" to setOf("work", "cell", "car")),
+            ),
+            touched = setOf(ContactCardGroup.EMAILS, ContactCardGroup.PHONES),
+            auth = BasicAuth("u", "p"),
+        )
+
+        val sent = server.takeRequest().body.readUtf8()
+        // RFC 9555: vCard home is JSContact private, cell is the mobile feature.
+        assertTrue(sent.contains("\"address\":\"k@acme.example\",\"contexts\":{\"work\":true}"))
+        assertTrue(sent.contains("\"address\":\"k@home.example\",\"contexts\":{\"private\":true}"))
+        assertTrue(sent.contains("\"contexts\":{\"work\":true},\"features\":{\"mobile\":true}"))
+        // No word, no member: an untyped number is sent bare, and "car" has no JSContact feature.
+        assertTrue(sent.contains("{\"number\":\"+1 555 0122\"}"))
+        assertFalse(sent.contains("\"car\""))
+    }
+
     @Test fun updateContactCard_saysACLearedGroupOutLoudAsNull() = runBlocking {
         server.enqueue(MockResponse().setBody(UPDATE_JSON))
 

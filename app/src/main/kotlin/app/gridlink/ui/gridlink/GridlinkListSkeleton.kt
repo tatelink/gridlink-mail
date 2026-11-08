@@ -31,10 +31,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import app.gridlink.R
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
@@ -155,12 +157,13 @@ fun GridlinkListSkeleton(modifier: Modifier = Modifier) {
         )
     }
 
+    val loading = stringResource(R.string.gl_list_loading_mail)
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             // Announced as one thing. Forty placeholder rows are forty focusable nodes saying
             // nothing, which is worse for a screen reader than the spinner this replaces.
-            .semantics { contentDescription = "Loading mail" }
+            .semantics { contentDescription = loading }
             .gridlinkEdgeFade(),
     ) {
         // One more than fits, so the panel is never seen to end. A skeleton with a last row has

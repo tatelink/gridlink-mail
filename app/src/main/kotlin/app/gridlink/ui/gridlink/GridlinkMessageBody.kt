@@ -3,6 +3,7 @@ package app.gridlink.ui.gridlink
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Base64
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -28,11 +29,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.viewinterop.AndroidView
 import app.gridlink.GridlinkApplication
+import app.gridlink.R
 import app.gridlink.core.data.settings.MessageTextSize
 import app.gridlink.ui.emailhtml.EmailRemoteContent
 import app.gridlink.ui.emailhtml.EmailTheme
@@ -123,7 +127,11 @@ internal fun GridlinkMessageBody(
     // The reader is a nav destination, so this is that destination's latch: it releases when the
     // user comes back from the browser.
     val leaveOnce = rememberLeaveOnce()
-    val theme = remember(text, link, dark) {
+    // The card's colour as it actually reads on screen: the panel's translucent surface over the
+    // page ground. A dark newsletter's white is mapped onto this, so it sits on the card instead of
+    // in a black box (see [EmailTheme.paper]). In OLED it is black, which is the old behaviour.
+    val paper = GridlinkTheme.colors.listSurface.compositeOver(GridlinkTheme.colors.background).toArgb() and 0xFFFFFF
+    val theme = remember(text, link, dark, paper) {
         EmailTheme(
             // 🔴 Transparent, and there is deliberately no background parameter to pass instead.
             // Upstream paints the WebView the app's surface colour because upstream's reader IS a
@@ -138,9 +146,13 @@ internal fun GridlinkMessageBody(
             text = text.toCssHex(),
             link = link.toCssHex(),
             dark = dark,
+            paper = paper,
         )
     }
-    val document = remember(html, plainText, inlineImages, theme) {
+    val plainFont = remember(context, plainText) {
+        if (plainText) GridlinkBodyFont.dataUri(context) else null
+    }
+    val document = remember(html, plainText, inlineImages, theme, plainFont) {
         buildEmailHtmlDocument(
             // 🔴 The two are not interchangeable. Plain text goes through the format=flowed reflow
             // and is painted in the app's own colours; HTML carries its own design and is inverted
@@ -150,6 +162,7 @@ internal fun GridlinkMessageBody(
             textContent = html.takeIf { plainText },
             inlineImages = inlineImages,
             theme = theme,
+            plainFontDataUri = plainFont,
         )
     }
     // Height, in the only sense this screen uses it: zero means "not laid out yet, keep it hidden".
@@ -293,16 +306,17 @@ internal fun GridlinkMessageBody(
     // instead of hidden behind a "…".
     pendingLink?.let { link ->
         GridlinkDialog(
-            title = "Open this link?",
-            confirmLabel = "Open",
+            title = stringResource(R.string.message_open_link_title),
+            confirmLabel = stringResource(R.string.message_open_link_open),
             onConfirm = {
                 pendingLink = null
                 leaveOnce { openExternally(context, link) }
             },
             onDismiss = { pendingLink = null },
         ) {
+            val unknownSite = stringResource(R.string.gl_compose_link_unknown_site)
             Text(
-                text = link.host.orEmpty().ifBlank { "Unknown site" },
+                text = link.host.orEmpty().ifBlank { unknownSite },
                 style = GridlinkType.senderName,
                 color = GridlinkTheme.colors.textPrimary,
             )
@@ -458,6 +472,23 @@ private fun openExternally(context: Context, uri: Uri): Boolean = try {
 } catch (t: Exception) {
     // Nothing on the device can open it. Silently ignoring beats crashing the reader.
     false
+}
+
+/**
+ * The Gridlink text face (Outfit Regular) as a `data:` URI for plain-text bodies.
+ *
+ * The document's CSP only lets fonts in as `data:`, so the face is inlined rather than served. It
+ * is read and encoded once per process and shared by every reader after that; a failure to read
+ * it just leaves the body on `sans-serif`, which is what it used before.
+ */
+private object GridlinkBodyFont {
+    @Volatile
+    private var cached: String? = null
+
+    fun dataUri(context: Context): String? = cached ?: runCatching {
+        val bytes = context.resources.openRawResource(R.font.outfit_regular).use { it.readBytes() }
+        "data:font/ttf;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+    }.getOrNull()?.also { cached = it }
 }
 
 /** A Compose colour as the CSS hex the document builder takes. */

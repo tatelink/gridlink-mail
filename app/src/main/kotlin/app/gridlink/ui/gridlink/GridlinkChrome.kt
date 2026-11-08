@@ -1,6 +1,7 @@
 package app.gridlink.ui.gridlink
 
 import androidx.activity.compose.BackHandler
+import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
@@ -63,12 +64,15 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.gridlink.R
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
 import app.gridlink.ui.theme.GridlinkRadii
@@ -223,7 +227,7 @@ fun GridlinkHeader(
             // The count replaces the screen title rather than sitting beside it. §6b puts the
             // selection ACTIONS in the toolbar; this is only the readout, and it belongs where
             // the eye already is.
-            text = if (selecting) "$selectedCount selected" else title,
+            text = if (selecting) stringResource(R.string.inbox_selected_count, selectedCount) else title,
             style = GridlinkType.screenTitle,
             color = colors.textPrimary,
             maxLines = 1,
@@ -234,13 +238,13 @@ fun GridlinkHeader(
         val metaText: String?
         val metaColor: Color
         if (selecting) {
-            metaText = "Tap to add or remove"
+            metaText = stringResource(R.string.gl_list_header_tap_to_toggle)
             metaColor = colors.textSecondary
         } else if (subline != null) {
             metaText = subline
             metaColor = colors.textSecondary
         } else if (unread > 0) {
-            metaText = "$unread unread"
+            metaText = pluralStringResource(R.plurals.gl_list_unread_count, unread, unread)
             // Same colour as the dots down the list. The header count and the row markers are the
             // same fact stated twice, so they have to match or the eye reads them as two different
             // signals. Amber in the dark modes, blue in Day.
@@ -389,7 +393,7 @@ fun GridlinkSearchPill(
             ) {
                 Icon(
                     imageVector = Icons.Outlined.Search,
-                    contentDescription = if (isExpanded) null else "Search mail",
+                    contentDescription = if (isExpanded) null else stringResource(R.string.search_field_label),
                     tint = glyph,
                     modifier = Modifier.size(SEARCH_GLYPH_SIZE),
                 )
@@ -411,7 +415,7 @@ fun GridlinkSearchPill(
                             Box(contentAlignment = Alignment.CenterStart) {
                                 if (query.isEmpty()) {
                                     Text(
-                                        text = "Search mail",
+                                        text = stringResource(R.string.search_field_label),
                                         style = GridlinkType.metadata,
                                         color = colors.textSecondary,
                                     )
@@ -422,7 +426,7 @@ fun GridlinkSearchPill(
                     )
                     Icon(
                         imageVector = Icons.Outlined.Close,
-                        contentDescription = "Close search",
+                        contentDescription = stringResource(R.string.inbox_close_search),
                         tint = colors.textSecondary,
                         modifier = Modifier
                             .padding(start = GridlinkSpacing.s8)
@@ -498,9 +502,10 @@ fun GridlinkSectionLabel(
  * the button's whole content description, so it is the only thing a screen reader gets.
  */
 enum class GridlinkDestination(
-    val label: String,
+    @StringRes val label: Int,
     val icon: ImageVector,
-    val composeLabel: String,
+    /** What the "+" makes on this tab, as a screen reader hears it. */
+    @StringRes val composeLabel: Int,
     /**
      * Whether the pill offers a seat for this destination.
      *
@@ -514,10 +519,10 @@ enum class GridlinkDestination(
      */
     val inPill: Boolean = true,
 ) {
-    INBOX("Inbox", Icons.Outlined.Inbox, "New message"),
-    FOLDERS("Folders", Icons.Outlined.FolderOpen, "New message", inPill = false),
-    CALENDAR("Calendar", Icons.Outlined.CalendarMonth, "New appointment"),
-    CONTACTS("Contacts", Icons.Outlined.PeopleOutline, "New contact"),
+    INBOX(R.string.folder_inbox, Icons.Outlined.Inbox, R.string.notif_new_message),
+    FOLDERS(R.string.gl_list_nav_folders, Icons.Outlined.FolderOpen, R.string.notif_new_message, inPill = false),
+    CALENDAR(R.string.event_form_calendar, Icons.Outlined.CalendarMonth, R.string.gl_list_new_appointment),
+    CONTACTS(R.string.gl_list_nav_contacts, Icons.Outlined.PeopleOutline, R.string.gl_list_new_contact),
 }
 
 /**
@@ -544,26 +549,26 @@ enum class GridlinkDestination(
  * entire app, which is what lets a single red glyph carry the warning without extra size or weight.
  */
 enum class GridlinkSelectionAction(
-    val label: String,
+    @StringRes val label: Int,
     val icon: ImageVector,
     val destructive: Boolean = false,
     /** Whether the toolbar gives this one of its four seats. False = it lives in [MORE]'s sheet. */
     val inPill: Boolean = true,
 ) {
-    ARCHIVE("Archive", Icons.Outlined.Archive),
-    MOVE("Move", Icons.Outlined.DriveFileMove),
-    DELETE("Delete", Icons.Outlined.Delete, destructive = true),
+    ARCHIVE(R.string.inbox_archive, Icons.Outlined.Archive),
+    MOVE(R.string.settings_thread_action_move, Icons.Outlined.DriveFileMove),
+    DELETE(R.string.inbox_delete, Icons.Outlined.Delete, destructive = true),
 
     /**
      * 🔴 The one member that writes nothing. It opens the sheet holding the three below, and the
      * screen that owns the selection is what handles it — the same shape [GridlinkSelectionAction]
      * .MOVE already has, where the toolbar asks and something else answers.
      */
-    MORE("More", Icons.Outlined.MoreHoriz),
+    MORE(R.string.inbox_more, Icons.Outlined.MoreHoriz),
 
-    SPAM("Mark spam", Icons.Outlined.Report, inPill = false),
-    MARK_READ("Mark read", Icons.Outlined.MarkEmailRead, inPill = false),
-    MARK_UNREAD("Mark unread", Icons.Outlined.MarkEmailUnread, inPill = false),
+    SPAM(R.string.gl_list_mark_spam, Icons.Outlined.Report, inPill = false),
+    MARK_READ(R.string.inbox_mark_read, Icons.Outlined.MarkEmailRead, inPill = false),
+    MARK_UNREAD(R.string.inbox_mark_unread, Icons.Outlined.MarkEmailUnread, inPill = false),
 }
 
 /**
@@ -650,7 +655,7 @@ fun GridlinkNavPill(
                     // four seats, and what does not fit is reachable rather than gone.
                     GridlinkSelectionAction.entries.filter { it.inPill }.forEach { action ->
                         GridlinkPillItem(
-                            label = action.label,
+                            label = stringResource(action.label),
                             icon = action.icon,
                             tint = if (action.destructive) {
                                 colors.destructive
@@ -670,7 +675,7 @@ fun GridlinkNavPill(
                     GridlinkDestination.entries.filter { it.inPill }.forEach { destination ->
                         val active = destination == selected
                         GridlinkPillItem(
-                            label = destination.label,
+                            label = stringResource(destination.label),
                             icon = destination.icon,
                             tint = if (active) {
                                 colors.onAccent
@@ -820,11 +825,12 @@ fun GridlinkComposeButton(
     modifier: Modifier = Modifier,
     destination: GridlinkDestination = GridlinkDestination.INBOX,
 ) {
+    val spoken = stringResource(destination.composeLabel)
     GridlinkDetailAccentButton(
         icon = Icons.Outlined.Add,
-        label = "New",
+        label = stringResource(R.string.gl_list_compose_new),
         onClick = onClick,
-        modifier = modifier.semantics { contentDescription = destination.composeLabel },
+        modifier = modifier.semantics { contentDescription = spoken },
     )
 }
 

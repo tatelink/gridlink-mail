@@ -176,4 +176,23 @@ class JsContactTest {
         // Crossing the wires is exactly what the discriminator prevents.
         assertNull(ContactPayload.parse(jsContact, AddressBookContactEntity.FORMAT_VCARD))
     }
+
+    @Test fun readsEmailContextsAndPhoneFeaturesAsVcardWords() {
+        val parsed = parse(
+            """
+            {"id":"c1","uid":"u1","name":{"full":"Ada"},
+             "emails":{"e1":{"address":"ada@work.example","contexts":{"work":true}},
+                       "e2":{"address":"ada@home.example","contexts":{"private":true}}},
+             "phones":{"p1":{"number":"+1 555 0100","contexts":{"work":true},"features":{"mobile":true}},
+                       "p2":{"number":"+1 555 0199","features":{"fax":true,"main-number":true}},
+                       "p3":{"number":"+1 555 0122"}}}
+            """.trimIndent(),
+        )!!
+
+        assertEquals(setOf("work"), parsed.emailTypes["ada@work.example"])
+        assertEquals(setOf("home"), parsed.emailTypes["ada@home.example"])
+        assertEquals(setOf("work", "cell"), parsed.phoneTypes["+1 555 0100"])
+        assertEquals(setOf("fax", "main"), parsed.phoneTypes["+1 555 0199"])
+        assertEquals(emptySet<String>(), parsed.phoneTypes["+1 555 0122"].orEmpty())
+    }
 }

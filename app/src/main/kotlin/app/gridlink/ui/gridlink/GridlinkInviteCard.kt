@@ -21,7 +21,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import app.gridlink.R
 import app.gridlink.ui.rememberLeaveOnce
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkRadii
@@ -124,11 +127,10 @@ sealed interface GridlinkInviteResponse {
  * a device with no calendar app has nothing for Add to calendar to open. In both cases the button
  * should not be there.
  *
- * ## Its labels are English in the source, like its neighbours
- * Every other Gridlink surface writes its words inline ("Images blocked so…", "Show", "Always"),
- * and a card that reached for `stringResource` would be the only one here that did. The words that
- * DO stay translated are the ones that leave the device — the reply's subject and body, which are
- * built where the mail is sent and are read by a human who is not the person holding this phone.
+ * ## Its labels are string resources, like the rest of the app now
+ * Every word the card draws is translated. The reply's subject and body are translated too, but
+ * they are built where the mail is sent, because they are read by a human who is not the person
+ * holding this phone.
  */
 @Composable
 fun GridlinkInviteCard(
@@ -163,7 +165,7 @@ fun GridlinkInviteCard(
                 modifier = Modifier.size(18.dp),
             )
             Text(
-                text = "Invitation",
+                text = stringResource(R.string.gl_cal_invite_heading),
                 style = GridlinkType.sectionLabel,
                 color = colors.textSecondary,
                 modifier = Modifier.padding(start = GridlinkSpacing.s8),
@@ -173,20 +175,23 @@ fun GridlinkInviteCard(
         when {
             // No spinner, on purpose: this package has none, and a fetch that takes a moment does
             // not need a moving part to explain itself. The line is replaced by the event.
-            invite.loading -> GridlinkInviteLine("Reading the invitation…")
+            invite.loading -> GridlinkInviteLine(stringResource(R.string.gl_cal_invite_loading))
 
             // Unreadable, and honest about it. The raw file is still offered, because a calendar app
             // that understands a dialect this parser does not is a better answer than a shrug.
             invite.failed -> {
-                GridlinkInviteLine("This invitation couldn't be read here.")
+                GridlinkInviteLine(stringResource(R.string.gl_cal_invite_unreadable))
                 if (onOpenInvitation != null) {
-                    GridlinkInviteAction(label = "Open invitation", onClick = onOpenInvitation)
+                    GridlinkInviteAction(
+                        label = stringResource(R.string.calendar_open_invitation),
+                        onClick = onOpenInvitation,
+                    )
                 }
             }
 
             else -> {
                 Text(
-                    text = invite.title ?: "(No title)",
+                    text = invite.title ?: stringResource(R.string.widget_agenda_no_title),
                     style = GridlinkType.threadTitle,
                     color = colors.textPrimary,
                 )
@@ -194,17 +199,19 @@ fun GridlinkInviteCard(
                     // In the destructive colour and above the details, because it changes what all
                     // of them mean: the time below is when this was GOING to happen.
                     Text(
-                        text = "Cancelled",
+                        text = stringResource(R.string.calendar_cancelled),
                         style = GridlinkType.badge,
                         color = colors.destructive,
                     )
                 }
                 invite.whenLine?.let { GridlinkInviteLine(it) }
-                invite.location?.let { GridlinkInviteLine("Where: $it") }
-                invite.organizer?.let { GridlinkInviteLine("Organiser: $it") }
+                invite.location?.let { GridlinkInviteLine(stringResource(R.string.calendar_where, it)) }
+                invite.organizer?.let {
+                    GridlinkInviteLine(stringResource(R.string.gl_cal_invite_organiser, it))
+                }
                 if (invite.guests > 0) {
                     GridlinkInviteLine(
-                        if (invite.guests == 1) "1 guest" else "${invite.guests} guests",
+                        pluralStringResource(R.plurals.gl_cal_invite_guests, invite.guests, invite.guests),
                     )
                 }
                 invite.repeats?.let { GridlinkInviteLine(it) }
@@ -215,7 +222,7 @@ fun GridlinkInviteCard(
                 // and plenty of them are deliberate.
                 if (invite.conflicts.isNotEmpty()) {
                     Text(
-                        text = "Clashes with something already in your calendar",
+                        text = stringResource(R.string.gl_cal_invite_clash),
                         style = GridlinkType.badge,
                         color = colors.caution,
                         modifier = Modifier.padding(top = GridlinkSpacing.s8),
@@ -228,7 +235,7 @@ fun GridlinkInviteCard(
                 }
                 if (onAddToCalendar != null) {
                     GridlinkInviteAction(
-                        label = "Add to calendar",
+                        label = stringResource(R.string.calendar_add),
                         onClick = { leaveOnce(onAddToCalendar) },
                     )
                 }
@@ -267,24 +274,26 @@ private fun GridlinkInviteRsvp(
     val colors = GridlinkTheme.colors
     when (response) {
         is GridlinkInviteResponse.Sent -> Text(
-            text = when (response.partstat) {
-                "ACCEPTED" -> "You accepted."
-                "DECLINED" -> "You declined."
-                else -> "You replied maybe."
-            },
+            text = stringResource(
+                when (response.partstat) {
+                    "ACCEPTED" -> R.string.gl_cal_invite_sent_accepted
+                    "DECLINED" -> R.string.gl_cal_invite_sent_declined
+                    else -> R.string.gl_cal_invite_sent_maybe
+                },
+            ),
             style = GridlinkType.badge,
             color = colors.positive,
             modifier = Modifier.padding(top = GridlinkSpacing.s8),
         )
 
-        GridlinkInviteResponse.Sending -> GridlinkInviteLine("Sending your reply…")
+        GridlinkInviteResponse.Sending -> GridlinkInviteLine(stringResource(R.string.gl_cal_invite_sending))
 
         else -> {
             if (response is GridlinkInviteResponse.Failed) {
                 Text(
                     // Says which half failed. The organiser never heard from you, so the meeting is
                     // still open and tapping again is a retry rather than a duplicate.
-                    text = "Your reply didn't send. Try again.",
+                    text = stringResource(R.string.gl_cal_invite_failed),
                     style = GridlinkType.metadata,
                     color = colors.destructive,
                 )
@@ -296,19 +305,19 @@ private fun GridlinkInviteRsvp(
                 horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s8),
             ) {
                 GridlinkInvitePill(
-                    label = "Accept",
+                    label = stringResource(R.string.calendar_accept),
                     filled = true,
                     onClick = { onRespond("ACCEPTED") },
                     modifier = Modifier.weight(1f),
                 )
                 GridlinkInvitePill(
-                    label = "Maybe",
+                    label = stringResource(R.string.gl_cal_invite_maybe),
                     filled = false,
                     onClick = { onRespond("TENTATIVE") },
                     modifier = Modifier.weight(1f),
                 )
                 GridlinkInvitePill(
-                    label = "Decline",
+                    label = stringResource(R.string.calendar_decline),
                     filled = false,
                     onClick = { onRespond("DECLINED") },
                     modifier = Modifier.weight(1f),

@@ -426,7 +426,8 @@ object Notifications {
         lines: List<String>,
         silent: Boolean = false,
     ) {
-        val title = context.getString(R.string.notif_group_count, count, accountLabel)
+        val title = context.resources
+            .getQuantityString(R.plurals.gl_misc_notif_group_count, count, count, accountLabel)
         val style = NotificationCompat.InboxStyle().setBigContentTitle(title)
         lines.take(6).forEach { style.addLine(it) }
         if (lines.size > 6) style.setSummaryText("+${lines.size - 6}")

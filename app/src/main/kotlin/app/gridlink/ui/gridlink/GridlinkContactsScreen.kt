@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -49,11 +51,15 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -64,6 +70,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
+import app.gridlink.R
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContactSection
 import app.gridlink.ui.theme.GridlinkDimens
@@ -240,7 +247,7 @@ fun GridlinkContactsScreen(
         sidePane = sidePane,
         header = {
             GridlinkHeader(
-                title = "Contacts",
+                title = stringResource(R.string.gl_people_contacts),
                 unread = 0,
                 // Same reasoning as the folder tree's "N mailboxes": the second line summarises
                 // the screen, and a phonebook's summary is how many entries are in it. "Loading"
@@ -248,10 +255,10 @@ fun GridlinkContactsScreen(
                 // zero is a claim that the account has nobody in it, which is a different thing
                 // from not having looked.
                 subline = when {
-                    book.contactsLoading -> "Loading"
+                    book.contactsLoading -> stringResource(R.string.gl_people_loading)
                     // Same rule as the calendar header: a failed sync outranks a count.
                     book.contactsError != null -> book.contactsError
-                    else -> "${book.contacts.size} people and teams"
+                    else -> pluralStringResource(R.plurals.gl_people_count, book.contacts.size, book.contacts.size)
                 },
             )
         },
@@ -267,7 +274,7 @@ fun GridlinkContactsScreen(
                 // Not "0 people", which the header already says one line up, and not a sync age either:
                 // this is the question the blank panel provokes, which is whether the app is broken or
                 // the book is genuinely empty.
-                subline = book.contactsError ?: "Nothing in this address book",
+                subline = book.contactsError ?: stringResource(R.string.gl_people_book_empty),
                 onNewContact = onCompose,
             )
             Row(
@@ -301,14 +308,17 @@ fun GridlinkContactsScreen(
         // as a row of the book. Full width, unlike the row dividers, because nothing is indented
         // past it.
         GridlinkRowDivider(startInset = 0.dp)
+        // weight, not fillMaxSize: this is a Column child, and a child asking for the whole height
+        // beside the pill row above it would draw a list taller than the panel.
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
         LazyColumn(
             state = listState,
             flingBehavior = rememberGridlinkFlingBehavior(),
             modifier = Modifier
-                // weight, not fillMaxSize: this is a Column child now, and a child asking for the
-                // whole height beside the pill row above it would draw a list taller than the panel.
-                .weight(1f)
-                .fillMaxWidth()
+                .fillMaxSize()
+                // 🔴 The rail's own lane. The list stops where the alphabet starts, so rows, their
+                // hairlines and the selection wash never run underneath the letters.
+                .padding(end = RAIL_RESTING)
                 .gridlinkEdgeFade(),
             contentPadding = PaddingValues(
                 top = GridlinkDimens.listFade,
@@ -335,11 +345,8 @@ fun GridlinkContactsScreen(
                         // orphaned line floating above a heading.
                         if (index != section.contacts.lastIndex) {
                             GridlinkRowDivider(
-                                // Stops where the rail starts. Run full width and the hairline
-                                // passes under the resting alphabet, striking through three or
-                                // four letters at a time — which reads as the letters being
-                                // crossed out.
-                                modifier = Modifier.padding(end = RAIL_RESTING),
+                                // The list itself stops at the rail's lane, so the hairline
+                                // already ends before the letters.
                                 startInset = GridlinkSpacing.rowHorizontal +
                                     GridlinkDimens.senderBarWidth,
                             )
@@ -348,10 +355,9 @@ fun GridlinkContactsScreen(
                 }
             }
         }
-      }
 
-        // Outside the Column and still on the scaffold's Box, so the rail spans the whole panel
-        // height and centres against it rather than against the list under the pill row.
+        // Beside the list, under the pill row, so it lives in its own lane rather than crossing the
+        // list's top edge and the pills.
         //
         // Inside the else, so an empty book does not get an alphabet to steer it with. A rail with
         // no populated letters is the control that made the blank panel read as broken.
@@ -362,6 +368,8 @@ fun GridlinkContactsScreen(
             initialScrubLetter = initialScrubLetter,
             modifier = Modifier.align(Alignment.CenterEnd),
         )
+        }
+      }
       }
     }
 }
@@ -387,7 +395,7 @@ private fun GridlinkContactRow(
     current: Boolean = false,
 ) {
     val colors = GridlinkTheme.colors
-    val mode = GridlinkTheme.mode
+    val mode = GridlinkTheme.look
     // The same wash the message list uses for the row its pane is showing, on the same token and the
     // same curve, so "this is the one you are looking at" is one visual idea across the app rather
     // than two that nearly match. No tick disc: that belongs to multi-select, and there is no
@@ -417,10 +425,8 @@ private fun GridlinkContactRow(
                 .fillMaxSize()
                 .padding(
                     start = GridlinkSpacing.rowHorizontal + GridlinkDimens.senderBarWidth,
-                    // 🔴 Clears the rail. The rail floats over this list rather than sitting beside
-                    // it, so without this a long role runs on underneath the alphabet and the
-                    // letters land on top of the words.
-                    end = GridlinkSpacing.rowHorizontal + RAIL_RESTING,
+                    // The rail has its own lane beside the list, so this is the ordinary inset.
+                    end = GridlinkSpacing.rowHorizontal,
                     top = GridlinkSpacing.rowVertical,
                     bottom = GridlinkSpacing.rowVertical,
                 ),
@@ -491,15 +497,15 @@ private fun GridlinkContactRow(
  */
 enum class GridlinkContactSort(
     /** What the pill says. Reads as the order itself, not as an instruction. */
-    val label: String,
+    @StringRes val label: Int,
 ) {
     /** Phonebook order: the surname (or the company, for org cards) files the card. The default,
      *  because it is what a phonebook does and what the app has always done. */
-    LAST_FIRST("Last, First"),
+    LAST_FIRST(R.string.gl_people_sort_last_first),
 
     /** Reading order: the given name files the card. Org cards and surname-less people keep filing
      *  under [GridlinkContact.filedUnder], which for them is the only word there is. */
-    FIRST_LAST("First Last"),
+    FIRST_LAST(R.string.gl_people_sort_first_last),
     ;
 
     val other: GridlinkContactSort
@@ -565,12 +571,12 @@ private fun GridlinkSortPill(
         Icon(
             imageVector = Icons.Outlined.SwapHoriz,
             // The description carries the action; the visible label carries the state.
-            contentDescription = "Change name order",
+            contentDescription = stringResource(R.string.gl_people_sort_change),
             tint = colors.textSecondary,
             modifier = Modifier.size(18.dp),
         )
         Text(
-            text = sort.label,
+            text = stringResource(sort.label),
             style = GridlinkType.metadata,
             color = colors.textSecondary,
             maxLines = 1,
@@ -603,7 +609,12 @@ private fun GridlinkImportPill(onPicked: (Uri) -> Unit, modifier: Modifier = Mod
             tint = colors.textSecondary,
             modifier = Modifier.size(18.dp),
         )
-        Text(text = "Import", style = GridlinkType.metadata, color = colors.textSecondary, maxLines = 1)
+        Text(
+            text = stringResource(R.string.gl_people_import),
+            style = GridlinkType.metadata,
+            color = colors.textSecondary,
+            maxLines = 1,
+        )
     }
 }
 
@@ -614,8 +625,14 @@ private val SORT_PILL_HEIGHT = 44.dp
 // The rail
 // ---------------------------------------------------------------------------------------------
 
-/** Resting width, and therefore the end padding a row needs to keep its text out from under it. */
-private val RAIL_RESTING = 24.dp
+/** Resting width, and therefore the width of the lane the list leaves free for the rail. */
+private val RAIL_RESTING = 28.dp
+
+/** The tallest one letter's slot gets, so a book with only a few letters keeps them together. */
+private val RAIL_SLOT_MAX = 26.dp
+
+/** How visible a resting letter is before a touch brings it to full strength. */
+private const val RAIL_REST_ALPHA = 0.7f
 
 /** The pill's width once held, and the hit area at all times: 44dp is a real touch target, and the
  *  rail is thumb-driven, so it gets one whether or not it is currently drawn that wide. */
@@ -625,14 +642,14 @@ private val BUBBLE_SIZE = 76.dp
 private val BUBBLE_GAP = 12.dp
 
 /**
- * How much bigger the letter directly under the thumb gets: 1.15 takes a 10sp glyph to about 21sp.
+ * How much bigger the letter directly under the thumb gets: 0.8 takes a 12sp glyph to about 22sp.
  *
  * ⚠️ Bounded by the slot, not by taste. Twenty-six letters divide the rail's height, which on a
  * folded Fold is roughly 23dp each, and a glyph scaled past that starts colliding with the letters
  * either side of it — the lens stops magnifying and starts overlapping. Anything much above this
  * needs the rail to hold fewer letters, not a bigger number here.
  */
-private const val MAGNIFY = 1.15f
+private const val MAGNIFY = 0.8f
 
 /** Width of the magnification falloff, in letters. At 1.5 the two neighbours either side visibly
  *  swell and the third is back to normal, which is a lens rather than a highlight. */
@@ -680,10 +697,19 @@ private fun GridlinkAlphabetRail(
     val colors = GridlinkTheme.colors
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
-    val letters = GridlinkSampleContacts.alphabet
+    // Only the letters somebody is filed under. A rail of twenty-six with half of them dimmed
+    // offered taps that go nowhere and made every letter smaller to fit them.
+    val letters = remember(populated) { GridlinkSampleContacts.alphabet.filter { it in populated } }
 
-    val seedIndex = remember(initialScrubLetter) {
-        initialScrubLetter?.let { letters.indexOf(it.uppercaseChar()) }?.takeIf { it >= 0 }
+    // 🔴 Seeded against the whole alphabet, then mapped onto the rail. The rail only carries letters
+    // somebody is filed under, so a seed of an empty X is not on it at all; it lands on the nearest
+    // populated letter before it (W), or after it when nothing comes before, like a scrub does.
+    val seedIndex = remember(initialScrubLetter, letters) {
+        initialScrubLetter?.uppercaseChar()?.let { seed ->
+            val before = letters.lastOrNull { it <= seed }
+            val target = before ?: letters.firstOrNull { it > seed }
+            target?.let { letters.indexOf(it) }
+        }
     }
     var scrubbing by remember { mutableStateOf(seedIndex != null) }
     // Deliberately kept after the lift, so the collapse has a centre to shrink towards instead of
@@ -691,6 +717,10 @@ private fun GridlinkAlphabetRail(
     var focus by remember { mutableFloatStateOf(seedIndex?.toFloat() ?: 0f) }
     var activeIndex by remember { mutableIntStateOf(seedIndex ?: -1) }
     var railHeightPx by remember { mutableIntStateOf(0) }
+    var railTopPx by remember { mutableFloatStateOf(0f) }
+    // A short book does not stretch its few letters down the whole panel: each letter's slot stops
+    // growing at [RAIL_SLOT_MAX] and the rail centres on the panel instead.
+    val railMaxHeight = RAIL_SLOT_MAX * letters.size.coerceAtLeast(1)
 
     val expansion by animateFloatAsState(
         targetValue = if (scrubbing) 1f else 0f,
@@ -744,6 +774,7 @@ private fun GridlinkAlphabetRail(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .width(lerp(RAIL_RESTING, RAIL_EXPANDED, expansion))
+                    .heightIn(max = railMaxHeight)
                     .fillMaxHeight()
                     .graphicsLayer { alpha = expansion }
                     .clip(pillShape)
@@ -765,7 +796,7 @@ private fun GridlinkAlphabetRail(
                     .offset {
                         IntOffset(
                             x = 0,
-                            y = (slot * (activeIndex + 0.5f) - bubblePx / 2f).roundToInt(),
+                            y = (railTopPx + slot * (activeIndex + 0.5f) - bubblePx / 2f).roundToInt(),
                         )
                     }
                     .graphicsLayer {
@@ -795,7 +826,9 @@ private fun GridlinkAlphabetRail(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .width(RAIL_EXPANDED)
+                .heightIn(max = railMaxHeight)
                 .fillMaxHeight()
+                .onPlaced { railTopPx = it.positionInParent().y }
                 .onSizeChanged { railHeightPx = it.height }
                 .pointerInput(populated) {
                     awaitPointerEventScope {
@@ -837,34 +870,31 @@ private fun GridlinkAlphabetRail(
                     }
                 },
             verticalArrangement = Arrangement.SpaceEvenly,
-            horizontalAlignment = Alignment.CenterHorizontally,
+            // Letters centre on the pill, which grows from the lane's width at the trailing edge, so
+            // at rest they sit in the middle of the lane rather than against the list.
+            horizontalAlignment = Alignment.End,
         ) {
             letters.forEachIndexed { index, letter ->
-                val has = letter in populated
                 val distance = index - focus
                 val lens = exp(-(distance * distance) / (2f * SIGMA * SIGMA))
                 val scale = 1f + expansion * MAGNIFY * lens
                 Box(
                     modifier = Modifier
-                        .width(RAIL_EXPANDED)
+                        .width(lerp(RAIL_RESTING, RAIL_EXPANDED, expansion))
                         .weight(1f),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = letter.toString(),
                         style = GridlinkType.badge.copy(
-                            fontSize = 10.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                         ),
                         // ⚠️ An alpha ramp, and it is not dimming a control. A rail letter is a
-                        // signpost: the ramp says "translucent until you touch me" (Tate's word
-                        // for the resting state) and "nobody is filed under X". Neither of those is
-                        // an on/off state being greyed out, which is the thing that is banned.
-                        color = if (has) {
-                            colors.textSecondary.copy(alpha = lerpF(0.55f, 1f, expansion))
-                        } else {
-                            colors.textSecondary.copy(alpha = lerpF(0.22f, 0.40f, expansion))
-                        },
+                        // signpost, and the ramp says "translucent until you touch me" (Tate's word
+                        // for the resting state). That is not an on/off state being greyed out,
+                        // which is the thing that is banned.
+                        color = colors.textSecondary.copy(alpha = lerpF(RAIL_REST_ALPHA, 1f, expansion)),
                         modifier = Modifier.graphicsLayer {
                             scaleX = scale
                             scaleY = scale

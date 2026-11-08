@@ -20,11 +20,11 @@ import app.gridlink.R
  * [GridlinkAuthenticator] exists only so the system has something to bind when it asks who owns it.
  *
  * ## One Android account per mail account
- * Named after the mail account's own login, so Settings → Accounts reads the way the user thinks
- * about it. Two [app.gridlink.core.data.account.StoredAccount]s that share a login (a linked
- * sub-account, Codeberg #31) share one Android account, which is correct: they are one identity on
- * one server. Their rows still do not collide, because every row carries a source id built from the
- * *local* account id — see [SystemMirror.sourceId].
+ * Each Gridlink account that publishes anything gets its own Android account, named so Settings →
+ * Accounts and the Contacts and Calendar apps read the way the user thinks about it, and carrying
+ * the Gridlink account id in its user data ([KEY_ACCOUNT_ID]). That id, not the name, is how a sync
+ * pass finds its mail account: two accounts sharing a login are two Android accounts, never one.
+ * Naming and the migration of 2.1.3's login-named accounts are in [SystemAccountPlanner].
  *
  * ## What this deliberately does NOT do
  * No password is ever handed to AccountManager. `addAccountExplicitly` is called with a null
@@ -54,22 +54,40 @@ object GridlinkSystemAccount {
 
     fun account(context: Context, name: String): Account = Account(name, type(context))
 
+    /** The user-data key holding the Gridlink account id an Android account publishes for. */
+    const val KEY_ACCOUNT_ID: String = "gridlink_account_id"
+
+    /** The Gridlink account id stored on [account], or null for a 2.1.3 account that has none. */
+    fun accountId(context: Context, account: Account): String? =
+        runCatching { AccountManager.get(context).getUserData(account, KEY_ACCOUNT_ID) }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+
     /** Every Gridlink account currently registered. Own-type access needs no GET_ACCOUNTS. */
     fun all(context: Context): List<Account> =
         AccountManager.get(context).getAccountsByType(type(context)).toList()
 
     /**
-     * Register [name] if it is not already there, and mark both providers syncable.
+     * Register [name] for Gridlink account [accountId] if it is not already there, make sure the id
+     * is written on it, and mark both providers syncable.
      *
      * Returns the account either way. `addAccountExplicitly` returning false means it already
-     * exists, which is the ordinary case on every run after the first and not a failure.
+     * exists, which is the ordinary case on every run after the first and not a failure; the id is
+     * then written separately, which is also how a 2.1.3 account is adopted.
      */
-    fun ensure(context: Context, name: String): Account {
+    fun ensure(context: Context, name: String, accountId: String): Account {
         val account = account(context, name)
-        val added = runCatching { AccountManager.get(context).addAccountExplicitly(account, null, null) }
+        val manager = AccountManager.get(context)
+        val data = android.os.Bundle().apply { putString(KEY_ACCOUNT_ID, accountId) }
+        val added = runCatching { manager.addAccountExplicitly(account, null, data) }
             .onFailure { Log.w(TAG, "could not register $name", it) }
             .getOrDefault(false)
-        if (added) Log.i(TAG, "registered system account for $name")
+        if (added) {
+            Log.i(TAG, "registered system account for $accountId")
+        } else {
+            runCatching { manager.setUserData(account, KEY_ACCOUNT_ID, accountId) }
+                .onFailure { Log.w(TAG, "could not tag $name", it) }
+        }
         for (authority in listOf(CONTACTS_AUTHORITY, CALENDAR_AUTHORITY)) {
             ContentResolver.setIsSyncable(account, authority, 1)
             ContentResolver.setSyncAutomatically(account, authority, true)

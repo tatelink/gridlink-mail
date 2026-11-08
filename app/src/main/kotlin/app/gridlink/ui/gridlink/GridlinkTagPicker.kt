@@ -22,8 +22,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import app.gridlink.R
 import app.gridlink.core.data.settings.MailTag
 import app.gridlink.core.data.settings.TagColor
 import app.gridlink.ui.theme.GridlinkSpacing
@@ -69,9 +71,9 @@ fun GridlinkTagPickerSheet(
     val pending = remember { mutableStateMapOf<String, Boolean>() }
     GridlinkCenterSheet(onDismiss = onDismiss) {
         GridlinkSheetHeading(
-            title = "Tags",
+            title = stringResource(R.string.settings_tags_title),
             icon = Icons.Outlined.Sell,
-            subline = if (definitions.isEmpty()) null else "Tap to apply or remove",
+            subline = if (definitions.isEmpty()) null else stringResource(R.string.gl_thread_tags_tap_hint),
         )
         GridlinkSheetDivider()
         if (definitions.isEmpty()) {
@@ -79,7 +81,7 @@ fun GridlinkTagPickerSheet(
                 // 🔴 Says where they come from. An empty sheet with no explanation reads as a
                 // feature that is broken rather than one that has not been set up, and the tag
                 // manager is two screens away in a place nobody would guess.
-                text = "No tags yet. Create them in Settings, under Tags.",
+                text = stringResource(R.string.gl_thread_tags_empty),
                 style = GridlinkType.body,
                 color = colors.textSecondary,
                 modifier = Modifier.padding(
@@ -123,7 +125,7 @@ fun GridlinkTagPickerSheet(
         if (onManageTags != null) {
             GridlinkSheetDivider()
             GridlinkSheetAction(
-                label = "Manage tags",
+                label = stringResource(R.string.gl_thread_tags_manage),
                 icon = Icons.Outlined.Sell,
                 onClick = onManageTags,
             )
@@ -174,7 +176,7 @@ internal fun GridlinkTagPickerRow(
         if (applied) {
             Icon(
                 imageVector = Icons.Outlined.Check,
-                contentDescription = "Applied",
+                contentDescription = stringResource(R.string.gl_thread_tags_applied),
                 tint = color,
                 modifier = Modifier.size(20.dp),
             )

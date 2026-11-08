@@ -16,6 +16,8 @@ import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasTextExactly
+import androidx.compose.ui.test.isOff
+import androidx.compose.ui.test.isOn
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -254,19 +256,19 @@ class GridlinkFolderScreenTest {
     @Test
     fun watch_togglesInPlace_andLeavesTheSheetOpenToShowWhichWayItWent() {
         show(initialActionFolderId = "receipts")
-        rule.onNodeWithText("OFF").assertExists()
+        rule.onNode(isOff()).assertExists()
         rule.onNodeWithText("Off. Only the inbox raises a notification").assertExists()
 
         watchLine().performClick()
         assertEquals(listOf<GridlinkFolderEdit>(GridlinkFolderEdit.Watch("receipts", true)), edits)
         assertEquals(true, treeChanges.single().findFolder("receipts")?.watched)
-        // Still up, now saying ON.
-        rule.onNodeWithText("ON").assertExists()
+        // Still up, now switched on.
+        rule.onNode(isOn()).assertExists()
         rule.onNodeWithText("On. New mail here notifies as it arrives").assertExists()
 
         watchLine().performClick()
         assertEquals(GridlinkFolderEdit.Watch("receipts", false), edits.last())
-        rule.onNodeWithText("OFF").assertExists()
+        rule.onNode(isOff()).assertExists()
     }
 
     @Test

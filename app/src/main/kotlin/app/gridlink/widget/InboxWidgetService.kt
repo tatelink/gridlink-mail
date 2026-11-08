@@ -91,6 +91,7 @@ internal class InboxWidgetFactory(
                 zone = ZoneId.systemDefault(),
                 locale = Locale.getDefault(),
                 justNowLabel = context.getString(R.string.widget_time_now),
+                minutesPattern = context.getString(R.string.gl_misc_widget_minutes_ago),
             ),
         )
 

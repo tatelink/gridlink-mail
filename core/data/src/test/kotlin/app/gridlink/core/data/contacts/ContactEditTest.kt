@@ -151,4 +151,52 @@ class ContactEditTest {
         assertNull(write.note)
         assertEquals(listOf("k@acme.example"), write.emails)
     }
+
+    @Test
+    fun `a form that cannot see types keeps the card's own`() {
+        val card = ContactEdit.from(
+            VCard.parse(
+                "BEGIN:VCARD\nVERSION:3.0\nFN:K C\nN:C;K;;;\nTEL;TYPE=CELL:+1 717-555-0142\n" +
+                    "EMAIL;TYPE=WORK:K@acme.example\nEND:VCARD",
+            )!!,
+        )
+        // The in-app form: no types at all, a reformatted number, a changed-case email, one new number.
+        val form = ContactEdit(
+            given = "K",
+            family = "C",
+            emails = listOf("k@acme.example"),
+            phones = listOf("+17175550142", "555 0100"),
+        )
+
+        val typed = form.withTypesFrom(card)
+
+        assertEquals(setOf("cell"), typed.phoneTypes["+17175550142"])
+        assertEquals(setOf("work"), typed.emailTypes["k@acme.example"])
+        // A number the card never had has no type to inherit, so nobody said one.
+        assertNull(typed.phoneTypes["555 0100"])
+        assertEquals(setOf(ContactCardGroup.PHONES, ContactCardGroup.EMAILS), form.touchedSince(card))
+    }
+
+    @Test
+    fun `a type change alone is an edit, and an untouched type is not`() {
+        val card = ContactEdit(
+            given = "K",
+            phones = listOf("+1 717-555-0142"),
+            phoneTypes = mapOf("+1 717-555-0142" to setOf("cell")),
+        )
+
+        assertEquals(
+            setOf(ContactCardGroup.PHONES),
+            card.copy(phoneTypes = mapOf("+1 717-555-0142" to setOf("work"))).touchedSince(card),
+        )
+        assertEquals(
+            setOf(ContactCardGroup.PHONES),
+            card.copy(phoneTypes = mapOf("+1 717-555-0142" to emptySet())).touchedSince(card),
+        )
+        assertEquals(emptySet<ContactCardGroup>(), card.copy(phoneTypes = emptyMap()).touchedSince(card))
+        assertEquals(
+            setOf("cell"),
+            card.copy(phoneTypes = emptyMap()).withTypesFrom(card).toCardWrite("u").phoneTypes["+1 717-555-0142"],
+        )
+    }
 }

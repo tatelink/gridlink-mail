@@ -1,6 +1,7 @@
 package app.gridlink.ui.gridlink
 
 import android.content.Context
+import app.gridlink.R
 import app.gridlink.core.data.account.AccountCredentials
 import app.gridlink.core.data.account.AccountStore
 import app.gridlink.core.data.account.StoredAccount
@@ -138,7 +139,7 @@ class GridlinkOutboxSender(
         if (draft.from != null && accounts.credentials(draft.from.accountId) == null) {
             // Picked on the From line, then signed out before the tap. Refused rather than quietly
             // sent as the active account: the address on screen is the one the user chose.
-            return "That account is no longer signed in. Pick another one under From."
+            return context.getString(R.string.gl_thread_send_account_signed_out)
         }
         if (accounts.load() == null) {
             // ⚠️ Reached from the debug GALLERY, which is its own launcher icon beside the app and
@@ -147,9 +148,9 @@ class GridlinkOutboxSender(
             // without one. Naming the app rather than "the Gridlink icon" is the point — since the
             // rename BOTH icons say Gridlink, and the old wording pointed at whichever one the
             // reader happened to be looking at.
-            return "No account yet. Set one up in the Gridlink app first, then send from here."
+            return context.getString(R.string.gl_thread_send_no_account_yet)
         }
-        if (draft.recipients.isEmpty()) return "Add someone to send this to."
+        if (draft.recipients.isEmpty()) return context.getString(R.string.gl_thread_send_no_recipients)
 
         // 🔴 The sample address book is invented people at REAL company domains
         // (dalton-energy.example, sanivex.example, tallyman.example, riverbendwater.example). It exists to make the
@@ -161,8 +162,7 @@ class GridlinkOutboxSender(
         val sample = draft.recipients.filter { GridlinkSampleContacts.isSample(it) }
         if (sample.isNotEmpty()) {
             val who = sample.joinToString(", ") { it.displayName }
-            return "$who ${if (sample.size == 1) "is" else "are"} sample data, not a real address. " +
-                "Type an address to send for real."
+            return context.resources.getQuantityString(R.plurals.gl_thread_send_sample_recipients, sample.size, who)
         }
 
         // Attachments go out for real now, but only the ones this app staged. The demo reply's is a
@@ -172,8 +172,11 @@ class GridlinkOutboxSender(
         val unstaged = draft.attachments.filter { attacher == null || !attacher.holds(it) }
         if (unstaged.isNotEmpty()) {
             val what = unstaged.joinToString(", ") { it.name }
-            return "$what ${if (unstaged.size == 1) "has" else "have"} no file behind " +
-                "${if (unstaged.size == 1) "it" else "them"}. Remove and attach again to send."
+            return context.resources.getQuantityString(
+                R.plurals.gl_thread_send_unstaged_attachments,
+                unstaged.size,
+                what,
+            )
         }
         return null
     }
@@ -183,13 +186,19 @@ class GridlinkOutboxSender(
         // Re-read rather than closing over what [check] saw. The two calls are a user-visible moment
         // apart, and an account removed in between must fail loudly here rather than send as whoever
         // happens to be current now.
-        val origin = origin(draft) ?: error("No account to send from.")
+        val origin = origin(draft) ?: error(context.getString(R.string.gl_thread_send_no_account_send))
         val formatted = draft.formattedBody()
         val id = repository.enqueueSend(
             credentials = origin.credentials,
             fromName = origin.fromName,
             fromEmail = origin.fromEmail,
             to = draft.recipients.map { it.email },
+            cc = draft.cc.map { it.email },
+            // Threads the answer under the original on both engines (JMAP sets the Email's
+            // inReplyTo/references, SMTP writes the headers), and a reply closed to Drafts and sent
+            // later still threads.
+            inReplyTo = draft.inReplyTo,
+            references = draft.references,
             subject = draft.subject,
             // 🔴 The quote is appended HERE, at the write, and not folded into the body when the
             // composer opens. The body the user edits stays the words they typed, which is what lets
@@ -222,7 +231,7 @@ class GridlinkOutboxSender(
         // message, not about the address: someone recalled and retyped is still someone this user
         // was writing to, and the alternative is that the address they most recently used is the one
         // the field is slowest to learn.
-        runCatching { repository.rememberRecipients(draft.recipients.map { it.email }) }
+        runCatching { repository.rememberRecipients((draft.recipients + draft.cc).map { it.email }) }
         return {
             // Row first, worker second, matching the order the stock composer uses: the row is the
             // user-visible artifact, and if the cancel turns out to be a no-op a later worker run
@@ -234,10 +243,10 @@ class GridlinkOutboxSender(
 
     override suspend fun keep(request: GridlinkComposeRequest) {
         val draft = request.draft
-        val origin = origin(draft) ?: error("No account to keep a draft on.")
+        val origin = origin(draft) ?: error(context.getString(R.string.gl_thread_send_no_account_draft))
         val credentials = origin.credentials
-        val emptied = draft.recipients.isEmpty() && draft.subject.isBlank() && draft.body.isBlank() &&
-            draft.attachments.isEmpty()
+        val emptied = draft.recipients.isEmpty() && draft.cc.isEmpty() && draft.subject.isBlank() &&
+            draft.body.isBlank() && draft.attachments.isEmpty()
         if (emptied) {
             // The composer only reports an empty draft when there IS a server copy to retire
             // (an emptied fresh compose reports null and never reaches here): the user opened a
@@ -253,6 +262,12 @@ class GridlinkOutboxSender(
             fromName = origin.fromName,
             fromEmail = origin.fromEmail,
             to = draft.recipients.map { it.email },
+            cc = draft.cc.map { it.email },
+            // Threads the answer under the original on both engines (JMAP sets the Email's
+            // inReplyTo/references, SMTP writes the headers), and a reply closed to Drafts and sent
+            // later still threads.
+            inReplyTo = draft.inReplyTo,
+            references = draft.references,
             subject = draft.subject,
             // ⚠️ The quote is written into the SAVED draft too, and it has to be: the stored draft
             // is the whole message, and a reply saved and reopened tomorrow has no [GridlinkQuote]
@@ -282,9 +297,9 @@ class GridlinkOutboxSender(
         // an attached message sent NOW is perfectly fine — the scaffold reopens the composer with
         // this sentence, so the draft and its file survive the refusal.
         if (draft.attachments.isNotEmpty()) {
-            error("Send Later can't carry a file yet. Send it now, or remove the attachment.")
+            error(context.getString(R.string.gl_thread_send_later_no_attachments))
         }
-        val origin = origin(draft) ?: error("No account to send from.")
+        val origin = origin(draft) ?: error(context.getString(R.string.gl_thread_send_no_account_send))
         // Same shape [ComposeViewModel] writes: the entity is the message, held locally until its
         // worker fires. Nothing goes to the server until then, which is why cancelling a scheduled
         // send is a local row delete rather than a recall.
@@ -292,6 +307,7 @@ class GridlinkOutboxSender(
             ScheduledSendEntity(
                 accountId = origin.credentials.id,
                 recipients = draft.recipients.joinToString(",") { it.email },
+                cc = draft.cc.joinToString(",") { it.email }.ifBlank { null },
                 subject = draft.subject,
                 textBody = gridlinkQuotedPlain(formattedPlain(draft.formattedBody()), draft.quoted),
                 htmlBody = gridlinkQuotedHtml(formattedHtml(draft.formattedBody()), draft.quoted),
@@ -300,8 +316,8 @@ class GridlinkOutboxSender(
                 // at send time", which on JMAP is not the identity the composer showed.
                 fromName = origin.fromName,
                 fromEmail = origin.fromEmail,
-                inReplyTo = null,
-                references = null,
+                inReplyTo = draft.inReplyTo.joinToString(" ").ifBlank { null },
+                references = draft.references.joinToString(" ").ifBlank { null },
                 sendAtMillis = sendAtMillis,
                 // So the worker retires the server draft when the send finally goes out.
                 draftEmailId = origin.draftEmailId,

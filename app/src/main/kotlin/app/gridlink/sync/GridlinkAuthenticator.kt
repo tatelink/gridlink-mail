@@ -10,6 +10,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.IBinder
 import app.gridlink.MainActivity
+import app.gridlink.R
 
 /**
  * The authenticator behind [GridlinkSystemAccount], and it does almost nothing on purpose.
@@ -54,7 +55,7 @@ class GridlinkAuthenticator(private val context: Context) : AbstractAccountAuthe
         options: Bundle?,
     ): Bundle = Bundle().apply {
         putInt(AccountManager.KEY_ERROR_CODE, AccountManager.ERROR_CODE_UNSUPPORTED_OPERATION)
-        putString(AccountManager.KEY_ERROR_MESSAGE, "Gridlink issues no auth tokens")
+        putString(AccountManager.KEY_ERROR_MESSAGE, context.getString(R.string.gl_misc_auth_no_tokens))
     }
 
     override fun editProperties(response: AccountAuthenticatorResponse?, accountType: String?): Bundle = Bundle()

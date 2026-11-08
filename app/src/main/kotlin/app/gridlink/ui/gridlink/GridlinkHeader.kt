@@ -55,14 +55,36 @@ private sealed interface HeadersState {
 }
 
 /**
- * The headers as one block of text, in the order the message carries them.
+ * The headers as one block of text, in the order the message carries them: the block the message
+ * was sent with, folds and all.
  *
- * `Name: value`, one per line, which is what a mail admin or a support desk asks to be pasted.
- * Folded continuation lines were already unfolded by the parser, so a long Received line is one
- * line here.
+ * `Name: value`, with each folded continuation line kept on its own line with its own leading
+ * whitespace, because that is what a mail admin or a support desk asks to be pasted: a DKIM
+ * signature re-wrapped into one line no longer looks like the one in their logs. Line breaks are
+ * plain `\n` (the clipboard is text, not a wire format), and exactly one space follows the colon.
  */
 internal fun gridlinkHeadersText(headers: List<GridlinkHeader>): String =
-    headers.joinToString(separator = "\n") { "${it.name}: ${it.value}" }
+    headers.joinToString(separator = "\n") { "${it.name}: ${gridlinkFoldedValue(it.value)}" }
+
+/**
+ * A header value as it was folded on the wire, with CRLF turned into `\n` and no stray CR left.
+ *
+ * Values arrive in the raw form (JMAP's `headers`; the IMAP parser keeps the same shape): a fold
+ * is a line break followed by the continuation line's own whitespace.
+ */
+internal fun gridlinkFoldedValue(value: String): String =
+    value.replace("\r\n", "\n").replace('\r', '\n').trim('\n', ' ', '\t')
+
+/**
+ * A header value unfolded for reading (RFC 5322 section 2.2.3): each line break inside it goes,
+ * together with the whitespace run that starts the continuation line, and one space takes their
+ * place. The sheet wraps long values itself, and a raw fold drawn as-is shows as a blank line
+ * followed by an indented fragment.
+ */
+internal fun gridlinkUnfoldedValue(value: String): String =
+    gridlinkFoldedValue(value).replace(HEADER_FOLD, " ")
+
+private val HEADER_FOLD = Regex("\n[ \t]*")
 
 /**
  * The reader's "View headers": every header of the open message, selectable, with one Copy all.
@@ -139,7 +161,7 @@ internal fun GridlinkHeadersSheet(
                                     append(":")
                                 }
                                 append(" ")
-                                append(header.value)
+                                append(gridlinkUnfoldedValue(header.value))
                             },
                             style = GridlinkType.metadata.copy(fontFamily = FontFamily.Monospace),
                             color = colors.textPrimary,

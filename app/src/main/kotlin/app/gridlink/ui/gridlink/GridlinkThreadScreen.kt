@@ -1,5 +1,7 @@
 package app.gridlink.ui.gridlink
 
+import android.content.Context
+import android.text.format.DateFormat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -28,16 +30,16 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.CloseFullscreen
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.Fullscreen
+import androidx.compose.material.icons.outlined.FullscreenExit
 import androidx.compose.material.icons.outlined.HideImage
 import androidx.compose.material.icons.outlined.MarkEmailUnread
 import androidx.compose.material.icons.outlined.MoreHoriz
-import androidx.compose.material.icons.outlined.OpenInFull
 import androidx.compose.material.icons.outlined.Print
 import androidx.compose.material.icons.outlined.Report
 import androidx.compose.material.icons.outlined.Sell
@@ -49,6 +51,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -56,7 +59,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -73,6 +80,8 @@ import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
 import app.gridlink.ui.theme.gridlinkSenderBarColor
 import app.gridlink.ui.theme.isLightSurface
+import app.gridlink.util.MailDates
+import java.time.format.DateTimeFormatter
 
 /**
  * Reading one message. Brief deliverable §11.5.
@@ -207,7 +216,7 @@ fun GridlinkThreadScreen(
     onToggleMaximize: (() -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
-    val mode = GridlinkTheme.mode
+    val mode = GridlinkTheme.look
     var confirmingUnsubscribe by remember(message.id, initiallyConfirmingUnsubscribe) {
         mutableStateOf(initiallyConfirmingUnsubscribe)
     }
@@ -231,6 +240,19 @@ fun GridlinkThreadScreen(
     val tags = remember(message.tags, tagDefinitions) { resolveTags(message.tags, tagDefinitions) }
     val hasRemoteContent = remember(message.body) { EmailRemoteContent.referencedBy(message.body) }
     val showRemote = showOnce || imagesAlwaysAllowed
+    // A short message ends its card shortly after its last line instead of drawing a full-height
+    // panel that is mostly empty glass. The WebView cannot report a height shorter than itself (its
+    // scroll range is never below its viewport), so the body first lays out in a hidden sliver
+    // ([BODY_PROBE_HEIGHT]); the range it reports from there is the real document height. Taller
+    // than the room it has, it gets the room as before; shorter, the card ends at the text.
+    // 🔴 Maximized skips all of it: that mode is a request for the whole window.
+    var bodyFit by remember(message.id, message.body) { mutableStateOf(BodyFit()) }
+    var bodyRoomPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val bodyEndPadPx = with(density) { GridlinkSpacing.s8.roundToPx() }
+    val bodyProbePx = with(density) { BODY_PROBE_HEIGHT.roundToPx() }
+    val probingBody = !maximized && bodyFit.probing
+    val fitBodyPx = bodyFit.fitPx?.takeIf { !maximized && bodyRoomPx > 0 && it + bodyEndPadPx < bodyRoomPx }
     // 🔴 Unsubscribe is the one action here that talks to someone else. Every other button
     // rearranges mail that is already on the device, and this one tells a sender you exist and are
     // reading. It gets asked first, wherever it was tapped from.
@@ -266,10 +288,12 @@ fun GridlinkThreadScreen(
 
     GridlinkDetailFrame(
         title = message.subject,
+        titleStyle = GridlinkType.threadTitle,
         onBack = onBack,
         modifier = modifier,
         embedded = embedded,
         maximized = maximized,
+        fitToContent = fitBodyPx != null,
         titleAction = {
             // Two controls in the frame's one slot, as a Row rather than a second slot on the frame.
             // The slot is specified as "one [GridlinkDimens.headerControl] of height beside the
@@ -283,8 +307,8 @@ fun GridlinkThreadScreen(
                 // Muscle memory for the star is worth more than the new button being first.
                 if (onToggleMaximize != null) {
                     GridlinkDetailCircleButton(
-                        icon = Icons.Outlined.OpenInFull,
-                        label = "Maximize",
+                        icon = Icons.Outlined.Fullscreen,
+                        label = stringResource(R.string.gridlink_full_screen),
                         onClick = onToggleMaximize,
                     )
                 }
@@ -294,7 +318,9 @@ fun GridlinkThreadScreen(
                     // Names the state it will move TO, like every other toggle in the app. A control
                     // labelled with what it currently is reads as a status line to a screen reader
                     // and leaves "what happens if I press it" unanswered.
-                    label = if (starred) "Remove star" else "Star",
+                    label = stringResource(
+                        if (starred) R.string.a11y_unfavourite else R.string.settings_thread_action_star,
+                    ),
                     active = starred,
                     onClick = {
                         val next = !starred
@@ -322,7 +348,7 @@ fun GridlinkThreadScreen(
             val layout = gridlinkToolbarLayout(
                 enabled = toolbarActions,
                 hasUnsubscribe = message.unsubscribe != null,
-                slots = if (embedded) PANE_SLOTS else SLOTS,
+                slots = SLOTS,
                 hasSheetRows = hasSheetRows,
             )
             if (layout.inBar.isEmpty() && !layout.showMore) {
@@ -342,7 +368,7 @@ fun GridlinkThreadScreen(
             }
             GridlinkDetailAccentButton(
                 icon = Icons.AutoMirrored.Filled.Reply,
-                label = "Reply",
+                label = stringResource(R.string.message_reply),
                 onClick = { onAction(GridlinkThreadAction.REPLY) },
             )
         },
@@ -352,7 +378,7 @@ fun GridlinkThreadScreen(
         // [GridlinkMessageBody]); an outer scroll would have to measure it to its full content
         // height, which defeats that and puts two scroll containers on one drag. So everything else
         // is pinned and the body takes the space that is left.
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = if (fitBodyPx != null) Modifier.fillMaxWidth() else Modifier.fillMaxSize()) {
             // 🔴 Above the sender block, which is what "under the subject" means here: the subject
             // is the frame's title, so this is the first thing inside the panel and the tags read as
             // belonging to the subject rather than to the person who sent it. Put below the sender
@@ -450,24 +476,51 @@ fun GridlinkThreadScreen(
                         .fillMaxWidth(),
                 )
             } else {
-                GridlinkMessageBody(
-                    html = message.body,
-                    blockRemote = !showRemote,
-                    // The palette's text and accent, so nothing in the markup can paint itself
-                    // invisible. 🔴 A body carrying `#000000` because it looked right in Day would be
-                    // unreadable in Night, which is what the whole-page invert in a dark theme is for.
-                    // There is no background to pass: the renderer is transparent so the frosted panel
-                    // reads through it. See [GridlinkMessageBody].
-                    text = colors.textPrimary,
-                    link = colors.accent,
-                    dark = !mode.isLightSurface,
-                    plainText = message.bodyIsPlainText,
-                    inlineImages = message.inlineImages,
-                    modifier = Modifier
+                // The slot keeps the body in the same place in the tree in all three states
+                // (probing, fitted, filling), so the WebView is never recreated by the switch.
+                val bodySlot = if (fitBodyPx != null) {
+                    Modifier.height(with(density) { (fitBodyPx + bodyEndPadPx).toDp() })
+                } else {
+                    Modifier
                         .weight(1f)
-                        .fillMaxWidth()
-                        .gridlinkEdgeFade(fadeTop = false),
-                )
+                        .onSizeChanged { bodyRoomPx = it.height }
+                }
+                Box(modifier = bodySlot.fillMaxWidth()) {
+                    GridlinkMessageBody(
+                        html = message.body,
+                        blockRemote = !showRemote,
+                        // The palette's text and accent, so nothing in the markup can paint itself
+                        // invisible. 🔴 A body carrying `#000000` because it looked right in Day
+                        // would be unreadable in Night, which is what the whole-page invert in a
+                        // dark theme is for. There is no background to pass: the renderer is
+                        // transparent so the frosted panel reads through it. See
+                        // [GridlinkMessageBody].
+                        text = colors.textPrimary,
+                        link = colors.accent,
+                        dark = !mode.isLightSurface,
+                        plainText = message.bodyIsPlainText,
+                        inlineImages = message.inlineImages,
+                        // Only a report taller than the body's current box is a measurement (the
+                        // range is never shorter than the viewport), but any report ends the probe.
+                        // See [afterReport].
+                        onContentHeightPx = { px ->
+                            val shown = bodyFit.fitPx?.plus(bodyEndPadPx) ?: bodyProbePx
+                            bodyFit = bodyFit.afterReport(px, shown)
+                        },
+                        modifier = when {
+                            probingBody ->
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(BODY_PROBE_HEIGHT)
+                                    .graphicsLayer { alpha = 0f }
+                            fitBodyPx != null -> Modifier.fillMaxSize()
+                            else ->
+                                Modifier
+                                    .fillMaxSize()
+                                    .gridlinkEdgeFade(fadeTop = false)
+                        },
+                    )
+                }
             }
 
             if (message.attachments.isNotEmpty()) {
@@ -513,8 +566,8 @@ fun GridlinkThreadScreen(
         // has to remember exists, and this one is the way out of a mode with no system bars in it.
         if (maximized && onToggleMaximize != null) {
             GridlinkDetailCircleButton(
-                icon = Icons.Outlined.CloseFullscreen,
-                label = "Restore",
+                icon = Icons.Outlined.FullscreenExit,
+                label = stringResource(R.string.gridlink_exit_full_screen),
                 onClick = onToggleMaximize,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -537,7 +590,7 @@ fun GridlinkThreadScreen(
             layout = gridlinkToolbarLayout(
                 enabled = toolbarActions,
                 hasUnsubscribe = message.unsubscribe != null,
-                slots = if (embedded) PANE_SLOTS else SLOTS,
+                slots = SLOTS,
                 hasSheetRows = hasSheetRows,
             ),
             starred = starred,
@@ -586,8 +639,8 @@ fun GridlinkThreadScreen(
 
     if (confirmingUnsubscribe) {
         GridlinkDialog(
-            title = "Unsubscribe from ${message.sender}?",
-            confirmLabel = "Unsubscribe",
+            title = stringResource(R.string.gl_thread_unsubscribe_title, message.sender),
+            confirmLabel = stringResource(R.string.gl_thread_unsubscribe),
             onConfirm = {
                 confirmingUnsubscribe = false
                 onAction(GridlinkThreadAction.UNSUBSCRIBE)
@@ -655,7 +708,7 @@ private fun GridlinkThreadSender(
     trailingGap: Dp = 0.dp,
 ) {
     val colors = GridlinkTheme.colors
-    val mode = GridlinkTheme.mode
+    val mode = GridlinkTheme.look
     var expanded by remember(message.address) { mutableStateOf(false) }
     val chevronTurn by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
@@ -712,7 +765,13 @@ private fun GridlinkThreadSender(
                     imageVector = Icons.Filled.ExpandMore,
                     // Names the thing behind the chevron rather than the chevron, because a screen
                     // reader user cannot see that the address is the part being withheld.
-                    contentDescription = if (expanded) "Hide sender details" else "Show sender details",
+                    contentDescription = stringResource(
+                        if (expanded) {
+                            R.string.gl_thread_sender_hide_details
+                        } else {
+                            R.string.gl_thread_sender_show_details
+                        },
+                    ),
                     tint = colors.textSecondary,
                     modifier = Modifier
                         .padding(start = GridlinkSpacing.s8)
@@ -721,6 +780,7 @@ private fun GridlinkThreadSender(
                 )
             }
             if (expanded) {
+                val fullDate = rememberFullMailDate(message.receivedAt)
                 Text(
                     text = message.address,
                     style = GridlinkType.metadata,
@@ -741,7 +801,18 @@ private fun GridlinkThreadSender(
                 val readerAddress = LocalGridlinkChrome.current.config.account
                 if (readerAddress.isNotBlank()) {
                     Text(
-                        text = "to $readerAddress",
+                        text = stringResource(R.string.gl_thread_sender_to, readerAddress),
+                        style = GridlinkType.metadata,
+                        color = colors.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                // The stamp in the row above is the list's short one ("18 Aug", "Yesterday");
+                // this is the whole thing, in the phone's own date order and 12/24-hour clock.
+                if (fullDate.isNotBlank()) {
+                    Text(
+                        text = fullDate,
                         style = GridlinkType.metadata,
                         color = colors.textSecondary,
                         maxLines = 1,
@@ -795,15 +866,15 @@ private fun GridlinkImagesBanner(
         Text(
             // States the consequence, which is the entire reason the block exists. "Images blocked"
             // alone reads as a limitation of the app; this reads as a thing it did on purpose.
-            text = "Images blocked so $sender can't tell you opened this.",
+            text = stringResource(R.string.gl_thread_images_blocked, sender),
             style = GridlinkType.metadata,
             color = colors.textSecondary,
             modifier = Modifier
                 .weight(1f)
                 .padding(horizontal = GridlinkSpacing.s12),
         )
-        GridlinkImagesBannerAction(label = "Show", onClick = onShowOnce)
-        GridlinkImagesBannerAction(label = "Always", onClick = onAlwaysAllow)
+        GridlinkImagesBannerAction(label = stringResource(R.string.gl_thread_images_show), onClick = onShowOnce)
+        GridlinkImagesBannerAction(label = stringResource(R.string.gl_thread_images_always), onClick = onAlwaysAllow)
     }
 }
 
@@ -924,7 +995,7 @@ internal fun GridlinkAttachmentChip(
                     // Named for where it ends up, not for the mechanism: "download" is what the
                     // tap already did when it opened the file, and the difference the user cares
                     // about is that this one is still there tomorrow.
-                    contentDescription = "Save ${attachment.name} to the phone",
+                    contentDescription = stringResource(R.string.gl_thread_attachment_save, attachment.name),
                     tint = colors.textSecondary,
                     modifier = Modifier.size(20.dp),
                 )
@@ -946,7 +1017,10 @@ internal fun GridlinkAttachmentChip(
                     // Named for what it does to the appointment, not to the chip. The file leaves
                     // the server, so "remove from this event" is the honest label and "clear" or
                     // "dismiss" would both suggest the chip is what is going away.
-                    contentDescription = "Remove ${attachment.name} from this event",
+                    contentDescription = stringResource(
+                        R.string.gl_thread_attachment_remove_from_event,
+                        attachment.name,
+                    ),
                     tint = colors.textSecondary,
                     modifier = Modifier.size(20.dp),
                 )
@@ -1027,18 +1101,21 @@ internal fun ThreadToolbarAction.gridlinkThreadAction(starred: Boolean): Gridlin
  * other action reads the same in the bar, in the More sheet and in settings, and it has to: the
  * settings screen is a map of this bar.
  */
-internal fun gridlinkToolbarLabel(action: ThreadToolbarAction, starred: Boolean): String = when (action) {
-    ThreadToolbarAction.REPLY_ALL -> "Reply all"
-    ThreadToolbarAction.FORWARD -> "Forward"
-    ThreadToolbarAction.ARCHIVE -> "Archive"
-    ThreadToolbarAction.DELETE -> "Delete"
-    ThreadToolbarAction.MOVE -> "Move"
-    ThreadToolbarAction.MARK_UNREAD -> "Mark unread"
-    ThreadToolbarAction.STAR -> if (starred) "Remove star" else "Star"
-    ThreadToolbarAction.PRINT -> "Print"
-    ThreadToolbarAction.JUNK -> "Junk"
-    ThreadToolbarAction.SNOOZE -> "Snooze"
-}
+@Composable
+internal fun gridlinkToolbarLabel(action: ThreadToolbarAction, starred: Boolean): String = stringResource(
+    when (action) {
+        ThreadToolbarAction.REPLY_ALL -> R.string.settings_thread_action_reply_all
+        ThreadToolbarAction.FORWARD -> R.string.settings_thread_action_forward
+        ThreadToolbarAction.ARCHIVE -> R.string.settings_thread_action_archive
+        ThreadToolbarAction.DELETE -> R.string.settings_thread_action_delete
+        ThreadToolbarAction.MOVE -> R.string.settings_thread_action_move
+        ThreadToolbarAction.MARK_UNREAD -> R.string.settings_thread_action_mark_unread
+        ThreadToolbarAction.STAR -> if (starred) R.string.a11y_unfavourite else R.string.settings_thread_action_star
+        ThreadToolbarAction.PRINT -> R.string.settings_thread_action_print
+        ThreadToolbarAction.JUNK -> R.string.settings_thread_action_junk
+        ThreadToolbarAction.SNOOZE -> R.string.settings_thread_action_snooze
+    },
+)
 
 /** The glyph for each, shared by the bar and the sheet so one action never wears two icons. */
 internal fun gridlinkToolbarIcon(action: ThreadToolbarAction, starred: Boolean): ImageVector = when (action) {
@@ -1114,15 +1191,10 @@ internal fun gridlinkToolbarLayout(
 /** Slots on the bar, More included. See [GridlinkThreadActionPill]. */
 private const val SLOTS = 3
 
-/**
- * The same bar in the two-pane reading pane, which is ~380dp narrower than a folded screen.
- *
- * Three labelled controls plus Reply plus the parked "+" fit there arithmetically and still read as
- * cramped, which is a thing only visible on the real device: *"the bottom menu bar that currently
- * contains forward, archive, and more - its gonna only be able to hold one control + more. three
- * causes it to still be cramped."* The folded bar is not crowded and does not change.
- */
-private const val PANE_SLOTS = 2
+// PANE_SLOTS (2) used to live here: the reading pane's bar held one control plus More, because three
+// slots plus Reply plus the scaffold's parked "+" read as cramped on the real device. The "+" now
+// sits with the list in two panes, so the pane's bar is the folded bar again (three slots, Forward
+// back on it) and the one-slot rule in [gridlinkToolbarLayout] is only reached by a narrow window.
 
 /**
  * The secondary actions, in the same shell the nav pill uses on the list.
@@ -1169,7 +1241,7 @@ private fun GridlinkThreadActionPill(
         }
         if (layout.showMore) {
             GridlinkDetailActionItem(
-                label = "More",
+                label = stringResource(R.string.message_more),
                 icon = Icons.Outlined.MoreHoriz,
                 onClick = onMore,
                 modifier = Modifier.weight(1f),
@@ -1224,7 +1296,7 @@ private fun GridlinkThreadMoreSheet(
         // for on a message that has it.
         if (message.unsubscribe != null) {
             GridlinkSheetAction(
-                label = "Unsubscribe",
+                label = stringResource(R.string.gl_thread_unsubscribe),
                 icon = Icons.Outlined.Unsubscribe,
                 onClick = { onAction(GridlinkThreadAction.UNSUBSCRIBE) },
             )
@@ -1236,7 +1308,7 @@ private fun GridlinkThreadMoreSheet(
         // message rather than about the reader's chosen layout.
         if (onTags != null) {
             GridlinkSheetAction(
-                label = "Tags",
+                label = stringResource(R.string.settings_tags_title),
                 icon = Icons.Outlined.Sell,
                 onClick = onTags,
             )
@@ -1276,7 +1348,7 @@ private fun GridlinkThreadMoreSheet(
  * card, and falls back to a card built from the message header when it does not, which is what a
  * reply to a no-reply robot should look like.
  */
-internal fun gridlinkReplyTo(message: GridlinkMessage): GridlinkComposeRequest {
+internal fun gridlinkReplyTo(context: Context, message: GridlinkMessage): GridlinkComposeRequest {
     val known = GridlinkSampleContacts.forSender(message.sender, message.domain)
     val recipient = known ?: GridlinkContact(
         id = message.id,
@@ -1292,12 +1364,12 @@ internal fun gridlinkReplyTo(message: GridlinkMessage): GridlinkComposeRequest {
     }
     return GridlinkComposeRequest(
         draft = GridlinkComposeDraft(
-            title = "Reply",
+            title = context.getString(R.string.message_reply),
             recipients = listOf(recipient),
             recipientQuery = "",
             subject = subject,
             body = "",
-            quoted = gridlinkReplyQuote(message),
+            quoted = gridlinkReplyQuote(context, message),
             attachments = emptyList(),
         ),
         focus = GridlinkComposeField.BODY,
@@ -1305,21 +1377,18 @@ internal fun gridlinkReplyTo(message: GridlinkMessage): GridlinkComposeRequest {
 }
 
 /**
- * Builds a reply-all to [message].
+ * Builds a reply-all to [message] from the list row alone: the sender in TO and the "Reply all"
+ * title.
  *
- * ⚠️ **Right now this addresses exactly the same people [gridlinkReplyTo] does, and that is not a
- * bug in the button, it is the sample model.** [GridlinkMessage] carries one sender and no To or Cc
- * list, so there is literally nobody else on the message to add. Inventing a second recipient to
- * make the button look busier would put a name in a real-looking composer that no message ever
- * addressed, which §9 forbids and which is the sort of demo detail that survives into shipping code.
- *
- * What it does change is the title, so the composer says which of the two you pressed. When the JMAP
- * store lands this becomes `to + cc` minus your own identities, and it is the *minus* that matters:
- * every mail client that gets reply-all wrong gets it wrong by leaving you on the list.
+ * [GridlinkMessage] carries one sender and no To or Cc list, so this is only the starting point.
+ * The host fetches the original on the account that owns it and [gridlinkAddressedReply] replaces
+ * the addressing with [gridlinkReplyAllAddressing] (everyone on the original minus the sending
+ * account's own addresses, CC kept as CC) and adds the In-Reply-To and References. If that fetch
+ * fails the reply goes to the sender only and the composer says so.
  */
-internal fun gridlinkReplyAllTo(message: GridlinkMessage): GridlinkComposeRequest {
-    val reply = gridlinkReplyTo(message)
-    return reply.copy(draft = reply.draft.copy(title = "Reply all"))
+internal fun gridlinkReplyAllTo(context: Context, message: GridlinkMessage): GridlinkComposeRequest {
+    val reply = gridlinkReplyTo(context, message)
+    return reply.copy(draft = reply.draft.copy(title = context.getString(R.string.message_reply_all)))
 }
 
 /**
@@ -1340,6 +1409,7 @@ internal fun gridlinkReplyAllTo(message: GridlinkMessage): GridlinkComposeReques
  * where there is no attacher and therefore no honest chip to show.
  */
 internal fun gridlinkForward(
+    context: Context,
     message: GridlinkMessage,
     attachments: List<GridlinkAttachment> = emptyList(),
 ): GridlinkComposeRequest {
@@ -1350,14 +1420,36 @@ internal fun gridlinkForward(
     }
     return GridlinkComposeRequest(
         draft = GridlinkComposeDraft(
-            title = "Forward",
+            title = context.getString(R.string.message_forward),
             recipients = emptyList(),
             recipientQuery = "",
             subject = subject,
             body = "",
-            quoted = gridlinkForwardQuote(message),
+            quoted = gridlinkForwardQuote(context, message),
             attachments = attachments,
         ),
         focus = GridlinkComposeField.TO,
     )
 }
+
+/**
+ * [iso] as a full date and time ("Tue, Aug 18, 2026, 9:41 AM"), or "" when there is none.
+ *
+ * Built from the phone's own settings rather than a fixed pattern: the locale picks the order and
+ * the words, and the system 12/24-hour switch picks the clock, which a pattern read off the
+ * language alone would ignore.
+ */
+@Composable
+private fun rememberFullMailDate(iso: String?): String {
+    val context = LocalContext.current
+    val locale = context.resources.configuration.locales[0]
+    val is24 = DateFormat.is24HourFormat(context)
+    return remember(iso, locale, is24) {
+        val skeleton = if (is24) "EEEdMMMyyyyHHmm" else "EEEdMMMyyyyhmma"
+        val pattern = DateFormat.getBestDateTimePattern(locale, skeleton)
+        MailDates.formatWith(iso, DateTimeFormatter.ofPattern(pattern, locale))
+    }
+}
+
+/** The hidden sliver a body lays out in first, so the height it reports is its own. */
+private val BODY_PROBE_HEIGHT = 1.dp

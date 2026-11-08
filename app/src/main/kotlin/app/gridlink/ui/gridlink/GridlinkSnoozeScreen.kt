@@ -1,6 +1,9 @@
 package app.gridlink.ui.gridlink
 
+import android.content.Context
+import android.text.format.DateFormat
 import androidx.activity.compose.BackHandler
+import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,8 +26,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.gridlink.R
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
@@ -36,6 +42,7 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
+import java.util.Locale
 
 // ---------------------------------------------------------------------------------------------
 // The sheet: putting a message away
@@ -54,30 +61,82 @@ import java.time.temporal.TemporalAdjusters
  * Saturday: a snooze is a promise about when mail comes back, and the one thing it may not do is
  * come back on a day other than the one the row named.
  */
-internal fun gridlinkSnoozePresets(now: ZonedDateTime): List<GridlinkPresetTime> = buildList {
+internal fun gridlinkSnoozePresets(now: ZonedDateTime): List<GridlinkSnoozePreset> = buildList {
     val today = now.toLocalDate()
     fun at(date: LocalDate, hour: Int, minute: Int = 0): Long =
         date.atTime(hour, minute).atZone(now.zone).toInstant().toEpochMilli()
 
     val laterToday = today.atTime(SNOOZE_EVENING, 0).atZone(now.zone)
     if (laterToday.isAfter(now)) {
-        add(GridlinkPresetTime("Later today", "6:00 PM", laterToday.toInstant().toEpochMilli()))
+        add(GridlinkSnoozePreset(GridlinkSnoozePresetKind.LATER_TODAY, laterToday.toInstant().toEpochMilli()))
     }
 
     val tomorrow = today.plusDays(1)
-    add(GridlinkPresetTime("Tomorrow", "8:00 AM", at(tomorrow, SNOOZE_MORNING)))
+    add(GridlinkSnoozePreset(GridlinkSnoozePresetKind.TOMORROW, at(tomorrow, SNOOZE_MORNING)))
 
     // Dropped on Saturday and Sunday: the weekend the row offers is the one being lived through.
     val saturday = today.with(TemporalAdjusters.next(DayOfWeek.SATURDAY))
     val onTheWeekend = today.dayOfWeek == DayOfWeek.SATURDAY || today.dayOfWeek == DayOfWeek.SUNDAY
     if (!onTheWeekend && saturday != tomorrow) {
-        add(GridlinkPresetTime("This weekend", "Sat 9:00 AM", at(saturday, SNOOZE_WEEKEND)))
+        add(GridlinkSnoozePreset(GridlinkSnoozePresetKind.THIS_WEEKEND, at(saturday, SNOOZE_WEEKEND)))
     }
 
     val monday = today.with(TemporalAdjusters.next(DayOfWeek.MONDAY))
     if (monday != tomorrow) {
-        add(GridlinkPresetTime("Next week", "Mon 8:00 AM", at(monday, SNOOZE_MORNING)))
+        add(GridlinkSnoozePreset(GridlinkSnoozePresetKind.NEXT_WEEK, at(monday, SNOOZE_MORNING)))
     }
+}
+
+/**
+ * Which snooze shortcut a row is. The words and the clock beside them are resolved at draw time, in
+ * the device's language and 12/24-hour setting, so the preset itself carries only the moment.
+ */
+enum class GridlinkSnoozePresetKind(@StringRes val label: Int) {
+    LATER_TODAY(R.string.gl_thread_snooze_later_today),
+    TOMORROW(R.string.gl_thread_snooze_tomorrow),
+    THIS_WEEKEND(R.string.gl_thread_snooze_this_weekend),
+    NEXT_WEEK(R.string.gl_thread_snooze_next_week),
+}
+
+/** One snooze shortcut: which kind it is, and the moment it means. */
+@Immutable
+data class GridlinkSnoozePreset(val kind: GridlinkSnoozePresetKind, val millis: Long)
+
+/**
+ * The exact time shown beside a preset: the time alone for today and tomorrow, the weekday and time
+ * for the weekend and next week ("6:00 PM", "Sat 9:00 AM" in US English).
+ */
+internal fun gridlinkSnoozePresetTime(
+    context: Context,
+    preset: GridlinkSnoozePreset,
+    zone: ZoneId = ZoneId.systemDefault(),
+): String {
+    val clock = GridlinkClockFormat(context)
+    val at = Instant.ofEpochMilli(preset.millis).atZone(zone)
+    return when (preset.kind) {
+        GridlinkSnoozePresetKind.LATER_TODAY, GridlinkSnoozePresetKind.TOMORROW -> at.format(clock.time)
+        GridlinkSnoozePresetKind.THIS_WEEKEND, GridlinkSnoozePresetKind.NEXT_WEEK -> at.format(clock.dayTime)
+    }
+}
+
+/**
+ * The device's clock in its own language, shared by the Snooze and Scheduled screens: best patterns
+ * for the locale, and the 12/24-hour switch from system settings (as in GridlinkMailViewModel.viewer).
+ */
+internal class GridlinkClockFormat(context: Context) {
+    private val locale: Locale = context.resources.configuration.locales[0]
+    private val is24 = DateFormat.is24HourFormat(context)
+    private fun best(skeleton: String): DateTimeFormatter =
+        DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, skeleton), locale)
+
+    /** "8:00 AM" or "08:00". */
+    val time: DateTimeFormatter = best(if (is24) "Hm" else "hm")
+
+    /** "Mon, Aug 17" in US English. */
+    val day: DateTimeFormatter = best("EEEdMMM")
+
+    /** "Sat 9:00 AM" in US English. */
+    val dayTime: DateTimeFormatter = best(if (is24) "EEEHm" else "EEEhm")
 }
 
 private const val SNOOZE_MORNING = 8
@@ -96,15 +155,16 @@ private const val SAMPLE_WEEKEND_DAYS = 3L
  */
 @Composable
 fun GridlinkSnoozeSheet(
-    presets: List<GridlinkPresetTime>,
+    presets: List<GridlinkSnoozePreset>,
     onPick: (Long) -> Unit,
     onPickCustom: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val colors = GridlinkTheme.colors
+    val context = LocalContext.current
     GridlinkCenterSheet(onDismiss = onDismiss) {
         Text(
-            text = "SNOOZE UNTIL",
+            text = stringResource(R.string.gl_thread_snooze_until).uppercase(),
             style = GridlinkType.sectionLabel,
             color = colors.textSecondary,
             modifier = Modifier.padding(
@@ -116,13 +176,13 @@ fun GridlinkSnoozeSheet(
         )
         presets.forEach { preset ->
             GridlinkTimePresetRow(
-                label = preset.label,
-                trailing = preset.time,
+                label = stringResource(preset.kind.label),
+                trailing = gridlinkSnoozePresetTime(context, preset),
                 onClick = { onPick(preset.millis) },
             )
         }
         GridlinkTimePresetRow(
-            label = "Pick a date & time",
+            label = stringResource(R.string.gl_thread_pick_date_time),
             trailing = null,
             accent = true,
             onClick = onPickCustom,
@@ -179,7 +239,7 @@ fun GridlinkSnoozeScreen(
     }
 
     GridlinkDetailFrame(
-        title = "Snoozed",
+        title = stringResource(R.string.snoozed_title),
         onBack = onClose,
         modifier = modifier,
         // Null is the honest bottom row: the one action a snoozed message has is on the row itself.
@@ -187,19 +247,11 @@ fun GridlinkSnoozeScreen(
     ) {
         if (items.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "Nothing snoozed",
-                        style = GridlinkType.senderName,
-                        color = colors.textPrimary,
-                    )
-                    Text(
-                        text = "Messages you snooze wait here until they come back.",
-                        style = GridlinkType.metadata,
-                        color = colors.textSecondary,
-                        modifier = Modifier.padding(top = GridlinkSpacing.s8),
-                    )
-                }
+                GridlinkEmptyNotice(
+                    icon = Icons.Outlined.Snooze,
+                    title = stringResource(R.string.gl_thread_snoozed_empty_title),
+                    subline = stringResource(R.string.gl_thread_snoozed_empty_subline),
+                )
             }
             return@GridlinkDetailFrame
         }
@@ -259,21 +311,21 @@ private fun GridlinkSnoozedRow(
             Text(
                 // Blank when the cached header is gone (see the class doc). The sender line is the
                 // one a person recognises, so it leads even when it is the emptier of the two.
-                text = item.sender.ifBlank { "(Unknown sender)" },
+                text = item.sender.ifBlank { stringResource(R.string.widget_unknown_sender) },
                 style = GridlinkType.senderName,
                 color = colors.textPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = item.subject.ifBlank { "(No subject)" },
+                text = item.subject.ifBlank { stringResource(R.string.widget_no_subject) },
                 style = GridlinkType.metadata,
                 color = colors.textSecondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = gridlinkSnoozeLabel(item.untilMillis),
+                text = gridlinkSnoozeLabel(LocalContext.current, item.untilMillis),
                 style = GridlinkType.metadata,
                 color = colors.accent,
                 maxLines = 1,
@@ -292,7 +344,7 @@ private fun GridlinkSnoozedRow(
                 // happened, and this reverses a thing that already did. Same corner, opposite verb,
                 // so the two glyphs must not be the same glyph.
                 imageVector = Icons.AutoMirrored.Outlined.Undo,
-                contentDescription = "Wake now",
+                contentDescription = stringResource(R.string.gl_thread_wake_now),
                 tint = colors.textSecondary,
                 modifier = Modifier.size(20.dp),
             )
@@ -339,21 +391,20 @@ data class GridlinkSnoozedContent(
  * screen exists to state.
  */
 internal fun gridlinkSnoozeLabel(
+    context: Context,
     untilMillis: Long,
     zone: ZoneId = ZoneId.systemDefault(),
     today: LocalDate = LocalDate.now(),
 ): String {
+    val clock = GridlinkClockFormat(context)
     val at = Instant.ofEpochMilli(untilMillis).atZone(zone)
-    val time = at.format(GRIDLINK_SNOOZE_TIME)
+    val time = at.format(clock.time)
     return when (at.toLocalDate()) {
-        today -> "Back today at $time"
-        today.plusDays(1) -> "Back tomorrow at $time"
-        else -> "Back ${at.format(GRIDLINK_SNOOZE_DAY)} at $time"
+        today -> context.getString(R.string.gl_thread_snooze_back_today, time)
+        today.plusDays(1) -> context.getString(R.string.gl_thread_snooze_back_tomorrow, time)
+        else -> context.getString(R.string.gl_thread_snooze_back_on, at.format(clock.day), time)
     }
 }
-
-private val GRIDLINK_SNOOZE_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("h:mm a")
-private val GRIDLINK_SNOOZE_DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM")
 
 /**
  * ⚠️ Sample data, matching the drawer sample's count. Times are computed off now rather than frozen,

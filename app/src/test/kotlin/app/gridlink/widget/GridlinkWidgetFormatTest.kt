@@ -6,6 +6,8 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -17,7 +19,11 @@ import java.util.Locale
  * A fixed zone and locale throughout, so these assert the RULES and not the JDK's idea of how a
  * British Tuesday is abbreviated — a test that pinned the exact localised output would break on
  * every CLDR update without anything being wrong.
+ *
+ * Robolectric because the weekday and date forms come from the locale's skeleton patterns
+ * (`DateFormat.getBestDateTimePattern`), which needs ICU behind the framework stub.
  */
+@RunWith(RobolectricTestRunner::class)
 class GridlinkWidgetFormatTest {
 
     private val zone = ZoneId.of("America/New_York")
@@ -27,7 +33,14 @@ class GridlinkWidgetFormatTest {
     private fun at(minutesAgo: Long) = now - minutesAgo * 60_000L
 
     private fun timeOf(millis: Long) =
-        GridlinkWidgetFormat.relativeTime(now, millis, zone, locale, justNowLabel = "now")
+        GridlinkWidgetFormat.relativeTime(
+            now,
+            millis,
+            zone,
+            locale,
+            justNowLabel = "now",
+            minutesPattern = "%1${'$'}dm",
+        )
 
     @Test
     fun `anything under a minute is now`() {

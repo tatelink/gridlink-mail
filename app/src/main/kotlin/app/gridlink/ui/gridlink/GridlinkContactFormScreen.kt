@@ -35,12 +35,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import app.gridlink.R
 import app.gridlink.core.data.contacts.ContactEdit
 import app.gridlink.core.jmap.model.ContactCardCustomField
 import app.gridlink.core.jmap.model.ContactCardPhoto
@@ -154,6 +156,11 @@ fun GridlinkContactFormScreen(
     // gave up.
     var encodingPhoto by remember { mutableStateOf(false) }
     var photoError by remember { mutableStateOf<String?>(null) }
+    // What the tile says when a picked file produced no photo. Deliberately about the FILE and not
+    // about the app: the decode is two decoders deep ([gridlinkEncodeContactPhoto]) before it gives
+    // up, so by the time this shows, the image really is one this device cannot read. Resolved here
+    // because the picker callback below is not composable.
+    val photoUnreadable = stringResource(R.string.gl_people_photo_unreadable)
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         // A null uri is the reader backing out of the picker, which needs no comment.
         if (uri != null) {
@@ -165,7 +172,7 @@ fun GridlinkContactFormScreen(
                 // A file that would not decode leaves the photo as it was: on a form, silently
                 // deleting the existing picture because the replacement was corrupt is worse than
                 // refusing it. Refusing it out loud is better than both.
-                if (encoded != null) photo = encoded else photoError = PHOTO_UNREADABLE
+                if (encoded != null) photo = encoded else photoError = photoUnreadable
             }
         }
     }
@@ -200,16 +207,16 @@ fun GridlinkContactFormScreen(
     val typedEmails = emails.map { it.text.trim() }.filter { it.isNotEmpty() }
     val misspelled = typedEmails.any { gridlinkTypedRecipient(it) == null }
     val hint = failure ?: when {
-        deleting -> "Deleting this contact."
-        !filed -> "A contact needs a name or a company to file under."
-        misspelled -> "Check the email addresses: one of them doesn't look like name@company.com."
+        deleting -> stringResource(R.string.gl_people_form_deleting)
+        !filed -> stringResource(R.string.gl_people_form_needs_name)
+        misspelled -> stringResource(R.string.gl_people_form_bad_email)
         else -> null
     }
 
     if (confirmingDelete) {
         GridlinkDialog(
-            title = "Delete this contact?",
-            confirmLabel = "Delete",
+            title = stringResource(R.string.gl_people_delete_title),
+            confirmLabel = stringResource(R.string.inbox_delete),
             onConfirm = {
                 confirmingDelete = false
                 onDelete?.invoke()
@@ -218,8 +225,7 @@ fun GridlinkContactFormScreen(
             destructive = true,
         ) {
             Text(
-                "It will be removed from the server and from every device that syncs this " +
-                    "account. This cannot be undone.",
+                stringResource(R.string.gl_people_delete_body),
                 style = GridlinkType.body,
                 color = GridlinkTheme.colors.textSecondary,
             )
@@ -231,7 +237,7 @@ fun GridlinkContactFormScreen(
         // No way out while the write is in flight, for the event form's reason: closing would not
         // recall it, and the card turns up on the server anyway.
         onClose = if (saving || deleting) null else onClose,
-        confirmLabel = if (saving) "Saving" else "Save",
+        confirmLabel = stringResource(if (saving) R.string.gl_people_form_saving else R.string.settings_save),
         confirmEnabled = filed && !misspelled && !saving && !deleting,
         hint = hint,
         embedded = embedded,
@@ -279,7 +285,7 @@ fun GridlinkContactFormScreen(
             capitalization = KeyboardCapitalization.Words,
             imeAction = ImeAction.Next,
             onImeAction = { familyFocus.requestFocus() },
-            label = "First name",
+            label = stringResource(R.string.gl_people_first_name),
             contained = true,
         )
 
@@ -295,7 +301,7 @@ fun GridlinkContactFormScreen(
             capitalization = KeyboardCapitalization.Words,
             imeAction = ImeAction.Next,
             onImeAction = { companyFocus.requestFocus() },
-            label = "Last name",
+            label = stringResource(R.string.gl_people_last_name),
             contained = true,
         )
 
@@ -311,7 +317,7 @@ fun GridlinkContactFormScreen(
             capitalization = KeyboardCapitalization.Words,
             imeAction = ImeAction.Next,
             onImeAction = { titleFocus.requestFocus() },
-            label = "Company",
+            label = stringResource(R.string.gl_people_company),
             contained = true,
         )
 
@@ -327,7 +333,7 @@ fun GridlinkContactFormScreen(
             capitalization = KeyboardCapitalization.Sentences,
             imeAction = ImeAction.Next,
             onImeAction = { emailFocus.first().requestFocus() },
-            label = "Title",
+            label = stringResource(R.string.gl_people_job_title),
             contained = true,
         )
 
@@ -343,7 +349,7 @@ fun GridlinkContactFormScreen(
                     },
                     // The first row wears the group's pill; the spares keep their ghost text,
                     // which is the whole "type here to add another" affordance.
-                    placeholder = if (index == 0) "" else "Add email",
+                    placeholder = if (index == 0) "" else stringResource(R.string.gl_people_add_email),
                     placeholderStyle = GridlinkType.body,
                     style = GridlinkType.body,
                     focusRequester = emailFocus[index],
@@ -361,7 +367,7 @@ fun GridlinkContactFormScreen(
                         if (index < emails.lastIndex) emailFocus[index + 1].requestFocus()
                         else phoneFocus.first().requestFocus()
                     },
-                    label = if (index == 0) "Email" else null,
+                    label = if (index == 0) stringResource(R.string.gl_people_email) else null,
                     contained = true,
                 )
             }
@@ -375,7 +381,7 @@ fun GridlinkContactFormScreen(
                         phones[index] = changed
                         growTrailingRow(phones)
                     },
-                    placeholder = if (index == 0) "" else "Add phone",
+                    placeholder = if (index == 0) "" else stringResource(R.string.gl_people_add_phone),
                     placeholderStyle = GridlinkType.body,
                     style = GridlinkType.body,
                     focusRequester = phoneFocus[index],
@@ -388,7 +394,7 @@ fun GridlinkContactFormScreen(
                         if (index < phones.lastIndex) phoneFocus[index + 1].requestFocus()
                         else customLabelFocus.first().requestFocus()
                     },
-                    label = if (index == 0) "Phone" else null,
+                    label = if (index == 0) stringResource(R.string.gl_people_phone) else null,
                     contained = true,
                 )
             }
@@ -402,7 +408,7 @@ fun GridlinkContactFormScreen(
         // (2026-08-16) a heading drawn the same way as them would have read as a fourth field with
         // nothing in it.
         Text(
-            text = "Custom fields",
+            text = stringResource(R.string.gl_people_custom_fields),
             style = GridlinkType.sectionLabel,
             color = GridlinkTheme.colors.textSecondary,
             modifier = Modifier.padding(
@@ -422,7 +428,9 @@ fun GridlinkContactFormScreen(
                             customs[index] = changed to customs[index].second
                             growTrailingPairRow(customs)
                         },
-                        placeholder = if (index == 0) "Label" else "Add label",
+                        placeholder = stringResource(
+                            if (index == 0) R.string.gl_people_custom_label else R.string.gl_people_custom_add_label,
+                        ),
                         placeholderStyle = GridlinkType.body,
                         style = GridlinkType.body,
                         focusRequester = customLabelFocus[index],
@@ -440,7 +448,7 @@ fun GridlinkContactFormScreen(
                             customs[index] = customs[index].first to changed
                             growTrailingPairRow(customs)
                         },
-                        placeholder = "Value",
+                        placeholder = stringResource(R.string.gl_people_custom_value),
                         placeholderStyle = GridlinkType.body,
                         style = GridlinkType.body,
                         focusRequester = customValueFocus[index],
@@ -474,7 +482,7 @@ fun GridlinkContactFormScreen(
             imeAction = ImeAction.Default,
             onImeAction = null,
             minHeight = 72.dp,
-            label = "Note",
+            label = stringResource(R.string.gl_people_note),
             contained = true,
         )
 
@@ -485,7 +493,7 @@ fun GridlinkContactFormScreen(
         if (onDelete != null) {
             Spacer(Modifier.height(GridlinkSpacing.s16))
             Text(
-                "Delete contact",
+                stringResource(R.string.gl_people_delete_contact),
                 style = GridlinkType.body,
                 color = GridlinkTheme.colors.destructive,
                 modifier = Modifier
@@ -587,7 +595,7 @@ private fun GridlinkContactPhotoRow(
             if (bitmap != null) {
                 Image(
                     bitmap = bitmap,
-                    contentDescription = "Contact photo",
+                    contentDescription = stringResource(R.string.gl_people_photo_description),
                     contentScale = ContentScale.Crop,
                     // Fills the tile: the border and the fill behind it are the empty state, and
                     // leaving them visible around a picture would frame it like a sticker.
@@ -607,9 +615,9 @@ private fun GridlinkContactPhotoRow(
         Spacer(Modifier.height(GridlinkSpacing.s12))
         Text(
             text = when {
-                busy -> "Reading image…"
-                photo == null -> "Add photo"
-                else -> "Replace photo"
+                busy -> stringResource(R.string.gl_people_photo_reading)
+                photo == null -> stringResource(R.string.gl_people_photo_add)
+                else -> stringResource(R.string.gl_people_photo_replace)
             },
             style = GridlinkType.body,
             // Placeholder grey while empty, exactly as the text rows read before they are typed
@@ -631,7 +639,7 @@ private fun GridlinkContactPhotoRow(
         }
         if (photo != null) {
             Text(
-                text = "Remove",
+                text = stringResource(R.string.settings_remove),
                 style = GridlinkType.metadata,
                 color = colors.textSecondary,
                 modifier = Modifier
@@ -642,12 +650,3 @@ private fun GridlinkContactPhotoRow(
         }
     }
 }
-
-/**
- * What the tile says when a picked file produced no photo.
- *
- * Deliberately about the FILE and not about the app: the decode is two decoders deep
- * ([gridlinkEncodeContactPhoto]) before it gives up, so by the time this shows, the image really is
- * one this device cannot read. Naming the next move ("try another") is the only useful half.
- */
-private const val PHOTO_UNREADABLE = "That image couldn’t be read. Try a different one."

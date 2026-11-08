@@ -1,7 +1,7 @@
 package app.gridlink.ui.settings
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.LocalCafe
+import androidx.compose.material.icons.outlined.LocalCafe
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import app.gridlink.R
@@ -22,7 +22,7 @@ internal fun StoreSupportCard(onOpenUrl: (String) -> Unit) {
         SupportPill(
             label = stringResource(R.string.settings_about_support_summary),
             onClick = { onOpenUrl(KOFI_URL) },
-            icon = Icons.Filled.LocalCafe,
+            icon = Icons.Outlined.LocalCafe,
         )
     }
 }

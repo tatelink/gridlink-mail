@@ -17,8 +17,7 @@ enum class Freq { DAILY, WEEKLY, MONTHLY, YEARLY }
  * 🔴 Day, not instant. Everything downstream places events on a month grid, and the time of day of a
  * repeat is DTSTART's, unchanged, in the event's own zone. That is what lets this whole file work in
  * [LocalDate] and stay comprehensible. BYHOUR, BYMINUTE and BYSECOND are therefore not read: they
- * would change the time within a day and nothing here renders that difference. Neither is BYSETPOS,
- * which needs the full RFC 5545 expand/limit pipeline to mean anything.
+ * would change the time within a day and nothing here renders that difference.
  */
 data class RecurrenceRule(
     val freq: Freq,
@@ -38,17 +37,20 @@ data class RecurrenceRule(
     val byMonthDay: List<Int>,
     val byMonth: List<Int>,
     val weekStart: DayOfWeek,
+    /** BYSETPOS: which of each period's candidate days are kept (-1 is the last of them). */
+    val bySetPos: List<Int> = emptyList(),
 )
 
 /**
  * Expands RRULEs into the days an event lands on.
  *
  * ## Scope, and why it stops where it does
- * This handles DAILY, WEEKLY, MONTHLY and YEARLY with INTERVAL, COUNT, UNTIL, BYDAY, BYMONTHDAY,
- * BYMONTH and WKST, plus EXDATE. That is not all of RFC 5545, and the omissions are deliberate:
- * BYSETPOS, BYWEEKNO and BYYEARDAY need the full expand-then-limit pipeline, and nothing in the
- * account uses them. What the account does use, verified against the live server, is exactly four
- * shapes:
+ * This handles DAILY, WEEKLY, MONTHLY and YEARLY with INTERVAL, COUNT, UNTIL, BYDAY (ordinals
+ * included: 2TU, -1FR), BYMONTHDAY (negative included), BYMONTH, BYSETPOS and WKST, plus EXDATE.
+ * That is not all of RFC 5545: BYWEEKNO and BYYEARDAY are not read, and nothing in the account uses
+ * them. BYSETPOS is applied per period after the other parts, so "the last weekday of the month"
+ * (`BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1`) is one day a month and COUNT counts only the kept days. What
+ * the account used when this was first written, verified against the live server, was four shapes:
  *
  * ```
  * FREQ=WEEKLY;INTERVAL=2;BYDAY=TU;WKST=SU
@@ -74,6 +76,11 @@ object Recurrence {
 
     /** Most periods (days/weeks/months/years) the walk will examine before giving up. */
     const val MAX_PERIODS = 10_000
+
+    /** RFC 5545's bound on a BYSETPOS value: a position within a year's worth of days. */
+    private const val MAX_SET_POS = 366
+
+    private const val MONTHS_IN_YEAR = 12
 
     private val BY_CODE = mapOf(
         "SU" to DayOfWeek.SUNDAY, "MO" to DayOfWeek.MONDAY, "TU" to DayOfWeek.TUESDAY,
@@ -108,6 +115,8 @@ object Recurrence {
             byMonth = parts["BYMONTH"].orEmpty().split(',')
                 .mapNotNull { it.trim().toIntOrNull() }.filter { it in 1..12 },
             weekStart = parts["WKST"]?.uppercase()?.let { BY_CODE[it] } ?: DayOfWeek.MONDAY,
+            bySetPos = parts["BYSETPOS"].orEmpty().split(',')
+                .mapNotNull { it.trim().toIntOrNull() }.filter { it != 0 && it in -MAX_SET_POS..MAX_SET_POS },
         )
     }
 
@@ -221,12 +230,23 @@ object Recurrence {
     /**
      * The days this rule selects inside the one period beginning at [periodStart], ascending.
      *
+     * This is RFC 5545's expand-then-limit pipeline for one period: the BYxxx parts build or narrow
+     * the period's candidate set, BYMONTH filters it, and BYSETPOS then keeps only the named
+     * positions of what is left. Everything after that (DTSTART, UNTIL, COUNT, the window, EXDATE)
+     * is the walk's job in [expand], which is why COUNT is charged only for days BYSETPOS kept.
+     *
      * [start] supplies the defaults: a rule that names no BYDAY or BYMONTHDAY repeats on the same
      * weekday, day of the month, or date the event itself began on.
      */
     private fun daysIn(rule: RecurrenceRule, periodStart: LocalDate, start: LocalDate): List<LocalDate> {
         val days: List<LocalDate> = when (rule.freq) {
-            Freq.DAILY -> listOf(periodStart)
+            // BYDAY and BYMONTHDAY only narrow a daily rule: `FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR` is
+            // "every weekday", not every day. An ordinal means nothing on a single day, so the
+            // weekday alone is compared.
+            Freq.DAILY -> listOf(periodStart).filter { day ->
+                (rule.byDay.isEmpty() || rule.byDay.any { it.day == day.dayOfWeek }) &&
+                    (rule.byMonthDay.isEmpty() || day in monthDays(rule.byMonthDay, day.withDayOfMonth(1)))
+            }
 
             Freq.WEEKLY -> {
                 val wanted = rule.byDay.map { it.day }.ifEmpty { listOf(start.dayOfWeek) }
@@ -237,13 +257,7 @@ object Recurrence {
 
             Freq.MONTHLY -> daysInMonth(rule, periodStart, start.dayOfMonth)
 
-            Freq.YEARLY -> {
-                val months = rule.byMonth.ifEmpty { listOf(start.monthValue) }
-                months.flatMap { m ->
-                    val month = runCatching { periodStart.withMonth(m) }.getOrNull()
-                    if (month == null) emptyList() else daysInMonth(rule, month, start.dayOfMonth)
-                }
-            }
+            Freq.YEARLY -> daysInYear(rule, periodStart, start)
         }
 
         // BYMONTH also acts as a filter on the shorter frequencies (`FREQ=WEEKLY;BYMONTH=6` is a
@@ -251,36 +265,106 @@ object Recurrence {
         val filtered =
             if (rule.byMonth.isEmpty() || rule.freq == Freq.YEARLY) days
             else days.filter { it.monthValue in rule.byMonth }
-        return filtered.distinct().sorted()
+        return setPositions(filtered.distinct().sorted(), rule.bySetPos)
+    }
+
+    /**
+     * BYSETPOS: the [positions] of [days] to keep, 1-based, negative counting back from the end.
+     *
+     * `BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1` is the last weekday of the month. A position past the end
+     * of a short set selects nothing for that period, it never wraps or borrows from the next one.
+     */
+    private fun setPositions(days: List<LocalDate>, positions: List<Int>): List<LocalDate> {
+        if (positions.isEmpty()) return days
+        return positions
+            .mapNotNull { p -> days.getOrNull(if (p > 0) p - 1 else days.size + p) }
+            .distinct()
+            .sorted()
     }
 
     /** The selected days within the month containing [monthStart]. */
     private fun daysInMonth(rule: RecurrenceRule, monthStart: LocalDate, defaultDay: Int): List<LocalDate> {
         val first = monthStart.withDayOfMonth(1)
         val length = first.lengthOfMonth()
+        val monthWeekdays = { weekdaysIn(rule.byDay, first, first.withDayOfMonth(length)) }
 
-        if (rule.byMonthDay.isNotEmpty()) {
-            return rule.byMonthDay.mapNotNull { d ->
-                // A negative BYMONTHDAY counts back from the end: -1 is the last day of the month.
-                val day = if (d > 0) d else length + 1 + d
-                if (day in 1..length) first.withDayOfMonth(day) else null
-            }
+        return when {
+            // With both, BYDAY narrows BYMONTHDAY (RFC 5545's table: BYMONTHDAY expands, BYDAY
+            // limits). `BYDAY=FR;BYMONTHDAY=13` is Friday the 13th, not every 13th.
+            rule.byMonthDay.isNotEmpty() && rule.byDay.isNotEmpty() ->
+                monthWeekdays().toSet().let { allowed -> monthDays(rule.byMonthDay, first).filter { it in allowed } }
+
+            rule.byMonthDay.isNotEmpty() -> monthDays(rule.byMonthDay, first)
+
+            rule.byDay.isNotEmpty() -> monthWeekdays()
+
+            // 🔴 A monthly event started on the 31st simply does not occur in a 30-day month.
+            // Clamping it to the 30th would invent a meeting the organiser never scheduled, so it
+            // is skipped.
+            defaultDay in 1..length -> listOf(first.withDayOfMonth(defaultDay))
+
+            else -> emptyList()
         }
+    }
 
-        if (rule.byDay.isNotEmpty()) {
-            return rule.byDay.flatMap { by ->
-                val matches = (1..length).map { first.withDayOfMonth(it) }
-                    .filter { it.dayOfWeek == by.day }
-                when {
-                    by.ordinal == null -> matches
-                    by.ordinal > 0 -> listOfNotNull(matches.getOrNull(by.ordinal - 1))
-                    else -> listOfNotNull(matches.getOrNull(matches.size + by.ordinal))
+    /**
+     * The selected days within the year beginning at [yearStart].
+     *
+     * With BYMONTH the work is per month, and a BYDAY ordinal counts within that month (`BYMONTH=11;
+     * BYDAY=4TH` is Thanksgiving). Without it, RFC 5545 makes the year the scope: BYMONTHDAY means
+     * that day of every month, and a BYDAY ordinal counts across the whole year (`BYDAY=20MO` is the
+     * twentieth Monday of the year). A rule with none of the three repeats on DTSTART's date.
+     */
+    private fun daysInYear(rule: RecurrenceRule, yearStart: LocalDate, start: LocalDate): List<LocalDate> {
+        val year = yearStart.withDayOfYear(1)
+        val yearWeekdays = { weekdaysIn(rule.byDay, year, year.withDayOfYear(year.lengthOfYear())) }
+        return when {
+            rule.byMonth.isNotEmpty() -> rule.byMonth.flatMap { m ->
+                daysInMonth(rule, year.withMonth(m), start.dayOfMonth)
+            }
+
+            rule.byMonthDay.isNotEmpty() -> {
+                val dates = (1..MONTHS_IN_YEAR).flatMap { m -> monthDays(rule.byMonthDay, year.withMonth(m)) }
+                if (rule.byDay.isEmpty()) {
+                    dates
+                } else {
+                    yearWeekdays().toSet().let { allowed -> dates.filter { it in allowed } }
                 }
             }
-        }
 
-        // 🔴 A monthly event started on the 31st simply does not occur in a 30-day month. Clamping
-        // it to the 30th would invent a meeting the organiser never scheduled, so it is skipped.
-        return if (defaultDay in 1..length) listOf(first.withDayOfMonth(defaultDay)) else emptyList()
+            rule.byDay.isNotEmpty() -> yearWeekdays()
+
+            else -> daysInMonth(rule, year.withMonth(start.monthValue), start.dayOfMonth)
+        }
+    }
+
+    /**
+     * The BYMONTHDAY values that exist in the month beginning at [first]. A negative value counts
+     * back from the end (-1 is the last day); a day the month does not have is dropped, not clamped.
+     */
+    private fun monthDays(byMonthDay: List<Int>, first: LocalDate): List<LocalDate> {
+        val length = first.lengthOfMonth()
+        return byMonthDay.mapNotNull { d ->
+            val day = if (d > 0) d else length + 1 + d
+            if (day in 1..length) first.withDayOfMonth(day) else null
+        }
+    }
+
+    /**
+     * Every day from [from] to [to] inclusive that one of [byDay] selects. A plain weekday selects
+     * each of them; an ordinal selects the nth (or nth from the end) of them within the range, and
+     * selects nothing when the range has too few: a fifth Tuesday is skipped in a four-Tuesday month.
+     */
+    private fun weekdaysIn(byDay: List<ByDay>, from: LocalDate, to: LocalDate): List<LocalDate> {
+        val span = ChronoUnit.DAYS.between(from, to)
+        val all = (0..span).map { from.plusDays(it) }
+        return byDay.flatMap { by ->
+            val matches = all.filter { it.dayOfWeek == by.day }
+            when {
+                by.ordinal == null -> matches
+                by.ordinal > 0 -> listOfNotNull(matches.getOrNull(by.ordinal - 1))
+                else -> listOfNotNull(matches.getOrNull(matches.size + by.ordinal))
+            }
+        }
     }
 }

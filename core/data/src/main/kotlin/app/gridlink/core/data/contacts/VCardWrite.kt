@@ -6,7 +6,7 @@ import app.gridlink.core.jmap.model.ContactCardGroup
  * The writing half of [VCard]: build a fresh card, or patch an existing one group-wise.
  *
  * ## 🔴 Patch the TEXT, never regenerate from the model
- * [ParsedContact] reads seven properties off a card that may carry forty — PHOTO, ADR, BDAY,
+ * [ParsedContact] reads a handful of properties off a card that may carry forty — PHOTO, ADR, BDAY,
  * X-props, Apple's `item1.` groups. Rebuilding a card from the parsed model and uploading that
  * would silently delete everything the model does not know, on the first casual edit, on every
  * card. So [patch] works on the raw text: it removes the logical lines of exactly the property
@@ -133,8 +133,8 @@ object VCardWrite {
             edit.organizationValue?.let { listOf("ORG:" + escapeText(it)) }.orEmpty()
         ContactCardGroup.TITLE ->
             edit.title.takeIf { it.isNotEmpty() }?.let { listOf("TITLE:" + escapeText(it)) }.orEmpty()
-        ContactCardGroup.EMAILS -> edit.emails.map { "EMAIL:" + escapeText(it) }
-        ContactCardGroup.PHONES -> edit.phones.map { "TEL:" + escapeText(it) }
+        ContactCardGroup.EMAILS -> edit.emails.map { "EMAIL${typeParam(edit.emailTypes[it])}:" + escapeText(it) }
+        ContactCardGroup.PHONES -> edit.phones.map { "TEL${typeParam(edit.phoneTypes[it])}:" + escapeText(it) }
         ContactCardGroup.NOTE ->
             edit.note.takeIf { it.isNotEmpty() }?.let { listOf("NOTE:" + escapeText(it)) }.orEmpty()
         // Unescaped on purpose in both spellings: RFC 6350 §4.2's own PHOTO example carries its
@@ -150,6 +150,19 @@ object VCardWrite {
         ContactCardGroup.CUSTOM -> edit.customFields.map {
             "X-GRIDLINK-FIELD:" + escapeText(it.label) + ";" + escapeText(it.value)
         }
+    }
+
+    /**
+     * `;TYPE=work,cell` for a value's kind words, or nothing for none. One comma-joined TYPE is
+     * the spelling both 3.0 and 4.0 accept. A word that is not a plain token is left out rather
+     * than quoted: it came from another client's card and could otherwise carry a `:` or `;` that
+     * ends the parameter list early and turns the rest into the value.
+     */
+    private fun typeParam(words: Set<String>?): String {
+        val safe = words.orEmpty().filter { word ->
+            word.isNotEmpty() && word.all { it in 'a'..'z' || it in '0'..'9' || it == '-' }
+        }
+        return if (safe.isEmpty()) "" else ";TYPE=" + safe.joinToString(",")
     }
 
     /** The property name of a logical line's first physical line, `item1.`-style groups stripped. */

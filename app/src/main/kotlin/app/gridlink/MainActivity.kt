@@ -19,7 +19,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
-import app.gridlink.core.data.settings.GridlinkPalette
+import app.gridlink.core.data.settings.GridlinkAppearance
 import app.gridlink.core.data.settings.ListDensity
 import app.gridlink.core.data.settings.PreviewLines
 import app.gridlink.core.data.settings.ThemeMode
@@ -30,7 +30,7 @@ import app.gridlink.ui.components.LocalPreviewLines
 import app.gridlink.ui.gridlink.GridlinkDestination
 import app.gridlink.ui.gridlink.GridlinkIntroOverlay
 import app.gridlink.ui.gridlink.LocalGridlinkIntroPlaying
-import app.gridlink.ui.gridlink.rememberGridlinkIntroMode
+import app.gridlink.ui.gridlink.rememberGridlinkIntroLook
 import app.gridlink.ui.theme.AppTheme
 import app.gridlink.ui.theme.ProvideGridlinkTokens
 import kotlinx.coroutines.flow.first
@@ -143,8 +143,8 @@ class MainActivity : AppCompatActivity() {
             val previewLines by settings.previewLines.collectAsState(initial = PreviewLines.NONE)
             // ⚠️ Only the intro overlay reads this. The Gridlink screens underneath collect it
             // again for themselves, and have to, because they cannot start on a default and correct
-            // themselves later the way an animation can. See [rememberGridlinkIntroMode].
-            val gridlinkPalette by settings.gridlinkPalette.collectAsState(initial = GridlinkPalette.AUTO)
+            // themselves later the way an animation can. See [rememberGridlinkIntroLook].
+            val gridlinkAppearance by settings.gridlinkAppearance.collectAsState(initial = GridlinkAppearance())
             AppTheme(themeMode = themeMode, dynamicColor = dynamicColor) {
                 CompositionLocalProvider(
                     LocalListDensity provides density,
@@ -180,14 +180,14 @@ class MainActivity : AppCompatActivity() {
                         }
                         if (introPlaying) {
                             // Gridlink's palette, which the nav host provides for itself further
-                            // down but nothing provides up here. See [rememberGridlinkIntroMode] for
+                            // down but nothing provides up here. See [rememberGridlinkIntroLook] for
                             // why resolving it a second time is safe and what would break it.
                             // Does not claim the system bars: the nav host underneath is
                             // already showing the same mode (both resolve from the same palette
                             // and the same sun), and letting a transient overlay clear the slot
                             // on dispose would strand the screen that outlives it.
                             ProvideGridlinkTokens(
-                                mode = rememberGridlinkIntroMode(gridlinkPalette),
+                                look = rememberGridlinkIntroLook(gridlinkAppearance),
                                 ownsSystemBars = false,
                             ) {
                                 GridlinkIntroOverlay(

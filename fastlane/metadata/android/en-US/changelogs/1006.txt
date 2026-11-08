@@ -1,0 +1,8 @@
+Gridlink Mail 2.1.3.
+
+- Composer From line: choose the account and address you send from.
+- View a message's full headers from the reader's More menu.
+- Separate calendars, each with its own colour, a show/hide switch, and a choice when creating events.
+- All inboxes: notifications open on the right account, and replies go out from it.
+- Calendar and contacts sync works with more servers (thanks, mchugh19).
+- Fix: tapping a notification opens the message again.

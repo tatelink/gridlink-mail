@@ -9,8 +9,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -69,7 +69,7 @@ internal fun TipJarCard(state: TipJarState, onTip: (String) -> Unit) {
     val body = if (state.tippedBefore) R.string.tip_card_body_thanked else R.string.tip_card_body
     SupportCardFrame(
         body = stringResource(body),
-        badgeIcon = if (state.notice == TipNotice.Thanks) Icons.Filled.Check else Icons.Filled.Favorite,
+        badgeIcon = if (state.notice == TipNotice.Thanks) Icons.Outlined.Check else Icons.Outlined.Favorite,
     ) {
         when (state.availability) {
             TipAvailability.Ready -> Row(

@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import android.content.Context
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -7,6 +8,7 @@ import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.test.core.app.ApplicationProvider
 import app.gridlink.ui.theme.GridlinkMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -27,6 +29,7 @@ class GridlinkScheduledScreenTest {
     @get:Rule
     val rule = createComposeRule()
 
+    private val context: Context = ApplicationProvider.getApplicationContext()
     private val cancelled = mutableListOf<Long>()
     private var closed = 0
 
@@ -68,8 +71,8 @@ class GridlinkScheduledScreenTest {
             .map { rule.onNodeWithText(it).getUnclippedBoundsInRoot().top }
         assertTrue("expected soonest first, got tops $tops", tops[0] < tops[1] && tops[1] < tops[2])
         rule.onNodeWithText("To avery@gridlink.me").assertExists()
-        rule.onNodeWithText(gridlinkScheduledLabel(soon.sendAtMillis)).assertExists()
-        rule.onNodeWithText(gridlinkScheduledLabel(late.sendAtMillis)).assertExists()
+        rule.onNodeWithText(gridlinkScheduledLabel(context, soon.sendAtMillis)).assertExists()
+        rule.onNodeWithText(gridlinkScheduledLabel(context, late.sendAtMillis)).assertExists()
     }
 
     @Test

@@ -57,7 +57,7 @@ class DavMappersJmapContactsTest {
 
     @Test fun theEtagStandsInForSomethingJmapDoesNotHave() {
         val row = DavMappers.jmapContact("acct", "jmap:addressbook/b", ada)
-        assertEquals("2026-08-16T11:02:00Z", row.etag)
+        assertEquals(true, row.etag?.startsWith("2026-08-16T11:02:00Z:"))
 
         val edited = DavMappers.jmapContact("acct", "jmap:addressbook/b", ada.copy(updated = "2026-08-17T09:00:00Z"))
 
@@ -68,7 +68,14 @@ class DavMappersJmapContactsTest {
         assertEquals(row.etag, DavMappers.jmapContact("acct", "jmap:addressbook/b", ada).etag)
 
         // A card the server dated not at all still needs a stable stand-in, and the id is one.
-        assertEquals("C1", DavMappers.jmapContact("acct", "jmap:addressbook/b", ada.copy(updated = null)).etag)
+        val undated = DavMappers.jmapContact("acct", "jmap:addressbook/b", ada.copy(updated = null)).etag
+        assertEquals(true, undated?.startsWith("C1:"))
+        assertEquals(undated, DavMappers.jmapContact("acct", "jmap:addressbook/b", ada.copy(updated = null)).etag)
+
+        // An edit the server left undated (the same `updated`) must still move it; see the
+        // calendar test of the same name for where this was seen.
+        val sameDate = DavMappers.jmapContact("acct", "jmap:addressbook/b", ada.copy(kind = "individual"))
+        assertTrue(row.etag != sameDate.etag)
     }
 
     @Test fun aCardWithNoUidFallsBackToItsOwnKeyRatherThanBlank() {

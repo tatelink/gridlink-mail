@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import app.gridlink.R
 import app.gridlink.container
 import app.gridlink.core.data.account.AccountCredentials
 import app.gridlink.core.data.account.AuthType
@@ -37,6 +38,7 @@ import kotlinx.coroutines.withContext
 class AccountsViewModel(application: Application) : AndroidViewModel(application) {
     private val store = application.container.accountStore
     private val storage = application.container.storageRepository
+    private val dav = application.container.davRepository
     private val mail = application.container.mailRepository
     private val pgp = application.container.pgpEngine
     private val settings = application.container.settingsRepository
@@ -270,7 +272,8 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
                         },
                         onFailure = { e ->
                             _accountSignIn.value = AccountSignIn.Failed(
-                                e.message ?: "sign-in failed", offerAppPassword = true,
+                                e.message ?: getApplication<Application>().getString(R.string.gl_misc_sign_in_failed),
+                                offerAppPassword = true,
                             )
                         },
                     )
@@ -279,7 +282,7 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
                     val msg = if (e is OAuthDeniedException) {
                         oauthFailureMessage(getApplication(), e.failure)
                     } else {
-                        e.message ?: "sign-in failed"
+                        e.message ?: getApplication<Application>().getString(R.string.gl_misc_sign_in_failed)
                     }
                     _accountSignIn.value = AccountSignIn.Failed(msg, offerAppPassword = true)
                 },
@@ -448,12 +451,16 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
             removed.forEach {
                 mail.disconnectImap(it)
                 storage.purgeAccount(it)
+                // Its calendars and address books too: without this a removed account's events and
+                // contacts stayed in the database for good, out of sight but never deleted.
+                dav.clearAccount(it)
             }
             // Then anything else left by an account that is no longer configured (Codeberg
             // #121): the per-id purges above only cover what THIS sign-out removed, and a row
             // whose account went by any other path is exactly the ghost the unified list used to
             // draw unlabelled. Sweeps nothing while the store lists no account at all.
             storage.purgeOrphanedAccounts { store.accounts().map { it.id } }
+            dav.purgeOrphanedAccounts { store.accounts().map { it.id } }
         }
         PushController.apply(app, userInitiated = true)
     }

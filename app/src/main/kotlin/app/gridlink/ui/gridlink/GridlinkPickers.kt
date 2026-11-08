@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import android.text.format.DateFormat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,8 +31,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import app.gridlink.R
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkRadii
 import app.gridlink.ui.theme.GridlinkSpacing
@@ -40,6 +45,7 @@ import app.gridlink.ui.theme.GridlinkType
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.YearMonth
+import java.time.format.DateTimeFormatter
 
 /**
  * Pick a day.
@@ -52,10 +58,10 @@ import java.time.YearMonth
  * palettes and the picker would be styled for whichever one was current when its colours were
  * captured.
  *
- * The grid itself is a month, six rows, Sunday-first, reusing [WEEKDAY_INITIALS] and [sundayIndex]
- * from the calendar rather than restating them. Both grids are visible at once when this opens over
- * the month view, so a picker that started its weeks on a different day would be a real bug and not a
- * style difference.
+ * The grid itself is a month, six rows, starting on the phone's first day of the week, reusing
+ * [weekStart] and [weekdayInitials] from the calendar rather than restating them. Both grids are
+ * visible at once when this opens over the month view, so a picker that started its weeks on a
+ * different day would be a real bug and not a style difference.
  *
  * ⚠️ Six rows always, like the calendar's, and for the same reason: a grid that changes height with
  * the month makes the card resize as you page through it, which reads as the dialog fighting you.
@@ -71,14 +77,18 @@ fun GridlinkDatePickerSheet(
     // The month being browsed, which is NOT the selection: paging to August to look does not move an
     // event to August. Only a tap on a day does that.
     var month by remember(selected) { mutableStateOf(YearMonth.from(selected)) }
-    val firstCell = remember(month) {
-        val first = month.atDay(1)
-        first.minusDays(first.sundayIndex().toLong())
+    val weekFirst = weekStart
+    val firstCell = remember(month, weekFirst) { month.atDay(1).weekStartDate(weekFirst) }
+    // The month and year in the device's own order and spelling ("August 2026",
+    // "sierpień 2026"), not a fixed English pattern.
+    val locale = LocalConfiguration.current.locales[0]
+    val monthTitle = remember(locale) {
+        DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, "MMMMyyyy"), locale)
     }
 
     GridlinkCenterSheet(onDismiss = onDismiss, modifier = modifier) {
         GridlinkSheetHeading(
-            title = month.atDay(1).format(MONTH_TITLE),
+            title = month.atDay(1).format(monthTitle),
             icon = Icons.Outlined.CalendarMonth,
         )
         Row(
@@ -94,7 +104,7 @@ fun GridlinkDatePickerSheet(
 
         Column(modifier = Modifier.padding(horizontal = GridlinkSpacing.s12)) {
             Row(modifier = Modifier.fillMaxWidth().padding(bottom = GridlinkSpacing.s4)) {
-                WEEKDAY_INITIALS.forEach { initial ->
+                weekdayInitials(weekFirst).forEach { initial ->
                     Text(
                         text = initial,
                         style = GridlinkType.badge,
@@ -314,8 +324,12 @@ fun GridlinkReminderPickerSheet(
 ) {
     val colors = GridlinkTheme.colors
     GridlinkCenterSheet(onDismiss = onDismiss, modifier = modifier) {
-        GridlinkSheetHeading(title = "Reminders", icon = Icons.Outlined.NotificationsNone)
+        GridlinkSheetHeading(
+            title = stringResource(R.string.gl_thread_reminders),
+            icon = Icons.Outlined.NotificationsNone,
+        )
         GridlinkSheetDivider()
+        val res = LocalContext.current.resources
         Column {
             REMINDER_OPTIONS.forEach { minutes ->
                 val isSelected = minutes in selected
@@ -352,7 +366,7 @@ fun GridlinkReminderPickerSheet(
                     ) {
                         Text(
                             // The form and the card share this wording; see [gridlinkReminderLabel].
-                            text = gridlinkReminderLabel(minutes),
+                            text = gridlinkReminderLabel(res, minutes),
                             style = GridlinkType.senderName,
                             color = if (isSelected) colors.accent else colors.textPrimary,
                         )
@@ -362,13 +376,13 @@ fun GridlinkReminderPickerSheet(
         }
         GridlinkSheetDivider()
         GridlinkSheetAction(
-            label = "Done",
+            label = stringResource(R.string.gl_thread_done),
             icon = Icons.Outlined.Check,
             onClick = onDismiss,
             // What the sheet is being left holding, in the same words the rows and the card use.
             subline = selected.sorted().takeIf { it.isNotEmpty() }
-                ?.joinToString(", ", transform = ::gridlinkReminderLabel)
-                ?: "No reminders",
+                ?.joinToString(", ") { gridlinkReminderLabel(res, it) }
+                ?: stringResource(R.string.gl_thread_no_reminders),
         )
         GridlinkSheetFooterSpace()
     }

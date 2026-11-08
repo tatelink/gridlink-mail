@@ -47,7 +47,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -55,13 +58,17 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
+import app.gridlink.R
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkRadii
 import app.gridlink.ui.theme.GridlinkSpacing
@@ -715,6 +722,13 @@ fun GridlinkSheetAction(
      * has to poke to interrogate.
      */
     trailing: (@Composable () -> Unit)? = null,
+    /**
+     * Marks the row as where you are, with a soft accent pill behind it.
+     *
+     * Drawn behind the content rather than as a padded background, so a marked row's icon and label
+     * stay on exactly the same line as every other row's.
+     */
+    highlighted: Boolean = false,
 ) {
     val colors = GridlinkTheme.colors
     val enabled = onClick != null
@@ -723,9 +737,25 @@ fun GridlinkSheetAction(
         tint != null -> tint
         else -> colors.textPrimary
     }
+    val pill = colors.selection
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .then(
+                if (highlighted) {
+                    Modifier.drawBehind {
+                        val inset = SHEET_HIGHLIGHT_INSET.toPx()
+                        drawRoundRect(
+                            color = pill,
+                            topLeft = Offset(inset, 0f),
+                            size = Size(size.width - inset * 2, size.height),
+                            cornerRadius = CornerRadius(size.height / 2),
+                        )
+                    }
+                } else {
+                    Modifier
+                },
+            )
             .then(if (enabled) Modifier.clickable(onClick = onClick!!) else Modifier)
             .padding(horizontal = GridlinkSpacing.chrome, vertical = GridlinkSpacing.s12)
             .padding(start = indent),
@@ -760,6 +790,26 @@ fun GridlinkSheetAction(
             trailing()
         }
     }
+}
+
+/** How far a marked row's pill sits in from the sheet's edges. */
+private val SHEET_HIGHLIGHT_INSET = 8.dp
+
+/**
+ * A count at the end of a sheet row: the number alone, with the full phrase for a screen reader.
+ *
+ * [attention] is for unread mail, in the same colour as the dots down the list and the "unread"
+ * line under the title, since they are the same fact. Other counts (unsent, waiting) stay quiet.
+ */
+@Composable
+fun GridlinkSheetCount(count: Int, spoken: String, attention: Boolean = false) {
+    val colors = GridlinkTheme.colors
+    Text(
+        text = count.toString(),
+        style = GridlinkType.metadata,
+        color = if (attention) colors.attention else colors.textSecondary,
+        modifier = Modifier.semantics { contentDescription = spoken },
+    )
 }
 
 /** Hairline across a sheet, edge to edge. Same rule as the message list: separate, never gap. */
@@ -824,7 +874,7 @@ fun GridlinkDialog(
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                GridlinkTextButton(label = "Cancel", onClick = onDismiss)
+                GridlinkTextButton(label = stringResource(R.string.inbox_cancel), onClick = onDismiss)
                 Spacer(Modifier.width(GridlinkSpacing.s8))
                 GridlinkTextButton(
                     label = confirmLabel,

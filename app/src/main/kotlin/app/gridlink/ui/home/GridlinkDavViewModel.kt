@@ -9,7 +9,11 @@ import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import app.gridlink.R
 import app.gridlink.container
+import app.gridlink.core.data.account.CalendarPrefs
+import app.gridlink.core.data.account.calendarPrefKey
+import app.gridlink.core.data.account.calendarPrefsFor
 import app.gridlink.core.data.calendar.CalendarOccurrence
 import app.gridlink.core.data.calendar.EventEditScope
 import app.gridlink.core.data.calendar.EventField
@@ -21,6 +25,7 @@ import app.gridlink.core.jmap.OutgoingLimits
 import app.gridlink.ui.gridlink.DEFAULT_DURATION_MINUTES
 import app.gridlink.ui.gridlink.GridlinkAttachment
 import app.gridlink.ui.gridlink.GridlinkCalendarContent
+import app.gridlink.ui.gridlink.GridlinkCalendarEditResult
 import app.gridlink.ui.gridlink.GridlinkCalendarInfo
 import app.gridlink.ui.gridlink.GridlinkCalendarWriter
 import app.gridlink.ui.gridlink.GridlinkContactContent
@@ -37,6 +42,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onEach
@@ -149,8 +155,9 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
     /**
      * The account's calendars, each with its colour and whether the user has it switched on.
      *
-     * The hidden set is read off the account record so a toggle made here survives a restart, and
-     * so this flow re-emits on its own when [setCalendarVisible] writes it.
+     * The hidden set, local names and colours and the server's default are read off the store's
+     * calendar choices (filed by login, so they also survive removing and re-adding the account),
+     * and this flow re-emits on its own when [setCalendarVisible] or a rename writes them.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val calendarList: Flow<List<GridlinkCalendarInfo>> = accountId
@@ -158,9 +165,13 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
             if (id == null) {
                 flowOf(emptyList())
             } else {
-                combine(repo.observeCalendars(id), store.accountsFlow) { collections, accounts ->
-                    val hidden = accounts.firstOrNull { it.id == id }?.hiddenCalendars.orEmpty()
-                    GridlinkDavMapping.calendars(collections, hidden)
+                combine(
+                    repo.observeCalendars(id),
+                    store.accountsFlow,
+                    store.calendarPrefsFlow,
+                ) { collections, accounts, all ->
+                    val prefs = accounts.firstOrNull { it.id == id }?.let { calendarPrefsFor(it, all) }
+                    GridlinkDavMapping.calendars(collections = collections, prefs = prefs ?: CalendarPrefs())
                 }
             }
         }
@@ -185,7 +196,7 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
     val calendar: StateFlow<GridlinkCalendarContent> =
         combine(shown, calendarPrimed, anchor, ownDomain, calendarError) { frame, ready, today, domain, error ->
             GridlinkCalendarContent(
-                events = frame.occurrences.map { GridlinkDavMapping.event(it, domain, frame.calendars) },
+                events = frame.occurrences.map { GridlinkDavMapping.event(it, domain, frame.calendars, eventText()) },
                 today = today,
                 loading = !ready,
                 window = today.minusDays(WINDOW_BACK_DAYS)..today.plusDays(WINDOW_FORWARD_DAYS),
@@ -244,7 +255,7 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
         override val echoesIntoContent: Boolean get() = true
 
         override suspend fun save(event: GridlinkEvent): String? {
-            val id = accountId.value ?: return "No account is signed in."
+            val id = accountId.value ?: return text(R.string.gl_vm_no_account)
             val outcome = repo.createEvent(
                 accountId = id,
                 title = event.title,
@@ -274,7 +285,26 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
 
         override fun setCalendarVisible(calendarId: String, visible: Boolean) {
             val id = accountId.value ?: return
-            viewModelScope.launch(Dispatchers.IO) { store.setCalendarHidden(id, calendarId, hidden = !visible) }
+            viewModelScope.launch(Dispatchers.IO) {
+                val key = repo.observeCalendars(id).first().firstOrNull { it.url == calendarId }
+                    ?.let(::calendarPrefKey) ?: calendarId
+                store.setCalendarHidden(id, key, calendarId, hidden = !visible)
+            }
+        }
+
+        override suspend fun editCalendar(
+            calendarId: String,
+            name: String,
+            color: String?,
+        ): GridlinkCalendarEditResult {
+            val id = accountId.value ?: return GridlinkCalendarEditResult(error = text(R.string.gl_vm_no_account))
+            val outcome = repo.editCalendar(id, calendarId, name, color)
+            when {
+                outcome.error != null -> Log.w(TAG, "edit calendar failed: ${outcome.error}")
+                outcome.deviceOnly -> Log.i(TAG, "edit calendar kept on this device only: $calendarId")
+                else -> Log.i(TAG, "edited calendar on the server: $calendarId")
+            }
+            return GridlinkCalendarEditResult(error = outcome.error, deviceOnly = outcome.deviceOnly)
         }
 
         override suspend fun update(
@@ -282,7 +312,13 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
             edited: GridlinkEvent,
             scope: GridlinkEventEditScope,
         ): String? {
-            val id = accountId.value ?: return "No account is signed in."
+            val id = accountId.value ?: return text(R.string.gl_vm_no_account)
+            val moveTo = edited.calendarId?.takeIf { it != before.calendarId }
+            // A calendar holds the whole file, so a move takes every occurrence with it. Asked for
+            // one day only, it would quietly move the rest too, so it is refused before any write.
+            if (moveTo != null && before.repeating && scope == GridlinkEventEditScope.THIS_EVENT) {
+                return text(R.string.gl_vm_event_move_needs_all)
+            }
             // 🔴 Diffed against [before] — the event that SEEDED the form — never against server
             // truth. A multi-day all-day event's occurrence carries the day being looked at, not
             // the event's start date, so a server-truth diff would mark TIME touched on an
@@ -328,12 +364,25 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
                     GridlinkEventEditScope.ALL_EVENTS -> EventEditScope.WHOLE_SERIES
                 },
             )
-            if (outcome.succeeded) {
-                Log.i(TAG, "updated event ${outcome.href}")
-            } else {
+            if (!outcome.succeeded) {
                 Log.w(TAG, "update event failed: ${outcome.error}")
+                return outcome.error
             }
-            return outcome.error
+            Log.i(TAG, "updated event ${outcome.href}")
+            // After the field edit, so the move carries the edited copy, and from the href that edit
+            // answered with (a JMAP edit can re-key the row).
+            return moveTo?.let { moveEvent(id, outcome.href ?: href, it, recurrenceDay) }
+        }
+
+        /** Move an event to another calendar, returning why it could not be done, or null. */
+        private suspend fun moveEvent(accountId: String, href: String, calendarUrl: String, day: LocalDate?): String? {
+            val moved = repo.moveEvent(accountId, href, calendarUrl, day)
+            if (moved.succeeded) {
+                Log.i(TAG, "moved event to another calendar: ${moved.href}")
+            } else {
+                Log.w(TAG, "move event failed: ${moved.error}")
+            }
+            return moved.error
         }
     }
 
@@ -349,7 +398,7 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
         override val echoesIntoContent: Boolean get() = true
 
         override suspend fun create(edit: ContactEdit): String? {
-            val id = accountId.value ?: return "No account is signed in."
+            val id = accountId.value ?: return text(R.string.gl_vm_no_account)
             val outcome = repo.createContact(id, edit)
             if (outcome.succeeded) {
                 Log.i(TAG, "created contact ${outcome.href}")
@@ -360,7 +409,7 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
         }
 
         override suspend fun update(contactId: String, edit: ContactEdit): String? {
-            val id = accountId.value ?: return "No account is signed in."
+            val id = accountId.value ?: return text(R.string.gl_vm_no_account)
             val outcome = repo.updateContact(
                 accountId = id,
                 // The book's ids wear [GridlinkDavMapping.PREFIX] over the DAV href, which is the
@@ -377,7 +426,7 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
         }
 
         override suspend fun delete(contactId: String): String? {
-            val id = accountId.value ?: return "No account is signed in."
+            val id = accountId.value ?: return text(R.string.gl_vm_no_account)
             val outcome = repo.deleteContact(
                 accountId = id,
                 href = contactId.removePrefix(GridlinkDavMapping.PREFIX),
@@ -468,7 +517,7 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
                 // hang the shared leave guard on. Same reasoning, same latch, as the reader's
                 // GridlinkMailViewModel.openAttachment, which this was written from.
                 app.startActivity(
-                    Intent.createChooser(view, "Open with").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    Intent.createChooser(view, text(R.string.gl_vm_open_with)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 )
             } catch (c: CancellationException) {
                 throw c
@@ -537,13 +586,13 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
                     Log.i(TAG, "attached ${picked.name} to $href")
                 } else {
                     Log.w(TAG, "attach failed: ${outcome.error}")
-                    say(app, outcome.error ?: "Couldn't attach that file.")
+                    say(app, outcome.error ?: text(R.string.gl_vm_attach_failed))
                 }
             } catch (c: CancellationException) {
                 throw c
             } catch (t: Throwable) {
                 Log.w(TAG, "attach threw", t)
-                say(app, t.message ?: "Couldn't read that file.")
+                say(app, t.message ?: text(R.string.gl_vm_read_failed))
             } finally {
                 writingAttachment = false
             }
@@ -574,13 +623,13 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
                     Log.i(TAG, "removed $managedId from $href")
                 } else {
                     Log.w(TAG, "attachment remove failed: ${outcome.error}")
-                    say(app, outcome.error ?: "Couldn't remove that file.")
+                    say(app, outcome.error ?: text(R.string.gl_vm_remove_failed))
                 }
             } catch (c: CancellationException) {
                 throw c
             } catch (t: Throwable) {
                 Log.w(TAG, "attachment remove threw", t)
-                say(app, "Couldn't remove that file.")
+                say(app, text(R.string.gl_vm_remove_failed))
             } finally {
                 writingAttachment = false
             }
@@ -613,14 +662,34 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
             } else {
                 null
             }
-        }?.takeIf { it.isNotBlank() } ?: "attachment"
+        }?.takeIf { it.isNotBlank() } ?: text(R.string.compose_attachment_fallback)
         val bytes = resolver.openInputStream(uri)?.use {
             OutgoingLimits.readAtMost(it, OutgoingLimits.ATTACHMENT_MAX_BYTES)
-        } ?: error("Couldn't read $name.")
+        } ?: error(text(R.string.gl_vm_read_named_failed, name))
         return Picked(name, resolver.getType(uri) ?: "application/octet-stream", bytes)
     }
 
     private data class Picked(val name: String, val type: String, val bytes: ByteArray)
+
+    /** A string resource in the app's language, for the sentences this class hands the screens.
+     *
+     * With no [args] the resource comes back as written, unformatted, which is what a caller that
+     * formats later (a size unit) needs; passing an empty array would run it through the formatter.
+     */
+    private fun text(id: Int, vararg args: Any): String {
+        val app = getApplication<Application>()
+        return if (args.isEmpty()) app.getString(id) else app.getString(id, *args)
+    }
+
+    /** The untitled fallback and attachment size units [GridlinkDavMapping.event] writes with. */
+    private fun eventText(): GridlinkDavMapping.EventText = GridlinkDavMapping.EventText(
+        untitled = text(R.string.calendar_event_untitled),
+        sizes = GridlinkDavMapping.SizeUnits(
+            bytes = text(R.string.gl_vm_size_bytes),
+            kilobytes = text(R.string.gl_vm_size_kb),
+            megabytes = text(R.string.gl_vm_size_mb),
+        ),
+    )
 
     /** Says one sentence to the user. The only place in this class that does; see [attachFile]. */
     private fun say(app: Application, text: String) {
@@ -651,7 +720,7 @@ class GridlinkDavViewModel(application: Application) : AndroidViewModel(applicat
             // put a permanent complaint in the log for a perfectly ordinary navigation.
             if (t is CancellationException) throw t
             Log.w(TAG, "$what sync threw", t)
-            return t.message?.takeIf { it.isNotBlank() } ?: "Sync failed"
+            return t.message?.takeIf { it.isNotBlank() } ?: text(R.string.gl_vm_sync_failed)
         }
         if (outcome.succeeded) {
             Log.i(

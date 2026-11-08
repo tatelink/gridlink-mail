@@ -14,9 +14,10 @@ import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isOff
+import androidx.compose.ui.test.isOn
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -217,12 +218,12 @@ class GridlinkSetupScreenTest {
     @Test
     fun syncToggles_startOn_andAnOffTapIsCarriedInTheRequest() {
         show()
-        // Calendar ON, Contacts ON. Show password is the only OFF pill on a fresh form.
-        rule.onAllNodesWithText("ON").assertCountEquals(2)
-        rule.onAllNodesWithText("OFF").assertCountEquals(1)
+        // Calendar ON, Contacts ON. Show password is the only switch off on a fresh form.
+        rule.onAllNodes(isOn()).assertCountEquals(2)
+        rule.onAllNodes(isOff()).assertCountEquals(1)
 
         row("Calendar").performClick()
-        rule.onAllNodesWithText("ON").assertCountEquals(1)
+        rule.onAllNodes(isOn()).assertCountEquals(1)
 
         address().performTextInput("avery@gridlink.me")
         password().performTextInput("hunter2")

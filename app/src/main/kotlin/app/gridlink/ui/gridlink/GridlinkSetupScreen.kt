@@ -162,18 +162,18 @@ fun GridlinkSetupScreen(
 
     val hint = when {
         error != null -> error
-        busy -> "Connecting…"
-        !addressed -> "Enter the address you receive mail at, like you@yourdomain.com."
-        !authed -> "Enter the password, app password or API token for that account."
-        server.text.isBlank() -> "No server entered, so Gridlink will look one up from your address."
+        busy -> stringResource(R.string.connect_connecting)
+        !addressed -> stringResource(R.string.gl_people_setup_need_address)
+        !authed -> stringResource(R.string.gl_people_setup_need_password)
+        server.text.isBlank() -> stringResource(R.string.gl_people_setup_lookup_server)
         else -> null
     }
 
     GridlinkFormScreen(
-        title = "Set up Gridlink",
+        title = stringResource(R.string.gl_people_setup_title),
         // Nothing behind a first launch: see [GridlinkFormScreen]'s note on the null.
         onClose = null,
-        confirmLabel = if (busy) "Connecting…" else "Connect",
+        confirmLabel = stringResource(if (busy) R.string.connect_connecting else R.string.connect_connect),
         confirmEnabled = ready,
         hint = hint,
         onConfirm = {
@@ -189,7 +189,7 @@ fun GridlinkSetupScreen(
         },
         baselineLeading = {
             GridlinkTextButton(
-                label = "JMAP, IMAP or Outlook",
+                label = stringResource(R.string.gl_people_setup_advanced),
                 onClick = onAdvanced,
                 // Locked while a connect is in flight. Leaving mid-request would strand the
                 // coroutine's result on a screen nobody is looking at, and the user would land on
@@ -199,7 +199,7 @@ fun GridlinkSetupScreen(
         },
         modifier = modifier,
     ) {
-        GridlinkSectionLabel(text = "Account")
+        GridlinkSectionLabel(text = stringResource(R.string.settings_account_section))
 
         GridlinkFormTextRow(
             value = email,
@@ -229,7 +229,7 @@ fun GridlinkSetupScreen(
         GridlinkFormTextRow(
             value = login,
             onValueChange = { login = it },
-            placeholder = "Username, if different from your address",
+            placeholder = stringResource(R.string.gl_people_setup_login_placeholder),
             placeholderStyle = GridlinkType.body,
             style = GridlinkType.body,
             focusRequester = loginFocus,
@@ -245,7 +245,7 @@ fun GridlinkSetupScreen(
         GridlinkFormTextRow(
             value = password,
             onValueChange = { password = it },
-            placeholder = "Password, app password or API token",
+            placeholder = stringResource(R.string.gl_people_setup_password_placeholder),
             placeholderStyle = GridlinkType.body,
             style = GridlinkType.body,
             focusRequester = passwordFocus,
@@ -269,18 +269,18 @@ fun GridlinkSetupScreen(
         // row by design (see [GridlinkFormTextRow]'s note on decorationBox padding), and carving a
         // trailing icon out of it would put a control where the caret is expected.
         GridlinkFormToggleRow(
-            label = "Show password",
+            label = stringResource(R.string.connect_password_show),
             checked = reveal,
             onToggle = { reveal = it },
         )
         GridlinkFormDivider()
 
-        GridlinkSectionLabel(text = "Server")
+        GridlinkSectionLabel(text = stringResource(R.string.connect_server))
 
         GridlinkFormTextRow(
             value = server,
             onValueChange = { server = it },
-            placeholder = "mail.yourdomain.com (optional)",
+            placeholder = stringResource(R.string.gl_people_setup_server_placeholder),
             placeholderStyle = GridlinkType.body,
             style = GridlinkType.body,
             focusRequester = serverFocus,
@@ -297,23 +297,23 @@ fun GridlinkSetupScreen(
         )
         GridlinkFormDivider()
 
-        GridlinkSectionLabel(text = "Sync")
+        GridlinkSectionLabel(text = stringResource(R.string.settings_sync_section))
 
         GridlinkSetupFactRow(
-            label = "Mail",
-            value = "Always on",
+            label = stringResource(R.string.gl_people_sync_mail),
+            value = stringResource(R.string.gl_people_sync_always_on),
         )
         GridlinkFormDivider()
 
         GridlinkFormToggleRow(
-            label = "Calendar",
+            label = stringResource(R.string.event_form_calendar),
             checked = calendar,
             onToggle = { calendar = it },
         )
         GridlinkFormDivider()
 
         GridlinkFormToggleRow(
-            label = "Contacts",
+            label = stringResource(R.string.gl_people_contacts),
             checked = contacts,
             onToggle = { contacts = it },
         )

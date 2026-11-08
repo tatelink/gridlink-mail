@@ -1,6 +1,7 @@
 package app.gridlink.ui.gridlink
 
 import android.content.Intent
+import android.content.res.Resources
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -44,11 +45,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import app.gridlink.R
 import app.gridlink.ui.rememberLeaveOnce
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMode
@@ -59,7 +62,6 @@ import app.gridlink.ui.theme.gridlinkSenderBarColor
 import app.gridlink.ui.theme.isLightSurface
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 /**
  * One appointment, opened from any of the four calendar views.
@@ -131,8 +133,9 @@ fun GridlinkEventScreen(
     onRemoveAttachment: ((GridlinkEvent, GridlinkAttachment) -> Unit)? = null,
 ) {
     val colors = GridlinkTheme.colors
-    val mode = GridlinkTheme.mode
+    val mode = GridlinkTheme.look
     val context = LocalContext.current
+    val res = context.resources
     val clipboard = LocalClipboardManager.current
     // The share sheet is the one place these cards leave the app, and a card is not a nav
     // destination, so this is the activity-scoped guard: it latches until we are RESUMED again.
@@ -156,7 +159,7 @@ fun GridlinkEventScreen(
     val fromThem = remember(event.id, book) {
         if (internal || book.calendarLive) emptyList() else GridlinkSample.messagesFromDomain(event.domain)
     }
-    val plain = remember(event.id) { event.asPlainText() }
+    val plain = remember(event.id, res) { event.asPlainText(res) }
     // What else is on that date. Real, derivable, and the one piece of context an appointment always
     // has: an internal event with no location says nothing about anybody, but "what else am I doing
     // that day" is the question you open a calendar entry with.
@@ -178,8 +181,8 @@ fun GridlinkEventScreen(
 
     pendingRemove?.let { doomed ->
         GridlinkDialog(
-            title = "Remove this file?",
-            confirmLabel = "Remove",
+            title = stringResource(R.string.gl_cal_event_remove_title),
+            confirmLabel = stringResource(R.string.gl_cal_event_remove),
             destructive = true,
             onConfirm = {
                 pendingRemove = null
@@ -190,8 +193,7 @@ fun GridlinkEventScreen(
             Text(
                 // Named, not "this attachment": an event can carry several, and the dialog covers
                 // the chip that opened it rather than whichever one the thumb was nearest.
-                text = "${doomed.name} will be deleted from ${event.title} for everyone it is " +
-                    "shared with. This cannot be undone.",
+                text = stringResource(R.string.gl_cal_event_remove_body, doomed.name, event.title),
                 style = GridlinkType.body,
                 color = colors.textSecondary,
             )
@@ -200,19 +202,20 @@ fun GridlinkEventScreen(
 
     GridlinkDetailFrame(
         title = event.title,
+        titleStyle = GridlinkType.threadTitle,
         onBack = onBack,
         modifier = modifier,
         embedded = embedded,
         bottom = {
             GridlinkDetailActionPill(modifier = Modifier.weight(1f)) {
                 GridlinkDetailActionItem(
-                    label = "Copy",
+                    label = stringResource(R.string.gl_cal_event_copy),
                     icon = Icons.Outlined.ContentCopy,
                     onClick = { clipboard.setText(AnnotatedString(plain)) },
                     modifier = Modifier.weight(1f),
                 )
                 GridlinkDetailActionItem(
-                    label = "Share",
+                    label = stringResource(R.string.gl_cal_event_share),
                     icon = Icons.Outlined.Share,
                     onClick = {
                         leaveOnce {
@@ -220,7 +223,7 @@ fun GridlinkEventScreen(
                                 context = context,
                                 subject = event.title,
                                 text = plain,
-                                chooserTitle = "Share event",
+                                chooserTitle = res.getString(R.string.gl_cal_event_share_title),
                             )
                         }
                     },
@@ -236,7 +239,7 @@ fun GridlinkEventScreen(
                 // ones, and none of them earns the weight the contact card's Write earns.
                 onEdit?.let { edit ->
                     GridlinkDetailActionItem(
-                        label = "Edit",
+                        label = stringResource(R.string.outbox_edit),
                         icon = Icons.Outlined.Edit,
                         onClick = { edit(event) },
                         modifier = Modifier.weight(1f),
@@ -281,7 +284,7 @@ fun GridlinkEventScreen(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = event.whenLabel(),
+                        text = event.whenLabel(res),
                         style = GridlinkType.metadata,
                         color = colors.textSecondary,
                         maxLines = 1,
@@ -332,7 +335,7 @@ fun GridlinkEventScreen(
             // reason too — the read path does not carry them off the server yet — and rendering
             // empty sections there would advertise the gap on every single appointment.
             event.notes?.let { notes ->
-                GridlinkEventGroupLabel(text = "Notes")
+                GridlinkEventGroupLabel(text = stringResource(R.string.gl_cal_notes))
                 if (event.notesAreHtml) {
                     GridlinkEventHtmlNotes(notes = notes)
                 } else {
@@ -353,7 +356,13 @@ fun GridlinkEventScreen(
             // documents by name and the chips are then in the reader's eye when they get there.
             if (event.attachments.isNotEmpty() || canAttach) {
                 GridlinkEventGroupLabel(
-                    text = if (event.attachments.size == 1) "Attachment" else "Attachments",
+                    text = stringResource(
+                        if (event.attachments.size == 1) {
+                            R.string.gl_cal_event_attachment
+                        } else {
+                            R.string.gl_cal_event_attachments
+                        },
+                    ),
                 )
                 event.attachments.forEach { attachment ->
                     GridlinkAttachmentChip(
@@ -382,7 +391,7 @@ fun GridlinkEventScreen(
                     // A labelled row rather than a ghost chip: a chip is a file, and an empty one
                     // offering to become a file reads as a file that failed to load.
                     GridlinkEventFact(
-                        text = "Attach a file",
+                        text = stringResource(R.string.gl_cal_event_attach),
                         icon = Icons.Outlined.AttachFile,
                         onClick = { onAttachFile(event) },
                     )
@@ -401,11 +410,11 @@ fun GridlinkEventScreen(
             }
 
             if (event.reminders.isNotEmpty()) {
-                GridlinkEventGroupLabel(text = "Reminders")
+                GridlinkEventGroupLabel(text = stringResource(R.string.gl_cal_reminders))
                 GridlinkEventFact(
                     // One fact, one glyph, a line per reminder: a repeated bell down the margin
                     // would give three reminders the visual weight of three appointments.
-                    text = event.reminders.sorted().joinToString("\n") { gridlinkReminderLabel(it) },
+                    text = event.reminders.sorted().joinToString("\n") { gridlinkReminderLabel(res, it) },
                     icon = Icons.Outlined.NotificationsNone,
                 )
             }
@@ -414,7 +423,7 @@ fun GridlinkEventScreen(
             // and the day's other appointments buried under it would be a scroll away from the one
             // thing every event on this screen has in common.
             if (sameDay.isNotEmpty()) {
-                GridlinkEventGroupLabel(text = "Also that day")
+                GridlinkEventGroupLabel(text = stringResource(R.string.gl_cal_event_also_that_day))
                 sameDay.forEachIndexed { index, other ->
                     GridlinkEventDayRow(
                         event = other,
@@ -448,11 +457,14 @@ fun GridlinkEventScreen(
                 }
 
                 GridlinkEventGroupLabel(
-                    text = "Mail from ${counterpart?.displayName ?: event.domain}",
+                    text = stringResource(
+                        R.string.gl_cal_event_mail_from,
+                        counterpart?.displayName ?: event.domain,
+                    ),
                 )
                 if (fromThem.isEmpty()) {
                     Text(
-                        text = "Nothing from them yet.",
+                        text = stringResource(R.string.gl_cal_event_nothing_from_them),
                         style = GridlinkType.body,
                         color = colors.textSecondary,
                         modifier = Modifier.padding(
@@ -508,7 +520,7 @@ fun GridlinkEventScreen(
 @Composable
 private fun GridlinkEventHtmlNotes(notes: String, modifier: Modifier = Modifier) {
     val colors = GridlinkTheme.colors
-    val mode = GridlinkTheme.mode
+    val mode = GridlinkTheme.look
     val density = LocalDensity.current
     // Keyed on the document: opening a second event reuses this composable, and a height left over
     // from the last one would clip a longer note until its own measurement landed.
@@ -546,7 +558,8 @@ private val NOTES_MAX_HEIGHT = 360.dp
 private val NOTES_MIN_HEIGHT = 40.dp
 
 /** "Thursday 30 July 2026". The year is present because the calendar pages a year in either direction. */
-private val EVENT_DATE = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.US)
+private val EVENT_DATE: DateTimeFormatter
+    get() = calendarFormatter("EEEEdMMMMyyyy", "EEEE d MMMM yyyy")
 
 /**
  * When the event runs, under the date.
@@ -556,28 +569,30 @@ private val EVENT_DATE = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.
  * from the two times: "8 AM – 8:30 AM" is a subtraction, and the one thing you want off a calendar
  * entry at a glance is how much of your day it takes.
  */
-private fun GridlinkEvent.whenLabel(): String {
-    val start = start ?: return "All day"
+private fun GridlinkEvent.whenLabel(res: Resources): String {
+    val start = start ?: return res.getString(R.string.widget_agenda_all_day)
     val end = end ?: return start.compact()
-    val span = "${start.compact()} – ${end.compact()}"
+    val span = res.getString(R.string.gl_cal_date_range, start.compact(), end.compact())
     // ⚠️ The separator belongs to the duration, not to the span. An event that ends before it starts
     // has no duration to state, and gluing the dot on unconditionally would leave the card showing
     // "1 PM – 4 PM · " with a trailing bullet and nothing after it. Nothing in the sample data does
     // this; a server's data will, eventually, and the failure would be silent.
-    val duration = durationLabel(start, end)
+    val duration = durationLabel(res, start, end)
     return if (duration.isEmpty()) span else "$span · $duration"
 }
 
 /** "45 min", "1 hr", "1 hr 30 min". Never "0 hr 45 min", and never a bare decimal. */
-private fun durationLabel(start: LocalTime, end: LocalTime): String {
+private fun durationLabel(res: Resources, start: LocalTime, end: LocalTime): String {
     val minutes = (end.hour * 60 + end.minute) - (start.hour * 60 + start.minute)
     if (minutes <= 0) return ""
     val hours = minutes / 60
     val rest = minutes % 60
+    val hoursText = res.getQuantityString(R.plurals.gl_cal_unit_hours, hours, hours)
+    val restText = res.getQuantityString(R.plurals.gl_cal_unit_minutes, rest, rest)
     return when {
-        hours == 0 -> "$rest min"
-        rest == 0 -> "$hours hr"
-        else -> "$hours hr $rest min"
+        hours == 0 -> restText
+        rest == 0 -> hoursText
+        else -> res.getString(R.string.gl_cal_duration_hours_minutes, hoursText, restText)
     }
 }
 
@@ -612,10 +627,10 @@ internal fun openMap(context: android.content.Context, place: String): Boolean {
  * 🔴 One function feeding both, because a Copy and a Share that produce different text for the same
  * event is a bug nobody reports and everybody notices once.
  */
-private fun GridlinkEvent.asPlainText(): String = buildString {
+private fun GridlinkEvent.asPlainText(res: Resources): String = buildString {
     appendLine(title)
     appendLine(date.format(EVENT_DATE))
-    appendLine(whenLabel())
+    appendLine(whenLabel(res))
     location?.let { appendLine(it) }
     category?.let { appendLine(it) }
     notes?.let { appendLine(it) }
@@ -762,7 +777,11 @@ private fun GridlinkEventDayRow(
         // sits one tap from that one and they are lists of the same thing; a time column two pixels
         // narrower here is the kind of drift Tate reads instantly as two different screens.
         Text(
-            text = if (event.allDay) "All day" else event.start!!.compact(),
+            text = if (event.allDay) {
+                stringResource(R.string.widget_agenda_all_day)
+            } else {
+                event.start!!.compact()
+            },
             style = GridlinkType.badge,
             color = if (event.allDay) colors.textSecondary else colors.textPrimary,
             maxLines = 1,

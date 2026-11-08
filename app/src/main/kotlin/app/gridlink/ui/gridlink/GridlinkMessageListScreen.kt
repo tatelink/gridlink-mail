@@ -24,7 +24,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.pullToRefresh
@@ -44,12 +46,19 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.gridlink.GridlinkApplication
+import app.gridlink.R
 import app.gridlink.core.data.mail.MailFilter
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
@@ -944,7 +953,13 @@ fun GridlinkMessageListScreen(
                 // the chrome config so it cannot disagree with the drawer row that switched it:
                 // the same object supplies both, and the same word appears on the row you tapped
                 // and the title you land on.
-                title = if (chrome.config.unifiedInbox?.active == true) "All inboxes" else "Inbox",
+                title = stringResource(
+                    if (chrome.config.unifiedInbox?.active == true) {
+                        R.string.inbox_all_inboxes
+                    } else {
+                        R.string.folder_inbox
+                    },
+                ),
                 // 🔴 Zero while loading, which suppresses the whole metadata line. The count is
                 // computed off lists this screen already holds, so it would happily render "21
                 // unread" over a panel of blank placeholders: a number the app cannot have yet,
@@ -1138,6 +1153,7 @@ fun GridlinkMessageListScreen(
             if (!hasMail && filter.isActive) {
                 GridlinkEmptyFiltered(
                     summary = gridlinkFilterSummary(
+                        resources = LocalResources.current,
                         filter = filter,
                         tagLabel = tagDefinitions
                             .firstOrNull { it.keyword == filter.tag }
@@ -1198,7 +1214,7 @@ fun GridlinkMessageListScreen(
                 // mid-exit and make an archive snap instead of close.
                 if (robots.isNotEmpty()) {
                     item(key = "label-automated") {
-                        GridlinkSectionLabel(GridlinkSection.AUTOMATED.label, gutter = gutter)
+                        GridlinkSectionLabel(stringResource(GridlinkSection.AUTOMATED.title), gutter = gutter)
                     }
                     item(key = "bundle") {
                         Column {
@@ -1322,7 +1338,7 @@ fun GridlinkMessageListScreen(
                         val inSection = humans.filter { it.section == section }
                         if (inSection.isEmpty()) return@forEach
                         item(key = "label-${section.name}") {
-                            GridlinkSectionLabel(section.label, gutter = gutter)
+                            GridlinkSectionLabel(stringResource(section.title), gutter = gutter)
                         }
                         items(
                             count = inSection.size,
@@ -1528,13 +1544,13 @@ private fun GridlinkSelectionMoreSheet(
 ) {
     GridlinkCenterSheet(onDismiss = onDismiss) {
         GridlinkSheetHeading(
-            title = if (count == 1) "1 message" else "$count messages",
+            title = pluralStringResource(R.plurals.gl_list_message_count, count, count),
             icon = Icons.Outlined.MoreHoriz,
         )
         GridlinkSheetDivider()
         GridlinkSelectionAction.entries.filterNot { it.inPill }.forEach { action ->
             GridlinkSheetAction(
-                label = action.label,
+                label = stringResource(action.label),
                 icon = action.icon,
                 onClick = { onAction(action) },
             )
@@ -1592,6 +1608,12 @@ private fun GridlinkSearchResults(
     currentId: String?,
     onOpenMessage: (GridlinkMessage) -> Unit,
 ) {
+    // 🔴 A result tap puts the keyboard away. The search field keeps focus after the query is typed,
+    // so without this the reader opened with the IME still covering half the message (Brandon,
+    // 2026-11-08). Hiding alone is not enough: the field would keep focus and some IMEs raise
+    // themselves again when the window regains focus on Back. Clearing focus is what stops that.
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
     val current = search?.takeIf { it.query == query }
     // Rows as soon as there are any, even while the answer is still being assembled. The local
     // index answers within a frame and the server takes as long as the network takes, so waiting
@@ -1605,11 +1627,19 @@ private fun GridlinkSearchResults(
         return
     }
     if (current.failed) {
-        GridlinkSearchStatus("Search could not reach the server. It will run again if you keep typing.")
+        GridlinkSearchEmpty(
+            icon = Icons.Outlined.CloudOff,
+            title = stringResource(R.string.gl_list_search_failed_title),
+            subline = stringResource(R.string.gl_list_search_failed_hint),
+        )
         return
     }
     if (current.results.isEmpty()) {
-        GridlinkSearchStatus("No results for “$query”")
+        GridlinkSearchEmpty(
+            icon = Icons.Outlined.SearchOff,
+            title = stringResource(R.string.gl_list_search_no_results, query),
+            subline = stringResource(R.string.gridlink_search_empty_hint),
+        )
         return
     }
 
@@ -1632,11 +1662,37 @@ private fun GridlinkSearchResults(
             .fillMaxSize()
             .gridlinkEdgeFade(),
         flingBehavior = rememberGridlinkFlingBehavior(),
+        // 🔴 s12 on top, the inbox's own figure, not the full fade. With the Filter row and its
+        // divider above, the 40dp read as an empty band before the first hit, the same gap the
+        // inbox gave back when its chips moved into the panel.
         contentPadding = PaddingValues(
-            top = GridlinkDimens.listFade,
+            top = GridlinkSpacing.s12,
             bottom = GridlinkDimens.listFade,
         ),
     ) {
+        // How many matched, first, in the seat the title had. An open search pill hides the screen
+        // title, so without this line nothing on screen said what you were looking at or how much
+        // of it there was. Shown while the answer is still arriving too, as "at least", so the rows
+        // do not jump down when the count lands.
+        item(key = "search-count") {
+            val count = current.results.size
+            Text(
+                text = pluralStringResource(
+                    if (current.complete && !current.searching) {
+                        R.plurals.search_result_count
+                    } else {
+                        R.plurals.search_result_count_capped
+                    },
+                    count,
+                    count,
+                ),
+                style = GridlinkType.senderName,
+                color = GridlinkTheme.colors.textPrimary,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = GridlinkSpacing.rowHorizontal + gutter, end = GridlinkSpacing.rowHorizontal),
+            )
+        }
         // Every section INCLUDING automated, unlike the inbox timeline. Real hits never carry
         // AUTOMATED (the view model re-states their day section, same as the folder list), but the
         // sample's robots keep it, and a results list has no bundle row to hide them in.
@@ -1644,7 +1700,7 @@ private fun GridlinkSearchResults(
             val inSection = current.results.filter { it.section == section }
             if (inSection.isEmpty()) return@forEach
             item(key = "search-label-${section.name}") {
-                GridlinkSectionLabel(section.label, gutter = gutter)
+                GridlinkSectionLabel(stringResource(section.title), gutter = gutter)
             }
             items(
                 count = inSection.size,
@@ -1655,6 +1711,8 @@ private fun GridlinkSearchResults(
                     GridlinkMessageRow(
                         message = if (message.id in readIds) message.copy(unread = false) else message,
                         onClick = {
+                            keyboard?.hide()
+                            focusManager.clearFocus()
                             readIds = readIds + message.id
                             onOpenMessage(message)
                         },
@@ -1682,7 +1740,7 @@ private fun GridlinkSearchResults(
             // this list may not be the whole answer, and a list that ends in silence claims it is.
             item(key = "search-incomplete") {
                 GridlinkSearchStatus(
-                    "There may be more than what is shown. Try narrowing the search.",
+                    stringResource(R.string.gl_list_search_incomplete),
                     fill = false,
                 )
             }
@@ -1690,7 +1748,15 @@ private fun GridlinkSearchResults(
     }
 }
 
-/** One quiet line where rows would be: the no-results, failed and may-be-more states. */
+/** The no-results and failed states: the shared empty notice, centred where the rows would be. */
+@Composable
+private fun GridlinkSearchEmpty(icon: ImageVector, title: String, subline: String) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        GridlinkEmptyNotice(icon = icon, title = title, subline = subline)
+    }
+}
+
+/** One quiet line where rows would be: the may-be-more caveat under a list of results. */
 @Composable
 private fun GridlinkSearchStatus(text: String, fill: Boolean = true) {
     Box(
@@ -1773,9 +1839,9 @@ private fun GridlinkPullIndicator(
             // of this that has to be right: it is the difference between a pull that committed and
             // one that is about to snap back, and there is no other cue for that.
             text = when {
-                refreshing -> "Syncing all accounts"
-                fraction >= 1f -> "Release to refresh"
-                else -> "Pull to refresh"
+                refreshing -> stringResource(R.string.gl_list_syncing_all_accounts)
+                fraction >= 1f -> stringResource(R.string.gl_list_pull_release)
+                else -> stringResource(R.string.gl_list_pull_to_refresh)
             },
             modifier = Modifier.padding(start = GridlinkSpacing.s8),
             style = GridlinkType.metadata,

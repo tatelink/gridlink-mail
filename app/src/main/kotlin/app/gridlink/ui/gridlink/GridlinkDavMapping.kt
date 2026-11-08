@@ -1,5 +1,7 @@
 package app.gridlink.ui.gridlink
 
+import app.gridlink.core.data.account.CalendarPrefs
+import app.gridlink.core.data.account.calendarPrefKey
 import app.gridlink.core.data.calendar.CalendarAttachmentSource
 import app.gridlink.core.data.calendar.CalendarOccurrence
 import app.gridlink.core.data.contacts.ContactEdit
@@ -39,29 +41,59 @@ object GridlinkDavMapping {
      */
     /**
      * The account's calendars as the screens take them, in the order given (the DAO's discovery
-     * order), with [hidden] (see `StoredAccount.hiddenCalendars`) switched off.
+     * order), with the account's [prefs] applied: hidden ones (and any in [hidden]) switched off,
+     * local names and colours (for a server that refused a rename) shown over the server's, and the
+     * server's default marked. [prefs] files each calendar under its `calendarPrefKey`.
      */
-    fun calendars(collections: List<DavCollectionEntity>, hidden: Set<String>): List<GridlinkCalendarInfo> =
+    fun calendars(
+        collections: List<DavCollectionEntity>,
+        hidden: Set<String> = emptySet(),
+        prefs: CalendarPrefs = CalendarPrefs(),
+    ): List<GridlinkCalendarInfo> =
         collections.mapIndexed { index, collection ->
+            val key = calendarPrefKey(collection)
+            val name = prefs.names[key]?.takeIf { it.isNotBlank() }
+            val color = prefs.colors[key]?.let(::gridlinkParseCalendarColor)
             GridlinkCalendarInfo(
                 id = collection.url,
-                name = collection.displayName?.takeIf { it.isNotBlank() },
-                tint = GridlinkCalendarTint(gridlinkParseCalendarColor(collection.color), index),
-                visible = collection.url !in hidden,
+                name = name ?: collection.displayName?.takeIf { it.isNotBlank() },
+                tint = GridlinkCalendarTint(color ?: gridlinkParseCalendarColor(collection.color), index),
+                visible = collection.url !in hidden && key !in hidden && !prefs.isHidden(collection),
+                isDefault = prefs.isServerDefault(collection),
+                localOnly = name != null || color != null,
+                prefKey = key,
             )
         }
 
     /**
+     * The words an event entry can need that the occurrence does not carry, resolved from string
+     * resources by the caller (this object has no Android imports).
+     *
+     * @param untitled the title of an event that has none of its own.
+     * @param sizes the unit formats an attachment's size is written with.
+     */
+    data class EventText(val untitled: String, val sizes: SizeUnits)
+
+    /**
+     * An attachment size's three unit formats, each with one positional argument: "%1$d B",
+     * "%1$d KB", "%1$.1f MB" in English. Resources, because the symbols are not universal (French
+     * writes Ko and Mo, Russian КБ and МБ).
+     */
+    data class SizeUnits(val bytes: String, val kilobytes: String, val megabytes: String)
+
+    /**
      * @param calendars the account's calendars. Only with more than one does an event take its
      *   calendar's colour; a single-calendar account keeps the organiser colours it always had.
+     * @param text the untitled fallback and the size units, from resources.
      */
     fun event(
         occurrence: CalendarOccurrence,
         ownDomain: String,
         calendars: List<GridlinkCalendarInfo> = emptyList(),
+        text: EventText,
     ): GridlinkEvent = GridlinkEvent(
         id = PREFIX + occurrence.uid + "@" + occurrence.date + (occurrence.start?.let { "T$it" } ?: ""),
-        title = occurrence.summary?.takeIf { it.isNotBlank() } ?: "Untitled event",
+        title = occurrence.summary?.takeIf { it.isNotBlank() } ?: text.untitled,
         date = occurrence.date,
         start = occurrence.start,
         end = occurrence.end,
@@ -76,7 +108,7 @@ object GridlinkDavMapping {
         attachments = occurrence.attachments.map {
             GridlinkAttachment(
                 name = it.displayName,
-                size = it.size?.let(::byteLabel).orEmpty(),
+                size = it.size?.let { size -> byteLabel(size, text.sizes) }.orEmpty(),
                 // 🔴 The ticket the tap comes back with, prefixed like every other id here so
                 // nothing downstream can mistake it for one of the mail chips', whose id is an
                 // index into an open message's parts and would open the wrong file entirely.
@@ -183,11 +215,11 @@ object GridlinkDavMapping {
      * than a shared one, because this object is pure Kotlin with no Android or view-model imports
      * and reaching into `ui.home` for four lines would be the first crack in that.
      */
-    private fun byteLabel(bytes: Long): String = when {
+    private fun byteLabel(bytes: Long, units: SizeUnits): String = when {
         bytes <= 0 -> ""
-        bytes < BYTES_PER_KB -> "$bytes B"
-        bytes < BYTES_PER_KB * BYTES_PER_KB -> "${bytes / BYTES_PER_KB} KB"
-        else -> "%.1f MB".format(bytes.toDouble() / BYTES_PER_KB / BYTES_PER_KB)
+        bytes < BYTES_PER_KB -> units.bytes.format(bytes)
+        bytes < BYTES_PER_KB * BYTES_PER_KB -> units.kilobytes.format(bytes / BYTES_PER_KB)
+        else -> units.megabytes.format(bytes.toDouble() / BYTES_PER_KB / BYTES_PER_KB)
     }
 
     private const val BYTES_PER_KB = 1024L

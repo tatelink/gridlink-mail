@@ -6,6 +6,7 @@ import app.gridlink.core.jmap.model.ContactCardGroup
 import app.gridlink.core.jmap.model.ContactCardIdPage
 import app.gridlink.core.jmap.model.ContactCardWrite
 import app.gridlink.core.jmap.model.ContactChangesResult
+import app.gridlink.core.jmap.model.ContactTypes
 import app.gridlink.core.jmap.model.CrawlPage
 import app.gridlink.core.jmap.model.Email
 import app.gridlink.core.jmap.model.EmailAddress
@@ -2116,6 +2117,95 @@ class JmapClient internal constructor(
     }
 
     /**
+     * Rename and/or recolour one calendar with `Calendar/set`. A null [name] or [color] leaves that
+     * property as it is; both null sends nothing.
+     *
+     * A refusal by the server (the id under `notUpdated`, or a method-level error) throws a
+     * [JmapException] carrying the error type in [JmapException.errorType], so a caller can tell
+     * "the server will not take this" apart from "the server could not be reached".
+     */
+    suspend fun updateCalendar(
+        session: JmapSession,
+        accountId: String,
+        calendarId: String,
+        name: String?,
+        color: String?,
+        auth: JmapAuth,
+    ): Unit = withContext(Dispatchers.IO) {
+        if (name == null && color == null) return@withContext
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.CALENDARS_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("Calendar/set")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonObject("update") {
+                            putJsonObject(calendarId) {
+                                name?.let { put("name", it) }
+                                color?.let { put("color", it) }
+                            }
+                        }
+                    }
+                    add("cs1")
+                }
+            }
+        }
+        val args = methodResponseArgs(postJmap(session, auth, payload), "Calendar/set")
+        // As with CalendarEvent/set: a 200 with the id missing from `updated` is a refusal.
+        if ((args["updated"] as? JsonObject)?.containsKey(calendarId) != true) {
+            val type = (args["notUpdated"] as? JsonObject)?.get(calendarId)
+                ?.let { it as? JsonObject }?.get("type")?.jsonPrimitive?.contentOrNull
+            throw JmapException(
+                "Couldn't change the calendar" +
+                    (setErrorDetail(args, "notUpdated", calendarId)?.let { " ($it)" } ?: ""),
+                errorType = type ?: "notUpdated",
+            )
+        }
+    }
+
+    /**
+     * Destroy a CalendarEvent outright (RFC 8620 §5.3 `destroy`), the whole series when it repeats.
+     * Throws [JmapException] with the server's reason when it was not destroyed.
+     *
+     * [destroyContactCard]'s contract: a `notFound` refusal is thrown like any other, and the
+     * caller decides what an already-gone event means for its cache.
+     */
+    suspend fun destroyCalendarEvent(
+        session: JmapSession,
+        accountId: String,
+        eventId: String,
+        auth: JmapAuth,
+    ): Unit = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonArray("using") {
+                add(Jmap.CORE_CAPABILITY)
+                add(Jmap.CALENDARS_CAPABILITY)
+            }
+            putJsonArray("methodCalls") {
+                addJsonArray {
+                    add("CalendarEvent/set")
+                    addJsonObject {
+                        put("accountId", accountId)
+                        putJsonArray("destroy") { add(eventId) }
+                    }
+                    add("cx2")
+                }
+            }
+        }
+        val args = methodResponseArgs(postJmap(session, auth, payload), "CalendarEvent/set")
+        val destroyed = (args["destroyed"] as? JsonArray)?.any { it.jsonPrimitive.contentOrNull == eventId } == true
+        if (!destroyed) {
+            throw JmapException(
+                "Couldn't delete the event" + (setErrorDetail(args, "notDestroyed", eventId)?.let { " ($it)" } ?: ""),
+            )
+        }
+    }
+
+    /**
      * The account's current CalendarEvent state string, or null when the server did not give one.
      *
      * ## 🔴 This, and not a `queryState`, is what seeds an incremental sync
@@ -3200,14 +3290,20 @@ private fun contactCardGroupValue(group: ContactCardGroup, card: ContactCardWrit
     ContactCardGroup.EMAILS -> card.emails.filter { it.isNotBlank() }.ifEmpty { null }?.let { list ->
         buildJsonObject {
             list.forEachIndexed { i, address ->
-                putJsonObject("e$i") { put("address", address) }
+                putJsonObject("e$i") {
+                    put("address", address)
+                    putFlags("contexts", ContactTypes.contexts(card.emailTypes[address].orEmpty()))
+                }
             }
         }
     } ?: JsonNull
     ContactCardGroup.PHONES -> card.phones.filter { it.isNotBlank() }.ifEmpty { null }?.let { list ->
         buildJsonObject {
             list.forEachIndexed { i, number ->
-                putJsonObject("p$i") { put("number", number) }
+                putJsonObject("p$i") {
+                    put("number", number)
+                    putPhoneTypes(card.phoneTypes[number].orEmpty())
+                }
             }
         }
     } ?: JsonNull
@@ -3243,6 +3339,18 @@ private fun contactCardGroupValue(group: ContactCardGroup, card: ContactCardWrit
             }
         }
     } ?: JsonNull
+}
+
+/** A JSContact flag set (`{"work": true}`), or nothing at all when it is empty. */
+/** A JSContact Phone's `contexts` and `features` for its vCard [types]. */
+private fun JsonObjectBuilder.putPhoneTypes(types: Set<String>) {
+    putFlags("contexts", ContactTypes.contexts(types))
+    putFlags("features", ContactTypes.phoneFeatures(types))
+}
+
+private fun JsonObjectBuilder.putFlags(name: String, flags: Map<String, Boolean>) {
+    if (flags.isEmpty()) return
+    putJsonObject(name) { flags.forEach { (key, on) -> put(key, on) } }
 }
 
 /** JMAP UTCDate (RFC 8620 §1.4) from epoch millis. */

@@ -58,7 +58,7 @@ class DavMappersJmapTest {
 
     @Test fun theEtagStandsInForSomethingJmapDoesNotHave() {
         val row = DavMappers.jmapEvents("acct", "jmap:calendar/cal-1", meeting, eastern).single()
-        assertEquals("3:2026-06-20T01:29:17Z", row.etag)
+        assertEquals(true, row.etag?.startsWith("3:2026-06-20T01:29:17Z:"))
 
         val edited = DavMappers.jmapEvents(
             "acct",
@@ -72,6 +72,19 @@ class DavMappersJmapTest {
         // calendar on every sync.
         assertTrue(row.etag != edited.etag)
         assertEquals(row.etag, DavMappers.jmapEvents("acct", "jmap:calendar/cal-1", meeting, eastern).single().etag)
+    }
+
+    @Test fun anEditThatBumpsNeitherSequenceNorUpdatedStillChangesTheEtag() {
+        // Seen live on Stalwart (#40): a CalDAV client rewrote DESCRIPTION and kept SEQUENCE and
+        // DTSTAMP, so `sequence:updated` alone did not move and the phone kept the old text.
+        val row = DavMappers.jmapEvents("acct", "jmap:calendar/cal-1", meeting, eastern).single()
+        val edited = DavMappers.jmapEvents(
+            "acct",
+            "jmap:calendar/cal-1",
+            meeting.copy(description = "moved to the big room"),
+            eastern,
+        ).single()
+        assertTrue(row.etag != edited.etag)
     }
 
     @Test fun aMovedInstanceGetsItsOwnRowKeyedTheSameWayAMultiVeventFileWouldBe() {

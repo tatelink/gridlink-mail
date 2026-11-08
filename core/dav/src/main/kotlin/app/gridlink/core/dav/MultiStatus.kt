@@ -56,6 +56,8 @@ enum class PropKey(val namespace: String, val local: String) {
     CALENDAR_DATA("urn:ietf:params:xml:ns:caldav", "calendar-data"),
     ADDRESS_DATA("urn:ietf:params:xml:ns:carddav", "address-data"),
     CALENDAR_COLOR("http://apple.com/ns/ical/", "calendar-color"),
+    SCHEDULE_INBOX_URL("urn:ietf:params:xml:ns:caldav", "schedule-inbox-URL"),
+    SCHEDULE_DEFAULT_CALENDAR_URL("urn:ietf:params:xml:ns:caldav", "schedule-default-calendar-URL"),
     ;
 
     companion object {

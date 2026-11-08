@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.text.format.Formatter
+import app.gridlink.R
 import app.gridlink.core.data.account.AccountStore
 import app.gridlink.core.data.account.MailProtocol
 import app.gridlink.core.data.mail.MailRepository
@@ -99,7 +100,7 @@ class GridlinkFileAttacher(
     private val counter = AtomicLong(0)
 
     override suspend fun stage(uri: Uri): GridlinkAttachment {
-        val credentials = accounts.load() ?: error("No account to attach a file to.")
+        val credentials = accounts.load() ?: error(context.getString(R.string.gl_compose_attach_no_account))
         val resolver = context.contentResolver
         val type = resolver.getType(uri)
         // Both columns are documented nullable, and a provider that returns a row with a null SIZE
@@ -118,7 +119,7 @@ class GridlinkFileAttacher(
                 null
             }
         }
-        val name = meta?.first?.takeIf { it.isNotBlank() } ?: "attachment"
+        val name = meta?.first?.takeIf { it.isNotBlank() } ?: context.getString(R.string.compose_attachment_fallback)
         // Refused before a byte is read when the provider was willing to say how big it is. -1 means
         // it was not, and that file is capped while it is read instead — a declared size is a hint,
         // and the one file crafted to lie about it must not be the one that gets to allocate freely.
@@ -127,7 +128,7 @@ class GridlinkFileAttacher(
             resolver.openInputStream(uri)?.use {
                 OutgoingLimits.readAtMost(it, OutgoingLimits.ATTACHMENT_MAX_BYTES)
             }
-        } ?: error("Couldn't read $name.")
+        } ?: error(context.getString(R.string.gl_compose_attach_read_failed, name))
 
         val part = if (credentials.protocol == MailProtocol.IMAP) {
             EmailBodyPart(
@@ -144,7 +145,7 @@ class GridlinkFileAttacher(
     }
 
     override suspend fun adopt(emailId: String): List<GridlinkAttachment> {
-        val credentials = accounts.load() ?: error("No account to reopen that draft's files from.")
+        val credentials = accounts.load() ?: error(context.getString(R.string.gl_compose_attach_no_account_reopen))
         // Cheap: the draft's body was fetched moments ago to rebuild the composer, and this reads
         // it back out of the same cache. `markRead = false` for the reason the draft fetch has it —
         // resuming your own draft must not flip it to read on the server.
@@ -153,7 +154,7 @@ class GridlinkFileAttacher(
         // inline, and re-attaching one as a file would grow a paperclip the draft never had.
         val parts = body.email.attachments.filter { it.cid.isNullOrBlank() }
         return parts.map { part ->
-            val name = part.name?.takeIf { it.isNotBlank() } ?: "attachment"
+            val name = part.name?.takeIf { it.isNotBlank() } ?: context.getString(R.string.compose_attachment_fallback)
             // The outgoing ceiling, not the download one: this file is about to be sent again, and a
             // draft written by a client with a bigger limit must fail here rather than at delivery.
             DownloadLimits.enforce(part.size, OutgoingLimits.ATTACHMENT_MAX_BYTES)
@@ -185,7 +186,7 @@ class GridlinkFileAttacher(
 
     override fun parts(attachments: List<GridlinkAttachment>): List<EmailBodyPart> =
         attachments.map { attachment ->
-            staged[attachment.id] ?: error("${attachment.name} has no file behind it.")
+            staged[attachment.id] ?: error(context.getString(R.string.gl_compose_attach_missing_file, attachment.name))
         }
 
     /** Record [part] under a fresh id and return the chip that points at it. */

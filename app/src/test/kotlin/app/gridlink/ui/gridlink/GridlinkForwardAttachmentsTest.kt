@@ -1,8 +1,12 @@
 package app.gridlink.ui.gridlink
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
 /**
  * What a forward carries, and specifically what it must NOT carry.
@@ -17,7 +21,11 @@ import org.junit.Test
  * negative one: the builder never invents a chip, so a chip in a forward is one something is
  * holding the bytes for.
  */
+@RunWith(RobolectricTestRunner::class)
 class GridlinkForwardAttachmentsTest {
+
+    // The draft title and the forward header are string resources; Robolectric resolves them in English.
+    private val context = ApplicationProvider.getApplicationContext<Context>()
 
     private fun message(attachments: List<GridlinkAttachment> = emptyList()) = GridlinkMessage(
         id = "m9",
@@ -38,7 +46,7 @@ class GridlinkForwardAttachmentsTest {
 
     @Test
     fun `a forward does not carry the reader's chips`() {
-        val request = gridlinkForward(message(readerChips))
+        val request = gridlinkForward(context, message(readerChips))
         // The regression itself. Anything here that the caller did not stage is a send that fails.
         assertTrue(request.draft.attachments.isEmpty())
     }
@@ -46,7 +54,7 @@ class GridlinkForwardAttachmentsTest {
     @Test
     fun `a forward carries exactly the staged chips it was given`() {
         val staged = listOf(GridlinkAttachment(name = "invoice.pdf", size = "84 kB", id = "staged:1"))
-        val request = gridlinkForward(message(readerChips), staged)
+        val request = gridlinkForward(context, message(readerChips), staged)
         // Given, not merged with the message's own: two chips for one file would be one file the
         // sender cannot find.
         assertEquals(staged, request.draft.attachments)
@@ -54,7 +62,7 @@ class GridlinkForwardAttachmentsTest {
 
     @Test
     fun `a forward with nothing attached is unchanged`() {
-        val request = gridlinkForward(message())
+        val request = gridlinkForward(context, message())
         assertTrue(request.draft.attachments.isEmpty())
         assertEquals("Fwd: March invoice", request.draft.subject)
         // The TO field, because a forward is the one action the app cannot address for you.
@@ -63,7 +71,7 @@ class GridlinkForwardAttachmentsTest {
 
     @Test
     fun `an already forwarded subject is not prefixed twice`() {
-        val request = gridlinkForward(message().copy(subject = "Fwd: March invoice"))
+        val request = gridlinkForward(context, message().copy(subject = "Fwd: March invoice"))
         assertEquals("Fwd: March invoice", request.draft.subject)
     }
 }

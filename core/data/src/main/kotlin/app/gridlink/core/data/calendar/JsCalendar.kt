@@ -160,7 +160,7 @@ object JsCalendar {
      * ⚠️ JSCalendar spells its enums in lower case (`weekly`, `mo`) and iCalendar in upper
      * (`WEEKLY`, `MO`), so every value here is upper-cased on the way out.
      *
-     * Parts [Recurrence] does not implement (BYSETPOS, BYHOUR, BYMINUTE) are still written. The
+     * Parts [Recurrence] does not implement (BYHOUR, BYMINUTE) are still written. The
      * parser takes the parts it knows and ignores the rest, so emitting them costs nothing and
      * keeps the stored string a faithful record of what the server said, rather than a summary of
      * what this app's expander happens to support today.

@@ -54,8 +54,15 @@ class ICalendarWriteTest {
         assertEquals("Sprint review", event.summary)
         assertEquals("test-uid", event.uid)
         assertFalse(event.allDay)
-        assertEquals(LocalDateTime.of(2026, 8, 12, 9, 0), event.start)
-        assertEquals(LocalDateTime.of(2026, 8, 12, 10, 0), event.end)
+        // A UTC stamp reads back in UTC (its repeats are UTC instants); the instant is what survives.
+        assertEquals(
+            LocalDateTime.of(2026, 8, 12, 9, 0).atZone(eastern).toInstant(),
+            event.start.atZone(event.zone).toInstant(),
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 8, 12, 10, 0).atZone(eastern).toInstant(),
+            event.end!!.atZone(event.zone).toInstant(),
+        )
     }
 
     /**
@@ -472,6 +479,68 @@ class ICalendarWriteTest {
     @Test fun anRruleSurvivesTheRoundTrip() {
         val event = readBack(build(rrule = "FREQ=WEEKLY;BYDAY=TU"))
         assertEquals("FREQ=WEEKLY;BYDAY=TU", event.rrule)
+    }
+
+    /**
+     * 🔴 A series spelled in UTC drifts an hour at every clock change (a weekly 9:00 in New York
+     * becomes 8:00 in winter), so a repeating event in a zone with daylight saving is written as a
+     * wall time in that zone, with the VTIMEZONE that RFC 5545 §3.6.5 requires beside it.
+     */
+    @Test fun aSeriesIsSpelledInItsZoneWithAVtimezone() {
+        val out = build(rrule = "FREQ=WEEKLY;BYDAY=WE")
+        assertTrue(out, "DTSTART;TZID=America/New_York:20260812T090000" in out)
+        assertTrue(out, "DTEND;TZID=America/New_York:20260812T100000" in out)
+        assertFalse(out, "DTSTART:20260812T130000Z" in out)
+        assertTrue(out, "BEGIN:VTIMEZONE" in out && "TZID:America/New_York" in out)
+        // The change in force when the series starts (8 March 2026) and the next one (1 November).
+        assertTrue(out, "BEGIN:DAYLIGHT\r\nDTSTART:20260308T020000\r\nTZOFFSETFROM:-0500\r\nTZOFFSETTO:-0400" in out)
+        assertTrue(out, "BEGIN:STANDARD\r\nDTSTART:20261101T020000\r\nTZOFFSETFROM:-0400\r\nTZOFFSETTO:-0500" in out)
+        assertTrue(out, out.indexOf("END:VTIMEZONE") < out.indexOf("BEGIN:VEVENT"))
+    }
+
+    @Test fun aSeriesInItsZoneReadsBackAtTheSameWallTime() {
+        val event = readBack(build(rrule = "FREQ=WEEKLY;BYDAY=WE"))
+        assertEquals(LocalDateTime.of(2026, 8, 12, 9, 0), event.start)
+        assertEquals(LocalDateTime.of(2026, 8, 12, 10, 0), event.end)
+        assertEquals("FREQ=WEEKLY;BYDAY=WE", event.rrule)
+    }
+
+    /** A one-off keeps the instant; only a repeating rule has anything to drift. */
+    @Test fun aOneOffStaysInUtcWithNoVtimezone() {
+        val out = build()
+        assertTrue(out, "DTSTART:20260812T130000Z" in out)
+        assertFalse(out, "VTIMEZONE" in out)
+    }
+
+    /** A zone that never changes its clocks has nothing to drift against. */
+    @Test fun aSeriesInAFixedOffsetZoneStaysInUtc() {
+        val out = ICalendar.buildEvent(
+            uid = "test-uid",
+            summary = "Standup",
+            start = LocalDateTime.of(2026, 8, 12, 9, 0),
+            end = LocalDateTime.of(2026, 8, 12, 9, 15),
+            allDay = false,
+            zone = ZoneId.of("UTC"),
+            location = null,
+            description = null,
+            nowMillis = stamp,
+            rrule = "FREQ=DAILY",
+        )
+        assertTrue(out, "DTSTART:20260812T090000Z" in out)
+        assertFalse(out, "VTIMEZONE" in out)
+    }
+
+    /** A rule that is refused is not a series, so it does not earn a zone either. */
+    @Test fun aRefusedRuleKeepsTheOneOffSpelling() {
+        val out = build(rrule = "FREQ=WEEKLY\r\nSUMMARY:Injected")
+        assertTrue(out, "DTSTART:20260812T130000Z" in out)
+        assertFalse(out, "VTIMEZONE" in out)
+    }
+
+    @Test fun offsetsWithMinutesAreSpelledInFull() {
+        val lines = ICalendar.vtimezone(ZoneId.of("Australia/Adelaide"), LocalDateTime.of(2026, 8, 12, 9, 0))
+        assertTrue(lines.toString(), "TZOFFSETFROM:+0930" in lines)
+        assertTrue(lines.toString(), "TZOFFSETTO:+1030" in lines)
     }
 
     @Test fun noRruleWritesNoRruleLine() {

@@ -1,10 +1,14 @@
 package app.gridlink.ui.gridlink
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
 /**
  * What a `List-Unsubscribe` header is allowed to make this app do.
@@ -15,9 +19,14 @@ import org.junit.Test
  * one whose `+` was quietly turned into a space. Each of those is a real bug with a real consequence,
  * and each has a test here saying which.
  *
- * The parse is pure and lives in `ui.gridlink`, so this needs no Android, no network and no account.
+ * The parse is pure and lives in `ui.gridlink`, so it needs no network and no account. Robolectric is
+ * here only for the draft title and the warning sentences, which are string resources (resolved in
+ * English).
  */
+@RunWith(RobolectricTestRunner::class)
 class GridlinkUnsubscribeTest {
+
+    private val context = ApplicationProvider.getApplicationContext<Context>()
 
     private fun message(id: String = "m1", sender: String = "Dalton Energy", domain: String = "dalton-energy.example") =
         GridlinkMessage(
@@ -170,6 +179,7 @@ class GridlinkUnsubscribeTest {
     @Test
     fun `the draft goes to the address and carries the sender's subject and body`() {
         val request = gridlinkUnsubscribeDraft(
+            context,
             message(),
             "mailto:unsub@example.org?subject=Unsubscribe%20me&body=list%20id%209f2",
         )
@@ -186,13 +196,14 @@ class GridlinkUnsubscribeTest {
         // 🔴 The bug this guards: URLDecoder implements form-urlencoding, where + means space, and a
         // mailto is not that. Plus-addressing is exactly how a sender encodes WHICH subscription is
         // being cancelled, so decoding it to a space sends the mail to an address that does not exist.
-        val request = gridlinkUnsubscribeDraft(message(), "mailto:list+unsub-9f2@example.org")
+        val request = gridlinkUnsubscribeDraft(context, message(), "mailto:list+unsub-9f2@example.org")
         assertEquals("list+unsub-9f2@example.org", request.draft.recipients.single().email)
     }
 
     @Test
     fun `a plus in the subject stays a plus too`() {
         val request = gridlinkUnsubscribeDraft(
+            context,
             message(),
             "mailto:unsub@example.org?subject=unsub+9f2",
         )
@@ -204,6 +215,7 @@ class GridlinkUnsubscribeTest {
         // RFC 6068 allows a comma-separated list. The rest of a list operator's addresses are not
         // this app's to copy in.
         val request = gridlinkUnsubscribeDraft(
+            context,
             message(),
             "mailto:unsub@example.org,archive@example.org?subject=Stop",
         )
@@ -213,7 +225,7 @@ class GridlinkUnsubscribeTest {
 
     @Test
     fun `a mailto with no query leaves the subject and body empty`() {
-        val draft = gridlinkUnsubscribeDraft(message(), "mailto:unsub@example.org").draft
+        val draft = gridlinkUnsubscribeDraft(context, message(), "mailto:unsub@example.org").draft
         assertEquals("", draft.subject)
         assertEquals("", draft.body)
         assertTrue(draft.attachments.isEmpty())
@@ -224,13 +236,13 @@ class GridlinkUnsubscribeTest {
     fun `a malformed percent escape is carried through rather than dropped`() {
         // The reader can see what they are about to send either way, and the raw text is closer to
         // the sender's intent than an empty field.
-        val draft = gridlinkUnsubscribeDraft(message(), "mailto:unsub@example.org?subject=100%%20off").draft
+        val draft = gridlinkUnsubscribeDraft(context, message(), "mailto:unsub@example.org?subject=100%%20off").draft
         assertTrue("kept something: ${draft.subject}", draft.subject.isNotEmpty())
     }
 
     @Test
     fun `the recipient chip is named for the sender and keyed to the message`() {
-        val draft = gridlinkUnsubscribeDraft(message(id = "abc"), "mailto:unsub@example.org").draft
+        val draft = gridlinkUnsubscribeDraft(context, message(id = "abc"), "mailto:unsub@example.org").draft
         val contact = draft.recipients.single()
         assertEquals("unsubscribe-abc", contact.id)
         assertEquals("Dalton Energy", contact.family)
@@ -242,12 +254,15 @@ class GridlinkUnsubscribeTest {
     @Test
     fun `each method gets its own warning, and only two of the three say something is sent`() {
         val oneClick = gridlinkUnsubscribeWarning(
+            context,
             message().copy(unsubscribe = GridlinkUnsubscribe(httpUrl = "https://x", oneClick = true)),
         )
         val page = gridlinkUnsubscribeWarning(
+            context,
             message().copy(unsubscribe = GridlinkUnsubscribe(httpUrl = "https://x")),
         )
         val draft = gridlinkUnsubscribeWarning(
+            context,
             message().copy(unsubscribe = GridlinkUnsubscribe(mailto = "mailto:x@y")),
         )
         assertTrue(oneClick.startsWith("Sends a request"))
@@ -260,6 +275,6 @@ class GridlinkUnsubscribeTest {
 
     @Test
     fun `a message with no method still gets a sentence rather than a blank dialog`() {
-        assertEquals("Files this message.", gridlinkUnsubscribeWarning(message()))
+        assertEquals("Files this message.", gridlinkUnsubscribeWarning(context, message()))
     }
 }

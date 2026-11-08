@@ -4,6 +4,7 @@ import app.gridlink.core.data.text.ContentLine
 import app.gridlink.core.data.text.ContentLines
 import app.gridlink.core.jmap.model.ContactCardCustomField
 import app.gridlink.core.jmap.model.ContactCardPhoto
+import app.gridlink.core.jmap.model.ContactTypes
 
 /**
  * One parsed vCard, reduced to the fields the address book renders.
@@ -37,6 +38,14 @@ data class ParsedContact(
     val photo: ContactCardPhoto? = null,
     /** Gridlink's own X-GRIDLINK-FIELD properties: user-defined label/value pairs. */
     val customFields: List<ContactCardCustomField> = emptyList(),
+    /**
+     * Each address in [emails] with its kind words ("work", "home"; see [ContactTypes]), an empty
+     * set for an address that has none. Beside the list rather than in it, so the many readers
+     * that only want the addresses keep reading strings.
+     */
+    val emailTypes: Map<String, Set<String>> = emptyMap(),
+    /** Each number in [phones] with its kind words ("cell", "work", "fax"), as [emailTypes]. */
+    val phoneTypes: Map<String, Set<String>> = emptyMap(),
 ) {
 
     /**
@@ -186,6 +195,8 @@ object VCard {
             title = first("TITLE")?.let { text(it.value) },
             emails = emails(lines),
             phones = phones(lines),
+            emailTypes = types(lines, "EMAIL", ::emailValue),
+            phoneTypes = types(lines, "TEL", ::phoneValue),
             note = first("NOTE")?.let { text(it.value) },
             addresses = addresses(lines),
             photo = photo(lines),
@@ -216,7 +227,7 @@ object VCard {
         val addresses = all.map { line ->
             val preferred = line.paramValues("TYPE").any { it.equals("PREF", true) } ||
                 line.param("PREF") != null
-            preferred to line.value.trim().removePrefix("mailto:").trim()
+            preferred to emailValue(line)
         }
         return addresses
             .filter { it.second.isNotEmpty() }
@@ -236,13 +247,38 @@ object VCard {
         val numbers = all.map { line ->
             val preferred = line.paramValues("TYPE").any { it.equals("PREF", true) } ||
                 line.param("PREF") != null
-            preferred to line.value.trim().removePrefix("tel:").trim()
+            preferred to phoneValue(line)
         }
         return numbers
             .filter { it.second.isNotEmpty() }
             .sortedByDescending { it.first }
             .map { it.second }
             .distinct()
+    }
+
+    private fun emailValue(line: ContentLine): String = line.value.trim().removePrefix("mailto:").trim()
+
+    private fun phoneValue(line: ContentLine): String = line.value.trim().removePrefix("tel:").trim()
+
+    /**
+     * The kind words of every [property] line, keyed by the value [valueOf] reads, as
+     * [ParsedContact.emailTypes] describes. Both TYPE spellings in the wild arrive as the same
+     * thing: `TYPE=work,cell`, `TYPE=work;TYPE=cell` and 2.1's bare `TEL;WORK;CELL:` (which
+     * [ContentLines.parse] files under TYPE). A value written twice gets the words of both lines.
+     */
+    private fun types(
+        lines: List<ContentLine>,
+        property: String,
+        valueOf: (ContentLine) -> String,
+    ): Map<String, Set<String>> {
+        val out = LinkedHashMap<String, MutableSet<String>>()
+        lines.filter { it.name == property }.forEach { line ->
+            val value = valueOf(line).takeIf { it.isNotEmpty() } ?: return@forEach
+            // A 4.0 quoted list (`TYPE="work,voice"`) comes out of paramValues as one piece.
+            val words = line.paramValues("TYPE").flatMap { it.split(',') }
+            out.getOrPut(value) { LinkedHashSet() } += ContactTypes.clean(words)
+        }
+        return out
     }
 
     /**

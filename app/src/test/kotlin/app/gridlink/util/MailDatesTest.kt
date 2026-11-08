@@ -195,4 +195,36 @@ class MailDatesTest {
             MailDates.formatListDate("2026-08-24T08:12:33+01:00", paris, LocalDate.of(2026, 8, 24)),
         )
     }
+
+    @Test fun theGridlinkStampUsesThePhonesOwnTimeAndDateWhenGiven() {
+        val phone = MailDates.StampStyle(
+            time = DateTimeFormatter.ofPattern("HH:mm", Locale.US),
+            dayMonth = DateTimeFormatter.ofPattern("MMM d", Locale.US),
+        )
+        val today = LocalDate.of(2026, 10, 30)
+        // A US phone switched to 24-hour time: the clock follows the switch, not the language.
+        assertEquals(
+            "20:24",
+            MailDates.formatGridlinkStamp(
+                "2026-10-30T19:24:00Z",
+                paris,
+                today,
+                Locale.US,
+                yesterday = "Yesterday",
+                style = phone,
+            ),
+        )
+        // And an earlier day reads "Oct 20", the US order, instead of the fixed "20 Oct".
+        assertEquals(
+            "Oct 20",
+            MailDates.formatGridlinkStamp(
+                "2026-10-20T10:00:00Z",
+                paris,
+                today,
+                Locale.US,
+                yesterday = "Yesterday",
+                style = phone,
+            ),
+        )
+    }
 }

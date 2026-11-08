@@ -18,7 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -225,7 +225,7 @@ private fun FiltersList(
         }
 
         OutlinedButton(onClick = onAdd, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-            Icon(Icons.Filled.Add, contentDescription = null)
+            Icon(Icons.Outlined.Add, contentDescription = null)
             Spacer(Modifier.width(8.dp))
             Text(stringResource(R.string.settings_filters_add))
         }
@@ -373,7 +373,7 @@ private fun RuleConditions(rule: FilterRule, onChange: (FilterRule) -> Unit) {
             onClick = { onChange(rule.copy(conditions = conditions + RuleCondition())) },
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
-            Icon(Icons.Filled.Add, contentDescription = null)
+            Icon(Icons.Outlined.Add, contentDescription = null)
             Spacer(Modifier.width(8.dp))
             Text(stringResource(R.string.settings_filter_add_condition))
         }
@@ -567,12 +567,21 @@ private fun ruleSummary(context: Context, rule: FilterRule, tags: List<MailTag>)
 }
 
 private fun conditionSummary(context: Context, condition: RuleCondition): String {
-    val head = "${fieldLabel(context, condition.field)} ${matchLabel(context, condition.match)}"
+    val field = fieldLabel(context, condition.field)
+    val match = matchLabel(context, condition.match)
+    // One format string per shape, so a language can reorder the parts and quote the value its
+    // own way instead of inheriting English word order and straight quotes.
     return when (condition.field.kind) {
         // The match is already the whole sentence: "Attachment is present".
-        FieldKind.PRESENCE -> head
-        FieldKind.SIZE -> "$head ${condition.value} ${context.getString(R.string.settings_filter_size_unit)}"
-        FieldKind.TEXT -> "$head \"${condition.value}\""
+        FieldKind.PRESENCE -> context.getString(R.string.gl_misc_filter_condition, field, match)
+        FieldKind.SIZE -> context.getString(
+            R.string.gl_misc_filter_condition_size,
+            field,
+            match,
+            condition.value,
+            context.getString(R.string.settings_filter_size_unit),
+        )
+        FieldKind.TEXT -> context.getString(R.string.gl_misc_filter_condition_text, field, match, condition.value)
     }
 }
 

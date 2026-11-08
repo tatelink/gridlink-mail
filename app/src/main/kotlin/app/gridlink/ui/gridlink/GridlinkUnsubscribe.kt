@@ -1,5 +1,9 @@
 package app.gridlink.ui.gridlink
 
+import android.content.Context
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
+import app.gridlink.R
 import app.gridlink.ui.gridlink.GridlinkSampleContacts.GridlinkContact
 import java.io.UnsupportedEncodingException
 import java.net.URLDecoder
@@ -114,26 +118,24 @@ private fun bracketedUris(header: String?): List<String> {
  * fact worth deciding on, and it is the same fact in all three cases — the mailto one just puts it
  * off until the draft is sent.
  */
-internal fun gridlinkUnsubscribeWarning(message: GridlinkMessage): String {
+@Composable
+internal fun gridlinkUnsubscribeWarning(message: GridlinkMessage): String =
+    gridlinkUnsubscribeWarning(LocalContext.current, message)
+
+/** [gridlinkUnsubscribeWarning] for a caller holding a [Context] rather than a composition. */
+internal fun gridlinkUnsubscribeWarning(context: Context, message: GridlinkMessage): String {
     val method = message.unsubscribe
     val domain = message.domain
     return when {
         // Nothing to describe. Reachable only from the gallery, which can open this dialog directly;
         // the real sheet does not offer the row at all without a method.
-        method == null -> "Files this message."
+        method == null -> context.getString(R.string.gl_compose_unsubscribe_warning_none)
 
-        method.oneClick ->
-            "Sends a request to $domain and files this message. " +
-                "It also confirms to them that this address is real."
+        method.oneClick -> context.getString(R.string.gl_compose_unsubscribe_warning_one_click, domain)
 
-        method.httpUrl != null ->
-            "Opens $domain's unsubscribe page in your browser and files this message. " +
-                "Visiting it confirms to them that this address is real."
+        method.httpUrl != null -> context.getString(R.string.gl_compose_unsubscribe_warning_page, domain)
 
-        else ->
-            "Starts a message to $domain for you to check and send. " +
-                "Nothing is sent until you do, and sending it confirms to them that this " +
-                "address is real."
+        else -> context.getString(R.string.gl_compose_unsubscribe_warning_mailto, domain)
     }
 }
 
@@ -153,13 +155,14 @@ internal fun gridlinkUnsubscribeWarning(message: GridlinkMessage): String {
  * empty one will silently do nothing.
  */
 internal fun gridlinkUnsubscribeDraft(
+    context: Context,
     message: GridlinkMessage,
     mailto: String,
 ): GridlinkComposeRequest {
     val parsed = mailtoFields(mailto)
     return GridlinkComposeRequest(
         draft = GridlinkComposeDraft(
-            title = "Unsubscribe",
+            title = context.getString(R.string.gl_compose_unsubscribe_title),
             recipients = listOf(
                 GridlinkContact(
                     // Keyed off the message so two unsubscribes open two distinct chips, and named

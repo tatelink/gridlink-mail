@@ -1,5 +1,6 @@
 package app.gridlink.ui.gridlink
 
+import android.content.res.Resources
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -8,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
@@ -19,9 +21,8 @@ import app.gridlink.ui.theme.GridlinkType
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
-import java.util.Locale
 
-private val EVENT_DATE = DateTimeFormatter.ofPattern("EEE d MMM", Locale.US)
+private val EVENT_DATE: DateTimeFormatter get() = calendarFormatter("EEEdMMM", "EEE d MMM")
 
 /**
  * Default start for a new appointment, and an hour later for its end.
@@ -47,19 +48,23 @@ internal const val DEFAULT_DURATION_MINUTES = 60L
  * before", "1 day before". One wording everywhere, so the card never disagrees with the sheet
  * that set it.
  */
-fun gridlinkReminderLabel(minutes: Int): String = when {
-    minutes == 0 -> "At time of event"
-    minutes % 1440 == 0 -> (minutes / 1440).let { "$it day${if (it == 1) "" else "s"} before" }
-    minutes % 60 == 0 -> (minutes / 60).let { "$it hour${if (it == 1) "" else "s"} before" }
-    else -> "$minutes minutes before"
+fun gridlinkReminderLabel(res: Resources, minutes: Int): String = when {
+    minutes == 0 -> res.getString(R.string.gl_cal_reminder_at_event)
+    minutes % 1440 == 0 -> (minutes / 1440).let {
+        res.getQuantityString(R.plurals.gl_cal_reminder_days_before, it, it)
+    }
+    minutes % 60 == 0 -> (minutes / 60).let {
+        res.getQuantityString(R.plurals.gl_cal_reminder_hours_before, it, it)
+    }
+    else -> res.getQuantityString(R.plurals.gl_cal_reminder_minutes_before, minutes, minutes)
 }
 
 /** The same offset in pick-row space: "At event", "10 min", "1 hr", "1 day". */
-private fun gridlinkReminderShort(minutes: Int): String = when {
-    minutes == 0 -> "At event"
-    minutes % 1440 == 0 -> "${minutes / 1440} day"
-    minutes % 60 == 0 -> "${minutes / 60} hr"
-    else -> "$minutes min"
+private fun gridlinkReminderShort(res: Resources, minutes: Int): String = when {
+    minutes == 0 -> res.getString(R.string.gl_cal_reminder_short_at_event)
+    minutes % 1440 == 0 -> (minutes / 1440).let { res.getQuantityString(R.plurals.gl_cal_unit_days, it, it) }
+    minutes % 60 == 0 -> (minutes / 60).let { res.getQuantityString(R.plurals.gl_cal_unit_hours, it, it) }
+    else -> res.getQuantityString(R.plurals.gl_cal_unit_minutes, minutes, minutes)
 }
 
 /**
@@ -126,16 +131,17 @@ fun GridlinkEventFormScreen(
     var category by remember { mutableStateOf(TextFieldValue(initial?.category.orEmpty())) }
     var reminders by remember { mutableStateOf(initial?.reminders.orEmpty().distinct().sorted()) }
     var picking by remember { mutableStateOf<GridlinkEventPicker?>(null) }
-    // Which calendar a NEW event goes into. Resolved against the live list on every frame rather
-    // than frozen at open, so a list that arrives a moment after the form still lands on a real
-    // calendar, and a calendar removed by a sync falls back to the default instead of to nothing.
+    // Which calendar the event goes into (a new one) or stays in (an edit, until another is picked).
+    // Resolved against the live list on every frame rather than frozen at open, so a list that
+    // arrives a moment after the form still lands on a real calendar, and a calendar removed by a
+    // sync falls back to the default instead of to nothing.
     val calendars = LocalGridlinkBook.current.calendars
-    var calendarPick by remember { mutableStateOf<String?>(null) }
+    var calendarPick by remember { mutableStateOf(initial?.calendarId) }
     val calendar = calendars.firstOrNull { it.id == calendarPick } ?: gridlinkDefaultCalendar(calendars)
-    // 🔴 New events only, and only with a real choice. Moving an existing event to another calendar
-    // is a delete on one collection and a create on another, which the writer does not do; a row
-    // that looked editable on an edit would silently keep the event where it was.
-    val choosesCalendar = initial == null && calendars.size > 1
+    // Only with a real choice. 🔴 On an edit, only when the event's own calendar is in the list: the
+    // row would otherwise show the default as if the event were in it, and saving would move it.
+    val choosesCalendar = calendars.size > 1 &&
+        (initial == null || calendars.any { it.id == initial.calendarId })
 
     val titleFocus = remember { FocusRequester() }
     val locationFocus = remember { FocusRequester() }
@@ -149,15 +155,25 @@ fun GridlinkEventFormScreen(
     LaunchedEffect(Unit) { if (initial == null) titleFocus.requestFocus() }
 
     val named = summary.text.isNotBlank()
+    // Whether Save has been pressed on a blank title. The "needs a title" line waits for that: shown
+    // on open, it told you off before you had typed a letter. (Polish pass, 2026-11-07.)
+    var triedBlank by remember { mutableStateOf(false) }
     GridlinkFormScreen(
         title = title,
         // No way out while the PUT is in flight. Closing would not recall it, so an X there offers
         // to cancel something it cannot, and the event turns up on the server anyway.
         onClose = if (saving) null else onClose,
-        confirmLabel = if (saving) "Saving" else "Save",
-        confirmEnabled = named && !saving,
-        hint = failure ?: if (named) null else "An event needs a title.",
-        onConfirm = {
+        confirmLabel = stringResource(if (saving) R.string.gl_cal_form_saving else R.string.settings_save),
+        // Save stays live on a blank form so pressing it can say why it will not save, rather than
+        // being a grey button with the reason printed before anyone asked.
+        confirmEnabled = !saving,
+        hint = failure ?: if (triedBlank && !named) stringResource(R.string.gl_cal_form_needs_title) else null,
+        onConfirm = confirm@{
+            if (!named) {
+                triedBlank = true
+                titleFocus.requestFocus()
+                return@confirm
+            }
             onSave(
                 GridlinkEvent(
                     // Empty for a new event (the caller mints one; see [onSave]), initial's for an
@@ -182,18 +198,26 @@ fun GridlinkEventFormScreen(
                     // Verbatim, like the id: the ticket the writer issued must come back to it
                     // unchanged, and a new event has none until a writer gives it one.
                     handle = initial?.handle.orEmpty(),
-                    calendarId = initial?.calendarId ?: calendar?.id,
+                    // An edit names a calendar only when one was really picked or kept, never the
+                    // fallback default: a different id here is what makes the writer move it.
+                    calendarId = if (initial != null) calendarPick else calendar?.id,
                 ),
             )
         },
         modifier = modifier,
         embedded = embedded,
     ) {
+        // 🔴 Ruled rows on the panel, Compose's layout, not boxed fields. (Polish pass, 2026-11-07.)
+        // The form used to be a stack of bordered boxes like a stock settings page, unlike the
+        // composer and setup it sits between. Typed rows carry their caption as the placeholder,
+        // in caps like SUBJECT, so "Title" is no longer printed twice (once as a label, once as
+        // the hint inside); picked rows keep their caption above the value because two times with
+        // nothing naming them are ambiguous.
         GridlinkFormTextRow(
             value = summary,
             onValueChange = { summary = it },
-            placeholder = "Title",
-            placeholderStyle = GridlinkType.senderName,
+            placeholder = stringResource(R.string.gl_cal_field_title).uppercase(),
+            placeholderStyle = GridlinkType.sectionLabel,
             style = GridlinkType.senderName,
             focusRequester = titleFocus,
             onFocused = {},
@@ -204,66 +228,63 @@ fun GridlinkEventFormScreen(
             // pickers are dialogs: sending the ime action into one would open a modal from a keyboard
             // key, over a keyboard that is still up.
             onImeAction = { locationFocus.requestFocus() },
-            label = "Title",
-            contained = true,
         )
+        GridlinkFormDivider()
 
         // Straight under the title: which calendar is the first thing a multi-calendar user checks,
         // and it is a choice about the whole event rather than about one of its details.
         if (choosesCalendar && calendar != null) {
             GridlinkFormPickRow(
-                label = stringResource(R.string.event_form_calendar),
+                label = stringResource(R.string.event_form_calendar).uppercase(),
                 value = gridlinkCalendarName(calendar),
                 onClick = { picking = GridlinkEventPicker.CALENDAR },
-                contained = true,
                 active = picking == GridlinkEventPicker.CALENDAR,
                 trailing = { GridlinkCalendarDot(calendar.tint) },
                 modifier = Modifier.testTag("gridlink-event-calendar"),
             )
+            GridlinkFormDivider()
         }
 
-        // 🔴 No dividers: contained boxes separate themselves by their margins, same as the
-        // contact form.
         GridlinkFormPickRow(
-            label = "Date",
+            label = stringResource(R.string.gl_cal_field_date).uppercase(),
             value = day.format(EVENT_DATE),
             onClick = { picking = GridlinkEventPicker.DATE },
-            contained = true,
             active = picking == GridlinkEventPicker.DATE,
         )
+        GridlinkFormDivider()
 
         GridlinkFormToggleRow(
-            label = "All day",
+            label = stringResource(R.string.widget_agenda_all_day),
             checked = allDay,
             onToggle = { allDay = it },
-            contained = true,
         )
+        GridlinkFormDivider()
 
         // The times are removed rather than disabled when the event is all-day. A dimmed 9 AM under an
         // ON toggle asks the user to work out which of the two the app believes; nothing there says it
         // plainly.
         if (!allDay) {
             GridlinkFormPickRow(
-                label = "Start",
+                label = stringResource(R.string.gl_cal_field_start).uppercase(),
                 value = start.compact(),
                 onClick = { picking = GridlinkEventPicker.START },
-                contained = true,
                 active = picking == GridlinkEventPicker.START,
             )
+            GridlinkFormDivider()
             GridlinkFormPickRow(
-                label = "End",
+                label = stringResource(R.string.gl_cal_field_end).uppercase(),
                 value = end.compact(),
                 onClick = { picking = GridlinkEventPicker.END },
-                contained = true,
                 active = picking == GridlinkEventPicker.END,
             )
+            GridlinkFormDivider()
         }
 
         GridlinkFormTextRow(
             value = location,
             onValueChange = { location = it },
-            placeholder = "",
-            placeholderStyle = GridlinkType.body,
+            placeholder = stringResource(R.string.gl_cal_field_location).uppercase(),
+            placeholderStyle = GridlinkType.sectionLabel,
             style = GridlinkType.body,
             focusRequester = locationFocus,
             onFocused = {},
@@ -271,15 +292,14 @@ fun GridlinkEventFormScreen(
             capitalization = KeyboardCapitalization.Sentences,
             imeAction = ImeAction.Next,
             onImeAction = { notesFocus.requestFocus() },
-            label = "Location",
-            contained = true,
         )
+        GridlinkFormDivider()
 
         GridlinkFormTextRow(
             value = notes,
             onValueChange = { notes = it },
-            placeholder = "",
-            placeholderStyle = GridlinkType.body,
+            placeholder = stringResource(R.string.gl_cal_notes).uppercase(),
+            placeholderStyle = GridlinkType.sectionLabel,
             style = GridlinkType.body,
             focusRequester = notesFocus,
             onFocused = {},
@@ -290,15 +310,14 @@ fun GridlinkEventFormScreen(
             capitalization = KeyboardCapitalization.Sentences,
             imeAction = ImeAction.Default,
             onImeAction = null,
-            label = "Notes",
-            contained = true,
         )
+        GridlinkFormDivider()
 
         GridlinkFormTextRow(
             value = category,
             onValueChange = { category = it },
-            placeholder = "",
-            placeholderStyle = GridlinkType.body,
+            placeholder = stringResource(R.string.gl_cal_field_category).uppercase(),
+            placeholderStyle = GridlinkType.sectionLabel,
             style = GridlinkType.body,
             focusRequester = remember { FocusRequester() },
             onFocused = {},
@@ -308,19 +327,18 @@ fun GridlinkEventFormScreen(
             // not a field the ime can move to.
             imeAction = ImeAction.Done,
             onImeAction = null,
-            label = "Category",
-            contained = true,
         )
+        GridlinkFormDivider()
 
         GridlinkFormPickRow(
-            label = "Reminders",
+            label = stringResource(R.string.gl_cal_reminders).uppercase(),
             value = if (reminders.isEmpty()) {
-                "None"
+                stringResource(R.string.gl_cal_reminders_none)
             } else {
-                reminders.joinToString(", ") { gridlinkReminderShort(it) }
+                val res = LocalContext.current.resources
+                reminders.joinToString(", ") { gridlinkReminderShort(res, it) }
             },
             onClick = { picking = GridlinkEventPicker.REMINDERS },
-            contained = true,
             active = picking == GridlinkEventPicker.REMINDERS,
         )
     }
@@ -333,7 +351,7 @@ fun GridlinkEventFormScreen(
         )
 
         GridlinkEventPicker.START -> GridlinkTimePickerSheet(
-            title = "Starts",
+            title = stringResource(R.string.gl_cal_picker_starts),
             selected = start,
             onPick = { picked ->
                 start = picked
@@ -346,7 +364,7 @@ fun GridlinkEventFormScreen(
         )
 
         GridlinkEventPicker.END -> GridlinkTimePickerSheet(
-            title = "Ends",
+            title = stringResource(R.string.gl_cal_picker_ends),
             selected = end,
             onPick = { end = it },
             onDismiss = { picking = null },

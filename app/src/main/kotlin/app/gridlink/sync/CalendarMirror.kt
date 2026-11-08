@@ -8,18 +8,24 @@ import android.graphics.Color
 import android.net.Uri
 import android.provider.CalendarContract
 import android.util.Log
+import app.gridlink.core.data.dav.reparsed
 import app.gridlink.core.data.db.CalendarEventEntity
 import app.gridlink.core.data.db.DavCollectionEntity
+import java.time.ZoneId
 import java.util.TimeZone
 
 /**
  * Publishes one mail account's cached CalDAV calendars into Android's calendar provider.
  *
- * ## 🔴 One direction, and the provider is told so
- * Every calendar is written with `CAL_ACCESS_READ`, which is how the system Calendar app knows not
- * to offer an edit button on these events. That is not a UI nicety: without it the user gets an
- * editor that appears to work and whose changes this mirror silently overwrites on its next pass.
- * Editing lives in Gridlink, where it reaches the server.
+ * ## 🔴 Two directions, and this half never overwrites an unsent edit
+ * Calendars are written with `CAL_ACCESS_OWNER`, so the system Calendar app offers to edit, add and
+ * delete. What the user does there marks the row `DIRTY` (or `DELETED`), and [CalendarUploader]
+ * sends it to the server before this runs. A row still dirty when this runs (its upload failed, or
+ * it was edited in between) is left exactly as it is: rewriting it from the cache would throw the
+ * user's edit away without ever having sent it.
+ *
+ * Each row also carries the per-field hashes of what was written ([NativeEventDiff], in
+ * `SYNC_DATA2`). They are how the uploader tells the user's change from the server's.
  *
  * ## What identifies a row
  * `_SYNC_ID` on both calendars and events, built by [SystemMirror.sourceId] from the local account
@@ -36,6 +42,9 @@ class CalendarMirror(private val resolver: ContentResolver) {
     /**
      * Reconcile the provider to [calendars] and [events].
      *
+     * [owner] is the calendars' owner address (the mail login), not the Android account's name,
+     * which is a display label and may carry a server or a number to keep two accounts apart.
+     *
      * Returns the number of event rows written, for the log line only. Deletions of calendars
      * cascade to their events in the provider, so removing a calendar needs no event sweep.
      */
@@ -44,8 +53,10 @@ class CalendarMirror(private val resolver: ContentResolver) {
         accountId: String,
         calendars: List<DavCollectionEntity>,
         events: List<CalendarEventEntity>,
+        owner: String = account.name,
     ): Int {
         val prefix = SystemMirror.prefix(accountId)
+        sweepForeign(account, prefix)
         val existing = existingCalendars(account, prefix)
         val wanted = calendars.associateBy { SystemMirror.sourceId(accountId, it.url) }
 
@@ -61,7 +72,7 @@ class CalendarMirror(private val resolver: ContentResolver) {
 
         val calendarIds = HashMap<String, Long>()
         for ((syncId, collection) in wanted) {
-            val values = calendarValues(account, syncId, collection)
+            val values = calendarValues(account, syncId, collection, owner)
             val id = existing[syncId]
             if (id == null) {
                 val uri = resolver.insert(syncUri(CalendarContract.Calendars.CONTENT_URI, account), values)
@@ -94,31 +105,24 @@ class CalendarMirror(private val resolver: ContentResolver) {
         // row that has to be there already.
         val masters = events.filter { it.recurrenceId == null }.associateBy { it.uid }
         val ordered = events.sortedBy { it.recurrenceId != null }
+        val zone = ZoneId.systemDefault()
 
         var written = 0
         val seen = HashSet<String>()
         for (event in ordered) {
             val syncId = SystemMirror.sourceId(accountId, event.href)
-            // One exit, covering both "its calendar is not published" and "its start would not
+            val row = existing[syncId]
+            // 🔴 An edit not yet on the server. Kept, and kept from the sweep. See the class note.
+            // Otherwise null covers both "its calendar is not published" and "its start would not
             // parse". Neither is marked seen, so a row written by an earlier pass is swept below
             // rather than left behind pointing at a calendar that is gone.
-            val values = calendarIds[event.collectionUrl]
-                ?.let { eventValues(event, it, syncId, masters[event.uid], accountId) }
-                ?: continue
+            val pending = row?.pending == true
+            if (pending) seen += syncId
+            val native = if (pending) null else placed(event, calendarIds, zone)
+            if (native == null) continue
             seen += syncId
-            val row = existing[syncId]
-            if (row == null) {
-                resolver.insert(syncUri(CalendarContract.Events.CONTENT_URI, account), values)
-                written++
-            } else if (row.fingerprint != SystemMirror.fingerprint(event.etag, event.raw)) {
-                resolver.update(
-                    ContentUris.withAppendedId(syncUri(CalendarContract.Events.CONTENT_URI, account), row.id),
-                    values,
-                    null,
-                    null,
-                )
-                written++
-            }
+            val values = eventValues(event, native.second, native.first, syncId, masters[event.uid], accountId)
+            if (writeEvent(account, row, event, values, native.second.reminders)) written++
         }
 
         for ((syncId, row) in existing) {
@@ -133,10 +137,30 @@ class CalendarMirror(private val resolver: ContentResolver) {
         return written
     }
 
+    /**
+     * Delete the calendars in [account] that carry another Gridlink account's id, and with them
+     * their events. Same reasoning as the contacts mirror's sweep: each Android account publishes
+     * for one Gridlink account now, so anything else in it is 2.1.3 debris nothing would remove.
+     */
+    private fun sweepForeign(account: Account, prefix: String) {
+        val removed = runCatching {
+            resolver.delete(
+                syncUri(CalendarContract.Calendars.CONTENT_URI, account),
+                "${CalendarContract.Calendars.ACCOUNT_NAME} = ? AND " +
+                    "${CalendarContract.Calendars.ACCOUNT_TYPE} = ? AND " +
+                    "${CalendarContract.Calendars._SYNC_ID} IS NOT NULL AND " +
+                    "${CalendarContract.Calendars._SYNC_ID} NOT LIKE ?",
+                arrayOf(account.name, account.type, "$prefix%"),
+            )
+        }.onFailure { Log.w(TAG, "could not sweep foreign calendars", it) }.getOrDefault(0)
+        if (removed > 0) Log.i(TAG, "calendar mirror: removed $removed calendars of another account")
+    }
+
     private fun calendarValues(
         account: Account,
         syncId: String,
         collection: DavCollectionEntity,
+        owner: String,
     ): ContentValues = ContentValues().apply {
         put(CalendarContract.Calendars.ACCOUNT_NAME, account.name)
         put(CalendarContract.Calendars.ACCOUNT_TYPE, account.type)
@@ -146,30 +170,72 @@ class CalendarMirror(private val resolver: ContentResolver) {
             CalendarContract.Calendars.CALENDAR_DISPLAY_NAME,
             collection.displayName?.takeIf { it.isNotBlank() } ?: account.name,
         )
-        put(CalendarContract.Calendars.OWNER_ACCOUNT, account.name)
-        // 🔴 The read-only declaration. See the class note.
-        put(CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL, CalendarContract.Calendars.CAL_ACCESS_READ)
+        put(CalendarContract.Calendars.OWNER_ACCOUNT, owner)
+        // 🔴 Editable in other apps; their edits are uploaded. See the class note.
+        put(CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL, CalendarContract.Calendars.CAL_ACCESS_OWNER)
         put(CalendarContract.Calendars.VISIBLE, 1)
         put(CalendarContract.Calendars.SYNC_EVENTS, 1)
         put(CalendarContract.Calendars.CALENDAR_TIME_ZONE, TimeZone.getDefault().id)
         parseColor(collection.color)?.let { put(CalendarContract.Calendars.CALENDAR_COLOR, it) }
     }
 
+    /** The provider calendar an event goes into and its provider values; null when it has neither. */
+    private fun placed(
+        event: CalendarEventEntity,
+        calendarIds: Map<String, Long>,
+        zone: ZoneId,
+    ): Pair<Long, NativeEvent>? {
+        val calendarId = calendarIds[event.collectionUrl] ?: return null
+        return NativeEvent.of(event, event.reparsed(zone), ::htmlToText)?.let { calendarId to it }
+    }
+
+    /** Insert or rewrite one event row; false when the row is already current. */
+    private fun writeEvent(
+        account: Account,
+        row: EventRow?,
+        event: CalendarEventEntity,
+        values: ContentValues,
+        reminders: List<Int>,
+    ): Boolean {
+        val events = syncUri(CalendarContract.Events.CONTENT_URI, account)
+        val id = when {
+            row == null -> resolver.insert(events, values)?.lastPathSegment?.toLongOrNull()
+            row.fingerprint == fingerprint(event) -> return false
+            else -> row.id.also { resolver.update(ContentUris.withAppendedId(events, it), values, null, null) }
+        }
+        id?.let { writeReminders(account, it, reminders) }
+        return true
+    }
+
+    /**
+     * The row's fingerprint: the server's, behind a format version. Bumping [FORMAT] rewrites every
+     * row once, which is how rows written by an older mirror pick up what it did not write (the
+     * description, reminders and the base hashes the uploader needs).
+     */
+    private fun fingerprint(event: CalendarEventEntity): String =
+        FORMAT + SystemMirror.fingerprint(event.etag, event.raw)
+
     private fun eventValues(
         event: CalendarEventEntity,
+        native: NativeEvent,
         calendarId: Long,
         syncId: String,
         master: CalendarEventEntity?,
         accountId: String,
-    ): ContentValues? {
-        val start = CalendarMirrorTimes.startMillis(event) ?: return null
+    ): ContentValues {
+        val start = native.dtStart
         return ContentValues().apply {
             put(CalendarContract.Events.CALENDAR_ID, calendarId)
             put(CalendarContract.Events._SYNC_ID, syncId)
-            put(CalendarContract.Events.SYNC_DATA1, SystemMirror.fingerprint(event.etag, event.raw))
+            put(CalendarContract.Events.SYNC_DATA1, fingerprint(event))
+            put(CalendarContract.Events.SYNC_DATA2, NativeEventDiff.encode(NativeEventDiff.hashes(native)))
+            put(CalendarContract.Events.DIRTY, 0)
             put(CalendarContract.Events.UID_2445, event.uid)
-            put(CalendarContract.Events.TITLE, event.summary.orEmpty())
-            event.location?.let { put(CalendarContract.Events.EVENT_LOCATION, it) }
+            put(CalendarContract.Events.TITLE, native.title)
+            // Written even when empty, so a field the server cleared is cleared here too.
+            put(CalendarContract.Events.EVENT_LOCATION, native.location)
+            put(CalendarContract.Events.DESCRIPTION, native.description)
+            put(CalendarContract.Events.HAS_ALARM, if (native.reminders.isEmpty()) 0 else 1)
             event.organizerEmail?.let { put(CalendarContract.Events.ORGANIZER, it) }
             put(CalendarContract.Events.DTSTART, start)
             put(CalendarContract.Events.EVENT_TIMEZONE, CalendarMirrorTimes.timeZone(event))
@@ -182,21 +248,44 @@ class CalendarMirror(private val resolver: ContentResolver) {
                     CalendarContract.Events.STATUS_CONFIRMED
                 },
             )
-            putSpan(event, start)
+            putSpan(event, native)
             putOverride(event, master, accountId)
         }
     }
 
-    /** Either RRULE + DURATION or DTEND, never both. See [CalendarMirrorTimes.duration]. */
-    private fun ContentValues.putSpan(event: CalendarEventEntity, start: Long) {
+    /**
+     * Either RRULE + DURATION or DTEND, never both. See [CalendarMirrorTimes.duration]. The other
+     * pair is written as null, so an event that stopped (or started) repeating is not left with both.
+     */
+    private fun ContentValues.putSpan(event: CalendarEventEntity, native: NativeEvent) {
         if (event.rrule != null) {
             put(CalendarContract.Events.RRULE, event.rrule)
-            put(CalendarContract.Events.DURATION, CalendarMirrorTimes.duration(event))
-            CalendarMirrorTimes.exDates(event)?.let { put(CalendarContract.Events.EXDATE, it) }
+            put(CalendarContract.Events.DURATION, native.duration)
+            put(CalendarContract.Events.EXDATE, CalendarMirrorTimes.exDates(event))
+            putNull(CalendarContract.Events.DTEND)
         } else {
-            put(
-                CalendarContract.Events.DTEND,
-                CalendarMirrorTimes.endMillis(event) ?: (start + if (event.allDay) DAY_MILLIS else 0L),
+            put(CalendarContract.Events.DTEND, native.dtEnd)
+            putNull(CalendarContract.Events.RRULE)
+            putNull(CalendarContract.Events.DURATION)
+            putNull(CalendarContract.Events.EXDATE)
+        }
+    }
+
+    /**
+     * Replace the event's reminders with [minutes]. Written as the sync adapter, so the provider
+     * does not take its own rewrite for a user edit and mark the event dirty.
+     */
+    private fun writeReminders(account: Account, eventId: Long, minutes: List<Int>) {
+        val uri = syncUri(CalendarContract.Reminders.CONTENT_URI, account)
+        resolver.delete(uri, "${CalendarContract.Reminders.EVENT_ID} = ?", arrayOf(eventId.toString()))
+        for (m in minutes) {
+            resolver.insert(
+                uri,
+                ContentValues().apply {
+                    put(CalendarContract.Reminders.EVENT_ID, eventId)
+                    put(CalendarContract.Reminders.MINUTES, m)
+                    put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
+                },
             )
         }
     }
@@ -233,7 +322,8 @@ class CalendarMirror(private val resolver: ContentResolver) {
         return out
     }
 
-    private data class EventRow(val id: Long, val fingerprint: String)
+    /** @param pending DIRTY or DELETED: an edit from another app the server has not taken yet. */
+    private data class EventRow(val id: Long, val fingerprint: String, val pending: Boolean)
 
     private fun existingEvents(account: Account, prefix: String): Map<String, EventRow> {
         val out = HashMap<String, EventRow>()
@@ -241,6 +331,8 @@ class CalendarMirror(private val resolver: ContentResolver) {
             CalendarContract.Events._ID,
             CalendarContract.Events._SYNC_ID,
             CalendarContract.Events.SYNC_DATA1,
+            CalendarContract.Events.DIRTY,
+            CalendarContract.Events.DELETED,
         )
         resolver.query(
             syncUri(CalendarContract.Events.CONTENT_URI, account),
@@ -249,9 +341,12 @@ class CalendarMirror(private val resolver: ContentResolver) {
             arrayOf("$prefix%"),
             null,
         )?.use { cursor ->
+            val dirty = cursor.getColumnIndexOrThrow(CalendarContract.Events.DIRTY)
+            val deleted = cursor.getColumnIndexOrThrow(CalendarContract.Events.DELETED)
             while (cursor.moveToNext()) {
                 val syncId = cursor.getString(1) ?: continue
-                out[syncId] = EventRow(cursor.getLong(0), cursor.getString(2).orEmpty())
+                val pending = cursor.getInt(dirty) == 1 || cursor.getInt(deleted) == 1
+                out[syncId] = EventRow(cursor.getLong(0), cursor.getString(2).orEmpty(), pending)
             }
         }
         return out
@@ -264,11 +359,7 @@ class CalendarMirror(private val resolver: ContentResolver) {
      * marked deleted, forever) and refuses to write `_SYNC_ID` at all, which would leave every row
      * unidentifiable on the next pass.
      */
-    private fun syncUri(uri: Uri, account: Account): Uri = uri.buildUpon()
-        .appendQueryParameter(CalendarContract.CALLER_IS_SYNCADAPTER, "true")
-        .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_NAME, account.name)
-        .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_TYPE, account.type)
-        .build()
+    private fun syncUri(uri: Uri, account: Account): Uri = Companion.syncUri(uri, account)
 
     /** `#rrggbb` or `#aarrggbb` from the server; anything else is left to the provider's default. */
     private fun parseColor(value: String?): Int? {
@@ -278,12 +369,21 @@ class CalendarMirror(private val resolver: ContentResolver) {
             .getOrNull()
     }
 
-    private companion object {
-        const val TAG = "GridlinkSync"
-        const val DAY_MILLIS = 24L * 60 * 60 * 1000
+    companion object {
+        private const val TAG = "GridlinkSync"
+
+        /** Prefixed to every fingerprint; see [fingerprint]. Bump to rewrite every row once. */
+        private const val FORMAT = "v2:"
+
+        /** [CalendarMirror.syncUri], shared with the uploader's provider access. */
+        fun syncUri(uri: Uri, account: Account): Uri = uri.buildUpon()
+            .appendQueryParameter(CalendarContract.CALLER_IS_SYNCADAPTER, "true")
+            .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_NAME, account.name)
+            .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_TYPE, account.type)
+            .build()
 
         // "#rrggbb". Servers also send "#rrggbbaa" (RFC 7986 allows the alpha), which
         // Color.parseColor reads as "#aarrggbb" and turns a green calendar transparent-red.
-        const val COLOR_LENGTH = 7
+        private const val COLOR_LENGTH = 7
     }
 }

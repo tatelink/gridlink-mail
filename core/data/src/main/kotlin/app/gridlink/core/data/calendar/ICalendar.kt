@@ -8,6 +8,7 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /**
  * A single parsed calendar event (the first VEVENT of an iCalendar object), reduced to the
@@ -69,8 +70,12 @@ data class Attendee(val email: String, val cn: String?, val raw: String)
  * The calendar's counterpart to `ContactCardGroup`, and the same contract: a group not in the
  * touched set is never rewritten, so everything this app does not model (ORGANIZER, ATTENDEE,
  * X- properties, a second VEVENT in the same file) survives an edit byte for byte.
+ *
+ * [RECURRENCE] is the series' RRULE alone. Gridlink's own form never touches it; Android's Calendar
+ * app does, when "this and following" ends a series early by adding an UNTIL. EXDATEs and
+ * overrides are not part of it: a removed day is [ICalendar.excludeOccurrence]'s job.
  */
-enum class EventField { TITLE, TIME, LOCATION, NOTES, CATEGORY, REMINDERS }
+enum class EventField { TITLE, TIME, LOCATION, NOTES, CATEGORY, REMINDERS, RECURRENCE }
 
 /**
  * How far an edit of a repeating event reaches, the answer to the question every calendar has to
@@ -298,6 +303,14 @@ object ICalendar {
      * a new zone the way "9am wherever I am" would. For an appointment created on the device, at a
      * place, on a date, an instant is the correct meaning anyway.
      *
+     * ## 🔴 ...except a REPEATING timed event in a zone with daylight saving
+     * An RRULE expands in the zone its DTSTART is spelled in. Spelled in UTC, a weekly 10:00 in New
+     * York is 10:00 only until the clocks change, then 9:00 or 11:00 for the other half of the year,
+     * on the server and on every device reading it. So a series in such a zone is written as
+     * `DTSTART;TZID=<zone>` with the VTIMEZONE §3.6.5 demands, generated from java.time's own rules
+     * by [vtimezone] rather than typed out by hand. A fixed-offset zone has nothing to drift
+     * against and keeps the UTC spelling.
+     *
      * ## 🔴 DTEND on an all-day event is EXCLUSIVE
      * A one-day event on the 6th is `DTSTART;VALUE=DATE:20260806` / `DTEND;VALUE=DATE:20260807`.
      * Writing the 6th in both makes a zero-length event, which readers disagree about: some drop it,
@@ -350,7 +363,10 @@ object ICalendar {
         val lines = ArrayList<String>()
         lines += "BEGIN:VCALENDAR"
         lines += "VERSION:2.0"
+        val repeatRule = rrule.takeUnless { allDay }?.let(::safeRrule)
+        val seriesZone = seriesZoneFor(repeatRule, zone)
         lines += "PRODID:-//Gridlink Mail//EN"
+        seriesZone?.let { lines += vtimezone(it, start) }
         // No METHOD. A METHOD makes this an iTIP message rather than a calendar object, and the two
         // are not interchangeable: a stored event carrying METHOD:REQUEST is an invitation sitting
         // in a calendar, which is the thing that makes clients offer to accept your own appointment.
@@ -366,14 +382,15 @@ object ICalendar {
             lines += "DTSTART;VALUE=DATE:${DATE_ONLY.format(from)}"
             lines += "DTEND;VALUE=DATE:${DATE_ONLY.format(until)}"
         } else {
-            lines += "DTSTART:${UTC_DATE_TIME.format(start.atZone(zone))}"
+            val spell = { at: LocalDateTime -> timeValue(at, zone, seriesZone) }
+            lines += "DTSTART${spell(start)}"
             // Only when it is genuinely after the start. A DTEND at or before DTSTART is invalid
             // per RFC 5545 §3.8.2.2, and omitting it makes the event a point in time, which every
             // reader handles, rather than an interval every reader has to guess about.
             end?.takeIf { it.isAfter(start) }?.let {
-                lines += "DTEND:${UTC_DATE_TIME.format(it.atZone(zone))}"
+                lines += "DTEND${spell(it)}"
             }
-            safeRrule(rrule)?.let { lines += "RRULE:$it" }
+            repeatRule?.let { lines += "RRULE:$it" }
         }
         lines += "SUMMARY:${escapeText(summary)}"
         location?.takeIf { it.isNotBlank() }?.let { lines += "LOCATION:${escapeText(it)}" }
@@ -393,6 +410,80 @@ object ICalendar {
         lines += "END:VEVENT"
         lines += "END:VCALENDAR"
         return lines.joinToString("\r\n") { fold(it) } + "\r\n"
+    }
+
+    /**
+     * The zone a series is spelled in, or null to spell it in UTC: only a repeating event, in a zone
+     * that changes its clocks, has anything to drift against. See [buildEvent].
+     */
+    private fun seriesZoneFor(repeatRule: String?, zone: ZoneId): ZoneId? =
+        zone.takeIf { repeatRule != null && !it.rules.isFixedOffset }
+
+    /** A DTSTART/DTEND value with its parameters: a wall time in [seriesZone], else a UTC instant. */
+    private fun timeValue(at: LocalDateTime, zone: ZoneId, seriesZone: ZoneId?): String =
+        if (seriesZone != null) {
+            ";TZID=${seriesZone.id}:${DATE_TIME.format(at)}"
+        } else {
+            ":${UTC_DATE_TIME.format(at.atZone(zone))}"
+        }
+
+    /** How many years of clock changes [vtimezone] spells out after a series starts. */
+    private const val VTIMEZONE_YEARS = 30L
+
+    private const val SECONDS_PER_HOUR = 3600
+    private const val SECONDS_PER_MINUTE = 60
+
+    /**
+     * A VTIMEZONE for [zone], covering a series that starts at [from].
+     *
+     * Every transition is listed as an explicit date (DTSTART plus RDATEs, one sub-component per
+     * kind of change) instead of being re-expressed as a yearly RRULE: translating java.time's
+     * "Sunday on or after the 8th" rules into RRULE parts is a second place for a zone to be got
+     * wrong, while a list of the instants java.time itself computes cannot disagree with it. It
+     * starts at the change in force when the series begins and runs [VTIMEZONE_YEARS] beyond it;
+     * readers that know the zone by name (most of them) use their own copy of the rules anyway.
+     */
+    internal fun vtimezone(zone: ZoneId, from: LocalDateTime): List<String> {
+        val rules = zone.rules
+        val begin = from.atZone(zone).toInstant()
+        val until = from.plusYears(VTIMEZONE_YEARS).atZone(zone).toInstant()
+        val changes = generateSequence(rules.previousTransition(begin.plusSeconds(1))) {
+            rules.nextTransition(it.instant)
+        }.takeWhile { !it.instant.isAfter(until) }.toList()
+        val lines = mutableListOf("BEGIN:VTIMEZONE", "TZID:${zone.id}")
+        if (changes.isEmpty()) {
+            val offset = offsetText(rules.getOffset(begin))
+            lines += listOf(
+                "BEGIN:STANDARD", "DTSTART:19700101T000000",
+                "TZOFFSETFROM:$offset", "TZOFFSETTO:$offset", "END:STANDARD",
+            )
+        }
+        changes.groupBy { Triple(rules.isDaylightSavings(it.instant), it.offsetBefore, it.offsetAfter) }
+            .forEach { (key, group) ->
+                val kind = if (key.first) "DAYLIGHT" else "STANDARD"
+                lines += "BEGIN:$kind"
+                lines += "DTSTART:${DATE_TIME.format(group.first().dateTimeBefore)}"
+                lines += "TZOFFSETFROM:${offsetText(key.second)}"
+                lines += "TZOFFSETTO:${offsetText(key.third)}"
+                if (group.size > 1) {
+                    lines += "RDATE:" + group.drop(1).joinToString(",") { DATE_TIME.format(it.dateTimeBefore) }
+                }
+                lines += "END:$kind"
+            }
+        lines += "END:VTIMEZONE"
+        return lines
+    }
+
+    /** A UTC offset as RFC 5545 §3.3.14 spells it: `-0500`, or `+053000` when seconds matter. */
+    private fun offsetText(offset: ZoneOffset): String {
+        val total = offset.totalSeconds
+        val sign = if (total < 0) "-" else "+"
+        val abs = kotlin.math.abs(total)
+        val hours = abs / SECONDS_PER_HOUR
+        val minutes = abs % SECONDS_PER_HOUR / SECONDS_PER_MINUTE
+        val hhmm = String.format(Locale.ROOT, "%02d%02d", hours, minutes)
+        val ss = abs % SECONDS_PER_MINUTE
+        return sign + hhmm + if (ss != 0) String.format(Locale.ROOT, "%02d", ss) else ""
     }
 
     /**
@@ -715,9 +806,20 @@ object ICalendar {
         if (EventField.LOCATION in touched) add("LOCATION")
         if (EventField.NOTES in touched) add("DESCRIPTION")
         if (EventField.CATEGORY in touched) add("CATEGORIES")
+        if (EventField.RECURRENCE in touched) add("RRULE")
     }
 
     /** The lines a touched field group writes back, minus the times (see [timeLines]). */
+    /**
+     * The RRULE line [patchEvent] writes when [EventField.RECURRENCE] is touched. Only a master
+     * carries a rule; an override handed one would become a second series. A blank rule writes
+     * nothing, which (with RRULE in the removed set) turns the series into a single event.
+     */
+    private fun ruleLines(touched: Set<EventField>, recurrenceId: LocalDate?, rrule: String?): List<String> {
+        if (EventField.RECURRENCE !in touched || recurrenceId != null) return emptyList()
+        return listOfNotNull(rrule?.trim()?.removePrefix("RRULE:")?.takeIf { it.isNotBlank() }?.let { "RRULE:$it" })
+    }
+
     private fun fieldLines(
         touched: Set<EventField>,
         summary: String,
@@ -805,6 +907,8 @@ object ICalendar {
         reminders: List<Int>,
         recurrenceId: LocalDate? = null,
         keepTimeSpelling: Boolean = false,
+        /** The new RRULE value (no `RRULE:` prefix) when [EventField.RECURRENCE] is touched. */
+        rrule: String? = null,
     ): String? {
         if (touched.isEmpty()) return raw
         val terminator = if ("\r\n" in raw) "\r\n" else "\n"
@@ -817,6 +921,7 @@ object ICalendar {
             addAll(
                 fieldLines(touched, summary, location, description, category, reminders),
             )
+            addAll(ruleLines(touched, recurrenceId, rrule))
             if (EventField.TIME in touched) {
                 addAll(timeLines(keep, allDay, start, end, zone))
                 add("SEQUENCE:${target.sequence + 1}")
@@ -917,6 +1022,50 @@ object ICalendar {
                 written.forEach { out.addAll(fold(it).split("\r\n")) }
                 out += "END:VEVENT"
             }
+        }
+        return out.joinToString(terminator)
+    }
+
+    /**
+     * Remove ONE occurrence from a repeating event: an EXDATE on the master naming the day, and any
+     * override already detached for that day dropped from the file.
+     *
+     * This is what "delete this event only" means on a series. The EXDATE is spelled the way the
+     * master spells its DTSTART (the rule [detachOccurrence] follows for RECURRENCE-ID), or a reader
+     * comparing it against the generated instance would never match it and the day would still
+     * show. The master's SEQUENCE is bumped, because the set of occurrences changed.
+     *
+     * Returns null when the file holds no master for [uid], which the caller must treat as "cannot
+     * edit".
+     *
+     * @param instanceStart the occurrence's ORIGINAL start (midnight for an all-day series), a wall
+     *   time in the series' own zone.
+     */
+    fun excludeOccurrence(
+        raw: String,
+        uid: String,
+        instanceStart: LocalDateTime,
+        zone: ZoneId,
+    ): String? {
+        val terminator = if ("\r\n" in raw) "\r\n" else "\n"
+        val logicals = logicalLines(raw)
+        val master = locate(logicals, uid, recurrenceId = null, zone = zone) ?: return null
+        val override = locate(logicals, uid, recurrenceId = instanceStart.toLocalDate(), zone = zone)
+        val keep = spellingOf(propertyIn(logicals, master, "DTSTART"))
+        val exdate = "EXDATE" + recurrenceIdLine(keep, instanceStart, zone).removePrefix("RECURRENCE-ID")
+
+        val out = ArrayList<String>()
+        for (i in logicals.indices) {
+            if (override != null && i in override.begin..override.end) continue
+            if (i == master.begin) {
+                out.addAll(logicals[i])
+                out.addAll(bodyLines(logicals, master, remove = setOf("SEQUENCE"), dropAlarms = false))
+                out += exdate
+                out += "SEQUENCE:${master.sequence + 1}"
+                continue
+            }
+            if (i > master.begin && i < master.end) continue
+            out.addAll(logicals[i])
         }
         return out.joinToString(terminator)
     }

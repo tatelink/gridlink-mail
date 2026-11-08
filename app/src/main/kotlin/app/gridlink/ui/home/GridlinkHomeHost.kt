@@ -22,6 +22,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.gridlink.EmailOpenTarget
 import app.gridlink.MailtoDraft
+import app.gridlink.R
 import app.gridlink.container
 import app.gridlink.core.data.account.StoredAccount
 import app.gridlink.core.data.settings.ThreadToolbarAction
@@ -46,6 +47,7 @@ import app.gridlink.ui.gridlink.LocalGridlinkChrome
 import app.gridlink.ui.gridlink.gridlinkTypedRecipient
 import app.gridlink.ui.gridlink.toGridlinkPalette
 import app.gridlink.ui.gridlink.toModeOverride
+import app.gridlink.ui.theme.GridlinkLook
 import app.gridlink.ui.theme.gridlinkColorsFor
 import app.gridlink.ui.theme.gridlinkModeAt
 import kotlinx.coroutines.launch
@@ -153,7 +155,7 @@ fun GridlinkHomeHost(
     // 🔴 Initial value is null meaning "not read yet", NOT AUTO meaning "follows the sun". The two
     // are the same picture and a completely different fact, and the difference is the whole reason
     // this gate exists: see the wait below, and [GridlinkApp]'s `initialModeOverride`.
-    val storedPalette by settings.gridlinkPalette.collectAsStateWithLifecycle(initialValue = null)
+    val storedAppearance by settings.gridlinkAppearance.collectAsStateWithLifecycle(initialValue = null)
 
     // The open message's bottom bar, as configured in Settings. Read straight off the repository
     // rather than through the view model: nothing about it needs the account, and the initial value
@@ -241,7 +243,11 @@ fun GridlinkHomeHost(
         if (failed > 0) {
             Toast.makeText(
                 application,
-                if (failed == 1) "Couldn't attach that file." else "Couldn't attach $failed files.",
+                if (failed == 1) {
+                    application.getString(R.string.gl_vm_attach_failed)
+                } else {
+                    application.resources.getQuantityString(R.plurals.gl_vm_share_attach_failed, failed, failed)
+                },
                 Toast.LENGTH_LONG,
             ).show()
         }
@@ -285,7 +291,9 @@ fun GridlinkHomeHost(
                 }
                 // Held back one recomposition while a share's files stage. See [sharedFiles].
                 sharedFiles?.let {
-                    GridlinkOpenRequest.Compose(pendingMailto.toGridlinkDraft(it))
+                    GridlinkOpenRequest.Compose(
+                        pendingMailto.toGridlinkDraft(application.getString(R.string.inbox_compose), it),
+                    )
                 }
             }
             // Last, and deliberately: the other two name a specific thing the user asked for, and a
@@ -373,6 +381,9 @@ fun GridlinkHomeHost(
                     settings.setGridlinkPalette(mode.toGridlinkPalette())
                 }
             },
+            onSelectPreset = { preset ->
+                application.container.appScope.launch { settings.setGridlinkPreset(preset) }
+            },
             unifiedInbox = unified,
             // On the view model, not straight to DataStore like the palette above. The write is the
             // smaller half of this: the reader and the expanded threads have to be dropped in the
@@ -393,12 +404,12 @@ fun GridlinkHomeHost(
     // which is upstream's light theme and would strobe white before an OLED launch. The colour is
     // the sun's answer because that is what an unpinned launch resolves to anyway, and a pinned one
     // is a fraction of a frame away from repainting.
-    val palette = storedPalette
-    if (palette == null) {
+    val appearance = storedAppearance
+    if (appearance == null) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(gridlinkColorsFor(gridlinkModeAt(ZonedDateTime.now())).background),
+                .background(gridlinkColorsFor(GridlinkLook(gridlinkModeAt(ZonedDateTime.now()))).background),
         )
         return
     }
@@ -444,7 +455,8 @@ fun GridlinkHomeHost(
     }
 
     GridlinkApp(
-        initialModeOverride = palette.toModeOverride(),
+        initialModeOverride = appearance.palette.toModeOverride(),
+        initialPreset = appearance.preset,
         // 🔴 Starts SYNCING, not SYNCED. The launch sync below is already running by the time the
         // chrome row draws, and opening on a green "Synced" chip that has not synced anything is
         // the same lie as a fake timestamp, told a second earlier.
@@ -471,6 +483,7 @@ fun GridlinkHomeHost(
             onSetTag = viewModel::setTag,
             onManageTags = manageTags,
             onLoadHeaders = viewModel::rawHeaders,
+            onLoadReplyOriginal = viewModel::replyOriginal,
             fromChoices = fromChoices,
             onOpenAttachment = viewModel::openAttachment,
             // 🔴 No picker on anything modern. Android's document picker is another app's UI, in
@@ -543,6 +556,8 @@ fun GridlinkHomeHost(
  * why `bcc` does not.
  */
 internal fun MailtoDraft.toGridlinkDraft(
+    /** The composer's heading, from resources (`R.string.inbox_compose`). */
+    title: String,
     /** A share's files, already staged by [GridlinkFileAttacher]. Empty for a plain `mailto:`. */
     attachments: List<GridlinkAttachment> = emptyList(),
 ): GridlinkComposeDraft {
@@ -564,7 +579,7 @@ internal fun MailtoDraft.toGridlinkDraft(
             )
         }
     return GridlinkComposeDraft(
-        title = "Compose",
+        title = title,
         recipients = recipients,
         // Empty: a link-driven draft must not open with a half-typed search sitting under chips the
         // user did not type. Guarded by a test, because this was inherited from a seeded default

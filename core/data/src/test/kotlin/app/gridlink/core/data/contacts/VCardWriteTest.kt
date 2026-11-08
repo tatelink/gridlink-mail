@@ -273,4 +273,30 @@ class VCardWriteTest {
         assertEquals("Ruiz, Jr; PhD", reparsed.family)
         assertEquals("Line one\nLine two\\end", reparsed.note)
     }
+
+    @Test
+    fun `an email or phone patch writes each value's types`() {
+        val edit = richEdit.copy(
+            phones = listOf("+1 717-555-0142", "+1 717-555-0199"),
+            phoneTypes = mapOf("+1 717-555-0142" to setOf("cell"), "+1 717-555-0199" to setOf("work", "fax")),
+            emailTypes = mapOf("kenna@acme.example" to setOf("work", "bad;word", "x:y")),
+        )
+
+        val patched = VCardWrite.patch(richCard, edit, setOf(ContactCardGroup.PHONES, ContactCardGroup.EMAILS))
+
+        assertTrue(patched.contains("TEL;TYPE=cell:+1 717-555-0142\r\n"))
+        assertTrue(patched.contains("TEL;TYPE=work,fax:+1 717-555-0199\r\n"))
+        // A word that would break the line grammar is dropped, never written.
+        assertTrue(patched.contains("EMAIL;TYPE=work:kenna@acme.example\r\n"))
+        assertEquals(setOf("work", "fax"), VCard.parse(patched)!!.phoneTypes["+1 717-555-0199"])
+    }
+
+    @Test
+    fun `a value with no type is written bare`() {
+        val edit = richEdit.copy(phoneTypes = mapOf("+1 717-555-0142" to emptySet()))
+
+        val patched = VCardWrite.patch(richCard, edit, setOf(ContactCardGroup.PHONES))
+
+        assertTrue(patched.contains("\r\nTEL:+1 717-555-0142\r\n"))
+    }
 }

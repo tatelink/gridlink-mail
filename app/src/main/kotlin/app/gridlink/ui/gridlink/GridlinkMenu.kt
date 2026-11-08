@@ -1,5 +1,8 @@
 package app.gridlink.ui.gridlink
 
+import android.content.res.Resources
+import androidx.annotation.PluralsRes
+import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
@@ -10,10 +13,10 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -41,6 +44,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,8 +52,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -58,10 +66,12 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.gridlink.R
+import app.gridlink.core.data.settings.GridlinkPreset
 import app.gridlink.ui.theme.GRIDLINK_LADDER_MODES
-import app.gridlink.ui.theme.GRIDLINK_PRESET_MODES
+import app.gridlink.ui.theme.GRIDLINK_PRESETS
 import app.gridlink.ui.theme.GridlinkColors
 import app.gridlink.ui.theme.GridlinkDimens
+import app.gridlink.ui.theme.GridlinkLook
 import app.gridlink.ui.theme.GridlinkMode
 import app.gridlink.ui.theme.GridlinkMotion
 import app.gridlink.ui.theme.GridlinkRadii
@@ -91,10 +101,10 @@ import app.gridlink.ui.theme.gridlinkColorsFor
  */
 
 /** How the connection is doing, as the trailing edge of the chrome row states it. */
-enum class GridlinkSyncState(val label: String) {
-    SYNCED("Synced"),
-    SYNCING("Syncing"),
-    OFFLINE("Offline"),
+enum class GridlinkSyncState(@StringRes val label: Int) {
+    SYNCED(R.string.gl_list_sync_synced),
+    SYNCING(R.string.gl_list_sync_syncing),
+    OFFLINE(R.string.gl_list_sync_offline),
     ;
 
     /**
@@ -275,7 +285,9 @@ fun GridlinkMenuButton(
         ) { isClosing ->
             Icon(
                 imageVector = if (isClosing) Icons.Outlined.Close else Icons.Outlined.Menu,
-                contentDescription = if (isClosing) "Clear selection" else "Menu",
+                contentDescription = stringResource(
+                    if (isClosing) R.string.gl_list_clear_selection else R.string.inbox_menu,
+                ),
                 tint = colors.textSecondary,
                 modifier = Modifier.size(20.dp),
             )
@@ -331,7 +343,9 @@ fun GridlinkSelectAllButton(
     ) {
         Icon(
             imageVector = Icons.Outlined.DoneAll,
-            contentDescription = if (all) "Clear selection" else "Select all",
+            contentDescription = stringResource(
+                if (all) R.string.gl_list_clear_selection else R.string.inbox_select_all,
+            ),
             tint = if (all) colors.onAccent else colors.textSecondary,
             modifier = Modifier.size(20.dp),
         )
@@ -370,7 +384,7 @@ fun GridlinkSyncChip(
                 .background(sync.dotColor(), CircleShape),
         )
         Text(
-            text = sync.label,
+            text = stringResource(sync.label),
             modifier = Modifier.padding(start = GridlinkSpacing.s8),
             style = GridlinkType.metadata,
             color = colors.textSecondary,
@@ -397,16 +411,19 @@ fun GridlinkSyncChip(
  * compiles and is simply never drawn.
  */
 enum class GridlinkMenuItem(
-    val label: String,
+    @StringRes val label: Int,
     val icon: ImageVector,
-    /** What a count under this row is counting. Null on rows that cannot have one. */
-    val countNoun: String? = null,
+    /**
+     * How a count on this row is spoken ("3 waiting"), as a plural taking the count. Null on rows
+     * that cannot have one.
+     */
+    @PluralsRes val countSpoken: Int? = null,
 ) {
-    SCHEDULED("Scheduled", Icons.Outlined.Schedule, countNoun = "waiting"),
-    SNOOZED("Snoozed", Icons.Outlined.Snooze, countNoun = "waiting"),
-    DRAFTS("Drafts", Icons.Outlined.Drafts, countNoun = "unsent"),
-    ACCOUNTS("Accounts", Icons.Outlined.ManageAccounts),
-    SETTINGS("Settings", Icons.Outlined.Settings),
+    SCHEDULED(R.string.inbox_scheduled, Icons.Outlined.Schedule, countSpoken = R.plurals.gl_list_menu_count_waiting),
+    SNOOZED(R.string.inbox_snoozed, Icons.Outlined.Snooze, countSpoken = R.plurals.gl_list_menu_count_waiting),
+    DRAFTS(R.string.folder_drafts, Icons.Outlined.Drafts, countSpoken = R.plurals.gl_list_menu_count_unsent),
+    ACCOUNTS(R.string.settings_accounts_title, Icons.Outlined.ManageAccounts),
+    SETTINGS(R.string.inbox_settings, Icons.Outlined.Settings),
 }
 
 /**
@@ -501,6 +518,10 @@ fun GridlinkMenuPanel(
     lastSyncedAt: Long? = null,
     counts: Map<GridlinkMenuItem, Int> = emptyMap(),
     accountCount: Int = 1,
+    /** The colour family, chosen independently of [mode]. */
+    preset: GridlinkPreset = GridlinkPreset.CLASSIC,
+    /** Where a colour choice goes. Like [onSelectMode], it must not close the panel. */
+    onSelectPreset: (GridlinkPreset) -> Unit = {},
     /**
      * The account's mailboxes, nested as the server nests them. Empty draws no folder group at all,
      * which is the honest state before anything has said what the mailboxes are.
@@ -534,6 +555,8 @@ fun GridlinkMenuPanel(
      * line a support question reads back. A caller that does not know says nothing.
      */
     protocol: String = "",
+    /** Where the user is, so that row wears the soft pill. See [GridlinkHere]. */
+    here: GridlinkHere = GridlinkHere(),
 ) {
     val colors = GridlinkTheme.colors
     // Not saved: the panel is composed only while it is open, so every opening starts collapsed.
@@ -542,6 +565,7 @@ fun GridlinkMenuPanel(
     // momentary object, so "4 min ago" cannot go stale while it is up, and picking a palette (which
     // recomposes everything in here) must not silently re-time the line underneath.
     val openedAt = remember { System.currentTimeMillis() }
+    val resources = LocalResources.current
 
     GridlinkSlideOutPanel(onDismiss = onDismiss, modifier = modifier) {
         Row(
@@ -598,7 +622,10 @@ fun GridlinkMenuPanel(
                         // Settings; whether it is talking JMAP at all is the thing that changes what
                         // the app can do, and it is the one line of this sheet a support question
                         // would ever ask for.
-                        text = gridlinkSyncLine(protocol, gridlinkSyncSentence(sync, lastSyncedAt, openedAt)),
+                        text = gridlinkSyncLine(
+                            protocol,
+                            gridlinkSyncSentence(resources, sync, lastSyncedAt, openedAt),
+                        ),
                         modifier = Modifier.padding(start = GridlinkSpacing.s8),
                         style = GridlinkType.metadata,
                         color = colors.textSecondary,
@@ -634,9 +661,10 @@ fun GridlinkMenuPanel(
         // account. The things that are always the same distance away belong where the drawer opens.
         GridlinkSheetDivider()
         GridlinkModeRow(
-            mode = mode,
+            look = GridlinkLook(mode, preset),
             followingClock = followingClock,
-            onSelect = onSelectMode,
+            onSelectMode = onSelectMode,
+            onSelectPreset = onSelectPreset,
         )
         MenuRow(GridlinkMenuItem.SETTINGS, counts, accountCount, onSelect)
 
@@ -656,18 +684,26 @@ fun GridlinkMenuPanel(
             GridlinkSheetDivider()
             Spacer(Modifier.height(GridlinkSpacing.s12))
             if (unified != null) {
-                MenuUnifiedRows(unified, folders, onSelectUnified)
+                MenuUnifiedRows(unified, folders, onSelectUnified, onInbox = here.inbox)
             }
             // 🔴 The tree's own Inbox is suppressed while the pair above is drawn, for exactly the
             // reason Drafts is suppressed inside [MenuFolders]: the pair already offers that
             // mailbox, with a better subline and, unlike the tree row, landing on the mail list
             // instead of the folder screen. Two rows for one mailbox, disagreeing about where they
             // go, is worse than either alone.
-            MenuFolders(folders, hideInbox = unified != null, onSelectFolder, onManageFolders)
+            MenuFolders(folders, hideInbox = unified != null, here, onSelectFolder, onManageFolders)
         }
 
         GridlinkSheetDivider()
-        MAILBOX_ITEMS.forEach { item -> MenuRow(item, counts, accountCount, onSelect) }
+        // Drafts is the drafts-role mailbox opened by role, so it is "here" when that mailbox is.
+        val draftsId = remember(folders) {
+            folders.flatten().firstOrNull { it.role == GridlinkFolderRole.DRAFTS }?.id
+        }
+        MAILBOX_ITEMS.forEach { item ->
+            val marked = here.item == item ||
+                (item == GridlinkMenuItem.DRAFTS && draftsId != null && here.folderId == draftsId)
+            MenuRow(item, counts, accountCount, onSelect, highlighted = marked)
+        }
 
         // Whatever is left over, which today is Accounts alone. ⚠️ Written as a subtraction rather
         // than a literal list so a row added to [GridlinkMenuItem] still appears somewhere: the
@@ -701,6 +737,7 @@ fun GridlinkMenuPanel(
 private fun MenuFolders(
     folders: List<GridlinkFolder>,
     hideInbox: Boolean,
+    here: GridlinkHere,
     onSelectFolder: (GridlinkFolder) -> Unit,
     onManageFolders: () -> Unit,
 ) {
@@ -708,16 +745,42 @@ private fun MenuFolders(
     // state, and a lone "Manage folders" under it would offer a screen with no mailboxes on it.
     if (folders.isEmpty()) return
     folders.forEach { folder ->
-        MenuFolderRow(folder, depth = 0, hideInbox = hideInbox, onSelectFolder = onSelectFolder)
+        MenuFolderRow(folder, depth = 0, hideInbox = hideInbox, here = here, onSelectFolder = onSelectFolder)
     }
     GridlinkSheetAction(
-        label = "Manage folders",
+        label = stringResource(R.string.gl_list_manage_folders),
         icon = Icons.Outlined.CreateNewFolder,
         // The only route to the folder screen now that the pill has no seat for it. Named for the
         // verb rather than the place ("Folders" would read as a sixth mailbox in a list of mailboxes).
+        // In the ordinary ink: the grey it used to wear is this sheet's disabled colour, so the row
+        // read as switched off.
         onClick = onManageFolders,
-        tint = GridlinkTheme.colors.textSecondary,
     )
+}
+
+/**
+ * Where the user is, as the drawer marks it. At most one of the three is set.
+ *
+ * [inbox] is the mail list (the tree's Inbox row, or whichever of the merged pair is active),
+ * [folderId] a mailbox opened on its own, [item] an overlay row such as Scheduled.
+ */
+@Immutable
+data class GridlinkHere(
+    val inbox: Boolean = false,
+    val folderId: String? = null,
+    val item: GridlinkMenuItem? = null,
+)
+
+/** The unread count on the right of a mailbox row, absent at zero. */
+@Composable
+private fun UnreadCount(unread: Int) {
+    if (unread > 0) {
+        GridlinkSheetCount(
+            unread,
+            spoken = pluralStringResource(R.plurals.gl_list_unread_count, unread, unread),
+            attention = true,
+        )
+    }
 }
 
 /** An account the drawer's address row can switch to. See [GridlinkMenuPanel]. */
@@ -765,18 +828,20 @@ private fun MenuUnifiedRows(
     unified: GridlinkUnifiedInbox,
     folders: List<GridlinkFolder>,
     onSelectUnified: (Boolean) -> Unit,
+    onInbox: Boolean = false,
 ) {
     val colors = GridlinkTheme.colors
     GridlinkSheetAction(
-        label = "All inboxes",
+        label = stringResource(R.string.inbox_all_inboxes),
         icon = Icons.Outlined.AllInbox,
         // Counted, absent at zero, exactly as the folder rows do it. See [MenuFolderRow].
-        subline = unified.unread.takeIf { it > 0 }?.let { "$it unread" },
+        trailing = unified.unread.takeIf { it > 0 }?.let { n -> { UnreadCount(n) } },
         onClick = { onSelectUnified(true) },
         tint = if (unified.active) colors.accent else null,
+        highlighted = onInbox && unified.active,
     )
     GridlinkSheetAction(
-        label = "Inbox",
+        label = stringResource(R.string.folder_inbox),
         icon = Icons.Outlined.Inbox,
         // The account, not a count. The number belongs to the row above (it is the sum) and the
         // tree's own Inbox is suppressed while this pair is up, so what this row is missing is not
@@ -784,6 +849,7 @@ private fun MenuUnifiedRows(
         subline = unified.accountLabel.takeIf { it.isNotBlank() },
         onClick = { onSelectUnified(false) },
         tint = if (unified.active) null else colors.accent,
+        highlighted = onInbox && !unified.active,
     )
 }
 
@@ -793,6 +859,7 @@ private fun MenuFolderRow(
     folder: GridlinkFolder,
     depth: Int,
     hideInbox: Boolean,
+    here: GridlinkHere,
     onSelectFolder: (GridlinkFolder) -> Unit,
 ) {
     val suppressed = folder.role == GridlinkFolderRole.DRAFTS ||
@@ -803,16 +870,20 @@ private fun MenuFolderRow(
             icon = folder.role.icon(),
             // Counted, never a bare dot, for [MenuRow]'s reason: a number is a fact and a dot is a
             // question. Absent at zero rather than "0 unread", which is a claim nobody asked for.
-            subline = folder.unread.takeIf { it > 0 }?.let { "$it unread" },
+            // On the right as a number, the way every mail app lists a folder, rather than a line
+            // under the name that made the counted rows taller than the rest.
+            trailing = folder.unread.takeIf { it > 0 }?.let { n -> { UnreadCount(n) } },
             onClick = { onSelectFolder(folder) },
             indent = FOLDER_INDENT * depth,
+            highlighted = folder.id == here.folderId ||
+                (here.inbox && !hideInbox && folder.role == GridlinkFolderRole.INBOX),
         )
     }
     folder.children.forEach { child ->
         // 🔴 The children of a filtered-out Drafts still draw, at the depth Drafts would have given
         // them. A server that nests mailboxes under the drafts role is unusual and not forbidden,
         // and silently dropping a whole branch is not something a drawer may do.
-        MenuFolderRow(child, depth = depth + 1, hideInbox = hideInbox, onSelectFolder = onSelectFolder)
+        MenuFolderRow(child, depth = depth + 1, hideInbox = hideInbox, here = here, onSelectFolder = onSelectFolder)
     }
 }
 
@@ -825,20 +896,29 @@ private fun MenuRow(
     counts: Map<GridlinkMenuItem, Int>,
     accountCount: Int,
     onSelect: (GridlinkMenuItem) -> Unit,
+    highlighted: Boolean = false,
 ) {
+    // Counted, never a bare badge. "3 waiting" is a fact; a dot on Scheduled is a question you have
+    // to open the screen to answer. The number sits on the right like a folder's unread count, and
+    // the phrase is what a screen reader hears. Accounts keeps its line, because a lone "1" beside
+    // it would look like a badge, and it counts itself rather than carrying a noun, because
+    // "1 accounts" is the kind of thing that ships.
+    val count = item.countSpoken?.let { spoken -> counts[item]?.takeIf { it > 0 }?.let { it to spoken } }
     GridlinkSheetAction(
-        label = item.label,
+        label = stringResource(item.label),
         icon = item.icon,
-        // Counted, never a bare badge. "3 waiting" is a fact; a dot on Scheduled is a question you
-        // have to open the screen to answer. Accounts counts itself rather than carrying a noun,
-        // because "1 accounts" is the kind of thing that ships.
-        subline = when (item) {
-            GridlinkMenuItem.ACCOUNTS -> if (accountCount == 1) "1 account" else "$accountCount accounts"
-            else -> item.countNoun?.let { noun ->
-                counts[item]?.takeIf { it > 0 }?.let { "$it $noun" }
+        subline = if (item == GridlinkMenuItem.ACCOUNTS) {
+            pluralStringResource(R.plurals.gl_list_account_count, accountCount, accountCount)
+        } else {
+            null
+        },
+        trailing = count?.let { (n, spoken) ->
+            {
+                GridlinkSheetCount(n, spoken = pluralStringResource(spoken, n, n))
             }
         },
         onClick = { onSelect(item) },
+        highlighted = highlighted,
     )
 }
 
@@ -855,12 +935,27 @@ private fun MenuRow(
  * answer it in different words. That is also why [now] is a parameter: the drawer freezes it at the
  * moment it opens, the empty state ticks it, and neither of those belongs in here.
  */
-internal fun gridlinkSyncSentence(sync: GridlinkSyncState, lastSyncedAt: Long?, now: Long): String {
-    val age = lastSyncedAt?.let { gridlinkSyncAge(now - it) }
+internal fun gridlinkSyncSentence(
+    resources: Resources,
+    sync: GridlinkSyncState,
+    lastSyncedAt: Long?,
+    now: Long,
+): String {
+    val age = lastSyncedAt?.let { gridlinkSyncAge(resources, now - it) }
     return when (sync) {
-        GridlinkSyncState.SYNCING -> "Syncing all accounts"
-        GridlinkSyncState.SYNCED -> if (age == null) "Synced" else "Synced $age"
-        GridlinkSyncState.OFFLINE -> if (age == null) "Offline · never synced" else "Offline · synced $age"
+        GridlinkSyncState.SYNCING -> resources.getString(R.string.gl_list_syncing_all_accounts)
+        GridlinkSyncState.SYNCED ->
+            if (age == null) {
+                resources.getString(R.string.gl_list_sync_synced)
+            } else {
+                resources.getString(R.string.gl_list_sync_synced_age, age)
+            }
+        GridlinkSyncState.OFFLINE ->
+            if (age == null) {
+                resources.getString(R.string.gl_list_sync_offline_never)
+            } else {
+                resources.getString(R.string.gl_list_sync_offline_age, age)
+            }
     }
 }
 
@@ -869,15 +964,21 @@ internal fun gridlinkSyncSentence(sync: GridlinkSyncState, lastSyncedAt: Long?, 
  * which needs a magnitude and not a duration: "2 hr ago" and "2 hr 14 min ago" lead to the same
  * decision and only one of them is short enough to sit under an email address.
  */
-internal fun gridlinkSyncAge(elapsedMs: Long): String {
+internal fun gridlinkSyncAge(resources: Resources, elapsedMs: Long): String {
     val minutes = elapsedMs / 60_000L
     return when {
         // Negative is possible: the stamp is a wall clock and the wall clock can move backwards.
         // "just now" is the honest answer to a sync in the future, and it beats "-3 min ago".
-        minutes < 1L -> "just now"
-        minutes < 60L -> "$minutes min ago"
-        minutes < 60L * 24L -> "${minutes / 60L} hr ago"
-        else -> "${minutes / (60L * 24L)} d ago"
+        minutes < 1L -> resources.getString(R.string.gl_list_sync_age_now)
+        minutes < 60L -> minutes.toInt().let {
+            resources.getQuantityString(R.plurals.gl_list_sync_age_minutes, it, it)
+        }
+        minutes < 60L * 24L -> (minutes / 60L).toInt().let {
+            resources.getQuantityString(R.plurals.gl_list_sync_age_hours, it, it)
+        }
+        else -> (minutes / (60L * 24L)).toInt().let {
+            resources.getQuantityString(R.plurals.gl_list_sync_age_days, it, it)
+        }
     }
 }
 
@@ -885,7 +986,8 @@ internal fun gridlinkSyncAge(elapsedMs: Long): String {
 private val MODE_TRACK_PAD = 4.dp
 
 /**
- * Day / Night / OLED, plus Auto, as one segmented track across the sheet.
+ * Day / Night / OLED, plus Auto, as one segmented track across the sheet, with the colour dots
+ * under it.
  *
  * ## Why a segmented track and not a row that opens a picker
  * This is a control you use by looking at the result, and every extra screen between the tap and the
@@ -893,12 +995,9 @@ private val MODE_TRACK_PAD = 4.dp
  * and the sheet stays open while you try them, so the palette changes *under* the sheet and you can
  * see it happen. A picker would have been two taps to see one colour.
  *
- * ## Why "Auto" is a segment and its resolved mode is a readout
- * The four segments are equal width, which leaves no room for the old pill's "Auto · Day" label.
- * Splitting it works out better than it sounds: the segment says what the setting IS and the line
- * above says what it currently RESOLVES to, which were always two facts sharing one chip. The
- * readout only appears while Auto is on, because with a mode picked the lit segment already says it
- * and repeating it would invite the eye to compare two things that cannot disagree.
+ * ## The readout names what is painted right now
+ * Rung and colour, for example "Night · Ember", with "Auto" in front while the clock is choosing the
+ * rung. The segments say what the setting IS; the readout says what it currently RESOLVES to.
  *
  * ⚠️ Inactive segments are not dimmed. The app's rule is that opacity must never carry on/off, so
  * the active segment is marked by a filled pill and everything else keeps full-strength secondary
@@ -906,9 +1005,10 @@ private val MODE_TRACK_PAD = 4.dp
  */
 @Composable
 private fun GridlinkModeRow(
-    mode: GridlinkMode,
+    look: GridlinkLook,
     followingClock: Boolean,
-    onSelect: (GridlinkMode?) -> Unit,
+    onSelectMode: (GridlinkMode?) -> Unit,
+    onSelectPreset: (GridlinkPreset) -> Unit,
 ) {
     val colors = GridlinkTheme.colors
     Column(
@@ -924,83 +1024,126 @@ private fun GridlinkModeRow(
                 modifier = Modifier.size(20.dp),
             )
             Text(
-                text = "Appearance",
+                text = stringResource(R.string.settings_appearance_title),
                 modifier = Modifier
                     .padding(start = GridlinkSpacing.s16)
                     .weight(1f),
                 style = GridlinkType.senderName,
                 color = colors.textPrimary,
             )
-            if (followingClock || mode in GRIDLINK_PRESET_MODES) {
-                Text(
-                    text = if (followingClock) "Auto · ${mode.label}" else mode.label,
-                    style = GridlinkType.metadata,
-                    color = colors.textSecondary,
-                )
-            }
+            val parts = listOfNotNull(
+                stringResource(R.string.gridlink_mode_auto).takeIf { followingClock },
+                look.mode.label(),
+                look.preset.label(),
+            )
+            Text(
+                text = parts.joinToString(" · "),
+                style = GridlinkType.metadata,
+                color = colors.textSecondary,
+            )
         }
         Spacer(Modifier.height(GridlinkSpacing.s12))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                // Indented to the same line the row labels start on, so the track reads as this
-                // row's content rather than as a band across the sheet.
-                .padding(start = 20.dp + GridlinkSpacing.s16)
-                .background(colors.surface.copy(alpha = 0.14f), MODE_TRACK_SHAPE)
-                .border(
-                    width = GridlinkDimens.hairline,
-                    color = colors.surfaceBorder.copy(alpha = 0.35f),
-                    shape = MODE_TRACK_SHAPE,
-                )
-                .padding(MODE_TRACK_PAD),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ModeChoice(
-                label = "Auto",
+        GridlinkPalettePicker(
+            look = look,
+            followingClock = followingClock,
+            onSelectMode = onSelectMode,
+            onSelectPreset = onSelectPreset,
+            // Indented to the same line the row labels start on, so the track reads as this row's
+            // content rather than as a band across the sheet.
+            modifier = Modifier.padding(start = 20.dp + GridlinkSpacing.s16),
+        )
+    }
+}
+
+/**
+ * The Auto / Day / Night / OLED track and the colour dots under it: the whole appearance choice.
+ *
+ * ## 🔴 Two independent axes
+ * The track picks the brightness, the dots pick the colour, and every pair is valid (Brandon,
+ * 2026-11-08: "any colour, any mode"). Tapping a rung keeps the colour; tapping a colour keeps the
+ * rung, Auto included. Each dot previews its colour IN the current rung, so on OLED the dots are
+ * black with a coloured centre and on Day they are pale washes: what you see is what you get.
+ *
+ * Shared by the drawer and by Settings > Appearance, so the two can never offer different choices
+ * or draw them differently. Both write the same stored values; the drawer through the chrome, which
+ * repaints at once, and Settings through the store, which the settings host reads back.
+ */
+@Composable
+fun GridlinkPalettePicker(
+    look: GridlinkLook,
+    followingClock: Boolean,
+    onSelectMode: (GridlinkMode?) -> Unit,
+    onSelectPreset: (GridlinkPreset) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        GridlinkPillTrack(modifier = Modifier.fillMaxWidth()) {
+            GridlinkPillChoice(
+                label = stringResource(R.string.gridlink_mode_auto),
                 active = followingClock,
-                onClick = { onSelect(null) },
+                onClick = { onSelectMode(null) },
                 modifier = Modifier.weight(1f),
             )
             GRIDLINK_LADDER_MODES.forEach { candidate ->
-                ModeChoice(
-                    label = candidate.label,
-                    active = !followingClock && candidate == mode,
-                    onClick = { onSelect(candidate) },
+                GridlinkPillChoice(
+                    label = candidate.label(),
+                    active = !followingClock && candidate == look.mode,
+                    onClick = { onSelectMode(candidate) },
                     modifier = Modifier.weight(1f),
                 )
             }
         }
         Spacer(Modifier.height(GridlinkSpacing.s8))
-        // Under the track rather than in it: five more segments would not fit a phone-width panel.
+        // Under the track rather than in it: six more segments would not fit a phone-width panel.
+        // Six equal slots, one per colour, so the dots line up under the track at any panel width.
+        // Fixed 44 dp dots overflowed the drawer on a phone and squeezed the last one (Sand).
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 20.dp + GridlinkSpacing.s16),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            GRIDLINK_PRESET_MODES.forEach { preset ->
+            GRIDLINK_PRESETS.forEach { preset ->
                 PresetDot(
-                    preset = preset,
-                    active = !followingClock && preset == mode,
-                    onClick = { onSelect(preset) },
+                    swatchLook = GridlinkLook(look.mode, preset),
+                    active = preset == look.preset,
+                    onClick = { onSelectPreset(preset) },
+                    modifier = Modifier.weight(1f),
                 )
             }
         }
     }
 }
 
-/** The preset's page colour with its accent inside, so a dot previews both. */
+/**
+ * The colour's page in the current rung with its accent inside, so a dot previews both.
+ *
+ * ## 🔴 The selection ring sits OUTSIDE the swatch, with a gap
+ * The old ring was the swatch's own border thickened, in the text colour. On Sand, whose page is a
+ * pale beige, the swatch edge already read as a light ring, so Sand looked selected all the time
+ * and the real choice was hard to find. Every dot now has the same hairline edge, and the chosen
+ * one gets a separate ring in the accent with a clear gap, which no swatch colour can imitate.
+ *
+ * The edge is drawn in the secondary text colour rather than the panel border, because on OLED every
+ * swatch is black on a near-black panel and the edge is the only thing outlining it.
+ */
 @Composable
-private fun PresetDot(preset: GridlinkMode, active: Boolean, onClick: () -> Unit) {
+private fun PresetDot(
+    swatchLook: GridlinkLook,
+    active: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val colors = GridlinkTheme.colors
-    val swatch = gridlinkColorsFor(preset)
+    val swatch = gridlinkColorsFor(swatchLook)
+    val description = stringResource(R.string.gridlink_colour_choice, swatchLook.preset.label())
+    val fill = swatch.gradient?.takeIf { it.size >= 2 }?.let { Brush.verticalGradient(it) }
+        ?: SolidColor(swatch.background)
+    // The whole slot is the touch target (full slot width, 48 dp tall), the dot is drawn inside it.
     Box(
-        modifier = Modifier
-            .size(44.dp)
-            .clip(CircleShape)
+        modifier = modifier
+            .height(48.dp)
+            .clip(MODE_TRACK_SHAPE)
             .semantics {
-                contentDescription = "${preset.label} colour preset"
+                contentDescription = description
                 selected = active
             }
             .clickable(role = Role.Button, onClick = onClick),
@@ -1008,37 +1151,96 @@ private fun PresetDot(preset: GridlinkMode, active: Boolean, onClick: () -> Unit
     ) {
         Box(
             modifier = Modifier
-                .size(32.dp)
-                .background(swatch.background, CircleShape)
-                .border(
-                    width = if (active) 2.dp else GridlinkDimens.hairline,
-                    color = if (active) colors.textPrimary else colors.surfaceBorder,
-                    shape = CircleShape,
+                .size(40.dp)
+                .then(
+                    if (active) {
+                        Modifier.padding(PRESET_RING_INSET).border(2.dp, colors.accent, CircleShape)
+                    } else {
+                        Modifier
+                    },
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            Box(modifier = Modifier.size(14.dp).background(swatch.accent, CircleShape))
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .background(fill, CircleShape)
+                    .border(
+                        width = GridlinkDimens.hairline,
+                        color = colors.textSecondary.copy(alpha = SWATCH_EDGE_ALPHA),
+                        shape = CircleShape,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(modifier = Modifier.size(13.dp).background(swatch.accent, CircleShape))
+            }
         }
     }
 }
 
 private val MODE_TRACK_SHAPE = RoundedCornerShape(GridlinkRadii.pill)
 
-/** How the three palettes name themselves anywhere a user can see them. */
-private val GridlinkMode.label: String
-    get() = when (this) {
-        GridlinkMode.DAY -> "Day"
-        GridlinkMode.NIGHT -> "Night"
-        GridlinkMode.OLED -> "OLED"
-        GridlinkMode.GRAPHITE -> "Graphite"
-        GridlinkMode.DEEP_BLUE -> "Deep Blue"
-        GridlinkMode.EMBER -> "Ember"
-        GridlinkMode.FOREST -> "Forest"
-        GridlinkMode.SAND -> "Sand"
-    }
+/** How far the selected dot's ring sits in from its 40 dp box, leaving a gap round the swatch. */
+private val PRESET_RING_INSET = 2.dp
 
+/** Strong enough to outline a black swatch on OLED, faint enough not to read as a selection ring. */
+private const val SWATCH_EDGE_ALPHA = 0.45f
+
+/** How a rung names itself anywhere a user can see it. */
 @Composable
-private fun ModeChoice(
+@ReadOnlyComposable
+internal fun GridlinkMode.label(): String = stringResource(
+    when (this) {
+        GridlinkMode.DAY -> R.string.gridlink_mode_day
+        GridlinkMode.NIGHT -> R.string.gridlink_mode_night
+        GridlinkMode.OLED -> R.string.gridlink_mode_oled
+    },
+)
+
+/** How a colour family names itself anywhere a user can see it. */
+@Composable
+@ReadOnlyComposable
+internal fun GridlinkPreset.label(): String = stringResource(
+    when (this) {
+        GridlinkPreset.CLASSIC -> R.string.gridlink_colour_classic
+        GridlinkPreset.GRAPHITE -> R.string.gridlink_colour_graphite
+        GridlinkPreset.DEEP_BLUE -> R.string.gridlink_colour_deep_blue
+        GridlinkPreset.EMBER -> R.string.gridlink_colour_ember
+        GridlinkPreset.FOREST -> R.string.gridlink_colour_forest
+        GridlinkPreset.SAND -> R.string.gridlink_colour_sand
+    },
+)
+
+/**
+ * The rounded track the Auto / Day / Night / OLED choice sits in, holding [GridlinkPillChoice]s.
+ *
+ * Shared with the calendar's Month / 3 day / Week / Agenda switch, so the app has one segmented
+ * control rather than a pill here and an underlined tab bar there. (Polish pass, 2026-11-07.)
+ */
+@Composable
+internal fun GridlinkPillTrack(modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
+    val colors = GridlinkTheme.colors
+    Row(
+        modifier = modifier
+            .background(colors.surface.copy(alpha = MODE_TRACK_FILL_ALPHA), MODE_TRACK_SHAPE)
+            .border(
+                width = GridlinkDimens.hairline,
+                color = colors.surfaceBorder.copy(alpha = MODE_TRACK_EDGE_ALPHA),
+                shape = MODE_TRACK_SHAPE,
+            )
+            .padding(MODE_TRACK_PAD),
+        verticalAlignment = Alignment.CenterVertically,
+        content = content,
+    )
+}
+
+/** The track's glass, faint enough that the filled segment is the only solid thing in it. */
+private const val MODE_TRACK_FILL_ALPHA = 0.14f
+private const val MODE_TRACK_EDGE_ALPHA = 0.35f
+
+/** One segment of a [GridlinkPillTrack]: filled with the accent when it is the one chosen. */
+@Composable
+internal fun GridlinkPillChoice(
     label: String,
     active: Boolean,
     onClick: () -> Unit,

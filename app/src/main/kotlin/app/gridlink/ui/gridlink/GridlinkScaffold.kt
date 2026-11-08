@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -34,9 +35,11 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,8 +55,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.text.HtmlCompat
+import app.gridlink.R
 import app.gridlink.core.data.contacts.ContactEdit
 import app.gridlink.core.data.mail.MailFilter
 import app.gridlink.core.data.settings.ThreadToolbarAction
@@ -317,6 +322,15 @@ fun GridlinkScaffold(
                         )
                         if (sidePane == null) {
                             Spacer(Modifier.width(GridlinkDimens.composeButton))
+                        } else {
+                            // 🔴 Two panes: the "+" sits HERE, at the end of the list column's own
+                            // line, exactly where it sits on a phone. It used to hang off the window's
+                            // far right, which put two identical accent circles side by side under
+                            // the message, Reply and New, and cost the reader's bar its Forward slot
+                            // and the sender its room. Writing something new belongs with the list;
+                            // the reading side's one loud button is Reply. It does not move while
+                            // the window stays two panes, selection or not.
+                            GridlinkComposeButton(onClick = onCompose, destination = destination)
                         }
                     }
                 }
@@ -462,16 +476,18 @@ fun GridlinkScaffold(
                  * The pane scrolls its own content and ends above the window's bottom padding, so
                  * what sits under the button is the tail of the fade, not a line of text.
                  */
-                GridlinkComposeButton(
-                    onClick = onCompose,
-                    destination = destination,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        // The same margins the control row uses, so the button keeps the nav pill's
-                        // baseline. The button and the pill are both [GRIDLINK_PILL_HEIGHT], so
-                        // matching the bottom matches the whole line.
-                        .padding(end = GridlinkSpacing.chrome, bottom = GridlinkSpacing.chrome),
-                )
+                if (sidePane == null) {
+                    GridlinkComposeButton(
+                        onClick = onCompose,
+                        destination = destination,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            // The same margins the control row uses, so the button keeps the nav
+                            // pill's baseline. The button and the pill are both
+                            // [GRIDLINK_PILL_HEIGHT], so matching the bottom matches the whole line.
+                            .padding(end = GridlinkSpacing.chrome, bottom = GridlinkSpacing.chrome),
+                    )
+                }
             }
         }
 
@@ -500,11 +516,14 @@ fun GridlinkScaffold(
                     // looking at it, and the panel staying up is what lets you tap through all four
                     // and watch the app behind it repaint.
                     onSelectMode = chrome::selectMode,
+                    preset = chrome.preset,
+                    onSelectPreset = chrome::selectPreset,
                     counts = chrome.config.menuCounts,
                     // Published up by whichever [GridlinkRoot] is composed, not passed down by the
                     // host: the tree is resolved below this point in the tree. See
                     // [GridlinkChromeState.folders].
                     folders = chrome.folders,
+                    here = chrome.here,
                     // Both close FIRST, for the same reason every other row does: a drawer left up
                     // over the mailbox it just opened is the app talking over itself.
                     onSelectFolder = {
@@ -609,6 +628,29 @@ fun Modifier.gridlinkEdgeFade(fadeTop: Boolean = true): Modifier = this
  * that tells you where you are about to land.
  */
 private const val THREAD_PARALLAX = 0.28f
+
+/**
+ * Puts the shared detail travel back at 0 whenever nothing is open and nothing is moving it.
+ *
+ * 🔴 The fix for *"double-tap during a fling leaves a blank pane until relaunch."* The open paths set
+ * an id and launch `animateTo(1f)` as two separate steps, and the only reset was keyed on
+ * `detail == null` CHANGING. When the id was set and lost again inside one busy frame (two taps
+ * landing while a fling was still settling, a close finishing under a fresh open), `detail` never
+ * became non-null, that key never moved, and the entrance ran to 1 with nothing to show: the list
+ * parked 28% to the left under the scrim, the right side empty, and every tab inheriting it because
+ * the travel is shared. This watches the state itself instead of a transition of it, so any path
+ * that ends with nothing open and the travel stopped short of home is put right on the spot.
+ *
+ * Never fights a real animation: it waits while [progress] is running, and the close paths animate
+ * to 0 BEFORE clearing the id, so by the time nothing is open they are already home.
+ */
+internal suspend fun returnStrandedTravel(
+    progress: Animatable<Float, AnimationVector1D>,
+    nothingOpen: () -> Boolean,
+) {
+    snapshotFlow { nothingOpen() && !progress.isRunning && progress.value != 0f }
+        .collect { stranded -> if (stranded) progress.snapTo(0f) }
+}
 
 /** How dark the list goes once the thread is fully in. Enough to recede, not enough to look off. */
 private const val THREAD_RECEDE_SCRIM = 0.34f
@@ -925,6 +967,12 @@ fun GridlinkRoot(
      */
     onLoadHeaders: (suspend (emailId: String) -> List<GridlinkHeader>)? = null,
     /**
+     * Fetch what a reply needs from the original (everyone on it, its Message-ID and References) by
+     * its row key, on the account it belongs to. Null in the gallery, where a reply is addressed
+     * from the row alone and carries no threading.
+     */
+    onLoadReplyOriginal: (suspend (rowKey: String) -> GridlinkReplyOriginal)? = null,
+    /**
      * The composer's From choices, active account first. Empty in the gallery, which hides the From
      * line. See [GridlinkComposeScreen]'s parameter of the same name.
      */
@@ -1151,6 +1199,18 @@ fun GridlinkRoot(
     // ⚠️ Declared here rather than beside the thread-animation state below, because [sendWithUndo]
     // is a local function and Kotlin will not let it close over a val declared after it.
     val scope = rememberCoroutineScope()
+    val replyAllFallback = stringResource(R.string.reply_all_original_unavailable)
+    // Resolved here for the same reason: the local functions and callbacks below run outside
+    // composition, where stringResource cannot be called.
+    val queueFailed = stringResource(R.string.gl_list_error_queue_failed)
+    val scheduleFailed = stringResource(R.string.gl_list_error_schedule_failed)
+    val eventSaveFailed = stringResource(R.string.gl_list_error_event_save_failed)
+    val contactSaveFailed = stringResource(R.string.gl_list_error_contact_save_failed)
+    val contactDeleteFailed = stringResource(R.string.gl_list_error_contact_delete_failed)
+    val draftReopenFailed = stringResource(R.string.gl_list_error_draft_reopen_failed)
+    val forwardAttachFailed = stringResource(R.string.gl_list_error_forward_attach_failed)
+    val draftSaveFailed = stringResource(R.string.gl_list_error_draft_save_failed)
+    val sampleDraftTitle = stringResource(R.string.draft_label)
 
     /** Send: close the composer, start the clock, keep everything needed to put it back. */
     fun sendWithUndo(request: GridlinkComposeRequest) {
@@ -1173,7 +1233,7 @@ fun GridlinkRoot(
                 // over a message that was never queued is the exact lie this change exists to remove.
                 undoing = null
                 composing = request
-                sendError = failure.message ?: "Couldn't queue that message."
+                sendError = failure.message ?: queueFailed
                 return@launch
             }
             // Undone while the write was still in flight: honour it now.
@@ -1202,7 +1262,7 @@ fun GridlinkRoot(
                 // The row never landed, so nothing will be sent. Reopen with the reason rather
                 // than letting the draft evaporate along with the promise to deliver it.
                 composing = request
-                sendError = failure.message ?: "Couldn't schedule that message."
+                sendError = failure.message ?: scheduleFailed
             }
         }
     }
@@ -1415,7 +1475,7 @@ fun GridlinkRoot(
             val failure = runCatching { calendarWriter.save(event) }
                 .getOrElse { t ->
                     if (t is CancellationException) throw t
-                    t.message ?: "Couldn't save that event."
+                    t.message ?: eventSaveFailed
                 }
             savingEvent = false
             if (failure != null) {
@@ -1459,7 +1519,7 @@ fun GridlinkRoot(
             val failure = runCatching { calendarWriter.update(before, edited, editScope) }
                 .getOrElse { t ->
                     if (t is CancellationException) throw t
-                    t.message ?: "Couldn't save that event."
+                    t.message ?: eventSaveFailed
                 }
             savingEvent = false
             if (failure != null) {
@@ -1515,7 +1575,7 @@ fun GridlinkRoot(
     fun importContacts(uri: Uri, book: List<GridlinkContact>) {
         if (contactImportRunning) return
         contactImportRunning = true
-        contactImportStatus = "Reading the file\u2026"
+        contactImportStatus = contactImportContext.getString(R.string.gl_list_import_reading)
         scope.launch {
             try {
                 val raw = withContext(Dispatchers.IO) { readContactFile(contactImportContext, uri) }
@@ -1530,10 +1590,14 @@ fun GridlinkRoot(
                 var failedInARow = 0
                 var firstError: String? = null
                 for ((index, edit) in plan.edits.withIndex()) {
-                    contactImportStatus = "Importing ${index + 1} of ${plan.edits.size}\u2026"
+                    contactImportStatus = contactImportContext.getString(
+                        R.string.gl_list_import_progress,
+                        index + 1,
+                        plan.edits.size,
+                    )
                     val failure = runCatching { contactWriter.create(edit) }.getOrElse { t ->
                         if (t is CancellationException) throw t
-                        t.message ?: "Couldn't save that contact."
+                        t.message ?: contactSaveFailed
                     }
                     if (failure == null) {
                         imported++
@@ -1547,9 +1611,15 @@ fun GridlinkRoot(
                         if (++failedInARow >= CONTACT_IMPORT_MAX_FAILURES_IN_A_ROW) break
                     }
                 }
-                contactImportStatus = contactImportSummary(imported, plan, plan.edits.size - imported, firstError)
+                contactImportStatus = contactImportSummary(
+                    contactImportContext,
+                    imported,
+                    plan,
+                    plan.edits.size - imported,
+                    firstError,
+                )
             } catch (e: IOException) {
-                contactImportStatus = e.message ?: "The file could not be read."
+                contactImportStatus = e.message ?: contactImportContext.getString(R.string.gl_list_import_read_failed)
             } finally {
                 contactImportRunning = false
             }
@@ -1564,7 +1634,7 @@ fun GridlinkRoot(
             val failure = runCatching { contactWriter.create(edit) }
                 .getOrElse { t ->
                     if (t is CancellationException) throw t
-                    t.message ?: "Couldn't save that contact."
+                    t.message ?: contactSaveFailed
                 }
             savingContact = false
             if (failure != null) {
@@ -1592,7 +1662,7 @@ fun GridlinkRoot(
             val failure = runCatching { contactWriter.update(contact.id, edit) }
                 .getOrElse { t ->
                     if (t is CancellationException) throw t
-                    t.message ?: "Couldn't save that contact."
+                    t.message ?: contactSaveFailed
                 }
             savingContact = false
             if (failure != null) {
@@ -1622,7 +1692,7 @@ fun GridlinkRoot(
             val failure = runCatching { contactWriter.delete(contact.id) }
                 .getOrElse { t ->
                     if (t is CancellationException) throw t
-                    t.message ?: "Couldn't delete that contact."
+                    t.message ?: contactDeleteFailed
                 }
             deletingContact = false
             if (failure != null) {
@@ -1783,6 +1853,10 @@ fun GridlinkRoot(
     LaunchedEffect(detail == null) {
         if (detail == null) progress.snapTo(0f)
     }
+    // The effect above only fires when `detail` CHANGES to null. This one covers the case where it
+    // never became non-null at all. See [returnStrandedTravel].
+    val nothingOpen by rememberUpdatedState(detail == null)
+    LaunchedEffect(progress) { returnStrandedTravel(progress) { nothingOpen } }
 
     /**
      * True while the open message has the whole display: no list, no chrome, no system bars.
@@ -1990,6 +2064,18 @@ fun GridlinkRoot(
                 chromeState.consumeInboxRoute()
             }
 
+            // The other direction: tell the drawer which row is where the user already is, so it
+            // can mark it. The overlays win because they cover whatever is under them.
+            val here = when {
+                scheduledOpen -> GridlinkHere(item = GridlinkMenuItem.SCHEDULED)
+                snoozedOpen -> GridlinkHere(item = GridlinkMenuItem.SNOOZED)
+                destination == GridlinkDestination.FOLDERS && openFolderId != null ->
+                    GridlinkHere(folderId = openFolderId)
+                destination == GridlinkDestination.INBOX -> GridlinkHere(inbox = true)
+                else -> GridlinkHere()
+            }
+            SideEffect { chromeState.here = here }
+
             // The other half of [onEditDraft]'s round trip: the body arrived, open the composer on
             // it. Acknowledged immediately so the answer cannot replay on a later recomposition.
             LaunchedEffect(mail?.draftEdit) {
@@ -2011,7 +2097,7 @@ fun GridlinkRoot(
                                 // out, which is recoverable. Replacing the original with a copy
                                 // missing its attachment is not.
                                 sendError = failure.message
-                                    ?: "Couldn't reopen that draft's attachments, so this will save as a new draft."
+                                    ?: draftReopenFailed
                                 draft.copy(draftEmailId = null)
                             },
                         )
@@ -2215,10 +2301,32 @@ fun GridlinkRoot(
                         // Every answer to a message goes out from the account it arrived at, which
                         // in the unified inbox is often not the active one. See
                         // [gridlinkSentFromOwner]; the From line can still change it.
-                        GridlinkThreadAction.REPLY ->
-                            composing = gridlinkSentFromOwner(gridlinkReplyTo(message), message.id)
-                        GridlinkThreadAction.REPLY_ALL ->
-                            composing = gridlinkSentFromOwner(gridlinkReplyAllTo(message), message.id)
+                        //
+                        // With a host, both read the original first: its Message-ID and References
+                        // thread the answer, and reply-all needs everyone who was on it, which the
+                        // list row does not carry. A plain reply whose original cannot be fetched
+                        // still opens (to the sender, unthreaded); a reply-all says it fell back.
+                        GridlinkThreadAction.REPLY, GridlinkThreadAction.REPLY_ALL -> {
+                            val all = action == GridlinkThreadAction.REPLY_ALL
+                            val rowBuilt = gridlinkSentFromOwner(
+                                if (all) gridlinkReplyAllTo(context, message) else gridlinkReplyTo(context, message),
+                                message.id,
+                            )
+                            val load = onLoadReplyOriginal
+                            if (load == null) {
+                                composing = rowBuilt
+                            } else {
+                                scope.launch {
+                                    composing = runCatching { load(message.id) }.fold(
+                                        onSuccess = { gridlinkAddressedReply(rowBuilt, it, all) },
+                                        onFailure = {
+                                            if (all) sendError = replyAllFallback
+                                            rowBuilt
+                                        },
+                                    )
+                                }
+                            }
+                        }
                         // 🔴 The files are taken over BEFORE the composer opens, the same way
                         // resuming a draft does it above, and for a related reason. A forward's
                         // chips used to be the reader's own, whose ids are part indexes no attacher
@@ -2232,19 +2340,20 @@ fun GridlinkRoot(
                         // short of what you forwarded.
                         GridlinkThreadAction.FORWARD ->
                             if (attacher == null || message.attachments.isEmpty()) {
-                                composing = gridlinkSentFromOwner(gridlinkForward(message), message.id)
+                                composing = gridlinkSentFromOwner(gridlinkForward(context, message), message.id)
                             } else {
                                 scope.launch {
                                     composing = runCatching { attacher.adopt(message.id) }.fold(
-                                        onSuccess = { gridlinkSentFromOwner(gridlinkForward(message, it), message.id) },
+                                        onSuccess = {
+                                            gridlinkSentFromOwner(gridlinkForward(context, message, it), message.id)
+                                        },
                                         onFailure = { failure ->
                                             // Forwarded WITHOUT the files, and said so. The message
                                             // is still worth sending, and a chip with nothing behind
                                             // it would only block the send a second time.
                                             sendError = failure.message
-                                                ?: "Couldn't attach that message's files, so this " +
-                                                "forward won't carry them."
-                                            gridlinkSentFromOwner(gridlinkForward(message), message.id)
+                                                ?: forwardAttachFailed
+                                            gridlinkSentFromOwner(gridlinkForward(context, message), message.id)
                                         },
                                     )
                                 }
@@ -2340,7 +2449,7 @@ fun GridlinkRoot(
                                 // still abandon. The composer's own send is what completes this.
                                 method.mailto != null ->
                                     composing = gridlinkSentFromOwner(
-                                        gridlinkUnsubscribeDraft(message, method.mailto),
+                                        gridlinkUnsubscribeDraft(context, message, method.mailto),
                                         message.id,
                                     )
 
@@ -2436,7 +2545,7 @@ fun GridlinkRoot(
                             // the reading pane does when you tap a different row.
                             if (!twoPane) scope.launch { progress.snapTo(1f) }
                         },
-                        onWrite = { composing = gridlinkWriteTo(it) },
+                        onWrite = { composing = gridlinkWriteTo(context, it) },
                         // The card, not its id: the form seeds from what was on screen when Edit
                         // was tapped, and must not chase a book a sync could reshape mid-edit.
                         onEdit = { editingContact = it },
@@ -2488,15 +2597,21 @@ fun GridlinkRoot(
             // wrong noun. ⚠️ Folders says "folder" and not "message": the pane holds a mailbox's mail, but
             // what the tree beside it asks you to pick is a mailbox.
             val paneLabel: String = when (destination) {
-                GridlinkDestination.INBOX -> "Select a message"
-                GridlinkDestination.CONTACTS -> "Select a contact"
-                GridlinkDestination.CALENDAR -> "Select an event"
+                GridlinkDestination.INBOX -> stringResource(R.string.gl_list_pane_select_message)
+                GridlinkDestination.CONTACTS -> stringResource(R.string.gl_list_pane_select_contact)
+                GridlinkDestination.CALENDAR -> stringResource(R.string.gl_list_pane_select_event)
                 // 🔴 Two answers on one tab, because the tab now has two screens. Standing in a
                 // mailbox the pane is waiting for a message, exactly as it is on the Inbox; standing
                 // in the tree it is waiting for a mailbox. One label for both would be wrong half the
                 // time, and it is wrong about the only instruction the empty pane gives.
                 GridlinkDestination.FOLDERS ->
-                    if (openFolder != null) "Select a message" else "Select a folder"
+                    stringResource(
+                        if (openFolder != null) {
+                            R.string.gl_list_pane_select_message
+                        } else {
+                            R.string.gl_list_pane_select_folder
+                        },
+                    )
             }
             val readingPane: (@Composable () -> Unit)? =
                 if (twoPane) {
@@ -2528,7 +2643,7 @@ fun GridlinkRoot(
                             if (destination == GridlinkDestination.CALENDAR) editingEvent else null
                         if (paneCreating) {
                             GridlinkContactFormScreen(
-                                title = "New contact",
+                                title = stringResource(R.string.gl_list_new_contact),
                                 initial = null,
                                 onClose = { creating = null; saveContactError = null },
                                 onSave = { saveContact(it) },
@@ -2542,7 +2657,7 @@ fun GridlinkRoot(
                             // recomposition with a different contact would keep the old typing.
                             key(editing.id) {
                                 GridlinkContactFormScreen(
-                                    title = "Edit contact",
+                                    title = stringResource(R.string.gl_list_edit_contact),
                                     initial = editing.editSeed,
                                     onClose = { editingContact = null; saveContactError = null },
                                     onSave = { updateContact(editing, it) },
@@ -2555,7 +2670,7 @@ fun GridlinkRoot(
                             }
                         } else if (creatingEvent != null) {
                             GridlinkEventFormScreen(
-                                title = "New event",
+                                title = stringResource(R.string.gl_list_new_event),
                                 date = creatingEvent.date,
                                 initial = null,
                                 onClose = { creating = null; saveError = null },
@@ -2568,7 +2683,7 @@ fun GridlinkRoot(
                             // Keyed for the contact edit form's reason: seed once per event.
                             key(eventEditing.id) {
                                 GridlinkEventFormScreen(
-                                    title = "Edit event",
+                                    title = stringResource(R.string.gl_list_edit_event),
                                     date = eventEditing.date,
                                     initial = eventEditing,
                                     onClose = { editingEvent = null; saveError = null },
@@ -2741,7 +2856,7 @@ fun GridlinkRoot(
                                         if (folders == null) {
                                             composing = GridlinkComposeRequest(
                                                 draft = GridlinkComposeDraft(
-                                                    title = "Draft",
+                                                    title = sampleDraftTitle,
                                                     // The recipient the row itself just named. Left
                                                     // empty, the composer would open on a blank To
                                                     // field one tap after a line reading "To Brightmar
@@ -2862,6 +2977,7 @@ fun GridlinkRoot(
                             destination = destination,
                             onSelectDestination = { destination = it },
                             onSetCalendarVisible = calendarWriter::setCalendarVisible,
+                            onEditCalendar = calendarWriter::editCalendar,
                             onNewEvent = { day -> creating = GridlinkCreation.Event(day) },
                             initialView = initialCalendarView,
                             initialDate = calendarStart,
@@ -3011,7 +3127,7 @@ fun GridlinkRoot(
                 when (val current = creating) {
                     is GridlinkCreation.Event -> if (!twoPane) {
                         GridlinkEventFormScreen(
-                            title = "New event",
+                            title = stringResource(R.string.gl_list_new_event),
                             date = current.date,
                             initial = null,
                             // Abandoning the form takes the refusal with it, for the composer's
@@ -3027,7 +3143,7 @@ fun GridlinkRoot(
 
                     GridlinkCreation.Contact -> if (!twoPane) {
                         GridlinkContactFormScreen(
-                            title = "New contact",
+                            title = stringResource(R.string.gl_list_new_contact),
                             initial = null,
                             onClose = { creating = null; saveContactError = null },
                             onSave = { saveContact(it) },
@@ -3049,7 +3165,7 @@ fun GridlinkRoot(
                 if (!twoPane) {
                     editingContact?.let { editing ->
                         GridlinkContactFormScreen(
-                            title = "Edit contact",
+                            title = stringResource(R.string.gl_list_edit_contact),
                             initial = editing.editSeed,
                             onClose = { editingContact = null; saveContactError = null },
                             onSave = { updateContact(editing, it) },
@@ -3064,7 +3180,7 @@ fun GridlinkRoot(
                     editingEvent?.let { editing ->
                         key(editing.id) {
                             GridlinkEventFormScreen(
-                                title = "Edit event",
+                                title = stringResource(R.string.gl_list_edit_event),
                                 date = editing.date,
                                 initial = editing,
                                 onClose = { editingEvent = null; saveError = null },
@@ -3228,7 +3344,7 @@ fun GridlinkRoot(
                                         // for "kept".
                                         composing = outcome
                                         sendError = failure.message
-                                            ?: "Couldn't save that draft."
+                                            ?: draftSaveFailed
                                     }
                                 }
                             }

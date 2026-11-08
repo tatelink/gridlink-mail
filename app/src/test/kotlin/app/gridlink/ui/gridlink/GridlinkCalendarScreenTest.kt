@@ -202,7 +202,7 @@ class GridlinkCalendarScreenTest {
     // ---- the agenda -------------------------------------------------------------------------------
 
     @Test
-    fun agenda_opensAtToday_listsEveryDayInItsWindowIncludingFreeOnes_andHasNoSteppers() {
+    fun agenda_opensAtToday_foldsRunsOfFreeDaysIntoOneLine_andHasNoSteppers() {
         show(initialView = GridlinkCalendarView.AGENDA)
         // Today's heading is what the list opens on, with its badge.
         rule.onNodeWithText("Wednesday 12 August").assertIsDisplayed()
@@ -214,16 +214,19 @@ class GridlinkCalendarScreenTest {
         rule.onNodeWithContentDescription("Next").assertDoesNotExist()
         rule.onNodeWithContentDescription("Previous").assertDoesNotExist()
 
-        // A free day is a heading and one quiet line, not a gap.
-        lazyList().performScrollToNode(hasText("Thursday 13 August"))
-        assertTrue(rule.onAllNodesWithText("Nothing scheduled").fetchSemanticsNodes().isNotEmpty())
+        // A free day is still on the list, as one quiet line rather than a heading of its own.
+        lazyList().performScrollToNode(hasText("Nothing tomorrow"))
+        rule.onNodeWithText("Thursday 13 August").assertDoesNotExist()
+        // A run of them is one line naming where it ends; past a week out the day gets its date.
+        lazyList().performScrollToNode(hasText("Nothing until Tuesday 25 August"))
+        lazyList().performScrollToNode(hasText("Nothing until Tuesday"))
 
-        // The window ends three weeks out and starts a week back; nothing beyond either edge.
-        lazyList().performScrollToNode(hasText("Wednesday 2 September"))
-        rule.onNodeWithText("Wednesday 2 September").assertExists()
+        // The window ends three weeks out and starts a week back; nothing beyond either edge. Both
+        // edges are free in the sample, so each is a folded line, not a heading.
+        lazyList().performScrollToNode(hasText("Nothing on Wednesday"))
         rule.onNodeWithText("Thursday 3 September").assertDoesNotExist()
-        lazyList().performScrollToNode(hasText("Wednesday 5 August"))
-        rule.onNodeWithText("Wednesday 5 August").assertExists()
+        lazyList().performScrollToNode(hasText("Nothing until today"))
+        rule.onNodeWithText("Wednesday 5 August").assertDoesNotExist()
         rule.onNodeWithText("Tuesday 4 August").assertDoesNotExist()
 
         // A row opens its event.

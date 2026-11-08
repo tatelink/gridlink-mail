@@ -23,7 +23,7 @@ class MailtoDraftConversionTest {
         bcc: String = "",
         subject: String = "",
         body: String = "",
-    ) = MailtoDraft(to = to, cc = cc, bcc = bcc, subject = subject, body = body).toGridlinkDraft()
+    ) = MailtoDraft(to = to, cc = cc, bcc = bcc, subject = subject, body = body).toGridlinkDraft(title = "Compose")
 
     @Test
     fun `a bcc address never reaches the recipient list`() {

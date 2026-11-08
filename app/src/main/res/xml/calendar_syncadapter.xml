@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- See contacts_syncadapter.xml for why uploading is refused. -->
+<!--
+  supportsUploading="true": the framework raises an upload sync when another calendar app marks one
+  of these rows dirty, and CalendarSyncAdapter sends the change to the server (CalendarUploader)
+  before republishing. CalendarMirror writes the calendars with CAL_ACCESS_OWNER so those apps offer
+  to edit them.
+-->
 <sync-adapter xmlns:android="http://schemas.android.com/apk/res/android"
     android:contentAuthority="com.android.calendar"
     android:accountType="@string/gridlink_account_type"
-    android:supportsUploading="false"
+    android:supportsUploading="true"
     android:userVisible="true"
     android:isAlwaysSyncable="true" />

@@ -7,8 +7,19 @@ import android.content.pm.PackageManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import app.gridlink.core.data.account.AccountStore
+import app.gridlink.core.data.account.MailProtocol
+import app.gridlink.core.data.account.StoredAccount
 import app.gridlink.core.data.settings.SettingsRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Keeps the set of registered [GridlinkSystemAccount]s in step with the mail accounts, and owns the
@@ -34,11 +45,11 @@ object SystemMirror {
     /**
      * What a mirrored row's identity begins with.
      *
-     * 🔴 The local account id, not the server href. Two mail accounts that share a login are one
-     * Android account (see [GridlinkSystemAccount]), and their hrefs come out of the same server
-     * namespace, so an href alone would have one account's contacts overwriting the other's. The
-     * prefix is also what scopes every query and every delete, which is why it ends in a separator
-     * that cannot appear in an id.
+     * 🔴 The local account id, not the server href. Two mail accounts that share a login have
+     * hrefs out of the same server namespace, so an href alone would have one account's contacts
+     * overwriting the other's, and 2.1.3 published both into one Android account. Each now has its
+     * own Android account (see [SystemAccountPlanner]), and the prefix still scopes every query and
+     * every delete, which is why it ends in a separator that cannot appear in an id.
      */
     fun prefix(accountId: String): String = "$accountId|"
 
@@ -82,8 +93,9 @@ object SystemMirror {
      *
      * ## Why this only warns
      * Two syncers publishing the same collections corrupts nothing: each writes under its own
-     * AccountManager account, and Gridlink's rows are read-only (`CAL_ACCESS_READ` /
-     * `RAW_CONTACT_IS_READ_ONLY`), so neither can overwrite the other. What it does is show every
+     * AccountManager account, and an edit to either copy goes to the server through the app that
+     * owns that copy (the other then downloads it like any server change), so neither overwrites
+     * the other's rows. What it does is show every
      * event twice in the system Calendar app, once per source, which looks like a bug and is
      * nobody's fault. So the user is told and then left to decide (Tate, 2026-08-16): blocking
      * the switch would also block the case where DAVx5 is installed for an entirely different
@@ -111,35 +123,93 @@ object SystemMirror {
         Manifest.permission.WRITE_CALENDAR,
     )
 
+    /** One [apply] at a time: the watcher and the Settings switch can both ask at once. */
+    private val applyLock = Mutex()
+
+    /**
+     * What [apply]'s answer depends on, per mail account. The account list also changes on every
+     * unread count, and those changes must not reconcile anything, so the watcher compares these.
+     */
+    private data class MirrorKey(val id: String, val username: String, val calendar: Boolean, val contacts: Boolean)
+
+    /**
+     * Run [apply] now, and again whenever an account is added or removed, an account's calendar or
+     * contacts choice changes, or the mirror switch flips.
+     *
+     * This is what puts a newly added account into the system Calendar and Contacts apps straight
+     * away. Reconciling only at app start left a new account out of the system until the next
+     * restart or a trip to the switch, and a removed one's contacts in the dialler just as long.
+     * Removal needs nothing extra here: [apply] unregisters the Android account, and that is what
+     * deletes its rows (see [GridlinkSystemAccount.remove]).
+     */
+    fun watch(scope: CoroutineScope, context: Context, accountStore: AccountStore, settings: SettingsRepository): Job =
+        scope.launch {
+            reconcileTriggers(accountStore.accountsFlow, settings.systemAccountMirror).collect {
+                runCatching { apply(context, accountStore, settings) }
+                    .onFailure { Log.w(TAG, "system-account reconcile failed", it) }
+            }
+        }
+
+    /** Emits once at the start and once per change that [watch] must reconcile for. See [MirrorKey]. */
+    internal fun reconcileTriggers(accounts: Flow<List<StoredAccount>>, mirrorOn: Flow<Boolean>): Flow<Any> {
+        val keys = accounts.map { list ->
+            list.map { MirrorKey(it.id, it.username, it.syncSelection.calendar, it.syncSelection.contacts) }
+        }
+        return combine(keys, mirrorOn) { list, on -> list to on }.distinctUntilChanged()
+    }
+
     /**
      * Register the accounts the current settings call for, unregister the rest, and ask for a sync.
      *
      * Safe to call as often as convenient: registering an account that exists is a no-op, and the
-     * sync request coalesces. Called on every app start, so an account added or removed inside
-     * Gridlink reaches the system without the user going back to Settings.
+     * sync request coalesces. [watch] calls it at app start and on every account change, so an
+     * account added or removed inside Gridlink reaches the system without the user going back to
+     * Settings, and a new account is synced straight away.
      */
-    suspend fun apply(context: Context, accountStore: AccountStore, settings: SettingsRepository) {
-        val wanted = if (settings.systemAccountMirror.first() && hasPermissions(context)) {
-            accountStore.accounts()
-                .filter { it.syncSelection.calendar || it.syncSelection.contacts }
-                .map { it.username }
-                .filter { it.isNotBlank() }
-                .toSet()
-        } else {
-            emptySet()
-        }
+    suspend fun apply(context: Context, accountStore: AccountStore, settings: SettingsRepository) =
+        applyLock.withLock { reconcile(context, accountStore, settings) }
 
-        val existing = GridlinkSystemAccount.all(context)
-        for (account in existing) {
-            if (account.name !in wanted) {
-                Log.i(TAG, "unregistering ${account.name}; its mirrored rows go with it")
-                GridlinkSystemAccount.remove(context, account)
-            }
+    private suspend fun reconcile(context: Context, accountStore: AccountStore, settings: SettingsRepository) {
+        val on = settings.systemAccountMirror.first() && hasPermissions(context)
+        val sources = accountStore.accounts().map { stored ->
+            MirrorSource(
+                id = stored.id,
+                label = stored.label(),
+                username = stored.username,
+                host = hostOf(stored),
+                wanted = on && (stored.syncSelection.calendar || stored.syncSelection.contacts),
+            )
         }
-        for (name in wanted) {
-            val account = GridlinkSystemAccount.ensure(context, name)
-            if (existing.none { it.name == name }) GridlinkSystemAccount.requestSync(account)
+        val registered = GridlinkSystemAccount.all(context).map {
+            RegisteredAccount(it.name, GridlinkSystemAccount.accountId(context, it))
         }
+        val plan = SystemAccountPlanner.plan(sources, registered)
+
+        for (name in plan.remove) {
+            Log.i(TAG, "unregistering a system account; its mirrored rows go with it")
+            GridlinkSystemAccount.remove(context, GridlinkSystemAccount.account(context, name))
+        }
+        for ((name, id) in plan.keep) GridlinkSystemAccount.ensure(context, name, id)
+        // An adopted 2.1.3 account is synced straight away too: its rows are still read-only in
+        // the system apps until the first pass of this version rewrites them.
+        for ((name, id) in plan.adopt + plan.create) {
+            GridlinkSystemAccount.requestSync(GridlinkSystemAccount.ensure(context, name, id))
+        }
+        Log.i(
+            TAG,
+            "system accounts: keep ${plan.keep.size}, adopt ${plan.adopt.size}, " +
+                "create ${plan.create.size}, remove ${plan.remove.size}",
+        )
+    }
+
+    /**
+     * The server a mail account lives on, for telling apart two accounts that read the same. The
+     * IMAP host for IMAP, the host of the session URL otherwise.
+     */
+    private fun hostOf(stored: StoredAccount): String {
+        if (stored.protocol == MailProtocol.IMAP && stored.imapHost.isNotBlank()) return stored.imapHost
+        return runCatching { java.net.URI(stored.server.trim()).host }.getOrNull()
+            ?: stored.server.trim().substringAfter("://").substringBefore('/')
     }
 
     /** Ask both adapters to run now, for every registered account. */
@@ -148,11 +218,19 @@ object SystemMirror {
     }
 
     /**
-     * The local account ids that publish under [account].
+     * The local account ids that publish under [account]: the one stored on it.
      *
-     * Normally one. More than one when several mail accounts share a login, which is the case the
-     * [prefix] scheme exists for.
+     * A 2.1.3 account with no id yet is matched by login, but only when that login is unambiguous;
+     * otherwise nothing is published until [apply] has sorted it out, which is better than writing
+     * one account's rows into another's.
      */
-    suspend fun accountIdsFor(account: Account, accountStore: AccountStore): List<String> =
-        accountStore.accounts().filter { it.username == account.name }.map { it.id }
+    suspend fun accountIdsFor(context: Context, account: Account, accountStore: AccountStore): List<String> {
+        val accounts = accountStore.accounts()
+        val id = GridlinkSystemAccount.accountId(context, account)
+        if (id == null) {
+            // singleOrNull is null when two accounts share the login, which is the point.
+            return listOfNotNull(accounts.singleOrNull { it.username == account.name }?.id)
+        }
+        return accounts.filter { it.id == id }.map { it.id }
+    }
 }

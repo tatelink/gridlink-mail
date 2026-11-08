@@ -104,6 +104,9 @@ class AppContainer(context: Context) {
         appScope.launch {
             runCatching { storageRepository.purgeOrphanedAccounts { accountStore.accounts().map { it.id } } }
                 .onFailure { android.util.Log.w("Gridlink", "orphaned-cache sweep failed; retried next start", it) }
+            // The same for calendars and contacts, which sign-out used to leave behind entirely.
+            runCatching { davRepository.purgeOrphanedAccounts { accountStore.accounts().map { it.id } } }
+                .onFailure { android.util.Log.w("Gridlink", "orphaned DAV sweep failed; retried next start", it) }
         }
         // Re-arm any send left mid-flight (WorkManager persists jobs, but re-checking is a safety net).
         appScope.launch {
@@ -117,14 +120,11 @@ class AppContainer(context: Context) {
             }
         }
         // Keep the system contacts/calendar mirror's Android accounts in step with the app's own
-        // account list. Settings already reconciles on every switch, but an account added or
-        // removed inside Gridlink never goes near that screen, and a stale Android account is not
-        // inert: it keeps a removed mailbox's contacts sitting in the dialler. Cheap and a no-op
-        // when the mirror is off, which is the default.
-        appScope.launch {
-            runCatching { app.gridlink.sync.SystemMirror.apply(appContext, accountStore, settingsRepository) }
-                .onFailure { android.util.Log.w("GridlinkSync", "system-account reconcile failed", it) }
-        }
+        // account list, now and on every change. An account added or removed inside Gridlink never
+        // goes near the Settings switch, a new one belongs in the system Calendar and Contacts apps
+        // straight away, and a stale Android account is not inert: it keeps a removed mailbox's
+        // contacts sitting in the dialler. Cheap and a no-op when the mirror is off, the default.
+        app.gridlink.sync.SystemMirror.watch(appScope, appContext, accountStore, settingsRepository)
     }
 }
 

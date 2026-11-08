@@ -78,6 +78,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onLongClick
@@ -91,6 +93,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import app.gridlink.R
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkMotion
 import app.gridlink.ui.theme.GridlinkRadii
@@ -397,7 +400,7 @@ fun GridlinkFolderScreen(
         sidePane = sidePane,
         header = {
             GridlinkHeader(
-                title = "Folders",
+                title = stringResource(R.string.gl_thread_folders_title),
                 unread = 0,
                 // 🔴 Not the unread count. Unread is the inbox's business; a tree's own summary is
                 // how much tree there is. Rendered in secondary text rather than in the unread
@@ -409,9 +412,8 @@ fun GridlinkFolderScreen(
                 // folders at all. Singular is handled because "1 mailboxes" is the kind of thing
                 // that survives review for years.
                 subline = when {
-                    loading -> "Loading"
-                    folderCount == 1 -> "1 mailbox"
-                    else -> "$folderCount mailboxes"
+                    loading -> stringResource(R.string.gl_thread_folders_loading)
+                    else -> pluralStringResource(R.plurals.gl_thread_folders_mailboxes, folderCount, folderCount)
                 },
             )
         },
@@ -852,6 +854,9 @@ private fun GridlinkFolderRow(
 ) {
     val colors = GridlinkTheme.colors
     val haptics = LocalHapticFeedback.current
+    // Resolved here because the semantics block below is not composable.
+    val openLabel = stringResource(R.string.gl_thread_folder_open, row.folder.name)
+    val actionsLabel = stringResource(R.string.gl_thread_folder_actions)
     // Hand-driven, because the gesture is hand-driven: without `clickable` there is nothing left to
     // report presses, and a tree that stopped rippling under the finger would read as a tree that
     // had stopped responding.
@@ -934,8 +939,8 @@ private fun GridlinkFolderRow(
             // here, which is stated in this file's header rather than papered over.
             .semantics {
                 role = Role.Button
-                onClick(label = "Open ${row.folder.name}") { onOpen(); true }
-                onLongPress?.let { press -> onLongClick(label = "Folder actions") { press(); true } }
+                onClick(label = openLabel) { onOpen(); true }
+                onLongPress?.let { press -> onLongClick(label = actionsLabel) { press(); true } }
             },
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -954,7 +959,9 @@ private fun GridlinkFolderRow(
         ) {
             Icon(
                 imageVector = Icons.Filled.KeyboardArrowDown,
-                contentDescription = if (row.expanded) "Collapse" else "Expand",
+                contentDescription = stringResource(
+                    if (row.expanded) R.string.gl_thread_folder_collapse else R.string.gl_thread_folder_expand,
+                ),
                 tint = colors.textSecondary,
                 modifier = Modifier
                     .size(18.dp)
@@ -1206,14 +1213,14 @@ private fun GridlinkNewFolderRow(
                     )
                     if (value.text.isEmpty()) {
                         Text(
-                            text = "Folder name",
+                            text = stringResource(R.string.inbox_folder_name),
                             style = GridlinkType.senderName,
                             color = colors.textSecondary.copy(alpha = 0.5f),
                         )
                     }
                 } else {
                     Text(
-                        text = "New folder",
+                        text = stringResource(R.string.inbox_new_folder),
                         style = GridlinkType.senderName,
                         color = colors.textSecondary.copy(alpha = 0.65f),
                         maxLines = 1,
@@ -1226,7 +1233,7 @@ private fun GridlinkNewFolderRow(
 
         if (editing && duplicate) {
             Text(
-                text = "“$trimmed” is already in here.",
+                text = stringResource(R.string.gl_thread_folder_duplicate, trimmed),
                 style = GridlinkType.metadata,
                 // 🔴 Secondary text, not an alarm colour. See GridlinkRenameFolderDialog: same rule,
                 // same reason.
@@ -1293,12 +1300,12 @@ private fun GridlinkFolderActionSheet(
             icon = folder.role.icon(),
             // Which branch it is on, because five of these folders are store numbers and three are
             // vendors, and "Site 612" on its own does not say which parent you long-pressed under.
-            subline = parentName?.let { "in $it" },
+            subline = parentName?.let { stringResource(R.string.gl_thread_folder_in, it) },
         )
         GridlinkSheetDivider()
         if (folder.mayWatch) {
             GridlinkSheetAction(
-                label = "Notify me here",
+                label = stringResource(R.string.gl_thread_folder_notify),
                 icon = if (folder.watched) {
                     Icons.Outlined.NotificationsActive
                 } else {
@@ -1309,25 +1316,25 @@ private fun GridlinkFolderActionSheet(
                 // that is what the user is actually choosing between. Nobody long-presses a folder
                 // wondering whether the app notifies at all.
                 subline = when {
-                    !folder.watched -> "Off. Only the inbox raises a notification"
-                    watchIsInstant -> "On. New mail here notifies as it arrives"
+                    !folder.watched -> stringResource(R.string.gl_thread_folder_notify_off)
+                    watchIsInstant -> stringResource(R.string.gl_thread_folder_notify_instant)
                     // Said out loud rather than hidden, because a switch that promises "notify me"
                     // and delivers a message half an hour late is worse than one that said so.
-                    else -> "On, but checked every 30 min. IMAP only reports the inbox live"
+                    else -> stringResource(R.string.gl_thread_folder_notify_polled)
                 },
-                trailing = { GridlinkOnOffPill(folder.watched) },
+                trailing = { GridlinkOnOffSwitch(folder.watched) },
             )
         }
         if (folder.mayRename) {
             GridlinkSheetAction(
-                label = "Rename",
+                label = stringResource(R.string.inbox_rename),
                 icon = Icons.Outlined.DriveFileRenameOutline,
                 onClick = onRename,
             )
         }
         if (folder.mayDelete) {
             GridlinkSheetAction(
-                label = "Delete",
+                label = stringResource(R.string.inbox_delete),
                 icon = Icons.Outlined.Delete,
                 // Present but inert when the folder still has folders under it, with the reason on
                 // the line itself. See [GridlinkFolder.mayBeDeletedNow]: the server refuses this,
@@ -1337,7 +1344,7 @@ private fun GridlinkFolderActionSheet(
                     null
                 } else {
                     val n = folder.children.size
-                    "Empty it first: ${if (n == 1) "1 folder" else "$n folders"} inside"
+                    pluralStringResource(R.plurals.gl_thread_folder_delete_empty_first, n, n)
                 },
                 tint = colors.destructive,
             )
@@ -1376,8 +1383,8 @@ private fun GridlinkRenameFolderDialog(
     val shape = RoundedCornerShape(GridlinkRadii.pill)
 
     GridlinkDialog(
-        title = "Rename folder",
-        confirmLabel = "Rename",
+        title = stringResource(R.string.inbox_rename_folder),
+        confirmLabel = stringResource(R.string.inbox_rename),
         confirmEnabled = valid,
         onConfirm = { if (valid) onRename(trimmed) },
         onDismiss = onDismiss,
@@ -1403,8 +1410,8 @@ private fun GridlinkRenameFolderDialog(
                 .focusRequester(focusRequester),
         )
         val problem = when {
-            trimmed.isEmpty() -> "A folder needs a name."
-            duplicate -> "“$trimmed” is already in here."
+            trimmed.isEmpty() -> stringResource(R.string.gl_thread_folder_name_required)
+            duplicate -> stringResource(R.string.gl_thread_folder_duplicate, trimmed)
             else -> null
         }
         if (problem != null) {
@@ -1465,14 +1472,14 @@ private fun GridlinkDeleteFolderDialog(
 ) {
     val colors = GridlinkTheme.colors
     GridlinkDialog(
-        title = "Delete “${folder.name}”?",
-        confirmLabel = "Delete",
+        title = stringResource(R.string.settings_tags_delete_title, folder.name),
+        confirmLabel = stringResource(R.string.inbox_delete),
         destructive = true,
         onConfirm = onDelete,
         onDismiss = onDismiss,
     ) {
         Text(
-            text = "The folder goes for good. Any mail in it moves to Trash.",
+            text = stringResource(R.string.gl_thread_folder_delete_body),
             style = GridlinkType.metadata,
             color = colors.textSecondary,
         )

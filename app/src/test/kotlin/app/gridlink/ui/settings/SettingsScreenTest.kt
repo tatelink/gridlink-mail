@@ -579,7 +579,7 @@ class SettingsScreenTest {
         switchFor("Suggest from contacts").assertIsOff()
         rule.onNodeWithText("SYSTEM CONTACTS AND CALENDAR").assertExists()
         switchFor("Add to Android").assertIsOff()
-        rule.onNodeWithText("Read-only: edits made in other apps aren't sent back", substring = true).assertExists()
+        rule.onNodeWithText("Two-way: changes, new entries and deletions", substring = true).assertExists()
         rule.onNodeWithText("Sync now").assertDoesNotExist()
     }
 

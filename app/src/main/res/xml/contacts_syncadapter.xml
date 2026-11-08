@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  supportsUploading="false" is the read-only declaration at the system's own level: it tells the
-  framework never to raise an upload sync for these rows, which is the other half of the
-  RAW_CONTACT_IS_READ_ONLY flag ContactsMirror writes. Editing happens in Gridlink.
+  supportsUploading="true" is what makes the system Contacts app offer these contacts for editing
+  (and offer this account for new ones), and what raises a sync when one changes, so the edit is
+  sent to the server. The fields it may edit are declared in contacts.xml.
 -->
 <sync-adapter xmlns:android="http://schemas.android.com/apk/res/android"
     android:contentAuthority="com.android.contacts"
     android:accountType="@string/gridlink_account_type"
-    android:supportsUploading="false"
+    android:supportsUploading="true"
     android:userVisible="true"
     android:isAlwaysSyncable="true" />

@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -36,10 +37,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import app.gridlink.R
 import app.gridlink.ui.theme.GridlinkDimens
 import app.gridlink.ui.theme.GridlinkRadii
 import app.gridlink.ui.theme.GridlinkSpacing
@@ -98,6 +102,12 @@ fun GridlinkDetailFrame(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     embedded: Boolean = false,
+    /**
+     * [GridlinkType.pageTitle] for a page (Settings, Add account, Snoozed), [GridlinkType.threadTitle]
+     * when the title is the thing on screen's own name (a subject line, an event, a person), which
+     * can run long and must not be promoted to page size.
+     */
+    titleStyle: TextStyle = GridlinkType.pageTitle,
     /**
      * The 64dp control row under the panel, or null for a screen with nothing honest to put there.
      *
@@ -161,6 +171,16 @@ fun GridlinkDetailFrame(
      * leaving for a compose button that is no longer on screen.
      */
     maximized: Boolean = false,
+    /**
+     * End the glass where the content ends instead of running it down to the bottom row. The space
+     * underneath stays empty and the bottom row stays where it always is, so only the panel's
+     * outline moves. [GridlinkThreadScreen] turns it on for a message short enough to fit, where a
+     * full-height card was mostly empty glass under two lines of text.
+     *
+     * ⚠️ The panel must then size itself: it gets its width but no height, so content that asks
+     * for fillMaxSize collapses to nothing. False everywhere else, which is the old behaviour.
+     */
+    fitToContent: Boolean = false,
     panel: @Composable BoxScope.() -> Unit,
 ) {
     val colors = GridlinkTheme.colors
@@ -216,7 +236,13 @@ fun GridlinkDetailFrame(
                 // The title action rides in the SAME row as the text column rather than above it.
                 // A 44dp circle on its own line costs 44dp; beside two text lines it costs nothing,
                 // because the column is already taller than the circle.
-                Row(
+                //
+                // 🔴 The [header] (the thread's sender line) sits UNDER that row, across the band's
+                // full width, not inside the title column beside the circles. Beside two 44dp
+                // circles the sender had about half the pane and came out as "Jules Mar...". Under
+                // them it costs no extra height for a two-line subject, since the circles were
+                // already shorter than the text column.
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = LocalGridlinkPaneHeaderHeight.current)
@@ -230,53 +256,77 @@ fun GridlinkDetailFrame(
                             top = GridlinkSpacing.s8,
                             bottom = GridlinkSpacing.s4,
                         ),
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalArrangement = Arrangement.Center,
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        // 🔴 A BLANK title draws nothing at all, it is not an empty line. The band
-                        // exists to say what the pane is showing, and a screen whose content already
-                        // says it would otherwise print the same words twice, once here and once in
-                        // its own content, a finger apart. Tate on the contact card in two panes,
-                        // 2026-08-16: *"top of screen is duplicate name of person - its not
-                        // needed."* The band keeps its [LocalGridlinkPaneHeaderHeight] floor either
-                        // way, so the two panes' glass still starts on the same line.
-                        if (title.isNotBlank()) {
-                            Text(
-                                text = title,
-                                style = GridlinkType.threadTitle,
-                                color = colors.textPrimary,
-                                // Two lines, not three. The third line is bought with body text, and
-                                // a subject long enough to need it is a subject whose tail is
-                                // marketing.
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            // 🔴 A BLANK title draws nothing at all, it is not an empty line. The band
+                            // exists to say what the pane is showing, and a screen whose content already
+                            // says it would otherwise print the same words twice, once here and once in
+                            // its own content, a finger apart. Tate on the contact card in two panes,
+                            // 2026-08-16: *"top of screen is duplicate name of person - its not
+                            // needed."* The band keeps its [LocalGridlinkPaneHeaderHeight] floor either
+                            // way, so the two panes' glass still starts on the same line.
+                            if (title.isNotBlank()) {
+                                Text(
+                                    text = title,
+                                    style = titleStyle,
+                                    color = colors.textPrimary,
+                                    // Two lines, not three. The third line is bought with body text,
+                                    // and a subject long enough to need it is a subject whose tail
+                                    // is marketing.
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
-                        header?.invoke()
+                        if (titleAction != null) {
+                            Spacer(Modifier.width(GridlinkSpacing.s12))
+                            titleAction()
+                        }
                     }
-                    if (titleAction != null) {
-                        Spacer(Modifier.width(GridlinkSpacing.s12))
-                        titleAction()
-                    }
+                    header?.invoke()
                 }
             } else if (!maximized) {
-                GridlinkDetailHeader(title = title, onBack = onBack, titleAction = titleAction)
+                GridlinkDetailHeader(
+                    title = title,
+                    onBack = onBack,
+                    titleStyle = titleStyle,
+                    titleAction = titleAction,
+                )
             }
 
+            // The slot always takes the leftover height, so the bottom row never moves; the glass
+            // inside it either fills the slot or, with [fitToContent], stops under the content.
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = GridlinkSpacing.chrome)
-                    .clip(panelShape)
-                    .background(colors.listSurface, panelShape)
-                    .border(GridlinkDimens.hairline, colors.surfaceBorder, panelShape),
+                    .fillMaxWidth(),
             ) {
-                // 🔴 One layout in both cases now. The pane used to draw its title inside the glass
-                // over a hairline, which meant the panel had two shapes and the reading pane's
-                // content started a title row lower than the standing screen's. With the title
-                // above the glass in both, the panel is just the panel.
-                Box(modifier = Modifier.fillMaxSize(), content = panel)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (fitToContent) {
+                                Modifier.wrapContentHeight(Alignment.Top)
+                            } else {
+                                Modifier.fillMaxHeight()
+                            },
+                        )
+                        .padding(horizontal = GridlinkSpacing.chrome)
+                        .clip(panelShape)
+                        .background(colors.listSurface, panelShape)
+                        .border(GridlinkDimens.hairline, colors.surfaceBorder, panelShape),
+                ) {
+                    // 🔴 One layout in both cases now. The pane used to draw its title inside the
+                    // glass over a hairline, which meant the panel had two shapes and the reading
+                    // pane's content started a title row lower than the standing screen's. With the
+                    // title above the glass in both, the panel is just the panel.
+                    Box(
+                        modifier = if (fitToContent) Modifier.fillMaxWidth() else Modifier.fillMaxSize(),
+                        content = panel,
+                    )
+                }
             }
 
             if (bottom == null) {
@@ -300,26 +350,12 @@ fun GridlinkDetailFrame(
                         .padding(
                             start = GridlinkSpacing.chrome,
                             top = GridlinkSpacing.s16,
-                            // 🔴 In the pane, this row stops one compose button short of the window.
-                            // The scaffold parks its "+" at the far bottom-right whenever two panes
-                            // are showing, and this row's own trailing control is a round accent
-                            // button of exactly the same diameter with exactly the same fill sitting
-                            // on exactly the same baseline — Reply on a thread, Write on a contact or
-                            // an event. Without this they land on top of each other, and the one
-                            // underneath is unreachable.
-                            //
-                            // ⚠️ This is the mirror of the bug recorded further down this file, where
-                            // a standing thread's action pill overlapped the LIST's compose button
-                            // and archiving opened the composer. Same two controls, same corner, and
-                            // the fix there was to swallow the stray tap. Here there is no stray tap
-                            // to swallow: both controls are live and both are wanted, so the row
-                            // moves over instead.
-                            end = if (embedded && !maximized) {
-                                GridlinkSpacing.chrome + GridlinkDimens.composeButton +
-                                    GridlinkSpacing.s16
-                            } else {
-                                GridlinkSpacing.chrome
-                            },
+                            // The full width in the pane too. This row used to stop one compose
+                            // button short of the window, because the scaffold parked its "+" in
+                            // that corner; the "+" now sits at the end of the list column instead
+                            // (see [GridlinkScaffold]), so the reader's own accent button is the
+                            // only round one on this side and the pill gets the room back.
+                            end = GridlinkSpacing.chrome,
                             bottom = GridlinkSpacing.chrome,
                         ),
                     horizontalArrangement = Arrangement.spacedBy(GridlinkSpacing.s16),
@@ -359,14 +395,15 @@ fun GridlinkDetailFrame(
  * The title sits here rather than scrolling with the content on purpose. A title that scrolls away
  * is fine in a client where the header collapses into a smaller copy of itself, and is just missing
  * in one where it does not: three screens into a long report you would have nothing on screen saying
- * which report. [GridlinkType.threadTitle] exists for this slot, at 18sp rather than the 32sp every
- * other screen title uses, because a real subject line promoted to 32sp wraps to three lines and
- * eats the top third of the window.
+ * which report. A subject line gets [GridlinkType.threadTitle] here, at 18sp rather than the 32sp
+ * main-screen title, because a real subject promoted to 32sp wraps to three lines and eats the top
+ * third of the window. A page name gets [GridlinkType.pageTitle], one step below the main screens.
  */
 @Composable
 private fun GridlinkDetailHeader(
     title: String,
     onBack: () -> Unit,
+    titleStyle: TextStyle,
     modifier: Modifier = Modifier,
     titleAction: (@Composable () -> Unit)? = null,
 ) {
@@ -384,12 +421,12 @@ private fun GridlinkDetailHeader(
     ) {
         GridlinkDetailCircleButton(
             icon = Icons.AutoMirrored.Outlined.ArrowBack,
-            label = "Back",
+            label = stringResource(R.string.message_back),
             onClick = onBack,
         )
         Text(
             text = title,
-            style = GridlinkType.threadTitle,
+            style = titleStyle,
             color = colors.textPrimary,
             maxLines = 3,
             overflow = TextOverflow.Ellipsis,

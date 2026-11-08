@@ -12,8 +12,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.gridlink.R
 import app.gridlink.container
 import app.gridlink.core.data.account.SyncSelection
 import app.gridlink.ui.gridlink.GridlinkApp
@@ -94,7 +96,7 @@ fun GridlinkSetupHost(
         is ConnectState.Error -> s.message
         // Not phrased as a failure: nothing is wrong, we just have to be told where the server is.
         is ConnectState.NeedsServer ->
-            "No JMAP server was found for that address. Enter the server above and try again."
+            stringResource(R.string.gl_people_setup_needs_server)
         else -> null
     }
 
