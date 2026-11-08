@@ -98,6 +98,21 @@ by UnifiedPush, and accounts whose login the server refused; with none left the 
 
 ### 2. Data safety form (required for every app)
 
+**Decided by Brandon, 2026-11-07:**
+
+- **Declare** emails (Messages: Emails), contacts and calendar events as data the app handles,
+  for **App functionality** only. Encrypted in transit: **yes** (TLS to the user's servers).
+  Shared: **no**. Nothing is sent to Eight Point Labs; there is no Eight Point Labs server in
+  the data path. The user can delete the data by removing the account in the app.
+- Plus whatever the Play Billing library requires, see the billing bullet below.
+
+Google's rules this rests on (Play Console Help, "Provide information for Google Play's Data
+safety section", read 2026-11-07): "collect" means transmitting data off the device, and data
+handled by SDKs in the app must be declared too. Payment data that Google Play's billing system
+collects directly from the user, and the app never accesses, does not need declaring; other
+financial data such as **purchase history** may. Google publishes no Billing-Library-specific
+list that could be found, so check the Console's own billing guidance when filling the form.
+
 Facts from the code, for filling it in:
 
 - No analytics, no ads, no crash reporting, no server of ours. Mail, contacts and calendar data
@@ -105,29 +120,39 @@ Facts from the code, for filling it in:
 - The contacts and calendar mirror copies the user's own CardDAV/CalDAV data into the system
   providers on the device; device contacts are read for recipient suggestions and stay on the
   device.
-- Play Billing: purchases are handled by Google Play. The billing library itself sends Google
-  its own diagnostics through Google datatransport (the CCT backend in the merged manifest).
-  Google publishes what the billing library collects for the Data safety form; that list should
-  be copied from Google's current page when filling the form (not verifiable offline here).
+- Play Billing: payment details are entered in Google Play's own sheet; the app never sees
+  them, so they need no declaration. The app does receive purchase records for its tips (product
+  id, purchase token, state) and uses them only to consume the tip and show the thank-you line,
+  on the device. Conservative answer: declare **Financial info: Purchase history**, collected,
+  not shared, App functionality, encrypted in transit. The billing library also sends Google its
+  own diagnostics through Google datatransport (the CCT backend in the merged manifest).
 - The app keeps only a local count of completed tips, on the device, for the thank-you line.
 
-How to answer "data collected" for the user's own mail is a judgement call, see Decisions.
 
 ### 3. Other App content items
 
-- **Privacy policy URL:** required (the app handles contacts, calendar and email). No policy URL
-  was found in the repo.
-- **App access:** the app is unusable without a mail account, so reviewers need working test
-  credentials (server, username, password) for a demo account, or the review will fail.
+- **Privacy policy URL:** https://eightpointlabs.com/privacy (Brandon, 2026-11-07). Check that
+  the page names Gridlink Mail and matches the Data safety answers above before submitting.
+- **App access:** the app is unusable without a mail account, so reviewers need working
+  credentials. Decided: a new throwaway mailbox on Brandon's Stalwart server, created later
+  (not created yet). Give reviewers the server, username and password in App access, and keep a
+  few messages in it so the inbox is not empty.
 - **Ads:** no ads.
 - **Content rating questionnaire, target audience (not children), news app (no):** standard.
 - **Financial features, health, government, VPN, accessibility:** none apply.
 
 ### 4. In-app products (needed before the tip jar shows anything)
 
-Create three **one-time, consumable** products with exactly these ids: `tip_small`,
-`tip_medium`, `tip_large`, and activate them. Prices are set there; the app shows whatever Play
-returns and orders the pills cheapest first. Until they exist (or on a device without the Play
+Create three **one-time, consumable** products with exactly these ids, and activate them:
+
+| Product id | Price (Brandon, 2026-11-07) |
+|---|---|
+| `tip_small` | US$1.99 |
+| `tip_medium` | US$4.99 |
+| `tip_large` | US$9.99 |
+
+Set the USD price and let Play convert for other countries. The app never hard-codes an amount:
+it shows whatever price string Play returns and orders the pills cheapest first. Until they exist (or on a device without the Play
 Store) the card stays and says quietly that tips are not available, with no buttons.
 Play Console only allows creating products after a build with the BILLING permission has been
 uploaded to some track, and needs the Eight Point Labs payments profile set up.
@@ -147,20 +172,20 @@ Suggested product titles and descriptions (Play shows them on its purchase sheet
   upload key is generated.
 - The AAB carries the R8 mapping (`BUNDLE-METADATA/.../proguard.map`), so Play's crash reports
   can be deobfuscated.
-- `dependenciesInfo.includeInBundle = false` is kept from the F-Droid setup, so the AAB carries
-  no dependency metadata. Play Console will show a notice about it, and Play's SDK Index checks
-  for known-bad SDK versions cannot run. Turning it on affects only the AAB, never the F-Droid
-  APK (`includeInApk` stays false). Left as is pending a decision.
-- The Play-only strings (`app/src/play/res/values/strings.xml`) are English only; other
-  locales show English in the tip card.
+- `dependenciesInfo.includeInBundle = true` (Brandon, 2026-11-07), so the AAB carries
+  dependency metadata and Play's SDK Index checks can run. `includeInApk` stays false. The
+  setting is module-wide, but only bundles read it and the F-Droid build never makes one; the
+  F-Droid release APK was rebuilt and compared byte for byte to confirm it is unaffected.
+- The tip-card strings are translated into every locale the app ships (de, es, fr, it, nl, pl,
+  pt, ru) under `app/src/play/res/values-*`. A new app locale needs those eight lines too.
 
-## Decisions for Brandon
+## Decisions (Brandon, 2026-11-07)
 
-1. Data safety: declare mail, contacts and calendar as collected (for app functionality, not
-   shared, encrypted in transit), or answer "no data collected" on the basis that it only ever
-   goes to the user's own servers and never to us. The first is the conservative reading of
-   Google's definition.
-2. Privacy policy URL and a demo mail account for Play's reviewers.
-3. Tip prices for the three products.
-4. Whether to turn on `includeInBundle` for the Play AAB.
-5. Whether to translate the eight tip-card strings now or ship English first.
+1. Tips: US$1.99, US$4.99, US$9.99.
+2. Data safety: mail, contacts and calendar declared as handled by the app for functionality,
+   encrypted in transit, not shared, nothing sent to Eight Point Labs; plus what the billing
+   library requires.
+3. Privacy policy: https://eightpointlabs.com/privacy.
+4. Reviewer access: a throwaway mailbox on his Stalwart server, to be created later.
+5. `includeInBundle` on for the Play AAB.
+6. Tip-card strings translated before the Play launch (done).
