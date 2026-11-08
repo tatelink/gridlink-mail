@@ -55,19 +55,17 @@ class ContactsMirror(private val resolver: ContentResolver) {
         for (contact in contacts) {
             val sourceId = SystemMirror.sourceId(accountId, contact.href)
             seen += sourceId
-            val fingerprint = FORMAT + SystemMirror.fingerprint(contact.etag, contact.raw)
             val row = existing[sourceId]
             // 🔴 An edit not yet on the server. See the class note.
-            if (row != null && (row.pending || row.fingerprint == fingerprint)) continue
-            // Changed cards are removed and rewritten rather than diffed field by field. A vCard
-            // has no stable identity for "the second email address", so a diff would come down to
-            // matching values against each other, which is what a rewrite does anyway.
-            if (row != null) ops += ContentProviderOperation.newDelete(rawContactUri(account, row.id)).build()
-            // A card that will not parse leaves nothing behind: the delete above still stands, so
-            // the provider is not left showing the previous version of something the server changed.
-            ContactPayload.parse(contact)?.let { parsed ->
-                appendInsert(ops, account, sourceId, fingerprint, parsed, contact)
+            if (row != null && (row.pending || row.fingerprint == fingerprint(contact))) continue
+            val parsed = ContactPayload.parse(contact)
+            if (parsed != null) {
+                appendWrite(ops, account, sourceId, parsed, contact, row?.id)
                 written++
+            } else if (row != null) {
+                // A card that will not parse leaves nothing behind, so the provider is not left
+                // showing the previous version of something the server changed.
+                ops += ContentProviderOperation.newDelete(rawContactUri(account, row.id)).build()
             }
         }
 
@@ -109,29 +107,69 @@ class ContactsMirror(private val resolver: ContentResolver) {
         }
     }
 
-    private fun appendInsert(
+    private fun fingerprint(contact: AddressBookContactEntity): String =
+        FORMAT + SystemMirror.fingerprint(contact.etag, contact.raw)
+
+    /**
+     * Write one card: a new raw contact, or, when [existingId] is set, the same raw contact with
+     * its data rows replaced.
+     *
+     * 🔴 In place, not delete-and-insert. The row id is what the system app hangs the user's own
+     * settings on (favourite, ringtone, send-to-voicemail, a manual join with another account's
+     * copy) and what an open contact screen is showing. A fresh row on every server change threw
+     * all of that away, and with two-way sync (#40) every edit made in the Contacts app comes back
+     * as a server change, so starring a contact and then fixing its phone number lost the star.
+     * The data rows themselves are still replaced wholesale rather than diffed: a vCard has no
+     * stable identity for "the second email address", so a diff would come down to matching values
+     * against each other, which is what a rewrite does anyway.
+     */
+    private fun appendWrite(
         ops: ArrayList<ContentProviderOperation>,
         account: Account,
         sourceId: String,
-        fingerprint: String,
         parsed: ParsedContact,
         contact: AddressBookContactEntity,
+        existingId: Long?,
     ) {
         val anchor = ops.size
-        ops += ContentProviderOperation.newInsert(syncUri(ContactsContract.RawContacts.CONTENT_URI, account))
-            .withValue(ContactsContract.RawContacts.ACCOUNT_NAME, account.name)
-            .withValue(ContactsContract.RawContacts.ACCOUNT_TYPE, account.type)
-            .withValue(ContactsContract.RawContacts.SOURCE_ID, sourceId)
-            .withValue(ContactsContract.RawContacts.SYNC1, fingerprint)
-            .withValue(
-                ContactsContract.RawContacts.SYNC2,
-                NativeContactDiff.encode(NativeContactDiff.serverHashes(ContactEdit.from(parsed))),
-            )
+        val serverBase = NativeContactDiff.encode(NativeContactDiff.serverHashes(ContactEdit.from(parsed)))
+        if (existingId == null) {
+            ops += ContentProviderOperation.newInsert(syncUri(ContactsContract.RawContacts.CONTENT_URI, account))
+                .withValue(ContactsContract.RawContacts.ACCOUNT_NAME, account.name)
+                .withValue(ContactsContract.RawContacts.ACCOUNT_TYPE, account.type)
+                .withValue(ContactsContract.RawContacts.SOURCE_ID, sourceId)
+                .withValue(ContactsContract.RawContacts.SYNC1, fingerprint(contact))
+                .withValue(ContactsContract.RawContacts.SYNC2, serverBase)
+                .build()
+            appendData(ops, account, parsed, contact) {
+                withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, anchor)
+            }
+            return
+        }
+        // The raw-contact operation comes first so the chunking in [apply] keeps the card whole.
+        // SYNC3 is cleared so [settle] takes the new local base from what is written here.
+        ops += ContentProviderOperation.newUpdate(rawContactUri(account, existingId))
+            .withValue(ContactsContract.RawContacts.SYNC1, fingerprint(contact))
+            .withValue(ContactsContract.RawContacts.SYNC2, serverBase)
+            .withValue(ContactsContract.RawContacts.SYNC3, "")
             .build()
+        ops += ContentProviderOperation.newDelete(syncUri(ContactsContract.Data.CONTENT_URI, account))
+            .withSelection("${ContactsContract.Data.RAW_CONTACT_ID} = ?", arrayOf(existingId.toString()))
+            .build()
+        appendData(ops, account, parsed, contact) { withValue(ContactsContract.Data.RAW_CONTACT_ID, existingId) }
+    }
 
+    /** The data rows of one card, each tied to its raw contact by [link]. */
+    private fun appendData(
+        ops: ArrayList<ContentProviderOperation>,
+        account: Account,
+        parsed: ParsedContact,
+        contact: AddressBookContactEntity,
+        link: ContentProviderOperation.Builder.() -> Unit,
+    ) {
         fun data(mimeType: String, build: ContentProviderOperation.Builder.() -> Unit) {
             ops += ContentProviderOperation.newInsert(syncUri(ContactsContract.Data.CONTENT_URI, account))
-                .withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, anchor)
+                .apply(link)
                 .withValue(ContactsContract.Data.MIMETYPE, mimeType)
                 .apply(build)
                 .build()
