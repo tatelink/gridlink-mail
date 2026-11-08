@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Google Play build only: the tip jar card. See values/strings.xml. -->
+<resources>
+    <string name="tip_card_body">O Gridlink é gratuito, sem anúncios nem rastreadores, e é feito por uma só pessoa. As gorjetas são voluntárias e não desbloqueiam nada: todas as funcionalidades já são suas.</string>
+    <string name="tip_card_body_thanked">Obrigado por apoiar o Gridlink. As gorjetas são voluntárias e não desbloqueiam nada, por isso outra é bem-vinda, mas nunca esperada.</string>
+    <string name="tip_card_loading">A verificar as gorjetas no Google Play.</string>
+    <string name="tip_card_unavailable">As gorjetas através do Google Play não estão disponíveis neste momento.</string>
+    <string name="tip_card_thanks">Obrigado! A sua gorjeta foi concluída.</string>
+    <string name="tip_card_pending">A sua gorjeta está a aguardar o Google Play e será concluída assim que o pagamento for confirmado.</string>
+    <string name="tip_card_failed">A gorjeta não foi concluída. Tente novamente daqui a pouco.</string>
+    <string name="tip_pill_description">Gorjeta de %1$s</string>
+</resources>

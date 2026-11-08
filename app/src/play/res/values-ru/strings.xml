@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Google Play build only: the tip jar card. See values/strings.xml. -->
+<resources>
+    <string name="tip_card_body">Gridlink бесплатен, без рекламы и трекеров, и его делает один человек. Чаевые добровольны и ничего не открывают: все функции уже ваши.</string>
+    <string name="tip_card_body_thanked">Спасибо за поддержку Gridlink. Чаевые добровольны и ничего не открывают, так что новые всегда приятны, но никогда не ожидаются.</string>
+    <string name="tip_card_loading">Проверяем чаевые в Google Play.</string>
+    <string name="tip_card_unavailable">Чаевые через Google Play сейчас недоступны.</string>
+    <string name="tip_card_thanks">Спасибо! Ваши чаевые получены.</string>
+    <string name="tip_card_pending">Ваши чаевые ожидают подтверждения в Google Play и будут зачислены, как только платёж пройдёт.</string>
+    <string name="tip_card_failed">Чаевые не прошли. Попробуйте ещё раз чуть позже.</string>
+    <string name="tip_pill_description">Чаевые %1$s</string>
+</resources>

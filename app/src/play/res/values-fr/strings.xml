@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Google Play build only: the tip jar card. See values/strings.xml. -->
+<resources>
+    <string name="tip_card_body">Gridlink est gratuit, sans publicité ni traceurs, et développé par une seule personne. Les pourboires sont facultatifs et ne débloquent rien : toutes les fonctionnalités sont déjà à vous.</string>
+    <string name="tip_card_body_thanked">Merci de soutenir Gridlink. Les pourboires sont facultatifs et ne débloquent rien : un autre est le bienvenu, mais jamais attendu.</string>
+    <string name="tip_card_loading">Recherche des pourboires sur Google Play.</string>
+    <string name="tip_card_unavailable">Les pourboires via Google Play ne sont pas disponibles pour le moment.</string>
+    <string name="tip_card_thanks">Merci ! Votre pourboire a bien été reçu.</string>
+    <string name="tip_card_pending">Votre pourboire est en attente sur Google Play et sera finalisé dès que le paiement sera validé.</string>
+    <string name="tip_card_failed">Le pourboire n’a pas abouti. Réessayez dans un instant.</string>
+    <string name="tip_pill_description">Pourboire de %1$s</string>
+</resources>

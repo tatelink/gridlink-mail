@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Google Play build only: the tip jar card. See values/strings.xml. -->
+<resources>
+    <string name="tip_card_body">Gridlink is gratis, zonder advertenties of trackers, en wordt door één persoon gemaakt. Fooien zijn vrijwillig en ontgrendelen niets: elke functie is al van jou.</string>
+    <string name="tip_card_body_thanked">Bedankt voor je steun aan Gridlink. Fooien zijn vrijwillig en ontgrendelen niets, dus nog een is welkom maar wordt nooit verwacht.</string>
+    <string name="tip_card_loading">Fooien ophalen bij Google Play.</string>
+    <string name="tip_card_unavailable">Fooien via Google Play zijn op dit moment niet beschikbaar.</string>
+    <string name="tip_card_thanks">Bedankt! Je fooi is gelukt.</string>
+    <string name="tip_card_pending">Je fooi wacht op Google Play en wordt afgerond zodra de betaling is verwerkt.</string>
+    <string name="tip_card_failed">De fooi is niet gelukt. Probeer het zo meteen opnieuw.</string>
+    <string name="tip_pill_description">Fooi van %1$s</string>
+</resources>

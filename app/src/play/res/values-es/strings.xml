@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Google Play build only: the tip jar card. See values/strings.xml. -->
+<resources>
+    <string name="tip_card_body">Gridlink es gratuito, sin anuncios ni rastreadores, y lo desarrolla una sola persona. Las propinas son voluntarias y no desbloquean nada: todas las funciones ya son tuyas.</string>
+    <string name="tip_card_body_thanked">Gracias por apoyar Gridlink. Las propinas son voluntarias y no desbloquean nada, así que otra es bienvenida, pero nunca esperada.</string>
+    <string name="tip_card_loading">Consultando las propinas en Google Play.</string>
+    <string name="tip_card_unavailable">Las propinas a través de Google Play no están disponibles ahora mismo.</string>
+    <string name="tip_card_thanks">¡Gracias! Tu propina se ha completado.</string>
+    <string name="tip_card_pending">Tu propina está pendiente en Google Play y se completará cuando se confirme el pago.</string>
+    <string name="tip_card_failed">La propina no se ha completado. Inténtalo de nuevo en un momento.</string>
+    <string name="tip_pill_description">Propina de %1$s</string>
+</resources>

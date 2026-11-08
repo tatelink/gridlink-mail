@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Google Play build only: the tip jar card. See values/strings.xml. -->
+<resources>
+    <string name="tip_card_body">Gridlink jest darmowy, bez reklam i śledzenia, tworzony przez jedną osobę. Napiwki są dobrowolne i niczego nie odblokowują: wszystkie funkcje już są Twoje.</string>
+    <string name="tip_card_body_thanked">Dziękujemy za wsparcie Gridlinka. Napiwki są dobrowolne i niczego nie odblokowują, więc kolejny jest mile widziany, ale nigdy oczekiwany.</string>
+    <string name="tip_card_loading">Sprawdzanie napiwków w Google Play.</string>
+    <string name="tip_card_unavailable">Napiwki przez Google Play są teraz niedostępne.</string>
+    <string name="tip_card_thanks">Dziękujemy! Twój napiwek dotarł.</string>
+    <string name="tip_card_pending">Twój napiwek czeka na Google Play i zostanie zrealizowany, gdy płatność zostanie potwierdzona.</string>
+    <string name="tip_card_failed">Napiwek nie przeszedł. Spróbuj ponownie za chwilę.</string>
+    <string name="tip_pill_description">Napiwek %1$s</string>
+</resources>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Google Play build only: the tip jar card. See values/strings.xml. -->
+<resources>
+    <string name="tip_card_body">Gridlink è gratuito, senza pubblicità né tracker, ed è sviluppato da una sola persona. Le mance sono volontarie e non sbloccano nulla: ogni funzione è già tua.</string>
+    <string name="tip_card_body_thanked">Grazie per sostenere Gridlink. Le mance sono volontarie e non sbloccano nulla, quindi un’altra è benvenuta ma mai attesa.</string>
+    <string name="tip_card_loading">Verifica delle mance su Google Play.</string>
+    <string name="tip_card_unavailable">Le mance tramite Google Play non sono disponibili al momento.</string>
+    <string name="tip_card_thanks">Grazie! La tua mancia è andata a buon fine.</string>
+    <string name="tip_card_pending">La tua mancia è in attesa su Google Play e andrà a buon fine appena il pagamento sarà confermato.</string>
+    <string name="tip_card_failed">La mancia non è andata a buon fine. Riprova tra un momento.</string>
+    <string name="tip_pill_description">Mancia di %1$s</string>
+</resources>

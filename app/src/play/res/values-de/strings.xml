@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Google Play build only: the tip jar card. See values/strings.xml. -->
+<resources>
+    <string name="tip_card_body">Gridlink ist kostenlos, ohne Werbung und ohne Tracker, und wird von einer einzigen Person entwickelt. Trinkgelder sind freiwillig und schalten nichts frei: Jede Funktion gehört dir bereits.</string>
+    <string name="tip_card_body_thanked">Danke, dass du Gridlink unterstützt. Trinkgelder sind freiwillig und schalten nichts frei, ein weiteres ist also willkommen, wird aber nie erwartet.</string>
+    <string name="tip_card_loading">Trinkgeld-Optionen werden bei Google Play abgefragt.</string>
+    <string name="tip_card_unavailable">Trinkgeld über Google Play ist gerade nicht verfügbar.</string>
+    <string name="tip_card_thanks">Danke! Dein Trinkgeld ist angekommen.</string>
+    <string name="tip_card_pending">Dein Trinkgeld wartet noch auf Google Play und wird abgeschlossen, sobald die Zahlung bestätigt ist.</string>
+    <string name="tip_card_failed">Das Trinkgeld ist nicht durchgegangen. Versuche es gleich noch einmal.</string>
+    <string name="tip_pill_description">Trinkgeld %1$s</string>
+</resources>
