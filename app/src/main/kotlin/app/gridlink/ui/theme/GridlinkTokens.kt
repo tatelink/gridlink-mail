@@ -14,6 +14,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -560,15 +561,50 @@ object GridlinkSenderBars {
         Color(0xFF5C3317),
     )
 
+    /**
+     * A colour preset: six shades of that preset's own accent, built the way [oled] is.
+     *
+     * Before this every dark preset borrowed [night]'s blues and Sand borrowed [day]'s, so an Ember
+     * or Forest inbox kept a column of blue bars down its left edge whatever colour was picked.
+     * The ramp is mixed from the preset's accent toward its page and its secondary text, so every
+     * entry is duller than the accent (identity gets hue, not volume, as in OLED) and the six still
+     * differ in lightness.
+     */
+    fun forPreset(colors: GridlinkColors): List<Color> {
+        val accent = colors.accent
+        val page = colors.background
+        val quiet = colors.textSecondary
+        return PRESET_BAR_MIX.map { (towardQuiet, from, amount) ->
+            lerp(if (from == BarBase.ACCENT) accent else quiet, if (towardQuiet) quiet else page, amount)
+        }
+    }
+
+    private enum class BarBase { ACCENT, QUIET }
+
+    /** Each bar: start from the accent or the quiet text, then mix toward the quiet text or the page. */
+    private val PRESET_BAR_MIX = listOf(
+        Triple(true, BarBase.ACCENT, 0.30f),
+        Triple(false, BarBase.ACCENT, 0.30f),
+        Triple(false, BarBase.ACCENT, 0.50f),
+        Triple(false, BarBase.QUIET, 0.15f),
+        Triple(true, BarBase.ACCENT, 0.60f),
+        Triple(false, BarBase.QUIET, 0.45f),
+    )
+
+    private val presetRamps: Map<GridlinkMode, List<Color>> by lazy {
+        GRIDLINK_PRESET_MODES.associateWith { forPreset(gridlinkColorsFor(it)) }
+    }
+
     fun forMode(mode: GridlinkMode): List<Color> = when (mode) {
-        GridlinkMode.DAY, GridlinkMode.SAND -> day
-        GridlinkMode.NIGHT,
+        GridlinkMode.DAY -> day
+        GridlinkMode.NIGHT -> night
+        GridlinkMode.OLED -> oled
         GridlinkMode.GRAPHITE,
         GridlinkMode.DEEP_BLUE,
         GridlinkMode.EMBER,
         GridlinkMode.FOREST,
-        -> night
-        GridlinkMode.OLED -> oled
+        GridlinkMode.SAND,
+        -> presetRamps.getValue(mode)
     }
 }
 
@@ -627,7 +663,11 @@ private fun gridlinkDarkPreset(
     // The compose button. Night's gold would sit beside this accent as a second theme colour.
     accentWarm = accent,
     onAccentWarm = onAccent,
-    attention = attention,
+    // 🔴 The unread highlight follows the preset, the way OLED's amber does: a preset is one hue
+    // family by choice, and Night's gold left in an Ember or Forest inbox read as a theme that had
+    // only half applied. A step lighter than the accent so an unread time still out-ranks a link.
+    // The warning colour keeps the preset's own amber, because a warning must not look like news.
+    attention = lerp(accent, text, PRESET_ATTENTION_LIFT),
     caution = attention,
     selection = accent.copy(alpha = 0.14f),
     divider = border.copy(alpha = 0.12f),
@@ -636,6 +676,9 @@ private fun gridlinkDarkPreset(
     fieldFill = surface,
     fieldBorder = accent.copy(alpha = 0.40f),
 )
+
+/** How far a preset's unread highlight moves from its accent toward its text colour. */
+private const val PRESET_ATTENTION_LIFT = 0.30f
 
 /** Soft grey: neutral, for someone who wants the colour out of the way. */
 val GridlinkGraphiteColors: GridlinkColors by lazy {

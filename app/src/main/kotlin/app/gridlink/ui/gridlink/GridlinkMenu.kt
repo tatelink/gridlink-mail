@@ -69,6 +69,7 @@ import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
 import app.gridlink.ui.theme.gridlinkColorsFor
+import app.gridlink.ui.theme.isLightSurface
 
 /**
  * The app's own row of chrome, above every screen, and the sheet the menu opens.
@@ -933,7 +934,10 @@ private fun GridlinkModeRow(
             )
             if (followingClock || mode in GRIDLINK_PRESET_MODES) {
                 Text(
-                    text = if (followingClock) "Auto · ${mode.label}" else mode.label,
+                    text = when {
+                        followingClock -> "Auto · ${mode.label}"
+                        else -> "${mode.presetRung.label} · ${mode.label}"
+                    },
                     style = GridlinkType.metadata,
                     color = colors.textSecondary,
                 )
@@ -965,6 +969,12 @@ private fun GridlinkModeRow(
                 ModeChoice(
                     label = candidate.label,
                     active = !followingClock && candidate == mode,
+                    // A colour preset is a Night (or, for Sand, a Day) with its hue changed, so the
+                    // rung it is built on stays lit beside it instead of the track going blank,
+                    // which read as no mode being set at all. Outlined rather than filled: the
+                    // filled pill means "this exact palette", and tapping the outlined rung goes
+                    // back to that rung's own colours.
+                    underPreset = !followingClock && mode in GRIDLINK_PRESET_MODES && candidate == mode.presetRung,
                     onClick = { onSelect(candidate) },
                     modifier = Modifier.weight(1f),
                 )
@@ -990,7 +1000,15 @@ private fun GridlinkModeRow(
     }
 }
 
-/** The preset's page colour with its accent inside, so a dot previews both. */
+/**
+ * The preset's page colour with its accent inside, so a dot previews both.
+ *
+ * ## 🔴 The selection ring sits OUTSIDE the swatch, with a gap
+ * The old ring was the swatch's own border thickened, in the text colour. On Sand, whose page is a
+ * pale beige, the swatch edge already read as a light ring, so Sand looked selected all the time
+ * and the real choice was hard to find. Every dot now has the same hairline edge, and the chosen
+ * one gets a separate ring in the accent with a clear gap, which no swatch colour can imitate.
+ */
 @Composable
 private fun PresetDot(preset: GridlinkMode, active: Boolean, onClick: () -> Unit) {
     val colors = GridlinkTheme.colors
@@ -1003,16 +1021,23 @@ private fun PresetDot(preset: GridlinkMode, active: Boolean, onClick: () -> Unit
                 contentDescription = "${preset.label} colour preset"
                 selected = active
             }
-            .clickable(role = Role.Button, onClick = onClick),
+            .clickable(role = Role.Button, onClick = onClick)
+            .then(
+                if (active) {
+                    Modifier.padding(PRESET_RING_INSET).border(2.dp, colors.accent, CircleShape)
+                } else {
+                    Modifier
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Box(
             modifier = Modifier
-                .size(32.dp)
+                .size(30.dp)
                 .background(swatch.background, CircleShape)
                 .border(
-                    width = if (active) 2.dp else GridlinkDimens.hairline,
-                    color = if (active) colors.textPrimary else colors.surfaceBorder,
+                    width = GridlinkDimens.hairline,
+                    color = colors.surfaceBorder,
                     shape = CircleShape,
                 ),
             contentAlignment = Alignment.Center,
@@ -1023,6 +1048,13 @@ private fun PresetDot(preset: GridlinkMode, active: Boolean, onClick: () -> Unit
 }
 
 private val MODE_TRACK_SHAPE = RoundedCornerShape(GridlinkRadii.pill)
+
+/** How far the selected dot's ring sits in from the touch target, leaving a gap round the swatch. */
+private val PRESET_RING_INSET = 2.dp
+
+/** The rung a colour preset is built on: Night for the dark ones, Day for Sand. */
+private val GridlinkMode.presetRung: GridlinkMode
+    get() = if (isLightSurface) GridlinkMode.DAY else GridlinkMode.NIGHT
 
 /** How the three palettes name themselves anywhere a user can see them. */
 private val GridlinkMode.label: String
@@ -1043,13 +1075,25 @@ private fun ModeChoice(
     active: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    underPreset: Boolean = false,
 ) {
     val colors = GridlinkTheme.colors
     Box(
         modifier = modifier
             .background(
-                color = if (active) colors.accent else Color.Transparent,
+                color = when {
+                    active -> colors.accent
+                    underPreset -> colors.accent.copy(alpha = 0.16f)
+                    else -> Color.Transparent
+                },
                 shape = MODE_TRACK_SHAPE,
+            )
+            .then(
+                if (underPreset) {
+                    Modifier.border(GridlinkDimens.hairline, colors.accent, MODE_TRACK_SHAPE)
+                } else {
+                    Modifier
+                },
             )
             .clip(MODE_TRACK_SHAPE)
             .clickable(onClick = onClick)
@@ -1059,7 +1103,11 @@ private fun ModeChoice(
         Text(
             text = label,
             style = GridlinkType.toolbarLabel,
-            color = if (active) colors.onAccent else colors.textSecondary,
+            color = when {
+                active -> colors.onAccent
+                underPreset -> colors.textPrimary
+                else -> colors.textSecondary
+            },
             textAlign = TextAlign.Center,
         )
     }

@@ -33,6 +33,18 @@ class GridlinkPresetColorsTest {
     }
 
     @Test
+    fun `a preset's sender bars come from its own colour, not Night's blues`() {
+        GRIDLINK_PRESET_MODES.forEach { mode ->
+            val ramp = GridlinkSenderBars.forMode(mode)
+            assertEquals("$mode ramp size", GridlinkSenderBars.night.size, ramp.size)
+            assertTrue("$mode borrowed Night's ramp", ramp != GridlinkSenderBars.night)
+            assertTrue("$mode borrowed Day's ramp", ramp != GridlinkSenderBars.day)
+            assertTrue("$mode bars repeat", ramp.toSet().size == ramp.size)
+            assertTrue("$mode bar as loud as the accent", gridlinkColorsFor(mode).accent !in ramp)
+        }
+    }
+
+    @Test
     fun `only Sand among the presets is light`() {
         assertEquals(listOf(GridlinkMode.SAND), GRIDLINK_PRESET_MODES.filter { it.isLightSurface })
     }
