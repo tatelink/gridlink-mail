@@ -73,12 +73,10 @@ import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
 import app.gridlink.ui.theme.gridlinkSenderBarColor
-import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
-import java.time.format.TextStyle
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
@@ -517,20 +515,8 @@ private val RANGE_END: DateTimeFormatter get() = calendarFormatter("MMMd", "d MM
 private val AGENDA_DAY: DateTimeFormatter get() = calendarFormatter("EEEEdMMMM", "EEEE d MMMM")
 private val COLUMN_DAY: DateTimeFormatter get() = calendarFormatter("EEE", "EEE")
 
-/**
- * 🔴 Sunday-first. Tate is US; a Monday-first grid puts the weekend in two different places.
- *
- * Internal, along with [sundayIndex], because the date picker draws a month grid too and a picker
- * whose columns were offset by one from the calendar behind it would be a genuinely disorienting bug:
- * both grids are on screen at once.
- */
-internal val WEEKDAY_INITIALS: List<String>
-    get() = SUNDAY_FIRST.map { it.getDisplayName(TextStyle.NARROW, appLocale) }
-
-private val SUNDAY_FIRST = listOf(DayOfWeek.SUNDAY) + DayOfWeek.entries.filter { it != DayOfWeek.SUNDAY }
-
-/** How many days back from this date to the Sunday that starts its week. */
-internal fun LocalDate.sundayIndex(): Int = dayOfWeek.value % 7
+// The first day of the week, the column heads and the start of a week all live in
+// WeekStart.kt, shared with the date picker. See [WeekStart].
 
 private fun GridlinkCalendarView.rangeAround(anchor: LocalDate): Pair<LocalDate, LocalDate> =
     when (this) {
@@ -540,7 +526,7 @@ private fun GridlinkCalendarView.rangeAround(anchor: LocalDate): Pair<LocalDate,
         }
         GridlinkCalendarView.THREE_DAY -> anchor to anchor.plusDays(2)
         GridlinkCalendarView.WEEK -> {
-            val start = anchor.minusDays(anchor.sundayIndex().toLong())
+            val start = anchor.weekStartDate()
             start to start.plusDays(6)
         }
         // Tate: "a continuous list including the last week, plus up to 3 weeks in the future".
@@ -938,17 +924,15 @@ private fun GridlinkMonthGrid(
 ) {
     val colors = GridlinkTheme.colors
     val book = LocalGridlinkBook.current
-    val firstCell = remember(month) {
-        val first = month.atDay(1)
-        first.minusDays(first.sundayIndex().toLong())
-    }
+    val weekFirst = weekStart
+    val firstCell = remember(month, weekFirst) { month.atDay(1).weekStartDate(weekFirst) }
     Column(modifier) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = GridlinkSpacing.s12, bottom = GridlinkSpacing.s4),
         ) {
-            WEEKDAY_INITIALS.forEach { initial ->
+            weekdayInitials(weekFirst).forEach { initial ->
                 Text(
                     text = initial,
                     style = GridlinkType.badge,

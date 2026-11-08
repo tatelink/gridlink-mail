@@ -58,10 +58,10 @@ import java.time.format.DateTimeFormatter
  * palettes and the picker would be styled for whichever one was current when its colours were
  * captured.
  *
- * The grid itself is a month, six rows, Sunday-first, reusing [WEEKDAY_INITIALS] and [sundayIndex]
- * from the calendar rather than restating them. Both grids are visible at once when this opens over
- * the month view, so a picker that started its weeks on a different day would be a real bug and not a
- * style difference.
+ * The grid itself is a month, six rows, starting on the phone's first day of the week, reusing
+ * [weekStart] and [weekdayInitials] from the calendar rather than restating them. Both grids are
+ * visible at once when this opens over the month view, so a picker that started its weeks on a
+ * different day would be a real bug and not a style difference.
  *
  * ⚠️ Six rows always, like the calendar's, and for the same reason: a grid that changes height with
  * the month makes the card resize as you page through it, which reads as the dialog fighting you.
@@ -77,10 +77,8 @@ fun GridlinkDatePickerSheet(
     // The month being browsed, which is NOT the selection: paging to August to look does not move an
     // event to August. Only a tap on a day does that.
     var month by remember(selected) { mutableStateOf(YearMonth.from(selected)) }
-    val firstCell = remember(month) {
-        val first = month.atDay(1)
-        first.minusDays(first.sundayIndex().toLong())
-    }
+    val weekFirst = weekStart
+    val firstCell = remember(month, weekFirst) { month.atDay(1).weekStartDate(weekFirst) }
     // The month and year in the device's own order and spelling ("August 2026",
     // "sierpień 2026"), not a fixed English pattern.
     val locale = LocalConfiguration.current.locales[0]
@@ -106,7 +104,7 @@ fun GridlinkDatePickerSheet(
 
         Column(modifier = Modifier.padding(horizontal = GridlinkSpacing.s12)) {
             Row(modifier = Modifier.fillMaxWidth().padding(bottom = GridlinkSpacing.s4)) {
-                WEEKDAY_INITIALS.forEach { initial ->
+                weekdayInitials(weekFirst).forEach { initial ->
                     Text(
                         text = initial,
                         style = GridlinkType.badge,
