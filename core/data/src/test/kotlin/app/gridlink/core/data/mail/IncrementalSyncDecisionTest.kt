@@ -100,11 +100,23 @@ class IncrementalSyncDecisionTest {
     }
 
     /**
-     * "Unchanged" is decided from the watermark alone and is reached before the counters are even
-     * consulted: a folder whose modseq did not move cannot have gained or lost a message, and a
-     * server disagreeing with itself about that is a server whose numbers are not usable anyway.
+     * An unmoved watermark is NOT proof that nothing left. Only a QRESYNC server must raise
+     * HIGHESTMODSEQ on an expunge (RFC 7162 §3.2.5); on a CONDSTORE-only one, mail deleted from
+     * another device left the watermark standing and stayed on screen here until the cache was
+     * cleared. The counters decide first.
      */
-    @Test fun `an unmoved watermark is unchanged even without stored counters`() {
-        assertEquals(ImapSyncPlan.Unchanged, plan(stored = recorded.copy(uidNext = null, messageCount = null)))
+    @Test fun `an unmoved watermark with a message gone is read in full`() {
+        assertEquals(ImapSyncPlan.Full, plan(exists = 38))
+    }
+
+    @Test fun `an unmoved watermark with a new uid is read in full`() {
+        assertEquals(ImapSyncPlan.Full, plan(uidNext = 42L, exists = 41))
+        // One arrived and one left: the count is level and only UIDNEXT gives it away.
+        assertEquals(ImapSyncPlan.Full, plan(uidNext = 42L))
+    }
+
+    /** Without the counters there is nothing to check the watermark against, so it is not believed. */
+    @Test fun `an unmoved watermark without stored counters is read in full`() {
+        assertEquals(ImapSyncPlan.Full, plan(stored = recorded.copy(uidNext = null, messageCount = null)))
     }
 }

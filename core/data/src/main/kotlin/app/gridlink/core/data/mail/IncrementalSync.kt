@@ -43,10 +43,11 @@ sealed interface ImapSyncPlan {
  *
  * ## Why three numbers and not just the MODSEQ
  *
- * HIGHESTMODSEQ alone answers "did anything change?" — it is raised on every change to the folder,
- * so equality means no. It does NOT say what changed, and the cheap delta ([ImapSyncPlan.FlagsOnly])
- * is only sound when the answer is "flags on messages we already hold". So UIDNEXT and EXISTS,
- * which the same SELECT already reports for free, are used to rule out the other two possibilities:
+ * HIGHESTMODSEQ answers "did any flag or arrival change?", but not reliably "did anything leave?":
+ * only a QRESYNC server must raise it on an expunge. It also does NOT say what changed, and the
+ * cheap delta ([ImapSyncPlan.FlagsOnly]) is only sound when the answer is "flags on messages we
+ * already hold". So UIDNEXT and EXISTS, which the same SELECT already reports for free, are checked
+ * first, on every path including the "unchanged" one, to rule out the other two possibilities:
  *
  * - **UIDNEXT moved** ⇒ mail ARRIVED. Its envelope is not in the cache and a flag delta would never
  *   fetch one, so the window has to be re-read.
@@ -76,12 +77,18 @@ object ImapSyncDecision {
         // mailbox was rebuilt or restored under the same UIDVALIDITY. Nothing stored about it can
         // be trusted, including the equality test one line down.
         if (observedModSeq < since) return ImapSyncPlan.Full
-        if (observedModSeq == since) return ImapSyncPlan.Unchanged
-        // Something changed. The delta is only usable if it can only be flags.
+        // The counters are checked BEFORE the watermark is believed. RFC 7162 only obliges a server
+        // to raise HIGHESTMODSEQ on an expunge when QRESYNC is in play (§3.2.5); a CONDSTORE-only
+        // server may delete or move a message away and leave the watermark standing. Trusting
+        // equality alone there kept mail deleted on another device on screen until the cache was
+        // cleared, under a sync line that said "just now". A counter this cannot vouch for is the
+        // same uncertainty, so it is read in full too.
         val knownUidNext = recorded.uidNext ?: return ImapSyncPlan.Full
         val knownExists = recorded.messageCount ?: return ImapSyncPlan.Full
         if (knownUidNext != observedUidNext) return ImapSyncPlan.Full // arrivals
         if (knownExists != observedExists) return ImapSyncPlan.Full // expunges
+        if (observedModSeq == since) return ImapSyncPlan.Unchanged
+        // Something changed, and the counters say it can only be flags.
         return ImapSyncPlan.FlagsOnly(since)
     }
 }
