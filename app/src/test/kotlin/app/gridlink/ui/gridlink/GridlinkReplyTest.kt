@@ -107,4 +107,27 @@ class GridlinkReplyTest {
         val rowBuilt = GridlinkComposeRequest(GridlinkComposeDraft.Fresh.copy(from = from))
         assertEquals(from, gridlinkAddressedReply(rowBuilt, original(), all = false).draft.from)
     }
+
+    // 🔴 The single-account reader: a bare row key leaves the draft's From null, and the alias
+    // default used to bail on exactly that (GitHub #43). The original's own account fills the gap.
+    @Test
+    fun replyFrom_aNullFrom_stillAnswersFromTheAlias_usingTheOriginalsAccount() {
+        val orig = original(to = listOf(a("alias@gridlink.me")), cc = emptyList())
+            .copy(accountId = "acct")
+        assertEquals(GridlinkFrom("acct", "alias@gridlink.me"), gridlinkReplyFrom(null, orig))
+    }
+
+    @Test
+    fun replyFrom_aNullFrom_withNoAccountAnywhere_staysNull() {
+        val orig = original(to = listOf(a("alias@gridlink.me")), cc = emptyList())
+        assertEquals(null, gridlinkReplyFrom(null, orig))
+    }
+
+    @Test
+    fun replyFrom_mailNotToAnyOwnAddress_keepsTheAccountDefault() {
+        val from = GridlinkFrom("acct")
+        val orig = original(to = listOf(a("kim@example.com")), cc = emptyList()).copy(accountId = "acct")
+        assertEquals(from, gridlinkReplyFrom(from, orig))
+        assertEquals(null, gridlinkReplyFrom(null, orig))
+    }
 }

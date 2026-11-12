@@ -210,6 +210,16 @@ data class GridlinkOpenMessage(
      * ignore it.
      */
     val signed: GridlinkSigned? = null,
+    /**
+     * The addresses on the message's To header, in header order, or empty when the fetch has not
+     * answered yet (or the header genuinely had none).
+     *
+     * Here for [unsubscribe]'s reason: the To header comes back with the BODY, and the list row
+     * deliberately knows nothing about recipients. It exists so the expanded sender block can say
+     * who the mail was actually delivered to — an alias, a list — instead of assuming it was the
+     * signed-in address, which is wrong exactly when the reader most wants the line (GitHub #43).
+     */
+    val toLine: List<String> = emptyList(),
 )
 
 /**

@@ -84,6 +84,32 @@ class GridlinkFromTest {
         assertSame(request, gridlinkSentFromOwner(request, "m1"))
     }
 
+    // ---- forwarding mail that arrived at an alias leaves from the alias (GitHub #43) ----
+
+    private fun forward(from: GridlinkFrom? = null) =
+        GridlinkComposeRequest(draft = GridlinkComposeDraft.Fresh.copy(subject = "Fwd: hi", from = from))
+
+    @Test fun `a forward of mail delivered to an alias goes out as the alias`() {
+        val out = gridlinkFromDeliveredTo(forward(), listOf("kim@example.com", "Tate@Work.test"), choices)
+        assertEquals(GridlinkFrom("work", "tate@work.test"), out.draft.from)
+    }
+
+    @Test fun `a forward owned by an account matches against that account, not the active one`() {
+        val out = gridlinkFromDeliveredTo(forward(GridlinkFrom("home")), listOf("home@mail.test"), choices)
+        assertEquals(GridlinkFrom("home", "home@mail.test"), out.draft.from)
+    }
+
+    @Test fun `mail to nobody the account can send as keeps the default`() {
+        val request = forward(GridlinkFrom("home"))
+        assertSame(request, gridlinkFromDeliveredTo(request, listOf("tate@work.test"), choices))
+        assertSame(request, gridlinkFromDeliveredTo(request, emptyList(), choices))
+    }
+
+    @Test fun `an explicit From is left alone`() {
+        val request = forward(GridlinkFrom("work", "help@work.test"))
+        assertSame(request, gridlinkFromDeliveredTo(request, listOf("tate@work.test"), choices))
+    }
+
     @Test fun `display is name and address, or the bare address`() {
         assertEquals("Tate <tate@work.test>", gridlinkFromDisplay(work.identities[0]))
         assertEquals("home@mail.test", gridlinkFromDisplay(home.identities[0]))

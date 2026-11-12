@@ -1584,6 +1584,12 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
                     Mdn.requestedBy(body.email.dispositionNotificationTo)
                         ?.let { GridlinkReceipt(requester = it) }
                 },
+                // The To header, which only this fetch knows: the expanded sender block's "to" line
+                // shows the address the mail was DELIVERED to instead of guessing it was the
+                // signed-in one (GitHub #43).
+                toLine = body.email.to.mapNotNull { address ->
+                    address.email.takeIf { it.isNotBlank() }
+                },
             )
             openReceipt = Mdn.requestedBy(body.email.dispositionNotificationTo)?.let {
                 OpenReceipt(
@@ -2875,6 +2881,9 @@ class GridlinkMailViewModel(application: Application) : AndroidViewModel(applica
             to = email.to.converted(),
             cc = email.cc.converted(),
             ownAddresses = own,
+            // So the alias-From default works outside the unified inbox too: a bare row key gives
+            // the draft no From to copy the account from, and this is the account that fetched.
+            accountId = credentials.id,
         )
     }
 
