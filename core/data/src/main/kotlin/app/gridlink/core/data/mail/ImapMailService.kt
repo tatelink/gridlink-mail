@@ -215,7 +215,10 @@ class ImapMailService(
             val session = pooled.session
                 ?: imapClient.connect(
                     config,
-                    ImapBudget.guarded(ImapBudget.remaining(deadline, System.currentTimeMillis()), ImapBudget.STALL_CONNECT_MS),
+                    ImapBudget.guarded(
+                        ImapBudget.remaining(deadline, System.currentTimeMillis()),
+                        ImapBudget.STALL_CONNECT_MS,
+                    ),
                 ).also { pooled.session = it }
             // Outside the try: an exhausted budget is not a session error and must not cost a
             // close + reconnect on the way out.

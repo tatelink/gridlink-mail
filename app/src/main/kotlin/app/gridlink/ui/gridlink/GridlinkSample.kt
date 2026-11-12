@@ -817,6 +817,17 @@ data class GridlinkMessage(
      * feature off.
      */
     val tags: List<String> = emptyList(),
+    /**
+     * The addresses on the message's To header, in header order, once the body fetch has supplied
+     * them. Empty for every list row and all sample data: like [unsubscribe], the real recipients
+     * arrive with the BODY, and until then the thread header falls back to the signed-in address.
+     *
+     * Exists so the expanded "to" line can name the address the mail was actually delivered to (an
+     * alias, a list) instead of assuming the reader's main identity (GitHub #43). [sentTo] stays
+     * what it is — the OUTGOING row's recipient — and this must not be folded into it: that field's
+     * null-ness is the switch that marks a row as outgoing.
+     */
+    val toLine: List<String> = emptyList(),
 ) {
     val hasAttachment: Boolean get() = attachments.isNotEmpty() || attachmentPending
 

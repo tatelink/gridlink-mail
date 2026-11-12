@@ -789,22 +789,25 @@ private fun GridlinkThreadSender(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = GridlinkSpacing.s8),
                 )
-                // 🔴 The signed-in address, not a constant. This line used to read the sample's,
-                // which on a real account would have every message in the mailbox claim it was
-                // addressed to somebody else — on the one screen whose job is to let you check
-                // exactly that. It is still an approximation: it says who is READING, not what the
-                // To header holds, so a message received via a list or a bcc says "to <you>"
-                // because that is what the cache knows. The real recipients arrive with the body.
+                // 🔴 The real To header once the body fetch has supplied it ([GridlinkMessage.toLine]),
+                // the signed-in address until then. The fallback used to be the whole line, and it
+                // says who is READING, not what the header holds: a message delivered to an alias
+                // claimed it was addressed to the main identity, on the one screen whose job is to
+                // let you check exactly that (GitHub #43). A bcc'd message legitimately shows the
+                // header's recipients rather than you — that is what the header says.
                 //
-                // Blank is now the chrome's default (see [GridlinkChromeConfig]), and "to " on its
-                // own is worse than no line at all, so the whole row goes.
+                // Blank is the chrome's default (see [GridlinkChromeConfig]), and "to " on its own
+                // is worse than no line at all, so when neither source knows, the whole row goes.
                 val readerAddress = LocalGridlinkChrome.current.config.account
-                if (readerAddress.isNotBlank()) {
+                val toLine = message.toLine.joinToString(", ").ifBlank { readerAddress }
+                if (toLine.isNotBlank()) {
                     Text(
-                        text = stringResource(R.string.gl_thread_sender_to, readerAddress),
+                        text = stringResource(R.string.gl_thread_sender_to, toLine),
                         style = GridlinkType.metadata,
                         color = colors.textSecondary,
-                        maxLines = 1,
+                        // Two, not one: with several recipients a single ellipsised line can cut off
+                        // the very address the reader opened this block to find.
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }

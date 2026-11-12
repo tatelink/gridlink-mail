@@ -46,6 +46,7 @@ import app.gridlink.ui.rememberLeaveOnce
 import app.gridlink.ui.theme.GridlinkSpacing
 import app.gridlink.ui.theme.GridlinkTheme
 import app.gridlink.ui.theme.GridlinkType
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOf
 import java.io.ByteArrayInputStream
 
@@ -168,6 +169,9 @@ internal fun GridlinkMessageBody(
     // Height, in the only sense this screen uses it: zero means "not laid out yet, keep it hidden".
     // Nothing is sized from the number.
     var heightPx by remember { mutableIntStateOf(0) }
+    // The live WebView, for the watchdog below. A plain state holder rather than anything cleverer:
+    // the watchdog only reads it once, long after the factory has run.
+    val webViewRef = remember { mutableStateOf<GridlinkBodyWebView?>(null) }
     val client = remember { GridlinkBodyWebViewClient() }
     client.blockRemote = blockRemote
     client.onContentHeight = { px -> heightPx = px }
@@ -227,6 +231,25 @@ internal fun GridlinkMessageBody(
     // Reported from one place rather than from each of the two that can set the height, so a caller
     // sizing itself from this cannot see one of them and miss the other.
     LaunchedEffect(heightPx) { if (heightPx > 0) onContentHeightPx?.invoke(heightPx) }
+    // 🔴 The fail-safe reveal (GitHub #41). Both reveal paths can silently miss: the post-load poll
+    // stops for good the moment the WebView is briefly detached (`wv.parent == null` ends it and
+    // nothing restarts it), and [GridlinkBodyWebView.onSized] only fires when the size CHANGES,
+    // which a view laid out before its document finished never does again. When both miss, the body
+    // sits at alpha 0 forever under a healthy header, and the reader's only way out is the
+    // full-screen button, whose resize happens to retrigger onSized: exactly the reported bug. So
+    // if nothing has revealed the body a moment after this load key took effect, reveal it with
+    // whatever the layout knows. A reveal that lands mid-layout reflows once in front of the
+    // reader; a body that never reveals is a blank message.
+    //
+    // Keyed on the SAME triple the update block reloads on, so a settings-driven reload gets a
+    // fresh watchdog along with its fresh poll.
+    LaunchedEffect(blockRemote, textZoom, document) {
+        delay(BODY_REVEAL_WATCHDOG_MS)
+        if (heightPx <= 0) {
+            val view = webViewRef.value
+            heightPx = (view?.contentRangePx() ?: 0).coerceAtLeast(view?.height ?: 0).coerceAtLeast(1)
+        }
+    }
     // 🔴 The native surface behind the document, and it has to be cleared too. The CSS above only
     // stops the DOCUMENT painting a background; the WebView itself defaults to opaque white, which
     // is the slab this is here to remove.
@@ -256,6 +279,7 @@ internal fun GridlinkMessageBody(
                     isVerticalScrollBarEnabled = false
                     webViewClient = client
                 }
+                webViewRef.value = webView
                 // 🔴 The WebView is deliberately not the AndroidView's root. An intermediate
                 // FrameLayout changes the clip geometry HWUI hands the GL functor when a parent
                 // composites this subtree into an offscreen layer, which is what steers it away
@@ -354,6 +378,14 @@ private class GridlinkBodyWebView(context: Context) : WebView(context) {
         if (w > 0 && h > 0) onSized?.invoke()
     }
 
+    // A detach kills the height poll outright (see [GridlinkBodyWebViewClient.onPageFinished]), and
+    // a view that comes BACK at the same size never fires [onSizeChanged] again, so a reattached
+    // body had no reveal path at all until the watchdog. This gives it an immediate one (#41).
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (width > 0 && height > 0) onSized?.invoke()
+    }
+
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private var downX = 0f
     private var downY = 0f
@@ -394,6 +426,13 @@ private class GridlinkBodyWebView(context: Context) : WebView(context) {
  * screen is for.
  */
 private const val SWIPE_HORIZONTAL_DOMINANCE = 3.0f
+
+/**
+ * How long the fail-safe reveal waits before deciding nothing else is coming. Long enough that the
+ * ordinary path (page load, then a poll that settles in about a second) always wins on a healthy
+ * open, short enough that a reader staring at a blank body gets the message anyway (#41).
+ */
+private const val BODY_REVEAL_WATCHDOG_MS = 2000L
 
 /** Blocks remote loads while [blockRemote], hands taps on links to the system, measures the body. */
 private class GridlinkBodyWebViewClient : WebViewClient() {

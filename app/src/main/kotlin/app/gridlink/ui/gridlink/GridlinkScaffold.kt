@@ -1779,6 +1779,9 @@ fun GridlinkRoot(
                 // Null while in flight is correct — the action appears when the answer arrives
                 // rather than being offered on a guess and then withdrawn.
                 unsubscribe = fetched?.unsubscribe,
+                // Travels with the body too: the To header comes back on the single-message fetch.
+                // Empty while in flight, which the "to" line reads as "fall back to the reader".
+                toLine = fetched?.toLine.orEmpty(),
             )
         }
     }
@@ -2338,26 +2341,35 @@ fun GridlinkRoot(
                         // have to come down) and is still the right order: a composer that appeared
                         // instantly and grew its files a second later is a composer you can send
                         // short of what you forwarded.
-                        GridlinkThreadAction.FORWARD ->
+                        // Like a reply, a forward of mail that arrived at an alias goes out AS the
+                        // alias when the account can send as it ([gridlinkFromDeliveredTo], #43).
+                        // From the open message's To line rather than a fetch: the body fetch that
+                        // put this thread on screen already carried the header.
+                        GridlinkThreadAction.FORWARD -> {
+                            fun forwardRequest(files: List<GridlinkAttachment> = emptyList()) =
+                                gridlinkFromDeliveredTo(
+                                    gridlinkSentFromOwner(gridlinkForward(context, message, files), message.id),
+                                    message.toLine,
+                                    fromChoices,
+                                )
                             if (attacher == null || message.attachments.isEmpty()) {
-                                composing = gridlinkSentFromOwner(gridlinkForward(context, message), message.id)
+                                composing = forwardRequest()
                             } else {
                                 scope.launch {
                                     composing = runCatching { attacher.adopt(message.id) }.fold(
-                                        onSuccess = {
-                                            gridlinkSentFromOwner(gridlinkForward(context, message, it), message.id)
-                                        },
+                                        onSuccess = { forwardRequest(it) },
                                         onFailure = { failure ->
                                             // Forwarded WITHOUT the files, and said so. The message
                                             // is still worth sending, and a chip with nothing behind
                                             // it would only block the send a second time.
                                             sendError = failure.message
                                                 ?: forwardAttachFailed
-                                            gridlinkSentFromOwner(gridlinkForward(context, message), message.id)
+                                            forwardRequest()
                                         },
                                     )
                                 }
                             }
+                        }
 
                         // All three file the message and leave, and they no longer do it under the same
                         // name. The note that used to sit here said they were identical code and must not

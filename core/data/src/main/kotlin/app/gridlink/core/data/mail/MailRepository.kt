@@ -2283,6 +2283,9 @@ class MailRepository(
         val auth = jmapAuth(credentials)
         val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
         val accountId = jmapAccountIdFor(credentials, session)
+        // This builds the cached context itself, so connect() short-circuits on it from here on
+        // and never reaches its own identity refresh. Once per context, as connect() does.
+        if (context?.credentials != credentials) refreshServerIdentities(credentials, session, accountId, auth)
 
         val mailboxes = client.getMailboxes(session, accountId, auth)
         context = Context(
@@ -5998,9 +6001,23 @@ class MailRepository(
         val session = client.fetchSession(Jmap.sessionUrlFor(credentials.server), auth)
         val accountId = jmapAccountIdFor(credentials, session)
         reconcileLinkedAccounts(credentials, session)
-        // Codeberg #32: the server is authoritative for the addresses the user may send
-        // as. Refresh them into the account so the composer's From picker reflects the
-        // server, on every client. Best-effort — a fetch failure must not break connect.
+        refreshServerIdentities(credentials, session, accountId, auth)
+        val mailboxes = client.getMailboxes(session, accountId, auth)
+        val roles = mailboxes.mapNotNull { mb -> mb.role?.let { it to mb.id } }.toMap()
+        return Context(credentials, session, accountId, auth, roles, mailboxes).also { context = it }
+    }
+
+    /**
+     * Codeberg #32: the server is authoritative for the addresses the user may send as. Refresh
+     * them into the account so the composer's From picker reflects the server, on every client.
+     * Best-effort: a fetch failure must not break the connect or sync that asked for it.
+     */
+    private suspend fun refreshServerIdentities(
+        credentials: AccountCredentials,
+        session: JmapSession,
+        accountId: String,
+        auth: JmapAuth,
+    ) {
         runCatching {
             val serverIdentities = client.getIdentities(session, accountId, auth)
                 .filter { it.email.isNotBlank() }
@@ -6015,9 +6032,6 @@ class MailRepository(
                 }
             accountStore.setServerIdentities(credentials.id, serverIdentities)
         }.onFailure { android.util.Log.w("MailSync", "identity refresh failed: ${it.message}") }
-        val mailboxes = client.getMailboxes(session, accountId, auth)
-        val roles = mailboxes.mapNotNull { mb -> mb.role?.let { it to mb.id } }.toMap()
-        return Context(credentials, session, accountId, auth, roles, mailboxes).also { context = it }
     }
 }
 

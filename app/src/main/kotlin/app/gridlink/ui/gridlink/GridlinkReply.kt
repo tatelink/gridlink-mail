@@ -26,6 +26,15 @@ data class GridlinkReplyOriginal(
     val to: List<GridlinkAddress>,
     val cc: List<GridlinkAddress>,
     val ownAddresses: Set<String>,
+    /**
+     * The account the original belongs to, or null from a caller that does not know it.
+     *
+     * 🔴 Without it the alias-From default ([gridlinkReplyFrom]) only worked in the unified inbox:
+     * a bare row key leaves the draft's From null ([gridlinkSentFromOwner] cannot name an account
+     * it cannot see), and a null From used to end the function before the alias was ever looked
+     * for. The single-account reader — the common case, and GitHub #43's reporter — never got it.
+     */
+    val accountId: String? = null,
 )
 
 /** Who a reply or reply-all is addressed to: the TO line and the CC line. */
@@ -128,13 +137,20 @@ internal fun gridlinkAddressedReply(
 }
 
 /**
- * The From a reply starts on: the owning account ([gridlinkSentFromOwner] already chose it), as the
- * address the original was sent to when that is one of the account's own, so mail to an alias is
- * answered from the alias. A From that already names an address is left alone, and an address
- * that turns out not to be an identity degrades to the account's default when the send resolves it.
+ * The From a reply starts on: the owning account, as the address the original was sent to when that
+ * is one of the account's own, so mail to an alias is answered from the alias. A From that already
+ * names an address is left alone, and an address that turns out not to be an identity degrades to
+ * the account's default when the send resolves it.
+ *
+ * The account is [from]'s when [gridlinkSentFromOwner] could name one (a unified-inbox row key),
+ * else the [original]'s own, which the host that fetched it always knows. 🔴 A null [from] must NOT
+ * end the function: that is the everyday single-account open, and bailing on it is exactly how the
+ * alias default silently never fired for the one-account reader (GitHub #43).
  */
 internal fun gridlinkReplyFrom(from: GridlinkFrom?, original: GridlinkReplyOriginal): GridlinkFrom? {
-    if (from == null || from.email != null) return from
+    if (from?.email != null) return from
     val addressed = (original.to + original.cc).firstOrNull { it.email.lowercase() in original.ownAddresses }
-    return addressed?.let { from.copy(email = it.email) } ?: from
+        ?: return from
+    val accountId = from?.accountId ?: original.accountId ?: return from
+    return GridlinkFrom(accountId = accountId, email = addressed.email)
 }

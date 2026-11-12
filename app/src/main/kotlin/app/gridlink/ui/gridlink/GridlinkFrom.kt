@@ -110,6 +110,39 @@ internal fun gridlinkSentFromOwner(request: GridlinkComposeRequest, rowKey: Stri
     return request.copy(draft = request.draft.copy(from = GridlinkFrom(accountId)))
 }
 
+/**
+ * [request] with its From set to the address the original was DELIVERED to, when that address is one
+ * the sending account can send as, so forwarding mail that arrived at an alias leaves from the alias
+ * the way a reply does (GitHub #43). A From that already names an address is left alone, and the
+ * composer's picker still offers every identity, so this is a default, never a lock.
+ *
+ * [recipients] is the original's To header as the open message carries it ([GridlinkMessage.toLine]),
+ * which is empty until the body fetch answers — in that case, or when no recipient is an identity of
+ * the sending account, the request goes back unchanged and the account default applies as before.
+ * Replies do the same thing from the fetched original instead (see [gridlinkReplyFrom]), which also
+ * covers Cc; the forward path has no original fetch, and the To line it already shows is the honest
+ * best it knows.
+ */
+internal fun gridlinkFromDeliveredTo(
+    request: GridlinkComposeRequest,
+    recipients: List<String>,
+    choices: List<GridlinkFromAccount>,
+): GridlinkComposeRequest {
+    val from = request.draft.from
+    if (from?.email != null || recipients.isEmpty()) return request
+    // The same resolution order the composer will use: the From's account when it named one (the
+    // unified inbox), else the first (active) account.
+    val account = choices.firstOrNull { it.accountId == from?.accountId }
+        ?: choices.firstOrNull()
+        ?: return request
+    val delivered = recipients.firstNotNullOfOrNull { address ->
+        account.identities.firstOrNull { it.email.equals(address, ignoreCase = true) }
+    } ?: return request
+    return request.copy(
+        draft = request.draft.copy(from = GridlinkFrom(account.accountId, delivered.email)),
+    )
+}
+
 /** "Name <address>", or the bare address for an unnamed identity. */
 internal fun gridlinkFromDisplay(identity: GridlinkFromIdentity): String =
     if (identity.name.isBlank()) identity.email else "${identity.name} <${identity.email}>"
