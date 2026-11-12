@@ -191,7 +191,10 @@ interface AddressBookContactDao {
     suspend fun allForAccount(accountId: String): List<AddressBookContactEntity>
 
     /** Href and etag of everything cached for one collection, without the bodies. */
-    @Query("SELECT href, etag FROM address_book_contacts WHERE accountId = :accountId AND collectionUrl = :collectionUrl")
+    @Query(
+        "SELECT href, etag FROM address_book_contacts " +
+            "WHERE accountId = :accountId AND collectionUrl = :collectionUrl",
+    )
     suspend fun etagsForCollection(accountId: String, collectionUrl: String): List<DavStoredEtag>
 
     /**

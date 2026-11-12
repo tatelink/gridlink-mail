@@ -1,0 +1,6 @@
+Gridlink Mail 2.1.5.
+
+- Fixed: a message body could open blank until you went full screen.
+- The reader now shows the address a message was actually sent to, such as an alias.
+- Reply and Forward start from that address, and you can still pick another.
+- Send-as addresses set up on a JMAP server now appear in the From picker.
