@@ -3149,14 +3149,19 @@ class JmapClient internal constructor(
          *
          * The last two are not JMAP properties at all: RFC 8621 §4.1.3 lets a client name any
          * header, and these two are what the Unsubscribe action is built on (RFC 2369 / RFC 8058).
-         * `asText` rather than `asURLs` — see [app.gridlink.core.jmap.model.Email.listUnsubscribe].
+         * List-Unsubscribe is fetched Raw — see [app.gridlink.core.jmap.model.Email.listUnsubscribe].
+         *
+         * 🔴 RFC 8621 §4.1.2.3: `asText` is only legal for headers NOT defined in RFC 5322 or
+         * RFC 2369, and a forbidden form MUST fail the whole call with invalidArguments. Cyrus
+         * (Fastmail) enforces this; Stalwart does not, so a wrong form here passes every local test
+         * and breaks every message on Fastmail.
          */
         internal val EMAIL_BODY_PROPERTIES: List<String> = listOf(
             "id", "blobId", "threadId", "subject", "preview", "receivedAt",
             "from", "to", "cc", "bcc", "messageId", "inReplyTo", "references",
             "hasAttachment", "keywords",
             "htmlBody", "textBody", "attachments", "bodyValues",
-            "header:List-Unsubscribe:asText",
+            "header:List-Unsubscribe",
             "header:List-Unsubscribe-Post:asText",
             "header:Disposition-Notification-To:asText",
         )

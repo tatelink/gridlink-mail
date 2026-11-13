@@ -100,18 +100,19 @@ data class Email(
      */
     val headers: List<EmailHeader> = emptyList(),
     /**
-     * The `List-Unsubscribe` header (RFC 2369), as text, fetched by the single-message call.
+     * The `List-Unsubscribe` header (RFC 2369), Raw, fetched by the single-message call.
      *
-     * JMAP lets a client ask for any header by name (RFC 8621 §4.1.3), and `header:{name}:asText`
-     * is the unfolded, decoded value — one string holding the whole `<uri>, <uri>` list. Null when
-     * the message has no such header, which is most of them, and on every IMAP account.
+     * JMAP lets a client ask for any header by name (RFC 8621 §4.1.3). The Raw form (no `:as…`
+     * suffix) is the value exactly as sent: a leading space and possibly folded lines around the
+     * `<uri>, <uri>` list, which `gridlinkUnsubscribeOf` already tolerates. Null when the message has
+     * no such header, which is most of them, and on every IMAP account.
      *
-     * ⚠️ Deliberately `asText` and not `asURLs`. `asURLs` would hand over a parsed list and save an
-     * in-app parser, but it is the less widely implemented of the two forms, and a server that does
-     * not know it answers with an error for the WHOLE `Email/get` — losing the message body over an
-     * unsubscribe link. Text is what every server can produce; the parsing is [app.gridlink] work.
+     * 🔴 Raw, never `asText`. RFC 8621 §4.1.2.3 forbids `asText` on RFC 2369 headers and requires
+     * the server to fail the WHOLE `Email/get` with invalidArguments. Cyrus (Fastmail) does exactly
+     * that, so `asText` here made every message on a Fastmail account fail to open (2.1.6 and
+     * earlier). Raw is legal for every header on every server.
      */
-    @SerialName("header:List-Unsubscribe:asText")
+    @SerialName("header:List-Unsubscribe")
     val listUnsubscribe: String? = null,
     /**
      * The `List-Unsubscribe-Post` header (RFC 8058), which is the sender promising that a single

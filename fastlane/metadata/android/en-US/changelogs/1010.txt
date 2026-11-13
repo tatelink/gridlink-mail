@@ -1,0 +1,3 @@
+Gridlink Mail 2.1.7.
+
+- Fixed (JMAP): on Fastmail, every message failed to open with "JMAP method error: invalidArguments". Messages open normally again.
