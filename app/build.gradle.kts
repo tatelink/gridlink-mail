@@ -42,11 +42,11 @@ android {
         // against it; moving it invalidates that for the third time. The recipe sets
         // `UpdateCheckMode: Tags`, so a NEW `v1.0.0` tag is picked up on its own once the MR
         // merges, and no second merge request is needed.
-        versionCode = 1009
+        versionCode = 1010
         // 2.0.0, not 1.0.1: upstream Sterna shipped 1.0.1 (and everything through 1.6.0),
         // and this fork never reuses an upstream version string. Jumping to 2.x keeps the
         // two projects' bug reports distinguishable for good.
-        versionName = "2.1.6"
+        versionName = "2.1.7"
         // Shown on the Settings About row. Bump alongside versionCode/versionName at each
         // release (a static literal, so builds stay reproducible — never derive from clock).
         buildConfigField("String", "VERSION_DATE", "\"2026-11-12\"")
