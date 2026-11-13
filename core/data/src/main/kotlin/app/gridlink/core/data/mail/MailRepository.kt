@@ -4845,12 +4845,23 @@ class MailRepository(
             )
             missing.forEach(onMissing)
             return loads.map { load ->
-                // `upsertAll` rather than `replaceMailbox` here, as before: a push pass adds what
-                // arrived and never decides what a folder no longer contains. The window is still
-                // what the caller diffs for notifications, so it is passed on as-is — or as null
-                // when the server said this folder is untouched.
+                // Not `replaceMailbox`: a push pass must not prune what the user scrolled back to.
+                // But it must remove what left the range it just re-read, because the sync point
+                // it records makes the next refresh skip this folder (imapWindowEvictions). The
+                // window is still what the caller diffs for notifications, so it is passed on
+                // as-is, or as null when the server said this folder is untouched.
                 val window = applyImapSync(credentials.id, load.mailboxId, load.sync)
-                window?.let { emailDao.upsertAll(it) }
+                val sync = load.sync
+                if (window != null && sync is ImapFolderSync.Window) {
+                    emailDao.upsertAll(window)
+                    val gone = imapWindowEvictions(
+                        cached = emailDao.retentionRows(credentials.id, load.mailboxId),
+                        windowRows = window.map { app.gridlink.core.data.db.EmailRetentionRow(it.id, it.sortKey) },
+                        coversWholeFolder = sync.coversWholeFolder,
+                        spareIds = recentlyMutatedIds(credentials.id).toSet(),
+                    )
+                    gone.chunked(MAX_CHANGES).forEach { emailDao.deleteByIds(credentials.id, it) }
+                }
                 FolderRefresh(load.mailboxId, load.name, load.role, window?.map { it.toEmail() })
             }
         }

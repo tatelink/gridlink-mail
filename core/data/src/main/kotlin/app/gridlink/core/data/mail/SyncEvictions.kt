@@ -211,6 +211,39 @@ internal fun reconcileEvictions(
     .map { it.id }
 
 /**
+ * Which cached ids a background IMAP pass evicts after a full re-read of a folder's newest window.
+ *
+ * 🔴 The push pass used to only ADD what such a window held, while still recording the folder's
+ * HIGHESTMODSEQ/UIDNEXT/EXISTS as synced. A message deleted or moved away on another device was
+ * therefore stranded: the push pass did not remove it, and every later refresh found the folder
+ * "unchanged" against the point the push pass had recorded, so nothing ever re-read it. Reported
+ * against Dovecot (moved to Trash on one device, still in the Inbox on the other).
+ *
+ * The same rule as [reconcileEvictions], for the same reason: a background pass must not prune
+ * mail the user scrolled back to, so only the range the window covers is judged.
+ * - [coversWholeFolder] (EXISTS fitted inside the limit): the window IS the folder, so anything
+ *   else cached under it has left, including when the folder is now empty.
+ * - Otherwise only rows strictly newer than the window's oldest DATED row are judged. A window
+ *   with no dated row judges nothing, since it has no horizon to judge by.
+ */
+internal fun imapWindowEvictions(
+    cached: List<EmailRetentionRow>,
+    windowRows: List<EmailRetentionRow>,
+    coversWholeFolder: Boolean,
+    spareIds: Set<String>,
+): List<String> {
+    val oldestDated = windowRows.asSequence().map { it.sortKey }.filter { it > 0 }.minOrNull()
+    if (!coversWholeFolder && oldestDated == null) return emptyList()
+    return reconcileEvictions(
+        cached = cached,
+        pageIds = windowRows.mapTo(HashSet()) { it.id },
+        pageCoversWholeMailbox = coversWholeFolder,
+        oldestInPage = oldestDated ?: Long.MAX_VALUE,
+        spareIds = spareIds,
+    )
+}
+
+/**
  * Floor between two page reconciles of the SAME mailbox, plus one on the first sync of a process.
  *
  * Fifteen minutes, against the ghost sweep's five, because a reconcile is the more expensive of the

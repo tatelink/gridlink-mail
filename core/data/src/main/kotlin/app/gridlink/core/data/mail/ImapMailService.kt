@@ -74,7 +74,11 @@ sealed interface ImapFolderSync {
      * The folder's newest window as the server has it: complete, authoritative, and the only case
      * that may replace the cache or seed a notification baseline.
      */
-    data class Window(val messages: List<EmailEntity>) : ImapFolderSync
+    data class Window(
+        val messages: List<EmailEntity>,
+        /** The SELECT's EXISTS fitted inside the fetch limit, so [messages] is the whole folder. */
+        val coversWholeFolder: Boolean = false,
+    ) : ImapFolderSync
 
     /**
      * Nothing has happened in this folder since the last sync — no arrivals, no flag changes, no
@@ -553,6 +557,7 @@ class ImapMailService(
             is ImapSyncPlan.FlagsOnly -> ImapFolderSync.Flags(fetchFlagsChangedSince(plan.sinceModSeq))
             is ImapSyncPlan.Full -> ImapFolderSync.Window(
                 fetchPage(status.exists, offset = 0, limit = limit).map { it.toEntity(accountId, mailboxId) },
+                coversWholeFolder = status.exists <= limit,
             )
         }
     }
