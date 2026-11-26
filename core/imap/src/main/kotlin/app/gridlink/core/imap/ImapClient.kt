@@ -589,6 +589,25 @@ class ImapSession(private var socket: Socket) : Closeable {
     }
 
     /**
+     * Unseen messages in [path] without SELECTing it: `STATUS <path> (UNSEEN)`, RFC 3501 6.3.10.
+     *
+     * One command, and it leaves the selected mailbox alone, so a background pass can ask about the
+     * inbox while it syncs another folder. Null when the server answered without an UNSEEN count;
+     * a refusal throws [ImapException] like every other command, and the stream stays in step.
+     *
+     * Not for the SELECTed mailbox: RFC 3501 says STATUS SHOULD NOT be used on it, and
+     * [unseenCount] is the one-command answer there.
+     */
+    fun statusUnseen(path: String): Int? {
+        val result = command("STATUS ${mailboxArg(path)} (UNSEEN)")
+        val line = result.untagged.firstOrNull { it.getOrNull(1) == "STATUS" } ?: return null
+        val items = line.lastOrNull() as? List<*> ?: return null
+        val at = items.indexOfFirst { (it as? String).equals("UNSEEN", ignoreCase = true) }
+        if (at < 0) return null
+        return (items.getOrNull(at + 1) as? String)?.toIntOrNull()
+    }
+
+    /**
      * UIDs in the SELECTed mailbox matching a built [ImapSearchCommand].
      *
      * `CHARSET UTF-8` is declared only when a search value actually needs it; RFC 3501 lets a
