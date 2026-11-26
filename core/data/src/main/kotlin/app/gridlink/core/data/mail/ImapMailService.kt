@@ -976,6 +976,7 @@ internal fun SearchQuery.requiresLocalScan(): Boolean = hasAttachment
 internal inline fun backgroundInboxUnread(read: () -> Int?): Int? =
     try {
         read()
-    } catch (refused: ImapException) {
+    } catch (ignored: ImapException) {
+        // A refusal is an answer, not a failure: the stored count simply stays as it was.
         null
     }

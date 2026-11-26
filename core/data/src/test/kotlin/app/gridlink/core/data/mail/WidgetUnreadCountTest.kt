@@ -47,15 +47,21 @@ class WidgetUnreadCountTest {
             isImap = false,
             folderCounter = 7,
             storedInboxUnread = 99,
-            cachedUnread = { fail("JMAP must not count cached rows"); 0 },
+            cachedUnread = {
+                fail("JMAP must not count cached rows")
+                0
+            },
         )
         assertEquals(7, count)
     }
 
     @Test
     fun `an uncached folder is unknown on both protocols, never zero`() = runTest {
-        assertNull(widgetUnreadCount(isImap = true, folderCounter = null, storedInboxUnread = 4, cachedUnread = { 1 }))
-        assertNull(widgetUnreadCount(isImap = false, folderCounter = null, storedInboxUnread = 4, cachedUnread = { 1 }))
+        for (imap in listOf(true, false)) {
+            assertNull(
+                widgetUnreadCount(isImap = imap, folderCounter = null, storedInboxUnread = 4, cachedUnread = { 1 }),
+            )
+        }
     }
 
     // ---- the cached-unread query itself, run against a real SQLite ----
@@ -65,8 +71,13 @@ class WidgetUnreadCountTest {
     @Before fun setUp() {
         db = DriverManager.getConnection("jdbc:sqlite::memory:")
         db.createStatement().use { st ->
-            st.executeUpdate("CREATE TABLE emails (accountId TEXT NOT NULL, id TEXT NOT NULL, mailboxId TEXT NOT NULL, seen INTEGER NOT NULL)")
-            st.executeUpdate("CREATE TABLE snoozed (accountId TEXT NOT NULL, emailId TEXT NOT NULL, until INTEGER NOT NULL)")
+            st.executeUpdate(
+                "CREATE TABLE emails (accountId TEXT NOT NULL, id TEXT NOT NULL, " +
+                    "mailboxId TEXT NOT NULL, seen INTEGER NOT NULL)",
+            )
+            st.executeUpdate(
+                "CREATE TABLE snoozed (accountId TEXT NOT NULL, emailId TEXT NOT NULL, until INTEGER NOT NULL)",
+            )
         }
     }
 
@@ -74,20 +85,29 @@ class WidgetUnreadCountTest {
 
     private fun email(accountId: String, id: String, mailboxId: String, seen: Boolean) =
         db.prepareStatement("INSERT INTO emails VALUES (?, ?, ?, ?)").use {
-            it.setString(1, accountId); it.setString(2, id); it.setString(3, mailboxId); it.setInt(4, if (seen) 1 else 0)
+            it.setString(1, accountId)
+            it.setString(2, id)
+            it.setString(3, mailboxId)
+            it.setInt(4, if (seen) 1 else 0)
             it.executeUpdate()
         }
 
     private fun snooze(accountId: String, emailId: String, until: Long) =
         db.prepareStatement("INSERT INTO snoozed VALUES (?, ?, ?)").use {
-            it.setString(1, accountId); it.setString(2, emailId); it.setLong(3, until)
+            it.setString(1, accountId)
+            it.setString(2, emailId)
+            it.setLong(3, until)
             it.executeUpdate()
         }
 
     private fun unread(accountId: String, mailboxId: String): Int =
         db.prepareStatement(WIDGET_UNREAD_SQL.replace(":accountId", "?").replace(":mailboxId", "?")).use {
-            it.setString(1, accountId); it.setString(2, mailboxId)
-            it.executeQuery().use { rs -> rs.next(); rs.getInt(1) }
+            it.setString(1, accountId)
+            it.setString(2, mailboxId)
+            it.executeQuery().use { rs ->
+                rs.next()
+                rs.getInt(1)
+            }
         }
 
     @Test
