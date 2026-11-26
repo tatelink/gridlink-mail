@@ -1,6 +1,7 @@
 package app.gridlink.core.data.mail
 
 import app.gridlink.core.data.account.AccountStore
+import app.gridlink.core.data.account.MailProtocol
 import app.gridlink.core.data.db.EmailDao
 import app.gridlink.core.data.db.EmailEntity
 import app.gridlink.core.data.db.MailboxDao
@@ -97,9 +98,12 @@ class WidgetInboxReader(
             signedIn = true,
             accountLabel = account.label(),
             mailboxName = summary?.name?.takeIf { it.isNotBlank() } ?: account.inboxName,
-            // The folder row's counter, not the account's remembered copy: sync writes the row and
-            // every read/unread toggle nudges it, so it is the fresher of the two.
-            unreadCount = summary?.unreadEmails,
+            unreadCount = widgetUnreadCount(
+                isImap = account.protocol == MailProtocol.IMAP,
+                folderCounter = summary?.unreadEmails,
+                storedInboxUnread = account.unread.takeIf { account.inboxId == mailboxId },
+                cachedUnread = { emailDao.unreadCountForWidget(account.id, mailboxId) },
+            ),
             messages = rows.map { it.toWidgetMessage() },
         )
     }
@@ -115,6 +119,33 @@ class WidgetInboxReader(
          */
         const val DEFAULT_LIMIT = 25
     }
+}
+
+/**
+ * The widget's unread number for one account's inbox, or null for "not synced yet".
+ *
+ * JMAP: the folder row's counter. Sync writes it from the server and every read/unread toggle
+ * nudges it, so it is the freshest number there is.
+ *
+ * 🔴 IMAP: never the folder row. IMAP folder rows are written with a hard 0 (see
+ * `ImapMailService.loadFolder` and `MailRepository.adjustFolderUnreadOnRead`: filling them would
+ * cost a STATUS per folder), so reading it put "0" on the widget of every IMAP account however much
+ * unread mail the inbox list was showing. The IMAP inbox count lives on the account instead
+ * ([storedInboxUnread], the server's SEARCH UNSEEN from the last foreground refresh, which is also
+ * what the app's "All inboxes" header and upstream Sterna's widget use). Background passes (IDLE,
+ * the fallback worker) add rows without moving that number, so the cached unread rows are a floor
+ * under it: a message the list shows as unread is always counted.
+ */
+internal suspend fun widgetUnreadCount(
+    isImap: Boolean,
+    folderCounter: Int?,
+    storedInboxUnread: Int?,
+    cachedUnread: suspend () -> Int,
+): Int? {
+    // No folder row yet means the folders were never cached: unknown on both protocols.
+    if (folderCounter == null) return null
+    if (!isImap) return folderCounter
+    return maxOf(storedInboxUnread ?: 0, cachedUnread())
 }
 
 /**

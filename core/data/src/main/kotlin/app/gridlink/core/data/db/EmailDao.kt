@@ -33,6 +33,19 @@ internal const val WIDGET_RECENT_SQL =
         "(CAST(strftime('%s','now') AS INTEGER) * 1000)) " +
         "ORDER BY sortKey DESC LIMIT :limit"
 
+/**
+ * How many cached messages of one folder are unread, for the widget's counter on an IMAP account.
+ *
+ * Same snooze clause as [WIDGET_RECENT_SQL], for the same reason, and pinned by the same test: the
+ * number on the widget has to agree with the bold rows under it.
+ */
+internal const val WIDGET_UNREAD_SQL =
+    "SELECT COUNT(*) FROM emails WHERE accountId = :accountId AND mailboxId = :mailboxId " +
+        "AND seen = 0 " +
+        "AND NOT EXISTS (SELECT 1 FROM snoozed WHERE snoozed.emailId = emails.id " +
+        "AND snoozed.accountId = emails.accountId AND snoozed.until > " +
+        "(CAST(strftime('%s','now') AS INTEGER) * 1000))"
+
 @Dao
 interface EmailDao {
 
@@ -341,6 +354,10 @@ interface EmailDao {
      */
     @Query(WIDGET_RECENT_SQL)
     suspend fun recentForWidget(accountId: String, mailboxId: String, limit: Int): List<EmailEntity>
+
+    /** Unread, not-snoozed cached rows of one folder. See [WIDGET_UNREAD_SQL]. */
+    @Query(WIDGET_UNREAD_SQL)
+    suspend fun unreadCountForWidget(accountId: String, mailboxId: String): Int
 
     /**
      * Oldest cached row that is its thread's newest within the mailbox (anchor for the next
