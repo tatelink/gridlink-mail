@@ -42,7 +42,7 @@ class BackgroundInboxUnreadTest {
                 else -> standard(tag, line)
             }
         }.use { server ->
-            val result = service().loadWatchedFolders(server.credentials, setOf("Work"), includeInbox = false, limit = 50)
+            val result = pass(server, includeInbox = false)
 
             assertEquals("INBOX", result.inboxPath)
             assertEquals(2, result.inboxUnread)
@@ -60,7 +60,7 @@ class BackgroundInboxUnreadTest {
                 else -> standard(tag, line)
             }
         }.use { server ->
-            val result = service().loadWatchedFolders(server.credentials, setOf("Work"), includeInbox = true, limit = 50)
+            val result = pass(server, includeInbox = true)
 
             assertEquals(3, result.inboxUnread)
             assertTrue(server.commands.none { it.startsWith("STATUS") })
@@ -80,7 +80,7 @@ class BackgroundInboxUnreadTest {
                 else -> standard(tag, line)
             }
         }.use { server ->
-            val result = service().loadWatchedFolders(server.credentials, setOf("Work"), includeInbox = false, limit = 50)
+            val result = pass(server, includeInbox = false)
 
             assertNull(result.inboxUnread)
             assertEquals(listOf("Work"), result.loads.map { it.mailboxId })
@@ -102,7 +102,9 @@ class BackgroundInboxUnreadTest {
         val imapBranch = source.substring(start, imapEnd)
         assertTrue(
             "the IMAP pass no longer stores the server's inbox unread",
-            imapBranch.contains("watched.inboxUnread?.let { accountStore.setInboxUnread(credentials.id, watched.inboxPath, it) }"),
+            imapBranch.contains(
+                "watched.inboxUnread?.let { accountStore.setInboxUnread(credentials.id, watched.inboxPath, it) }",
+            ),
         )
         assertTrue(
             "the JMAP branch must not store an IMAP-only count",
@@ -124,7 +126,13 @@ class BackgroundInboxUnreadTest {
     // ---- what is stored ----
 
     private fun account(id: String, inboxId: String?, unread: Int) =
-        StoredAccount(id = id, server = "imap.example", username = "$id@example", inboxId = inboxId, unread = unread)
+        StoredAccount(
+            id = id,
+            server = "imap.example",
+            username = "$id@example",
+            inboxId = inboxId,
+            unread = unread,
+        )
 
     @Test
     fun `the stored count follows the server down as well as up`() {
@@ -150,6 +158,9 @@ class BackgroundInboxUnreadTest {
     }
 
     // ---- fixtures ----
+
+    private suspend fun pass(server: LoopbackImap, includeInbox: Boolean) =
+        service().loadWatchedFolders(server.credentials, setOf("Work"), includeInbox, limit = 50)
 
     private fun service() = ImapMailService(
         imapClient = ImapClient(),
@@ -184,7 +195,10 @@ class BackgroundInboxUnreadTest {
             imap = MailEndpoint(server.inetAddress.hostAddress!!, server.localPort, ConnectionSecurity.NONE),
         )
 
-        private val thread = Thread(::serve, "loopback-imap").apply { isDaemon = true; start() }
+        private val thread = Thread(::serve, "loopback-imap").apply {
+            isDaemon = true
+            start()
+        }
 
         private fun serve() {
             runCatching {
@@ -193,14 +207,19 @@ class BackgroundInboxUnreadTest {
                     val writer = OutputStreamWriter(socket.outputStream, Charsets.ISO_8859_1)
                     writer.write("* OK fake IMAP ready\r\n")
                     writer.flush()
-                    while (true) {
-                        val raw = reader.readLine() ?: break
-                        val tag = raw.substringBefore(' ')
-                        val line = raw.substringAfter(' ')
-                        commands.add(line)
-                        writer.write(responder(tag, line))
-                        writer.flush()
-                        if (line.startsWith("LOGOUT")) break
+                    var open = true
+                    while (open) {
+                        val raw = reader.readLine()
+                        if (raw == null) {
+                            open = false
+                        } else {
+                            val tag = raw.substringBefore(' ')
+                            val line = raw.substringAfter(' ')
+                            commands.add(line)
+                            writer.write(responder(tag, line))
+                            writer.flush()
+                            open = !line.startsWith("LOGOUT")
+                        }
                     }
                 }
             }
