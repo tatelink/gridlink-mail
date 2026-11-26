@@ -1,0 +1,3 @@
+Gridlink Mail 2.1.8.
+
+- Fixed (IMAP): the home screen widget now shows the right unread count for IMAP accounts, and catches up when you read mail elsewhere.
