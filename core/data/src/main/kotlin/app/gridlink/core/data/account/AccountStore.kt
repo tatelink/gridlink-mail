@@ -1026,6 +1026,19 @@ class AccountStore(context: Context) {
         )
     }
 
+    /**
+     * Replace [accountId]'s stored inbox unread with the server's count from a background pass.
+     *
+     * No-op unless [mailboxId] is the inbox the account already has: unlike [saveInboxMetaFor]
+     * this never re-points the inbox, it only refreshes the number of the one already learned.
+     */
+    @Synchronized
+    fun setInboxUnread(accountId: String, mailboxId: String, unread: Int) {
+        val list = accounts()
+        val updated = withInboxUnread(list, accountId, mailboxId, unread)
+        if (updated != list) saveAccounts(updated)
+    }
+
     /** Record a specific account's inbox id/name/unread (used by the unified refresh fan-out). */
     @Synchronized
     fun saveInboxMetaFor(accountId: String, mailboxId: String, mailboxName: String, @Suppress("UNUSED_PARAMETER") accountName: String, unread: Int) {
@@ -1134,5 +1147,23 @@ class AccountStore(context: Context) {
         const val LEGACY_INBOX_ID = "inbox_id"
         const val LEGACY_INBOX_NAME = "inbox_name"
         const val LEGACY_UNREAD = "unread"
+    }
+}
+
+/**
+ * [accounts] with [accountId]'s stored inbox unread set to [unread], when [mailboxId] is that
+ * account's known inbox; otherwise [accounts] unchanged. The decision behind
+ * [AccountStore.setInboxUnread], kept apart from storage so a JVM test can run it.
+ */
+internal fun withInboxUnread(
+    accounts: List<StoredAccount>,
+    accountId: String,
+    mailboxId: String,
+    unread: Int,
+): List<StoredAccount> = accounts.map {
+    if (it.id == accountId && it.inboxId == mailboxId && it.unread != unread) {
+        it.copy(unread = unread.coerceAtLeast(0))
+    } else {
+        it
     }
 }

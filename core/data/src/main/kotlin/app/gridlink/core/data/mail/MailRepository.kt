@@ -4840,10 +4840,15 @@ class MailRepository(
         onMissing: (String) -> Unit = {},
     ): List<FolderRefresh> {
         if (credentials.protocol == MailProtocol.IMAP) {
-            val (loads, missing) = imap.loadWatchedFolders(
+            val watched = imap.loadWatchedFolders(
                 credentials, rekeyWatchedFolders(credentials.id, extraFolderIds), includeInbox, limit,
             )
+            val (loads, missing) = watched
             missing.forEach(onMissing)
+            // The account-level inbox count the widget and "All inboxes" read. Before this only a
+            // foreground refresh moved it, so mail read in webmail kept the widget too high until
+            // the app was next opened. Null (the server would not say) leaves the old value.
+            watched.inboxUnread?.let { accountStore.setInboxUnread(credentials.id, watched.inboxPath, it) }
             return loads.map { load ->
                 // Not `replaceMailbox`: a push pass must not prune what the user scrolled back to.
                 // But it must remove what left the range it just re-read, because the sync point
