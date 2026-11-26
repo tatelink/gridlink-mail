@@ -33,6 +33,13 @@ class EmailDaoWidgetSqlTest {
         assertTrue(WIDGET_RECENT_SQL.contains("snoozed.accountId = emails.accountId"))
     }
 
+    /** The IMAP unread counter must hide exactly what the rows hide, or the number and the bold rows disagree. */
+    @Test
+    fun `widget unread count hides snoozed messages using the shared predicate`() {
+        assertTrue(WIDGET_UNREAD_SQL.contains(notSnoozedSql("emails")))
+        assertTrue(WIDGET_UNREAD_SQL.contains("seen = 0"))
+    }
+
     /** Newest first, and bounded — a widget that read the whole mailbox would blow the update size. */
     @Test
     fun `widget query is newest-first and limited`() {
