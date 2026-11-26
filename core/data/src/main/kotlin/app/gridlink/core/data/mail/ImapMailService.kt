@@ -8,6 +8,7 @@ import app.gridlink.core.data.db.EmailKeywords
 import app.gridlink.core.data.db.EmailRecipients
 import app.gridlink.core.data.db.MailboxEntity
 import app.gridlink.core.imap.ImapClient
+import app.gridlink.core.imap.ImapException
 import app.gridlink.core.imap.ImapFlagChange
 import app.gridlink.core.imap.ImapIdleConnection
 import app.gridlink.core.imap.ImapMailboxStatus
@@ -52,6 +53,20 @@ data class ImapWatchedLoad(
     val name: String,
     val role: String?,
     val sync: ImapFolderSync,
+)
+
+/**
+ * One background pass over an account (multi-folder push, issue #16).
+ *
+ * [loads] and [missing] come first so `val (loads, missing) = ...` still reads them. [inboxUnread]
+ * is the server's unread count for [inboxPath] as of this pass, or null when it could not be read;
+ * a null never fails the pass, it only means the stored count is left as it was.
+ */
+data class ImapWatchedFolders(
+    val loads: List<ImapWatchedLoad>,
+    val missing: Set<String>,
+    val inboxPath: String,
+    val inboxUnread: Int?,
 )
 
 /**
@@ -596,7 +611,7 @@ class ImapMailService(
         extraPaths: Set<String>,
         includeInbox: Boolean,
         limit: Int,
-    ): Pair<List<ImapWatchedLoad>, Set<String>> {
+    ): ImapWatchedFolders {
         val points = uidValidity.syncPoints(credentials.id)
         val numbering = mutableListOf<Pair<String, Long>>()
         val observedPoints = mutableListOf<Pair<String, ImapMailboxStatus>>()
@@ -613,16 +628,24 @@ class ImapMailService(
                 }
             }
             val missing = extraPaths.filterTo(mutableSetOf()) { path -> folders.none { it.path == path } }
+            var inboxUnread: Int? = null
             val loads = targets.map { folder ->
                 val status = session.select(folder.path, withModSeq = true)
                 numbering += folder.path to status.uidValidity
                 observedPoints += folder.path to status
-                ImapWatchedLoad(
+                val load = ImapWatchedLoad(
                     folder.path, folder.name, folder.role,
                     session.syncFolder(credentials.id, folder.path, status, points[folder.path], limit),
                 )
+                // The inbox is SELECTed right now, so ask it the same SEARCH the foreground refresh
+                // asks ([loadFolder]): one command, and the same number the stored count holds.
+                if (folder.path == inbox.path) inboxUnread = backgroundInboxUnread { session.unseenCount() }
+                load
             }
-            loads to missing
+            // Inbox not part of this pass (IMAP IDLE owns it): STATUS reads its count without
+            // SELECTing it, one command for the account. Never a request per folder.
+            if (!includeInbox) inboxUnread = backgroundInboxUnread { session.statusUnseen(inbox.path) }
+            ImapWatchedFolders(loads, missing, inbox.path, inboxUnread)
         }
         numbering.forEach { (path, observed) -> reconcileNumbering(credentials.id, path, observed) }
         observedPoints.forEach { (path, status) -> recordSyncPoint(credentials.id, path, status) }
@@ -941,3 +964,19 @@ internal fun SearchQuery.toImapCriteria() = ImapSearchCriteria(
  * standard `SEARCH` key, so the server answers it without a single message being fetched.
  */
 internal fun SearchQuery.requiresLocalScan(): Boolean = hasAttachment
+
+/**
+ * The inbox unread count a background pass reports, or null when the server would not give one.
+ *
+ * Only a refusal is swallowed ([ImapException]: the server answered NO or BAD, the stream is still
+ * in step and the pass carries on with the stored count left alone). A dropped connection is NOT
+ * caught here: the session is gone either way, and the pass's own retry handles it exactly as it
+ * did before this count existed.
+ */
+internal inline fun backgroundInboxUnread(read: () -> Int?): Int? =
+    try {
+        read()
+    } catch (ignored: ImapException) {
+        // A refusal is an answer, not a failure: the stored count simply stays as it was.
+        null
+    }
